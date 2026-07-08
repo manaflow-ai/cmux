@@ -76,8 +76,7 @@ struct FileExternalOpenApplicationResolver: Sendable {
 
     private static func liveDisplayName(for applicationURL: URL) -> String {
         let bundle = Bundle(url: applicationURL)
-        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
         var name = bundleName ?? FileManager.default.displayName(atPath: applicationURL.path)
         if name.lowercased().hasSuffix(".app") {
             name = String(name.dropLast(4))
@@ -979,6 +978,7 @@ enum FilePreviewTextSaver {
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
@@ -999,8 +999,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    private weak var textView: NSTextView?
-    private let focusCoordinator: FilePreviewFocusCoordinator
+    weak var textView: NSTextView?
+    let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
@@ -1049,11 +1049,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
-    }
-
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {

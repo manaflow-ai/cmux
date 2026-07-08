@@ -219,9 +219,6 @@ struct UserDefaultsSettingsStoreNotificationTests {
             let stream = await store.valueEvents(for: key)
             for await event in stream {
                 await recorder.append(event)
-                if await recorder.count() >= 3 {
-                    break
-                }
             }
         }
         defer {

@@ -25,6 +25,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleSidebar
     case newTab
     case newBrowserWorkspace
+    case saveLayoutTemplate
     case openFolder
     case reopenPreviousSession
     case goToWorkspace
@@ -69,6 +70,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newSurface
     case toggleTerminalCopyMode
     case focusTextBoxInput
+    /// Cycles the TextBox submit button to the next configured action.
+    case cycleTextBoxSubmitAction
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
@@ -173,7 +176,7 @@ extension ShortcutAction {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
@@ -186,7 +189,7 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
@@ -251,7 +254,9 @@ extension ShortcutAction {
 
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
+        self != .fileExplorerOpenSelection
+            && self != .fileExplorerOpenSelectionFinderAlias
+            && self != .cycleTextBoxSubmitAction
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
@@ -273,17 +278,21 @@ extension ShortcutAction {
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
-             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
              .diffViewerScrollToTop, .diffViewerOpenFileSearch:
             return .atom(.browserFocus)
+        case .browserZoomIn, .browserZoomOut, .browserZoomReset:
+            return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
         case .canvasZoomReset:
             return .and(
                 .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
-                .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
+                .and(
+                    .not(.atom(.browserFocus)),
+                    .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                )
             )
         case .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasTidy,
@@ -332,6 +341,8 @@ extension ShortcutAction {
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+        case .saveLayoutTemplate:
+            return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
         case .openFolder: return "Open Folder"
         case .reopenPreviousSession: return "Restore Previous App Launch"
         case .goToWorkspace: return "Go to Workspace…"
@@ -374,6 +385,8 @@ extension ShortcutAction {
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
+        case .cycleTextBoxSubmitAction:
+            return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")

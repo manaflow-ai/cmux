@@ -81,6 +81,25 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(window.title == "dev")
     }
 
+    @Test func remoteRenamePostsWorkspaceTitleDidChange() {
+        let (mirror, workspace, manager) = makeMirror(sessionName: "old", title: "old")
+        var notifications: [Notification] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            notifications.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        mirror.applySessionNameToWorkspaceTitle("dev")
+
+        #expect(notifications.count == 1)
+        #expect(notifications.first?.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id)
+        #expect(notifications.first?.userInfo?[GhosttyNotificationKey.surfaceId] == nil)
+    }
+
     @Test func remoteRenameUsesCurrentManagerAfterWorkspaceMove() throws {
         let (mirror, workspace, sourceManager) = makeMirror(sessionName: "old", title: "old")
         let destinationManager = TabManager()

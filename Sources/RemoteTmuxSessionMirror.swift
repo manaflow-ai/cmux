@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteSession
 
 /// Mirrors one remote tmux session into a dedicated cmux sidebar workspace.
 ///
@@ -13,6 +14,9 @@ import Foundation
 final class RemoteTmuxSessionMirror {
     let host: RemoteTmuxHost
     private(set) var sessionName: String
+    /// Discovery's stable tmux session id (`$N`), seeded at creation so id-based
+    /// de-dup works before the control stream reports `connection.sessionId`.
+    let seededSessionId: Int?
     let connection: RemoteTmuxControlConnection
 
     /// Updates the tracked session name after a `rename-session`.
@@ -43,6 +47,8 @@ final class RemoteTmuxSessionMirror {
 
     private weak var tabManager: TabManager?
     private weak var workspace: Workspace?
+    /// The workspace currently backing this mirror, if it has not been released.
+    var mirroredWorkspace: Workspace? { workspace }
     private let defaultPanelIds: [UUID]
     private var defaultClosed = false
     private var panelIdByWindow: [Int: UUID] = [:]
@@ -50,6 +56,9 @@ final class RemoteTmuxSessionMirror {
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
     private var cwdByPane: [Int: String] = [:]
+    /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
+    /// escape from `%output` (stateful across chunk boundaries).
+    private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
@@ -65,12 +74,14 @@ final class RemoteTmuxSessionMirror {
     init(
         host: RemoteTmuxHost,
         sessionName: String,
+        seededSessionId: Int? = nil,
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
         workspace: Workspace
     ) {
         self.host = host
         self.sessionName = sessionName
+        self.seededSessionId = seededSessionId
         self.connection = connection
         self.tabManager = tabManager
         self.workspace = workspace
@@ -99,6 +110,14 @@ final class RemoteTmuxSessionMirror {
             },
             onExit: { [weak self] in
                 self?.handleConnectionExited()
+            },
+            onConnectionStateChanged: { [weak self] state in
+                // Drop any mid-`ESC k` title-filter state when the stream isn't live:
+                // a reconnect's `reseedAfterReconnect` re-emits clear/capture bytes,
+                // and a filter stuck mid-title from before the drop would swallow them.
+                // Resetting on the disconnect edge is ordering-independent (no output
+                // arrives while not connected).
+                if state != .connected { self?.titleFilters.removeAll() }
             }
         )
         rebuild()
@@ -240,6 +259,7 @@ final class RemoteTmuxSessionMirror {
         // stays bounded across window/pane churn (tmux pane ids never recur).
         let livePanes = Set(connection.windowsByID.values.flatMap { $0.paneIDsInOrder })
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
+        titleFilters = titleFilters.filter { livePanes.contains($0.key) }
         closeDefaultTabsIfNeeded()
         // Follow out-of-band tmux window reorders (a second client, or a manual
         // move-window / a new-window inserted mid-list): the cmux tabs are created
@@ -251,10 +271,6 @@ final class RemoteTmuxSessionMirror {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
-    }
-
-    nonisolated static func shouldSeedSinglePaneDisplay(for window: RemoteTmuxWindow) -> Bool {
-        window.paneIDsInOrder.count == 1
     }
 
     /// Brief retry that sizes the remote tmux client to a single-pane tab's
@@ -338,17 +354,6 @@ final class RemoteTmuxSessionMirror {
         }
     }
 
-    /// The tab title for a mirrored window: the tmux window name, or a localized
-    /// placeholder when tmux hasn't reported one. tmux window names are
-    /// content-derived (like every other cmux tab title) so the name itself is
-    /// not translated; only the empty-name placeholder is localized.
-    private static func tabTitle(for window: RemoteTmuxWindow) -> String {
-        let trimmed = window.name.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty
-            ? String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
-            : trimmed
-    }
-
     private func closeDefaultTabsIfNeeded() {
         guard !defaultClosed, !panelIdByWindow.isEmpty, let workspace else { return }
         for panelId in defaultPanelIds where workspace.panels[panelId] != nil {
@@ -373,7 +378,7 @@ final class RemoteTmuxSessionMirror {
            activePane(inWindow: windowId) != paneId {
             return
         }
-        _ = workspace.updatePanelDirectory(panelId: panelId, directory: trimmed)
+        _ = workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: trimmed)
     }
 
     /// Re-projects the newly-active pane's cached directory onto its multi-pane
@@ -384,7 +389,7 @@ final class RemoteTmuxSessionMirror {
               windowMirrorByWindowId[windowId] != nil,
               let panelId = panelIdByWindow[windowId],
               let path = cwdByPane[paneId] else { return }
-        _ = workspace.updatePanelDirectory(panelId: panelId, directory: path)
+        _ = workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: path)
     }
 
     /// The panel id of the tab that renders `paneId`: a single-pane window's
@@ -402,17 +407,25 @@ final class RemoteTmuxSessionMirror {
     }
 
     private func routeOutput(paneId: Int, data: Data) {
+        // Strip the screen/tmux `ESC k <title> ST` window-title escape that a remote
+        // shell (TERM=screen*/tmux*) emits — the mirror's xterm-style surface would
+        // otherwise print the title text onto the screen (see
+        // ``RemoteTmuxScreenTitleFilter``). Per-pane state survives chunk splits.
+        var filter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
+        let cleaned = filter.filter(data)
+        titleFilters[paneId] = filter
+
         // Multi-pane window: its in-tab renderer owns the pane's surface.
         if let windowId = windowIdContaining(pane: paneId),
            let mirror = windowMirrorByWindowId[windowId] {
-            mirror.routeOutput(paneId: paneId, data: data)
+            mirror.routeOutput(paneId: paneId, data: cleaned)
             return
         }
         // Single-pane window: route to the window-tab's panel surface.
         guard let workspace,
               let panelId = panelIdByPane[paneId],
               let panel = workspace.panels[panelId] as? TerminalPanel else { return }
-        panel.surface.processRemoteOutput(data)
+        panel.surface.processRemoteOutput(cleaned)
     }
 
     /// Applies a pane's reflow classification to its mirror surface (suppress
@@ -481,22 +494,5 @@ final class RemoteTmuxSessionMirror {
             }
         }
         return nil
-    }
-
-    /// Computes the target tab order for a remote-tmux-driven reorder, or `nil`
-    /// when no reorder is needed or safe. Pure helper called by
-    /// `Workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder:)`.
-    ///
-    /// - Parameters:
-    ///   - current: the workspace's current mirror-tab order (panel ids).
-    ///   - requested: the tmux window order mapped to panel ids.
-    /// - Returns: the new order to apply, or `nil` when the tabs already match
-    ///   `requested` or when `requested` (restricted to currently-present tabs) is
-    ///   not a permutation of `current` (sets diverge — leave the tabs untouched).
-    nonisolated static func mirrorTabReorder(current: [UUID], requested: [UUID]) -> [UUID]? {
-        let present = Set(current)
-        let desired = requested.filter { present.contains($0) }
-        guard desired.count == current.count, Set(desired) == present else { return nil }
-        return desired == current ? nil : desired
     }
 }

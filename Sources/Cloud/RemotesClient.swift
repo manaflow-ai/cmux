@@ -7,6 +7,7 @@ import Foundation
 /// CLI can print a clear, actionable line for each failure mode.
 enum RemotesClientError: Error, CustomStringConvertible, Equatable {
     case notSignedIn
+    case sessionRefreshFailed
     case invalidRoute(String)
     case loopbackRoute(host: String)
     case notAttachable(host: String)
@@ -21,6 +22,8 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
         switch self {
         case .notSignedIn:
             return "Not signed in. Run `cmux auth login`, then retry."
+        case .sessionRefreshFailed:
+            return "Signed in, but cmux could not refresh your session (network or server issue). Retry in a moment."
         case let .invalidRoute(value):
             return "Invalid route '\(value)'. Use host:port, e.g. 100.64.1.2:51001 or my-mac.tailnet.ts.net:51001."
         case let .loopbackRoute(host):
@@ -140,6 +143,8 @@ actor RemotesClient {
         // this await `currentUser` reflects the restored session.
         do {
             _ = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw RemotesClientError.sessionRefreshFailed
         } catch {
             throw RemotesClientError.notSignedIn
         }
@@ -232,6 +237,8 @@ actor RemotesClient {
         // until the session restores.
         do {
             _ = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw RemotesClientError.sessionRefreshFailed
         } catch {
             throw RemotesClientError.notSignedIn
         }
@@ -327,6 +334,8 @@ actor RemotesClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw RemotesClientError.sessionRefreshFailed
         } catch {
             throw RemotesClientError.notSignedIn
         }

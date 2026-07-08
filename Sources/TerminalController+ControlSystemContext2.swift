@@ -131,6 +131,15 @@ extension TerminalController {
             workspace.markPanelUnread(surfaceId)
             return finish(.none)
 
+        case "toggle_full_width_tab", "toggle_full_width", "toggle_full_width_tab_mode":
+            guard let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                return .tabPaneNotFound
+            }
+            guard workspace.toggleFullWidthTabMode(panelId: surfaceId) else {
+                return .fullWidthTabToggleFailed
+            }
+            return finish(.fullWidthTabMode(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId)))
+
         case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":
             // The move-to-new-workspace family stays app-side (it re-homes
             // surfaces across TabManagers); bridge its fully-shaped result.
@@ -187,7 +196,8 @@ extension TerminalController {
                 inPane: paneId,
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
-                workingDirectoryFallbackSourcePanelId: surfaceId
+                workingDirectoryFallbackSourcePanelId: surfaceId,
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)

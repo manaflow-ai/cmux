@@ -1,5 +1,8 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
+import Darwin
+import os
 
 nonisolated enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
@@ -522,63 +525,20 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "claude-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: args) else { return nil }
-            return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
-        case "codexTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "codex-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork", sessionId] + preserved
-        case "omo":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "omo" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
-            return [original.executable, "omo", "--session", sessionId, "--fork"] + preserved
-        case "omx", "omc":
-            return nil
-        default:
+        let forkArgv = AgentForkArgv()
+        switch forkArgv.launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let argv):
+            return argv
+        case .passthrough:
             break
         }
 
-        switch kind {
-        case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            // Mirror the resume path: route through the `claude` wrapper (not the
-            // captured real binary) so cmux hooks fire on the forked session.
-            // See https://github.com/manaflow-ai/cmux/issues/5427.
-            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
-        case .codex:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork", sessionId] + preserved
-        case .opencode:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
-            return [original.executable, "--session", sessionId, "--fork"] + preserved
-        case .custom:
+        if case .custom = kind {
             guard let customRegistration else { return nil }
             let arguments = customForkArguments(
                 registration: customRegistration,
@@ -587,9 +547,14 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: workingDirectory
             )
             return arguments.isEmpty ? nil : arguments
-        default:
-            return nil
         }
+
+        return forkArgv.builtInKind(
+            kind: kind.rawValue,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        )
     }
 
     private static func customResumeArguments(
@@ -954,24 +919,6 @@ private enum AgentResumeScriptStore {
     }
 }
 
-private struct RestorableAgentHookSessionRecord: Codable, Sendable {
-    var sessionId: String
-    var workspaceId: String
-    var surfaceId: String
-    var cwd: String?
-    var transcriptPath: String?
-    var pid: Int?
-    var launchCommand: AgentLaunchCommandSnapshot?
-    var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
-    var updatedAt: TimeInterval
-}
-
-private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
-    var version: Int = 1
-    var sessions: [String: RestorableAgentHookSessionRecord] = [:]
-}
-
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
@@ -985,6 +932,8 @@ struct RestorableAgentSessionIndex: Sendable {
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         let processIDs: Set<Int>
+        let agentProcessIDs: Set<Int>
+        let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
 
     enum ProcessDetectedSessionIDSource: Sendable {
@@ -996,6 +945,7 @@ struct RestorableAgentSessionIndex: Sendable {
         snapshot: SessionRestorableAgentSnapshot,
         updatedAt: TimeInterval,
         processIDs: Set<Int>,
+        agentProcessIDs: Set<Int>,
         sessionIDSource: ProcessDetectedSessionIDSource
     )
 
@@ -1032,13 +982,39 @@ struct RestorableAgentSessionIndex: Sendable {
         entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
     }
 
+    func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
+    }
+
+    func agentProcessIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIdentities ?? [:]
+    }
+
+    func forkValidationEntries() -> [(PanelKey, Entry)] { Array(entriesByPanel) }
+
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
+    }
+
+    func liveAgentProcessFingerprint() -> Set<String> {
+        Set(entriesByPanel.compactMap { key, entry in
+            let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+            guard !processIDs.isEmpty else { return nil }
+            return [
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                entry.snapshot.kind.rawValue,
+                entry.snapshot.sessionId,
+                processIDs.sorted().map(String.init).joined(separator: ",")
+            ].joined(separator: "|")
+        })
     }
 
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
     // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
     // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
+    // Claude transcript path lookups share a cross-load existence cache validated by
+    // project-directory mtimes, but load() still walks hook records and must stay off-main.
     // NEVER call it synchronously on the main actor or in interactive paths (workspace/
     // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
     // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
@@ -1092,6 +1068,10 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
@@ -1128,12 +1108,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                     : record
                 // Drop untrusted launch captures before ANY derivation: the
-                // working directory below would otherwise inherit the foreign
-                // agent's launch cwd even though the launch command is stripped.
+                // working directory below would otherwise inherit the foreign launch cwd.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
                     effectiveRecord.launchCommand,
                     kind: kind
                 )
+                if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1174,23 +1154,31 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
-                    processIDs: liveProcessID.map { [$0] } ?? []
+                    processIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: liveProcessID.map { [$0] } ?? [],
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
-                let previousPanelKindUpdatedAt =
-                    hookCandidatesByPanelAndKind[panelKindKey]?.updatedAt ?? -Double.infinity
-                if previousPanelKindUpdatedAt <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesByPanelAndKind[panelKindKey],
+                    incoming: entry
+                ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
-                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesBySession[sessionKey],
+                    incoming: entry
+                ) {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard effectiveRecord.pid == nil || liveProcessID != nil else {
-                    continue
+                // A saved PID is liveness evidence only. It can go stale while the
+                // transcript and hook record are still restorable, so keep the
+                // snapshot and leave processIDs empty when the process is gone.
+                if shouldReplaceHookEntry(existing: resolved[key], incoming: entry) {
+                    resolved[key] = entry
                 }
-                if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
-                    continue
-                }
-                resolved[key] = entry
             }
         }
 
@@ -1210,7 +1198,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindPanelCandidate {
@@ -1220,14 +1213,44 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: panelCandidate.snapshot,
                     lifecycle: panelCandidate.lifecycle,
                     updatedAt: panelCandidate.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else {
                 resolved[key] = Entry(
                     snapshot: detected.snapshot,
                     lifecycle: nil,
                     updatedAt: 0,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
+                )
+            }
+        }
+
+        let liveDetectedSessionKeys = Set(detectedSnapshots.values.compactMap { detected -> SessionKey? in
+            guard !detected.processIDs.isEmpty,
+                  case .explicit = detected.sessionIDSource else {
+                return nil
+            }
+            return SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
+        })
+        if !liveDetectedSessionKeys.isEmpty {
+            // A live explicit detection owns the session's current panel; stale
+            // hook-store records for that same session should not remain forkable.
+            resolved = resolved.filter { key, entry in
+                if detectedSnapshots[key] != nil {
+                    return true
+                }
+                return !liveDetectedSessionKeys.contains(
+                    SessionKey(kind: entry.snapshot.kind, sessionId: entry.snapshot.sessionId)
                 )
             }
         }
@@ -1247,6 +1270,28 @@ struct RestorableAgentSessionIndex: Sendable {
                     $0.snapshot.sessionId == snapshot.sessionId
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    private static func agentProcessIdentities(
+        for processIDs: Set<Int>,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
+    ) -> [Int: AgentPIDProcessIdentity] {
+        Dictionary(uniqueKeysWithValues: processIDs.compactMap { pid in
+            processIdentityProvider(pid).map { (pid, $0) }
+        })
+    }
+
+    private static func shouldReplaceHookEntry(existing: Entry?, incoming: Entry) -> Bool {
+        guard let existing else {
+            return true
+        }
+        if existing.processIDs.isEmpty && !incoming.processIDs.isEmpty {
+            return true
+        }
+        if !existing.processIDs.isEmpty && incoming.processIDs.isEmpty {
+            return false
+        }
+        return existing.updatedAt <= incoming.updatedAt
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -1276,6 +1321,24 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
+        if kind == .codex {
+            guard record.isRestorable != false else { return false }
+            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+            let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
+            if record.isRestorable == true
+                || launchSource == "default"
+                || (record.launchCommand?.arguments.isEmpty == false
+                    && (launchSource == nil || ["environment", "process"].contains(launchSource))
+                    && !(launchSource == "environment" && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
+                || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
+                return true
+            }
+            guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else { return false }
+            return regularNonEmptyFileExists(
+                atPath: (transcriptPath as NSString).expandingTildeInPath,
+                fileManager: fileManager
+            )
+        }
         guard kind == .claude else {
             return record.isRestorable != false
         }
@@ -1315,7 +1378,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager,
             lookup: lookup
         )
-        guard let resolved = newestClaudeSiblingTranscript(
+        guard let resolved = singleClaudeSiblingTranscript(
             in: candidateProjectDirs,
             excludingSessionId: sessionId,
             fileManager: fileManager
@@ -1371,32 +1434,34 @@ struct RestorableAgentSessionIndex: Sendable {
         return projectDirs
     }
 
-    private static func newestClaudeSiblingTranscript(
+    private static func singleClaudeSiblingTranscript(
         in projectDirs: [String],
         excludingSessionId excludedSessionId: String,
         fileManager: FileManager
     ) -> (sessionId: String, path: String)? {
-        var best: (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        var matches: [(sessionId: String, path: String)] = []
         for projectDir in projectDirs {
-            newestClaudeTranscript(
+            guard matches.count < 2 else { break }
+            collectClaudeTranscripts(
                 inDirectory: projectDir,
                 excludingSessionId: excludedSessionId,
                 remainingDirectoryDepth: 4,
                 fileManager: fileManager,
-                best: &best
+                matches: &matches
             )
         }
-        guard let best else { return nil }
-        return (best.sessionId, best.path)
+        guard matches.count == 1, let match = matches.first else { return nil }
+        return match
     }
 
-    private static func newestClaudeTranscript(
+    private static func collectClaudeTranscripts(
         inDirectory directory: String,
         excludingSessionId excludedSessionId: String,
         remainingDirectoryDepth: Int,
         fileManager: FileManager,
-        best: inout (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        matches: inout [(sessionId: String, path: String)]
     ) {
+        guard matches.count < 2 else { return }
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -1412,19 +1477,17 @@ struct RestorableAgentSessionIndex: Sendable {
                       regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
                     continue
                 }
-                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: childPath)[.modificationDate]) as? Date)?
-                    .timeIntervalSince1970 ?? 0
-                if best == nil || modifiedAt > best!.modifiedAt {
-                    best = (sessionId, childPath, modifiedAt)
-                }
+                matches.append((sessionId, childPath))
+                if matches.count >= 2 { return }
             } else if remainingDirectoryDepth > 0 {
-                newestClaudeTranscript(
+                collectClaudeTranscripts(
                     inDirectory: childPath,
                     excludingSessionId: excludedSessionId,
                     remainingDirectoryDepth: remainingDirectoryDepth - 1,
                     fileManager: fileManager,
-                    best: &best
+                    matches: &matches
                 )
+                if matches.count >= 2 { return }
             }
         }
     }
@@ -1604,40 +1667,185 @@ struct RestorableAgentSessionIndex: Sendable {
         sessionId: String,
         fileManager: FileManager
     ) -> String? {
+        claudeTranscriptLookupResult(
+            inProjectRoot: projectRoot,
+            sessionId: sessionId,
+            fileManager: fileManager
+        ).path
+    }
+
+    private static func claudeTranscriptLookupResult(
+        inProjectRoot projectRoot: String,
+        sessionId: String,
+        fileManager: FileManager
+    ) -> ClaudeTranscriptLookupResult {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: projectRoot, isDirectory: &isDirectory),
               isDirectory.boolValue else {
-            return nil
+            return .missing
         }
 
+        var sawEmptyFile = false
         let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-        if regularNonEmptyFileExists(atPath: directPath, fileManager: fileManager) {
-            return directPath
+        switch regularFileState(atPath: directPath, fileManager: fileManager) {
+        case .nonEmpty:
+            return .present(directPath)
+        case .emptyFile:
+            sawEmptyFile = true
+        case .missing:
+            break
         }
 
-        let nestedMessagesPath = (((projectRoot as NSString)
-            .appendingPathComponent(sessionId) as NSString)
+        let sessionDirPath = (projectRoot as NSString).appendingPathComponent(sessionId)
+        let nestedMessagesPath = ((sessionDirPath as NSString)
             .appendingPathComponent("messages") as NSString)
             .appendingPathComponent("\(sessionId).jsonl")
-        if regularNonEmptyFileExists(atPath: nestedMessagesPath, fileManager: fileManager) {
-            return nestedMessagesPath
+        switch regularFileState(atPath: nestedMessagesPath, fileManager: fileManager) {
+        case .nonEmpty:
+            // The nested candidate lives under `<projectRoot>/<sessionId>/messages/`;
+            // deleting or replacing it bumps that inner directory's mtime, not the
+            // project root's, so this positive cannot be trusted across loads on the
+            // project-root stamp alone.
+            return .presentNested(nestedMessagesPath)
+        case .emptyFile:
+            sawEmptyFile = true
+        case .missing:
+            break
         }
-        return nil
+        if sawEmptyFile {
+            return .emptyFile
+        }
+        // If the session subdirectory already exists, a nested transcript can appear
+        // later without ever touching the project root's mtime (only `<sessionId>/` or
+        // `<sessionId>/messages/` gets bumped), so the negative must be rechecked each
+        // load. When the subdirectory does not exist, any future nested transcript
+        // requires creating it, which does bump the project root mtime, so the plain
+        // negative is safe under the project-root stamp.
+        var sessionDirIsDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: sessionDirPath, isDirectory: &sessionDirIsDirectory),
+           sessionDirIsDirectory.boolValue {
+            return .missingVolatile
+        }
+        return .missing
     }
+
+    private struct ClaudeTranscriptDirectoryStamp: Equatable, Sendable {
+        let seconds: Int64
+        let nanoseconds: Int64
+    }
+
+    private struct ClaudeTranscriptDirectoryValidation: Sendable {
+        let stamp: ClaudeTranscriptDirectoryStamp?
+    }
+
+    private enum ClaudeTranscriptFileState: Sendable {
+        case nonEmpty
+        case emptyFile
+        case missing
+    }
+
+    private enum ClaudeTranscriptLookupResult: Equatable, Sendable {
+        // The direct `<projectRoot>/<sessionId>.jsonl` candidate. Deleting or renaming
+        // it bumps the project root mtime, so this positive is stable under the stamp.
+        // Accepted edge: truncating the file to zero bytes IN PLACE changes no
+        // directory mtime, so the stale positive lasts until the next directory
+        // change or process restart. Re-detecting it would need the per-record file
+        // stat this cache exists to eliminate, and no agent writer truncates
+        // transcripts in place.
+        case present(String)
+        // No candidate file exists and neither does the `<projectRoot>/<sessionId>/`
+        // subdirectory. A nested transcript can only appear by first creating that
+        // subdirectory (which bumps the project root mtime), so the negative is safe
+        // while the project root mtime is unchanged.
+        case missing
+        // A candidate file exists but is zero bytes. Claude can create then append
+        // without changing the directory mtime, so this negative is rechecked once
+        // per load instead of being trusted across loads.
+        case emptyFile
+        // The nested `<projectRoot>/<sessionId>/messages/<sessionId>.jsonl` candidate.
+        // Create/delete inside `messages/` bumps only that inner directory's mtime, so
+        // this positive is rechecked once per load instead of being trusted across loads.
+        case presentNested(String)
+        // No candidate file exists but `<projectRoot>/<sessionId>/` does, so a nested
+        // transcript can appear without bumping the project root mtime; rechecked once
+        // per load.
+        case missingVolatile
+
+        var path: String? {
+            switch self {
+            case .present(let path), .presentNested(let path):
+                return path
+            case .missing, .emptyFile, .missingVolatile:
+                return nil
+            }
+        }
+
+        // True for results whose truth can change without the project-root mtime
+        // moving; these are memoized within a load but re-probed on every new load.
+        var requiresPerLoadRecheck: Bool {
+            switch self {
+            case .present, .missing:
+                return false
+            case .emptyFile, .presentNested, .missingVolatile:
+                return true
+            }
+        }
+    }
+
+    private struct ClaudeTranscriptProjectRootCache: Sendable {
+        var stamp: ClaudeTranscriptDirectoryStamp?
+        var lookups: [String: ClaudeTranscriptLookupResult] = [:]
+    }
+
+    private struct ClaudeTranscriptProjectDirsCache: Sendable {
+        var stamp: ClaudeTranscriptDirectoryStamp?
+        var projectDirs: [String]
+    }
+
+    private struct ClaudeTranscriptSharedStore: Sendable {
+        var projectRootCaches: [String: ClaudeTranscriptProjectRootCache] = [:]
+        var projectDirsByConfigRoot: [String: ClaudeTranscriptProjectDirsCache] = [:]
+    }
+
+    // load() is synchronous and can be invoked concurrently by the live index and
+    // autosave paths; this tiny lock keeps only path-keyed cache dictionaries, with
+    // directory stats and directory listings performed outside the critical section.
+    // The cache answers existence/path only: appends to an existing transcript file do
+    // not change the parent directory mtime and do not matter here, while create,
+    // delete, and rename change the containing directory mtime and invalidate entries.
+    // Only the project root's mtime is stamped, so results whose truth depends on the
+    // nested `<sessionId>/messages/` layout (or on zero-byte files growing in place)
+    // are marked `requiresPerLoadRecheck` and re-probed once per load instead of being
+    // trusted across loads.
+    // Growth stays bounded: per-root session entries only exist for hook-store records
+    // the loader walks and are replaced wholesale when that directory's mtime changes,
+    // while caches for deleted project directories are pruned when the projects/
+    // listing is revalidated (deletion bumps the projects/ root mtime).
+    private nonisolated static let claudeTranscriptSharedStore = OSAllocatedUnfairLock(
+        initialState: ClaudeTranscriptSharedStore()
+    )
 
     private final class ClaudeTranscriptLookupCache {
         private let homeDirectory: String
         private let fileManager: FileManager
+        private let usesSharedStore: Bool
         private var defaultRoots: [String]?
+        private var validatedProjectRootStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
+        private var validatedProjectDirsStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
         private var projectDirsByConfigRoot: [String: [String]] = [:]
         private var transcriptPathByProjectRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
+        private var volatileTranscriptLookupCheckedThisLoad: Set<String> = []
         private var transcriptPathByConfigRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
             self.fileManager = fileManager
+            // Injected FileManager instances are test seams and may virtualize paths or
+            // behavior; the process-wide Darwin-stat-backed cache is only valid for the
+            // real default manager.
+            self.usesSharedStore = fileManager === FileManager.default
         }
 
         func configRoots(for record: RestorableAgentHookSessionRecord) -> [String] {
@@ -1687,6 +1895,58 @@ struct RestorableAgentSessionIndex: Sendable {
 
         func projectDirs(configRoot: String) -> [String] {
             let standardizedRoot = (configRoot as NSString).standardizingPath
+            guard usesSharedStore else {
+                return uncachedProjectDirs(configRoot: standardizedRoot)
+            }
+
+            let stamp = validatedProjectsRootStamp(configRoot: standardizedRoot)
+            if let cached = RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock({ store in
+                store.projectDirsByConfigRoot[standardizedRoot]
+            }), cached.stamp == stamp {
+                return cached.projectDirs
+            }
+
+            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+            let projectDirs: [String]
+            if directoryExists(atPath: projectsRoot) {
+                guard let listed = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
+                    return []
+                }
+                projectDirs = listed
+            } else {
+                projectDirs = []
+            }
+
+            // Recomputing the listing is the eviction point for dead project roots:
+            // deleting a project directory (or the whole projects/ root) bumps the
+            // projects/ mtime, lands here, and drops the per-root lookup caches for
+            // directories that no longer exist. Per-root session entries are bounded
+            // by the hook-store records the loader walks and are replaced wholesale
+            // whenever that directory's own mtime changes.
+            let liveProjectRoots = Set(projectDirs.map { dirName in
+                ((projectsRoot as NSString).appendingPathComponent(dirName) as NSString).standardizingPath
+            })
+            let projectsRootPrefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
+                if let existing = store.projectDirsByConfigRoot[standardizedRoot],
+                   existing.stamp != stamp {
+                    return
+                }
+                store.projectDirsByConfigRoot[standardizedRoot] = ClaudeTranscriptProjectDirsCache(
+                    stamp: stamp,
+                    projectDirs: projectDirs
+                )
+                let staleRoots = store.projectRootCaches.keys.filter { root in
+                    root.hasPrefix(projectsRootPrefix) && !liveProjectRoots.contains(root)
+                }
+                for staleRoot in staleRoots {
+                    store.projectRootCaches[staleRoot] = nil
+                }
+            }
+            return projectDirs
+        }
+
+        private func uncachedProjectDirs(configRoot standardizedRoot: String) -> [String] {
             if let cached = projectDirsByConfigRoot[standardizedRoot] {
                 return cached
             }
@@ -1707,6 +1967,45 @@ struct RestorableAgentSessionIndex: Sendable {
             let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
             let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
                 .standardizingPath
+            guard usesSharedStore else {
+                return uncachedTranscriptPath(projectRoot: projectRoot, sessionId: sessionId)
+            }
+
+            let stamp = validatedProjectRootStamp(projectRoot)
+            let key = cacheKey(projectRoot, sessionId)
+            if let cached = RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock({ store in
+                store.projectRootCaches[projectRoot]?.lookups[sessionId]
+            }) {
+                if !cached.requiresPerLoadRecheck {
+                    return cached.path
+                }
+                // Volatile results (zero-byte files, nested `messages/` transcripts,
+                // negatives with an existing session subdirectory) can change without
+                // the project-root mtime moving. Keep the per-load memo, but re-probe
+                // once per new load so those changes become visible.
+                if volatileTranscriptLookupCheckedThisLoad.contains(key) {
+                    return cached.path
+                }
+            }
+
+            let result = RestorableAgentSessionIndex.claudeTranscriptLookupResult(
+                inProjectRoot: projectRoot,
+                sessionId: sessionId,
+                fileManager: fileManager
+            )
+            if result.requiresPerLoadRecheck {
+                volatileTranscriptLookupCheckedThisLoad.insert(key)
+            }
+            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
+                var cache = store.projectRootCaches[projectRoot] ?? ClaudeTranscriptProjectRootCache(stamp: stamp)
+                guard cache.stamp == stamp else { return }
+                cache.lookups[sessionId] = result
+                store.projectRootCaches[projectRoot] = cache
+            }
+            return result.path
+        }
+
+        private func uncachedTranscriptPath(projectRoot: String, sessionId: String) -> String? {
             let key = cacheKey(projectRoot, sessionId)
             if let cached = transcriptPathByProjectRootAndSession[key] {
                 return cached
@@ -1738,12 +2037,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 return nil
             }
 
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            guard directoryExists(atPath: projectsRoot) else {
-                missingTranscriptPathByConfigRootAndSession.insert(key)
-                return nil
-            }
-
             for projectDir in projectDirs(configRoot: standardizedRoot) {
                 if let path = transcriptPath(
                     configRoot: standardizedRoot,
@@ -1758,6 +2051,40 @@ struct RestorableAgentSessionIndex: Sendable {
             return nil
         }
 
+        private func validatedProjectsRootStamp(configRoot standardizedRoot: String) -> ClaudeTranscriptDirectoryStamp? {
+            if let validation = validatedProjectDirsStamps[standardizedRoot] {
+                return validation.stamp
+            }
+
+            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+            let stamp = RestorableAgentSessionIndex.directoryStamp(atPath: projectsRoot)
+            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
+                if let existing = store.projectDirsByConfigRoot[standardizedRoot],
+                   existing.stamp != stamp {
+                    store.projectDirsByConfigRoot[standardizedRoot] = nil
+                }
+            }
+            validatedProjectDirsStamps[standardizedRoot] = ClaudeTranscriptDirectoryValidation(stamp: stamp)
+            return stamp
+        }
+
+        private func validatedProjectRootStamp(_ projectRoot: String) -> ClaudeTranscriptDirectoryStamp? {
+            if let validation = validatedProjectRootStamps[projectRoot] {
+                return validation.stamp
+            }
+
+            let stamp = RestorableAgentSessionIndex.directoryStamp(atPath: projectRoot)
+            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
+                if let existing = store.projectRootCaches[projectRoot],
+                   existing.stamp == stamp {
+                    return
+                }
+                store.projectRootCaches[projectRoot] = ClaudeTranscriptProjectRootCache(stamp: stamp)
+            }
+            validatedProjectRootStamps[projectRoot] = ClaudeTranscriptDirectoryValidation(stamp: stamp)
+            return stamp
+        }
+
         private func directoryExists(atPath path: String) -> Bool {
             var isDirectory: ObjCBool = false
             return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
@@ -1768,15 +2095,31 @@ struct RestorableAgentSessionIndex: Sendable {
         }
     }
 
-    private static func regularNonEmptyFileExists(atPath path: String, fileManager: FileManager) -> Bool {
+    private static func directoryStamp(atPath path: String) -> ClaudeTranscriptDirectoryStamp? {
+        var info = stat()
+        guard stat(path, &info) == 0,
+              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else {
+            return nil
+        }
+        return ClaudeTranscriptDirectoryStamp(
+            seconds: Int64(info.st_mtimespec.tv_sec),
+            nanoseconds: Int64(info.st_mtimespec.tv_nsec)
+        )
+    }
+
+    private static func regularFileState(atPath path: String, fileManager: FileManager) -> ClaudeTranscriptFileState {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
               !isDirectory.boolValue,
               let attrs = try? fileManager.attributesOfItem(atPath: path),
               let size = attrs[.size] as? NSNumber else {
-            return false
+            return .missing
         }
-        return size.intValue > 0
+        return size.intValue > 0 ? .nonEmpty : .emptyFile
+    }
+
+    private static func regularNonEmptyFileExists(atPath path: String, fileManager: FileManager) -> Bool {
+        regularFileState(atPath: path, fileManager: fileManager) == .nonEmpty
     }
 
     private static func liveScopedProcessID(
@@ -1868,90 +2211,6 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         self.entriesByPanelId = entriesByPanelId
-    }
-}
-
-nonisolated struct SurfaceResumeBindingIndex: Sendable {
-    static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
-
-    typealias PanelKey = RestorableAgentSessionIndex.PanelKey
-
-    private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
-    private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
-
-    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
-        self.bindingsByPanel = bindingsByPanel
-        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-        for (key, binding) in bindingsByPanel {
-            let existing = bindingsByPanelId[key.panelId]
-            if existing == nil || binding.updatedAt >= (existing?.updatedAt ?? 0) {
-                bindingsByPanelId[key.panelId] = binding
-            }
-        }
-        self.bindingsByPanelId = bindingsByPanelId
-    }
-
-    func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
-        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
-    }
-
-    static func loadProcessDetectedBindingsSynchronously(
-        fileManager: FileManager = .default
-    ) -> SurfaceResumeBindingIndex {
-        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
-        return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
-    }
-
-    static func loadIncludingProcessDetectedBindings(
-        fileManager: FileManager = .default
-    ) async -> SurfaceResumeBindingIndex {
-        await Task.detached(priority: .utility) {
-            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
-        }.value
-    }
-}
-
-struct ProcessDetectedResumeIndexes: Sendable {
-    let restorableAgentIndex: RestorableAgentSessionIndex
-    let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
-
-    static func load(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
-        }.value
-    }
-
-    static func loadSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        let restorableAgentIndex = RestorableAgentSessionIndex.load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
-        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        return ProcessDetectedResumeIndexes(
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
-        )
     }
 }
 

@@ -88,6 +88,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
 
+#if DEBUG
+    // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
+    // default no-op. See SidebarLazyContractProbe.
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+#endif
+
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
     }
@@ -115,6 +121,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { sidebarLazyContractProbe.groupHeaderRowBody?() }()
+#endif
         HStack(spacing: 4) {
             if isPinned {
                 CmuxSystemSymbolImage(
@@ -269,9 +278,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .onHover { hovering in
-            rowInteractionState.setPointerHovering(hovering)
-        }
+        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
@@ -300,9 +307,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     rowInteractionState.contextMenuTrackingObserverDidInstall()
                 }
             }
-        }
-        .onDisappear {
-            rowInteractionState.setPointerHovering(false)
         }
         .contextMenu {
             Button(
