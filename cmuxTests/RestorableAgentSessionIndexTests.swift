@@ -812,23 +812,28 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         var registration = CmuxVaultAgentRegistration.builtInPi
         registration.sessionDirectory = sessionsRoot.path
         let registry = CmuxVaultAgentRegistry(registrations: [registration])
-        let oldWorkspaceIds = [UUID(), UUID()]
+        let oldWorkspaceId = UUID()
+        let otherOldWorkspaceId = UUID()
         let restoredWorkspaceId = UUID()
         let panelId = UUID()
-        let hookSessionIds = ["pi-old-workspace-a", "pi-old-workspace-b"]
+        let hookRecords = [
+            (sessionId: "pi-old-workspace-a", workspaceId: oldWorkspaceId),
+            (sessionId: "pi-old-workspace-b", workspaceId: oldWorkspaceId),
+            (sessionId: "pi-other-old-workspace", workspaceId: otherOldWorkspaceId),
+        ]
         let detectedLatestSessionId = "pi-detected-newest"
         var hookSessions: [String: [String: Any]] = [:]
-        for (index, sessionId) in hookSessionIds.enumerated() {
-            let sessionFile = projectSessions.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        for (index, hookRecord) in hookRecords.enumerated() {
+            let sessionFile = projectSessions.appendingPathComponent("\(hookRecord.sessionId).jsonl", isDirectory: false)
             try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
             try fm.setAttributes(
                 [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
                 ofItemAtPath: sessionFile.path
             )
-            hookSessions[sessionId] = driftedAgentHookRecord(
+            hookSessions[hookRecord.sessionId] = driftedAgentHookRecord(
                 launcher: "pi",
-                sessionId: sessionId,
-                workspaceId: oldWorkspaceIds[index],
+                sessionId: hookRecord.sessionId,
+                workspaceId: hookRecord.workspaceId,
                 panelId: panelId,
                 recordedCwd: cwd.path,
                 launchCwd: cwd.path,

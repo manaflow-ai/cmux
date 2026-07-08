@@ -1188,7 +1188,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
                         panelKey: shouldReplace ? key : existingPanelIDCandidate.panelKey,
                         entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
-                        isAmbiguous: existingPanelIDCandidate.isAmbiguous || existingPanelIDCandidate.panelKey != key
+                        isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
+                            existingPanelIDCandidate.panelKey != key ||
+                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
                     )
                 } else {
                     hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
