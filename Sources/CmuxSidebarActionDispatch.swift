@@ -53,10 +53,12 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                           let line = String(data: data, encoding: .utf8) else { continue }
                     _ = controller.handleSocketLine(line)
                 case let .openURL(urlString):
-                    // NSWorkspace.open is main-only; run it synchronously to keep the
-                    // command's position in the sequence.
+                    // Route through cmuxOpenURLExternally so the user's
+                    // browser.preferredExternalBrowser setting is respected.
+                    // NSWorkspace.open is main-only; run it synchronously to
+                    // keep the command's position in the sequence.
                     if let url = URL(string: urlString) {
-                        DispatchQueue.main.sync { _ = NSWorkspace.shared.open(url) }
+                        DispatchQueue.main.sync { cmuxOpenURLExternally(url) }
                     }
                 case .log:
                     break
