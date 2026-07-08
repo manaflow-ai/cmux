@@ -28,12 +28,14 @@ public struct MobileCrashReporter {
     public static func startIfEnabled(
         consent: any AnalyticsConsentProviding,
         arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         start: (Options) -> Void = { SentrySDK.start(options: $0) },
         crash: () -> Void = { SentrySDK.crash() }
     ) {
         Self().startIfEnabled(
             consent: consent,
             arguments: arguments,
+            environment: environment,
             start: start,
             crash: crash
         )
@@ -61,10 +63,15 @@ public struct MobileCrashReporter {
     public func startIfEnabled(
         consent: any AnalyticsConsentProviding,
         arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         start: (Options) -> Void = { SentrySDK.start(options: $0) },
         crash: () -> Void = { SentrySDK.crash() }
     ) {
         guard consent.isTelemetryEnabled else { return }
+        // Never report from test hosts: XCTest/Swift Testing runs would send
+        // CI sessions and deliberate test crashes to the shared Sentry project
+        // and add background SDK work to timing-sensitive tests.
+        guard environment[Self.xcTestConfigurationKey] == nil else { return }
 
         start(makeOptions())
 
@@ -109,4 +116,5 @@ public struct MobileCrashReporter {
 
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
     private static let debugCrashArgument = "--cmux-test-crash"
+    private static let xcTestConfigurationKey = "XCTestConfigurationFilePath"
 }

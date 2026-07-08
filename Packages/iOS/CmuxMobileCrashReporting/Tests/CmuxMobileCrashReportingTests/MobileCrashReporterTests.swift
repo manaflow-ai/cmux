@@ -15,6 +15,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         MobileCrashReporter.startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux", "--cmux-test-crash"],
+            environment: [:],
             start: { _ in startCount += 1 },
             crash: { crashCount += 1 }
         )
@@ -29,6 +30,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         MobileCrashReporter.startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
+            environment: [:],
             start: { _ in startCount += 1 },
             crash: {}
         )
@@ -67,6 +69,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         MobileCrashReporter.startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux", "--cmux-test-crash"],
+            environment: [:],
             start: { _ in didStart = true },
             crash: {
                 #expect(didStart)
@@ -87,10 +90,25 @@ private struct FixedConsent: AnalyticsConsentProviding {
         MobileCrashReporter.startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
+            environment: [:],
             start: { _ in },
             crash: { crashCount += 1 }
         )
 
         #expect(crashCount == 0)
+    }
+
+    @Test func testHostEnvironmentDoesNotStart() {
+        var startCount = 0
+
+        MobileCrashReporter.startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: ["XCTestConfigurationFilePath": "/tmp/cfg.xctestconfiguration"],
+            start: { _ in startCount += 1 },
+            crash: {}
+        )
+
+        #expect(startCount == 0)
     }
 }
