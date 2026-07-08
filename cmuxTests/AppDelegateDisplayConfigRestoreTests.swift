@@ -361,7 +361,7 @@ struct AppDelegateDisplayConfigRestoreTests {
             appDelegate.isScreenChangeCaptureSuppressed = false
             appDelegate.screenChangeCaptureSuppressionSignature = nil
             appDelegate.screenChangeReconcileRetryBudget = 0
-            appDelegate.activeDisplayReconfigurationCounts.removeAll()
+            appDelegate.activeDisplayReconfigurationDepth = 0
         }
 
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
@@ -382,11 +382,11 @@ struct AppDelegateDisplayConfigRestoreTests {
 
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
         appDelegate.screenChangeCaptureSuppressionSignature = "uuid:A"
-        appDelegate.handleDisplayReconfiguration(displayID: 1, isBeginning: true)
-        appDelegate.handleDisplayReconfiguration(displayID: 2, isBeginning: true)
-        appDelegate.handleDisplayReconfiguration(displayID: 1, isBeginning: false)
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
-        appDelegate.handleDisplayReconfiguration(displayID: 2, isBeginning: false)
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
         #expect(appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:B"))
     }

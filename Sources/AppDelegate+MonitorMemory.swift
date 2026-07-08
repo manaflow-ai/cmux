@@ -4,7 +4,7 @@ import Foundation
 
 // CoreGraphics requires a C callback; this trampoline only forwards to AppDelegate on the main queue.
 private func cmuxDisplayReconfigurationCallback(
-    _ displayID: CGDirectDisplayID,
+    _ _: CGDirectDisplayID,
     _ flags: CGDisplayChangeSummaryFlags,
     _ userInfo: UnsafeMutableRawPointer?
 ) {
@@ -14,7 +14,7 @@ private func cmuxDisplayReconfigurationCallback(
     NotificationCenter.default.post(
         name: Notification.Name("com.cmuxterm.app.displayReconfiguration"),
         object: appDelegate,
-        userInfo: ["displayID": displayID, "isBeginning": isBeginning]
+        userInfo: ["isBeginning": isBeginning]
     )
 }
 
@@ -104,18 +104,14 @@ extension AppDelegate {
         didRegisterDisplayReconfigurationCallback = false
     }
 
-    func handleDisplayReconfiguration(displayID: CGDirectDisplayID, isBeginning: Bool) {
+    func handleDisplayReconfiguration(isBeginning: Bool) {
         if isBeginning {
-            activeDisplayReconfigurationCounts[displayID, default: 0] += 1
+            activeDisplayReconfigurationDepth += 1
             beginScreenChangeCaptureSuppression()
             return
         }
 
-        if let count = activeDisplayReconfigurationCounts[displayID], count > 1 {
-            activeDisplayReconfigurationCounts[displayID] = count - 1
-        } else {
-            activeDisplayReconfigurationCounts.removeValue(forKey: displayID)
-        }
+        activeDisplayReconfigurationDepth = max(0, activeDisplayReconfigurationDepth - 1)
         if !isDisplayReconfigurationActive {
             scheduleScreenChangeReconcileWhenIdle()
         }
