@@ -91,6 +91,7 @@ final class MainWindowVisibleFrameFitRescue: NSObject {
         NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
+                stableID: screen.cmuxStableDisplayKey,
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame
             )

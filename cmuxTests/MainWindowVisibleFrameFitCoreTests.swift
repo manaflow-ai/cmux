@@ -14,11 +14,13 @@ struct MainWindowVisibleFrameFitCoreTests {
 
     private static let builtInDisplay = SessionDisplayGeometry(
         displayID: 42,
+        stableID: "built-in",
         frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
         visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
     )
     private static let rightDisplay = SessionDisplayGeometry(
         displayID: 77,
+        stableID: "right-display",
         frame: CGRect(x: 1_512, y: 0, width: 2_560, height: 1_440),
         visibleFrame: CGRect(x: 1_512, y: 0, width: 2_560, height: 1_415)
     )
@@ -171,6 +173,7 @@ struct MainWindowVisibleFrameFitCoreTests {
     @Test func topologySignatureIgnoresSideAndBottomDockInsetChanges() {
         let dockResized = SessionDisplayGeometry(
             displayID: Self.builtInDisplay.displayID,
+            stableID: Self.builtInDisplay.stableID,
             frame: Self.builtInDisplay.frame,
             visibleFrame: CGRect(x: 120, y: 80, width: 1_392, height: 864)
         )
@@ -182,6 +185,7 @@ struct MainWindowVisibleFrameFitCoreTests {
     @Test func topologySignatureChangesWhenTopInsetChanges() {
         let menuBarMoved = SessionDisplayGeometry(
             displayID: Self.builtInDisplay.displayID,
+            stableID: Self.builtInDisplay.stableID,
             frame: Self.builtInDisplay.frame,
             visibleFrame: Self.builtInDisplay.frame
         )
@@ -190,15 +194,28 @@ struct MainWindowVisibleFrameFitCoreTests {
             != core.topologySignature(of: [menuBarMoved]))
     }
 
-    @Test func topologySignatureChangesWhenDisplayIDChanges() {
+    @Test func topologySignatureIgnoresRawDisplayIDChangesWhenStableIDMatches() {
         let renumbered = SessionDisplayGeometry(
             displayID: 99,
+            stableID: Self.builtInDisplay.stableID,
             frame: Self.builtInDisplay.frame,
             visibleFrame: Self.builtInDisplay.visibleFrame
         )
 
         #expect(core.topologySignature(of: [Self.builtInDisplay])
-            != core.topologySignature(of: [renumbered]))
+            == core.topologySignature(of: [renumbered]))
+    }
+
+    @Test func topologySignatureChangesWhenStableDisplayIdentityChanges() {
+        let differentDisplay = SessionDisplayGeometry(
+            displayID: Self.builtInDisplay.displayID,
+            stableID: "replacement-display",
+            frame: Self.builtInDisplay.frame,
+            visibleFrame: Self.builtInDisplay.visibleFrame
+        )
+
+        #expect(core.topologySignature(of: [Self.builtInDisplay])
+            != core.topologySignature(of: [differentDisplay]))
     }
 
     @Test func restoreClampsReachableTitlebarFrameCutOffPastLeftEdgeWhenDisplayChanged() throws {

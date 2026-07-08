@@ -19,14 +19,14 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         displays
             .map { display in
                 MainWindowVisibleFrameTopologySignatureEntry(
-                    displayID: display.displayID,
+                    stableID: display.stableID,
                     frame: display.frame,
                     visibleFrame: display.visibleFrame
                 )
             }
             .sorted { lhs, rhs in
-                let lhsID = displayIDSortValue(lhs.displayID)
-                let rhsID = displayIDSortValue(rhs.displayID)
+                let lhsID = lhs.stableID ?? ""
+                let rhsID = rhs.stableID ?? ""
                 if lhsID != rhsID { return lhsID < rhsID }
                 if lhs.frame.minX != rhs.frame.minX { return lhs.frame.minX < rhs.frame.minX }
                 if lhs.frame.minY != rhs.frame.minY { return lhs.frame.minY < rhs.frame.minY }
@@ -224,7 +224,4 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             && abs(lhs.height - rhs.height) <= tolerance
     }
 
-    private func displayIDSortValue(_ displayID: UInt32?) -> UInt64 {
-        displayID.map(UInt64.init) ?? UInt64.max
-    }
 }
