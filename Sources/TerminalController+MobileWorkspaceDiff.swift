@@ -39,43 +39,6 @@ extension TerminalController {
         }
     }
 
-    /// Socket-policy justification (skills/cmux-socket-policy): this wrapper and
-    /// `v2MobileWorkspaceDiffFileForControlSocket` run their git work synchronously
-    /// on the main actor because the v2 control socket's mobile-host seam
-    /// (`ControlMobileHostContext`) is a synchronous `@MainActor` protocol invoked
-    /// from the sync `processV2Command` path; a sync witness cannot await the
-    /// detached off-main variants without blocking the main thread anyway. These
-    /// are per-request debug/CLI verbs, not telemetry hot paths (`report_*`-class),
-    /// and the git subprocesses are short-lived with output capped at
-    /// `mobileWorkspaceDiffByteCap`. The iOS data plane (`mobileHostHandleRPC`)
-    /// uses the async `v2MobileWorkspaceDiffStatus` / `v2MobileWorkspaceDiffFile`
-    /// bodies above, which run the same git work off-main in a detached utility task.
-    func v2MobileWorkspaceDiffStatusForControlSocket(params: [String: Any]) -> V2CallResult {
-        switch mobileWorkspaceDiffSnapshot(params: params) {
-        case .failure(let error):
-            return error
-        case .success(let snapshot):
-            return Self.v2MobileWorkspaceDiffResult(
-                Self.mobileWorkspaceDiffStatusResultSync(directory: snapshot.directory)
-            )
-        }
-    }
-
-    func v2MobileWorkspaceDiffFileForControlSocket(params: [String: Any]) -> V2CallResult {
-        guard let rawPath = params["path"] as? String,
-              !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .err(code: "invalid_params", message: "Missing or invalid path", data: nil)
-        }
-        switch mobileWorkspaceDiffSnapshot(params: params) {
-        case .failure(let error):
-            return error
-        case .success(let snapshot):
-            return Self.v2MobileWorkspaceDiffResult(
-                Self.mobileWorkspaceDiffFileResultSync(directory: snapshot.directory, path: rawPath)
-            )
-        }
-    }
-
     private func mobileWorkspaceDiffSnapshot(params: [String: Any]) -> MobileWorkspaceDiffSnapshotResult {
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {

@@ -66,20 +66,6 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Returns: The fully-built command result.
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult
 
-    /// `mobile.workspace.diff_status` — the iOS-facing changed-file list for
-    /// one workspace's current git repository.
-    ///
-    /// - Parameter params: The decoded request params.
-    /// - Returns: The fully-built command result.
-    func controlMobileWorkspaceDiffStatus(params: [String: JSONValue]) -> ControlCallResult
-
-    /// `mobile.workspace.diff_file` — the iOS-facing raw unified diff for one
-    /// file in one workspace's current git repository.
-    ///
-    /// - Parameter params: The decoded request params.
-    /// - Returns: The fully-built command result.
-    func controlMobileWorkspaceDiffFile(params: [String: JSONValue]) -> ControlCallResult
-
     /// `mobile.terminal.create` / `terminal.create` — create a terminal surface
     /// in the resolved workspace, then echo the mobile workspace list with the
     /// new terminal id.

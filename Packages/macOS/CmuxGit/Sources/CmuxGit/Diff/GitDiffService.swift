@@ -95,7 +95,7 @@ public struct GitDiffService: Sendable {
         // byte-exact because repository paths may legitimately start or end
         // with whitespace (`changedFiles` reports them verbatim).
         guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        if isUntracked(repoRoot: repoRoot, path: path) {
+        if isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
             let result = runGit(
                 in: repoRoot,
                 arguments: ["diff", "--no-index", "--no-color", "--", "/dev/null", path],
@@ -107,11 +107,18 @@ public struct GitDiffService: Sendable {
         }
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", path],
+            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
             maxOutputBytes: maxOutputBytes
         )
         guard let output = result.successOutput else { return nil }
         return GitFileDiff(path: path, unifiedDiff: output)
+    }
+
+    /// Wraps a repository path in `:(literal)` pathspec magic so glob
+    /// characters in real filenames (`*`, `?`, `[`) match the file byte-exact
+    /// instead of expanding as a wildcard pattern over the whole tree.
+    private static func literalPathspec(_ path: String) -> String {
+        ":(literal)\(path)"
     }
 
     func parseChangedFiles(numstatOutput: String?, nameStatusOutput: String?, untrackedOutput: String?) -> [GitDiffSummary] {
@@ -162,10 +169,16 @@ public struct GitDiffService: Sendable {
         }
     }
 
-    private func isUntracked(repoRoot: String, path: String) -> Bool {
+    /// Whether `path` is an untracked file. The `:(literal)` pathspec keeps a
+    /// glob-looking request (`*`, `?`, `[`) from expanding over the whole
+    /// untracked tree, and the byte bound caps the listing a directory-shaped
+    /// request can still emit (a directory can never equal itself in the
+    /// output, so a capped listing only ever fails closed to "tracked").
+    private func isUntracked(repoRoot: String, path: String, maxOutputBytes: Int? = nil) -> Bool {
         let output = runGit(
             in: repoRoot,
-            arguments: ["ls-files", "--others", "--exclude-standard", "-z", "--", path]
+            arguments: ["ls-files", "--others", "--exclude-standard", "-z", "--", Self.literalPathspec(path)],
+            maxOutputBytes: maxOutputBytes
         ).successOutput
         return output?.split(separator: "\0", omittingEmptySubsequences: true).contains(Substring(path)) == true
     }

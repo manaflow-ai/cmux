@@ -33,14 +33,6 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileWorkspaceList(params: foundationParams(params)))
     }
 
-    func controlMobileWorkspaceDiffStatus(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceDiffStatusForControlSocket(params: foundationParams(params)))
-    }
-
-    func controlMobileWorkspaceDiffFile(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceDiffFileForControlSocket(params: foundationParams(params)))
-    }
-
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult {
         bridgeMobileResult(v2MobileTerminalCreate(params: foundationParams(params)))
     }

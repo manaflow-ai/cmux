@@ -118,6 +118,43 @@ import Testing
         #expect(bounded == unbounded)
     }
 
+    @Test func trackedGlobCharacterFilenameDiffsExactly() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let globName = "file[1].txt"
+        let fileURL = repo.appendingPathComponent(globName)
+        try Data("original\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", globName])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add glob file"])
+        try Data("changed\n".utf8).write(to: fileURL)
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: globName))
+
+        // Without `:(literal)` the pathspec's `[1]` parses as a character
+        // class and matches nothing, yielding an empty diff for a real file.
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
+    @Test func directoryShapedFileDiffRequestStaysBoundedAndEmpty() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let sub = repo.appendingPathComponent("generated")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        for index in 0..<300 {
+            try Data("x\n".utf8).write(to: sub.appendingPathComponent("f-\(1000 + index).txt"))
+        }
+
+        let service = GitDiffService()
+        // A directory is never an untracked FILE, so the request resolves to
+        // an empty tracked diff; the byte bound keeps the untracked probe from
+        // materializing the whole tree on the way there.
+        let diff = try #require(
+            service.fileDiff(repoRoot: repo.path, path: "generated", maxOutputBytes: 1024)
+        )
+        #expect(diff.unifiedDiff.isEmpty)
+    }
+
     @Test func changedFilesListIsBoundedAndMarkedTruncated() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -150,16 +187,20 @@ import Testing
             ["config", "user.name", "cmux tests"],
             ["commit", "--allow-empty", "--quiet", "-m", "init"],
         ] {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = arguments
-            process.currentDirectoryURL = root
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            try #require(process.terminationStatus == 0)
+            try runTestGit(in: root, arguments)
         }
         return root
+    }
+
+    private func runTestGit(in root: URL, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = root
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
     }
 }

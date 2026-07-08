@@ -37,10 +37,6 @@ extension ControlCommandCoordinator {
             return context?.controlMobileHostStatus(params: request.params)
         case "mobile.workspace.list":
             return context?.controlMobileWorkspaceList(params: request.params)
-        case "mobile.workspace.diff_status":
-            return context?.controlMobileWorkspaceDiffStatus(params: request.params)
-        case "mobile.workspace.diff_file":
-            return context?.controlMobileWorkspaceDiffFile(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             return context?.controlMobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":

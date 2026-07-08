@@ -1349,6 +1349,17 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "mobile.workspace.diff_status":
+            // Worker lane: the body hops to main only for workspace resolution
+            // and runs its git subprocesses in a detached utility task, so the
+            // socket worker (not the main actor) waits out git runtime.
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobileWorkspaceDiffStatus(params: request.params)
+            }
+        case "mobile.workspace.diff_file":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobileWorkspaceDiffFile(params: request.params)
+            }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "system.ping":
