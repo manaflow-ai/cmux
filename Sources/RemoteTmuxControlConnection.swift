@@ -218,8 +218,8 @@ final class RemoteTmuxControlConnection {
 
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
-    private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
-    private static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
+    static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
+    static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
     /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
     /// (or reconnected) mirror surface. Capturing scrollback — not just the visible
