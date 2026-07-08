@@ -85,10 +85,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
-    let onContextMenuTrackingEnded: () -> Void
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var isHovered = false
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -196,7 +194,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             )))
 
             let plusVisible = rowInteractionState.shouldShowCloseButton(
-                isPointerHovering: self.isHovered,
                 canCloseWorkspace: true,
                 shortcutHintModeActive: showsShortcutHint
             )
@@ -281,6 +278,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
@@ -302,8 +300,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .internalOnlyTabDrag()
         .overlay {
             if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { _ in
-                    onContextMenuTrackingEnded()
+                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
+                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
+                }
+                .onAppear {
+                    rowInteractionState.contextMenuTrackingObserverDidInstall()
                 }
             }
         }
@@ -418,14 +419,5 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
             }
         }
-    }
-}
-
-extension SidebarWorkspaceGroupHeaderView {
-    var hoverBinding: Binding<Bool> {
-        Binding(
-            get: { isHovered },
-            set: { isHovered = $0 }
-        )
     }
 }
