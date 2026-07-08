@@ -13,7 +13,7 @@ set -euo pipefail
 # automatic pre-upload gate) so the two paths can't drift.
 verify_ipa_aps_environment_production() {
   local ipa="$1"
-  local workdir app ent aps rc
+  local workdir app ent aps apple_sign_in
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
     echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
@@ -38,12 +38,18 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
-  # PlistBuddy exits non-zero (and prints to stdout) when the key is absent, so
-  # capture rc and require an exact "production" match.
-  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null)"
-  rc=$?
-  if [[ $rc -ne 0 || "$aps" != "production" ]]; then
+  # PlistBuddy exits non-zero when a key is absent; tolerate that read and then
+  # require exact entitlement values so the error explains the missing capability.
+  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
+  if [[ "$aps" != "production" ]]; then
     echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  apple_sign_in="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
+  if [[ "$apple_sign_in" != "Default" ]]; then
+    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $app" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1

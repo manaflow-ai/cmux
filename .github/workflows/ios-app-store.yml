@@ -137,9 +137,14 @@ jobs:
             echo "App Store provisioning profile targets unexpected app ID: $APP_ID" >&2
             exit 1
           fi
-          APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST")"
+          APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || true)"
           if [ "$APS_ENVIRONMENT" != "production" ]; then
             echo "App Store provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
+            exit 1
+          fi
+          APPLE_SIGN_IN="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.applesignin:0" "$TMP_PLIST" 2>/dev/null || true)"
+          if [ "$APPLE_SIGN_IN" != "Default" ]; then
+            echo "App Store provisioning profile com.apple.developer.applesignin is '${APPLE_SIGN_IN:-<absent>}', expected 'Default'" >&2
             exit 1
           fi
           PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$TMP_PLIST")"
