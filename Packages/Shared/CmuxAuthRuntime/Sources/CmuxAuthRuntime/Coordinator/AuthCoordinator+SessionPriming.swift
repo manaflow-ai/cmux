@@ -155,6 +155,14 @@ extension AuthCoordinator {
             return
         }
 
+        let tokenStorageAvailable = await isTokenStorageAvailable()
+        guard generation == sessionGeneration else { return }
+        if !tokenStorageAvailable {
+            authLog.info("Token storage unavailable during session restore; preserving cached session")
+            preserveCachedSessionAfterValidationFailure()
+            return
+        }
+
         if launch.includesDevAuth, let creds = debugCredentials {
             authLog.debug("Auto-login with persisted debug credentials")
             await performAutoLogin(creds, generation: generation, storeWriteHighWater: storeWriteHighWater)

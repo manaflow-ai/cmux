@@ -33,6 +33,9 @@ public struct MobileAuthComposition {
     /// identity provider can label the channel its user ids belong to.
     public let authEnvironment: CMUXAuthEnvironment
 
+    /// UIKit protected-data availability bridge used by auth session restore.
+    private let protectedDataAvailability: ProtectedDataAvailability
+
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
 
@@ -74,6 +77,7 @@ public struct MobileAuthComposition {
             config: resolvedConfig,
             tokenStore: Self.tokenStore
         )
+        let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
@@ -127,6 +131,7 @@ public struct MobileAuthComposition {
             config: resolvedConfig,
             launch: launch,
             isOnline: { await monitor.isOnline },
+            isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
         let push = PushRegistrationService(
@@ -139,11 +144,15 @@ public struct MobileAuthComposition {
         deferredSignIn.set { await push.syncTokenIfPossible() }
         self.coordinator = coordinator
         self.pushRegistration = push
+        self.protectedDataAvailability = availability
     }
 
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
         coordinator.start()
+        protectedDataAvailability.startObserving { [coordinator] in
+            Task { await coordinator.revalidateSession() }
+        }
     }
 
     private static var isDevelopmentBuild: Bool {

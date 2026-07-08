@@ -58,6 +58,9 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
+        if await isTokenStorageAvailable() == false {
+            throw AuthError.networkError
+        }
         throw AuthError.unauthorized
     }
 
@@ -104,9 +107,15 @@ extension AuthCoordinator {
             if let refresh = await client.refreshToken(), !refresh.isEmpty {
                 throw AuthError.networkError
             }
+            if await isTokenStorageAvailable() == false {
+                throw AuthError.networkError
+            }
             throw AuthError.unauthorized
         }
         guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+            if await isTokenStorageAvailable() == false {
+                throw AuthError.networkError
+            }
             throw AuthError.unauthorized
         }
         return (access, refresh)
@@ -143,6 +152,9 @@ extension AuthCoordinator {
         // (network/server), so stay retryable; a missing one means the SDK
         // definitively cleared the session.
         if await client.refreshToken() != nil {
+            throw AuthError.networkError
+        }
+        if await isTokenStorageAvailable() == false {
             throw AuthError.networkError
         }
         throw AuthError.unauthorized
