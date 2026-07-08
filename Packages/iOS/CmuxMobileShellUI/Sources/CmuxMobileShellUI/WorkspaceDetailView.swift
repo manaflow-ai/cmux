@@ -22,8 +22,10 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
-    /// Close this workspace on the Mac. When `nil` (older Macs without the `workspace.close.v1`
-    /// capability, or previews) the close affordance is hidden from the top-bar menu.
+    let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Close this workspace on the Mac. When `nil`, the close affordance is
+    /// hidden from the top-bar menu, matching the workspace list's gating.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
@@ -337,6 +339,8 @@ struct WorkspaceDetailView: View {
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
+            canRenameWorkspace: renameWorkspace != nil,
+            canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
@@ -630,15 +634,11 @@ struct WorkspaceDetailView: View {
         closeWorkspace?(workspace.id)
     }
 
-    /// Toggle the current workspace's read state on the Mac from the picker menu.
-    /// Flips relative to the workspace's current `hasUnread`; the authoritative
-    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
-    /// count.
+    /// Toggle the current workspace's read state from the picker menu.
     private func toggleWorkspaceReadStateFromMenu() {
-        let store = store
         let id = workspace.id
         let markUnread = !workspace.hasUnread
-        Task { await store.setWorkspaceUnread(id: id, markUnread) }
+        setWorkspaceUnread?(id, markUnread)
     }
 
     #if canImport(UIKit)
@@ -654,9 +654,8 @@ struct WorkspaceDetailView: View {
     func commitRenameFromDialog() {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let store = store
         let id = workspace.id
-        Task { await store.renameWorkspace(id: id, title: trimmed) }
+        renameWorkspace?(id, trimmed)
     }
     #endif
 

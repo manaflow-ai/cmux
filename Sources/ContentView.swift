@@ -14408,7 +14408,7 @@ struct TabItemView: View, Equatable {
         observedIsActive = isActive
     }
 
-    private func refreshWorkspaceSnapshot(force: Bool = false) {
+    func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: workspaceSnapshotStorage,
@@ -14701,8 +14701,8 @@ struct TabItemView: View, Equatable {
         }
         .disabled(!hasLatestNotifications(in: targetIds))
 
+        workspaceNotificationsContextMenu(targetIds)
         Divider()
-
         Button(copyWorkspaceIDLabel) {
             copyWorkspaceIdsToPasteboard(targetIds)
         }

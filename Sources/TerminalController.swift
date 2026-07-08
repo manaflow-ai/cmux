@@ -824,7 +824,6 @@ class TerminalController {
         self.browserSignInFlow = browserSignIn
     }
 
-
     func start(
         tabManager: TabManager,
         socketPath: String,
@@ -2043,7 +2042,6 @@ class TerminalController {
             // hop collapses inline on main).
             return readScreenText(args)
 
-
 #if DEBUG
         case "send_workspace":
             return sendInputToWorkspace(args)
@@ -2253,7 +2251,6 @@ class TerminalController {
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
-
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
         // still-shared v2SurfaceMove). surface.action/tab.action and
@@ -2347,7 +2344,6 @@ class TerminalController {
         // entry of a worker-lane method (e.g. via runV2CommandLine) answers
         // invalid_dispatch ("must run on the socket worker") from the policy
         // guard in processParsedV2Command — not method_not_found.
-
 
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
         // textbox fixtures, command palette, browser probes, sidebar/terminal
@@ -3840,26 +3836,6 @@ class TerminalController {
         ])
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
         error: V2CallResult?
@@ -4490,11 +4466,6 @@ class TerminalController {
         }
     }
 
-
-
-
-
-
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
@@ -4724,21 +4695,7 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
-
-
-
-
-
-
-
-
-
-
-
     @MainActor
-
-
-
 
     private func v2AgentSessionOptions(params: [String: Any]) -> (
         providerID: AgentSessionProviderID,
@@ -4796,10 +4753,6 @@ class TerminalController {
 
         return (providerID, rendererKind, nil)
     }
-
-
-
-
 
     // `internal` (not `private`): the Pane domain's app conformance forwards
     // `pane.join` to this body. The Surface domain extraction will relocate it.
@@ -4951,8 +4904,6 @@ class TerminalController {
 
         return result
     }
-
-
 
     func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
         var payload: [String: Any]?
@@ -5215,10 +5166,6 @@ class TerminalController {
         }
         return .ok(payload)
     }
-
-
-
-
 
     struct TerminalTextRawSnapshot {
         var viewport: String?
@@ -5673,7 +5620,6 @@ class TerminalController {
             lineLimit: lineLimit
         )
     }
-
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
         guard let email = params["email"] as? String else {
@@ -8263,7 +8209,6 @@ class TerminalController {
             """
         }
     }
-
 
     private nonisolated func v2BrowserNavSimple(params: [String: Any], action: String) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -14123,6 +14068,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.move":
+            result = v2MobileWorkspaceMove(params: request.params)
+        case "workspace.group.action":
+            result = v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
@@ -14265,7 +14214,6 @@ class TerminalController {
         }
         return v2WorkspaceAction(params: params)
     }
-
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {
         case let .ok(payload):
@@ -14276,7 +14224,6 @@ class TerminalController {
             return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
         }
     }
-
     func v2MobileHostStatus(
         params: [String: Any],
         includePrivateMetadata: Bool = true
@@ -14434,7 +14381,7 @@ class TerminalController {
         }
     }
 
-    private func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
+    func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
         guard v2HasNonNullParam(params, "workspace_id"),
               v2UUID(params, "workspace_id") == nil else {
             return nil
