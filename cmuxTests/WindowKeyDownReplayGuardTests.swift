@@ -1,4 +1,6 @@
 import AppKit
+import Carbon.HIToolbox
+import CmuxTerminal
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -39,6 +41,23 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         }
     }
 
+    private final class TerminalCommandEquivalentProbeView: GhosttyNSView {
+        private(set) var afterMenuMissEvents: [NSEvent] = []
+
+        override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+            afterMenuMissEvents.append(event)
+            return true
+        }
+    }
+
+    private final class MenuActionProbe: NSObject {
+        private(set) var callCount = 0
+
+        @objc func perform(_ sender: Any?) {
+            callCount += 1
+        }
+    }
+
     private func makeWindowWithReplayingResponder() -> (NSWindow, ReplayingKeyDownView) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
@@ -53,6 +72,66 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         container.addSubview(responder)
         XCTAssertTrue(window.makeFirstResponder(responder))
         return (window, responder)
+    }
+
+    private func makeWindowWithTerminalResponder() -> (NSWindow, TerminalCommandEquivalentProbeView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let terminal = TerminalCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        container.addSubview(terminal)
+        XCTAssertTrue(window.makeFirstResponder(terminal))
+        return (window, terminal)
+    }
+
+    private func makeCommandZKeyDownEvent(
+        modifiers: NSEvent.ModifierFlags,
+        windowNumber: Int
+    ) -> NSEvent? {
+        let characters = modifiers.contains(.shift) ? "Z" : "z"
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: "z",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Z)
+        )
+    }
+
+    private func installUndoMenu(probe: MenuActionProbe) -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(title: "Main")
+        let undoItem = NSMenuItem(
+            title: "Undo",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "z"
+        )
+        undoItem.keyEquivalentModifierMask = [.command]
+        undoItem.target = probe
+        menu.addItem(undoItem)
+
+        let redoItem = NSMenuItem(
+            title: "Redo",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "Z"
+        )
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        redoItem.target = probe
+        menu.addItem(redoItem)
+
+        NSApp.mainMenu = menu
+        return previousMenu
     }
 
     /// Option+A producing printable text ("å"). The printable-Option-text
@@ -145,5 +224,41 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         XCTAssertTrue(window.performKeyEquivalent(with: event))
         XCTAssertTrue(window.performKeyEquivalent(with: event))
         XCTAssertEqual(responder.keyDownEvents.count, 2)
+    }
+
+    func testTerminalUndoRedoCommandEquivalentsBypassAppKitUndoMenu() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let probe = MenuActionProbe()
+        let previousMenu = installUndoMenu(probe: probe)
+        defer { NSApp.mainMenu = previousMenu }
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        for modifiers in [[.command], [.command, .shift]] as [NSEvent.ModifierFlags] {
+            guard let event = makeCommandZKeyDownEvent(modifiers: modifiers, windowNumber: window.windowNumber) else {
+                XCTFail("Failed to construct Undo/Redo key event")
+                return
+            }
+
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+        }
+
+        XCTAssertEqual(
+            probe.callCount,
+            0,
+            "Terminal-focused Cmd+Z/Cmd+Shift+Z must not invoke AppKit menu Undo/Redo; " +
+            "that path can dispatch a stale NSUndoManager target and crash in _NSUndoStack.popAndInvoke"
+        )
+        XCTAssertEqual(
+            terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers },
+            ["z", "z"],
+            "Undo/Redo command equivalents should be routed to the terminal shortcut path instead"
+        )
     }
 }
