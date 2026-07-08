@@ -4,6 +4,7 @@ import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schem
 import { logVaultQuotaError } from "./logging";
 
 type VaultDb = ReturnType<typeof cloudDb>;
+const VAULT_QUOTA_LOCK_NAMESPACE = 9;
 
 export async function withVaultUserQuotaLock<T>(
   db: VaultDb,
@@ -12,7 +13,7 @@ export async function withVaultUserQuotaLock<T>(
 ): Promise<T> {
   return await db.transaction(async (tx) => {
     await tx.execute(sql`set local lock_timeout = '5s'`);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 2))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${VAULT_QUOTA_LOCK_NAMESPACE}))`);
     return await run(tx as unknown as VaultDb);
   });
 }
