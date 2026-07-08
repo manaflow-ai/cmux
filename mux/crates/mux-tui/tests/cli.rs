@@ -69,6 +69,41 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&workspace);
     let surface = String::from_utf8(workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
     assert!(surface > 0, "new-workspace should print the new surface id");
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let pane0 = tree_json["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+
+    let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
+    assert_success(&split);
+
+    let exported = cli(&server, &["--json", "export-layout"]);
+    assert_success(&exported);
+    let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+    assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
+    assert_eq!(exported_json["panes"].as_array().unwrap().len(), 2);
+
+    let neighbor =
+        cli(&server, &["--json", "pane-neighbor", "--pane", &pane0.to_string(), "--dir", "right"]);
+    assert_success(&neighbor);
+    let neighbor_json: serde_json::Value = serde_json::from_slice(&neighbor.stdout).unwrap();
+    let pane1 = neighbor_json["pane"].as_u64().unwrap();
+    assert_ne!(pane0, pane1);
+
+    let focus = cli(
+        &server,
+        &["--json", "focus-direction", "--pane", &pane0.to_string(), "--dir", "right"],
+    );
+    assert_success(&focus);
+    let focus_json: serde_json::Value = serde_json::from_slice(&focus.stdout).unwrap();
+    assert_eq!(focus_json["pane"].as_u64(), Some(pane1));
+
+    let zoom =
+        cli(&server, &["--json", "zoom-pane", "--pane", &pane1.to_string(), "--mode", "toggle"]);
+    assert_success(&zoom);
+    let zoom_json: serde_json::Value = serde_json::from_slice(&zoom.stdout).unwrap();
+    assert_eq!(zoom_json["zoomed"].as_bool(), Some(true));
+    assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
     let marker_suffix = std::process::id().to_string();
