@@ -359,7 +359,11 @@ export function insertDeferredTurnEvents(events: AgentEvent[], generations: numb
 }
 
 function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
-  const generation = activeAttributionGeneration(sess) ?? turnGenerationContext.getStore() ?? 0;
+  // The emitting callback's own async-context generation is authoritative:
+  // with a queued follow-up the active queue holds [old, new], and a fast
+  // second completion must not finalize as the stale head (its done would be
+  // dropped as a duplicate and the session left running).
+  const generation = turnGenerationContext.getStore() ?? activeAttributionGeneration(sess) ?? 0;
   if (!generation) {
     emitSessionEvent(sess, evt);
     return;
