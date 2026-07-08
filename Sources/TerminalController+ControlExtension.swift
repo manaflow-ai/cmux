@@ -18,6 +18,52 @@ import Foundation
 /// one-shot `preview_token`; nothing runs until `extension.install` confirms
 /// that token (the CLI's y/N stands in for the GUI consent sheet).
 extension TerminalController {
+    /// The worker-lane extension verbs; `socketWorkerV2Response` routes them
+    /// all through `v2ExtensionWorkerResponse` in one case.
+    nonisolated static let extensionWorkerV2Methods: [String] = [
+        "extension.list", "extension.preview", "extension.install", "extension.discard",
+        "extension.uninstall", "extension.link", "extension.unlink",
+    ]
+
+    /// Every extension verb, advertised by `system.capabilities`.
+    nonisolated static let extensionV2Methods: [String] =
+        extensionWorkerV2Methods + ["extension.open", "extension.paths"]
+
+    /// Dispatches one worker-lane extension verb (see the file header for the
+    /// threading rationale). Timeouts: `extension.preview` covers the composed
+    /// git budget — 60s resolve + 600s fetch + manifest parse headroom (the
+    /// CLI client waits 760s) — and `extension.install` adds build-step budget
+    /// on top of that.
+    nonisolated func v2ExtensionWorkerResponse(id: Any?, method: String, params: [String: Any]) -> String {
+        switch method {
+        case "extension.list":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2ExtensionList(params: params) }
+        case "extension.preview":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 720) { await self.v2ExtensionPreview(params: params) }
+        case "extension.install":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 900) { await self.v2ExtensionInstall(params: params) }
+        case "extension.discard":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2ExtensionDiscard(params: params) }
+        case "extension.uninstall":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 60) { await self.v2ExtensionUninstall(params: params) }
+        case "extension.link":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 60) { await self.v2ExtensionLink(params: params) }
+        case "extension.unlink":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 60) { await self.v2ExtensionUnlink(params: params) }
+        default:
+            return v2Error(id: id, code: "invalid_dispatch", message: "\(method) is not a worker-lane extension verb")
+        }
+    }
+
+    /// Dispatches the two quick main-actor verbs (`extension.open`, a
+    /// focus-intent command, and `extension.paths`, a main-actor state read)
+    /// for `v2LegacyMainActorResponse`.
+    func v2ExtensionMainActorResponse(id: Any?, method: String, params: [String: Any]) -> String {
+        method == "extension.open"
+            ? v2Result(id: id, v2ExtensionOpen(params: params))
+            : v2Result(id: id, v2ExtensionPaths(params: params))
+    }
+
     func v2ExtensionList(params: [String: Any]) async -> V2CallResult {
         let runtime = DockExtensionsRuntime.shared
         await runtime.store.reload()

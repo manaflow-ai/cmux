@@ -275,9 +275,7 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
-        "feed.jump",
-        // Explicit user command to show an extension pane in the Dock.
-        "extension.open"
+        "feed.jump", "extension.open"
     ]
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
@@ -1350,53 +1348,16 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
-        // Dock TUI extensions: worker-lane verbs. Bodies await the @MainActor
-        // extensions store (which suspends into git/build service actors), so
-        // the main actor never blocks; the worker lane keeps the socket
-        // pipeline free during long previews (network clone) and installs
-        // (build steps).
-        case "extension.list":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2ExtensionList(params: request.params)
-            }
-        case "extension.preview":
-            // Covers the composed git budget: 60s resolve + 600s fetch +
-            // manifest parse headroom (the CLI client waits 760s).
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 720) {
-                await self.v2ExtensionPreview(params: request.params)
-            }
-        case "extension.install":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 900) {
-                await self.v2ExtensionInstall(params: request.params)
-            }
-        case "extension.discard":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2ExtensionDiscard(params: request.params)
-            }
-        case "extension.uninstall":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
-                await self.v2ExtensionUninstall(params: request.params)
-            }
-        case "extension.link":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
-                await self.v2ExtensionLink(params: request.params)
-            }
-        case "extension.unlink":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
-                await self.v2ExtensionUnlink(params: request.params)
-            }
+        case "extension.list", "extension.preview", "extension.install", "extension.discard",
+             "extension.uninstall", "extension.link", "extension.unlink":
+            return v2ExtensionWorkerResponse(id: request.id, method: request.method, params: request.params)
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
-        case "system.ping":
-            return v2Ok(id: request.id, result: ["pong": true])
-        case "system.capabilities":
-            return v2Ok(id: request.id, result: v2Capabilities())
-        case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
-        case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
-        case "surface.read_text":
-            return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "system.ping": return v2Ok(id: request.id, result: ["pong": true])
+        case "system.capabilities": return v2Ok(id: request.id, result: v2Capabilities())
+        case "system.top": return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "system.memory": return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "surface.read_text": return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
@@ -2234,20 +2195,11 @@ class TerminalController {
     /// thread.
     private func v2LegacyMainActorResponse(id: Any?, method: String, params: [String: Any]) -> String {
             switch method {
-        case "system.ping":
-            return v2Ok(id: id, result: ["pong": true])
-        case "system.capabilities":
-            return v2Ok(id: id, result: v2Capabilities())
+        case "system.ping": return v2Ok(id: id, result: ["pong": true])
+        case "system.capabilities": return v2Ok(id: id, result: v2Capabilities())
 
-        // Dock TUI extensions: the quick main-actor verbs. `extension.open`
-        // is a focus-intent command (focusIntentV2Methods); `extension.paths`
-        // only reads main-actor extension state. The long-running verbs
-        // (list/preview/install/discard/uninstall/link/unlink) run on the
-        // socket-worker lane (see socketWorkerV2Response).
-        case "extension.open":
-            return v2Result(id: id, v2ExtensionOpen(params: params))
-        case "extension.paths":
-            return v2Result(id: id, v2ExtensionPaths(params: params))
+        case "extension.open", "extension.paths":
+            return v2ExtensionMainActorResponse(id: id, method: method, params: params)
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -2401,15 +2353,6 @@ class TerminalController {
             "system.memory",
             "mobile.host.status",
             "mobile.attach_ticket.create",
-            "extension.list",
-            "extension.preview",
-            "extension.install",
-            "extension.discard",
-            "extension.uninstall",
-            "extension.link",
-            "extension.unlink",
-            "extension.open",
-            "extension.paths",
             "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
@@ -2643,7 +2586,7 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
-        ]
+        ] + Self.extensionV2Methods
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
@@ -3554,7 +3497,7 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
             return v2Ok(id: id, result: payload)
