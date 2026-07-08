@@ -1186,7 +1186,6 @@ export function destroyVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -1248,7 +1247,6 @@ export function execVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1332,7 +1330,6 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the
@@ -1402,7 +1399,6 @@ export function openSshEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the

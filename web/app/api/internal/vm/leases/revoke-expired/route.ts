@@ -24,9 +24,11 @@ async function handle(request: Request): Promise<Response> {
   const token = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice("bearer ".length).trim()
     : "";
+  const tokenBuffer = Buffer.from(token);
+  const secretBuffer = Buffer.from(secret);
   const tokenMatches =
-    token.length === secret.length &&
-    timingSafeEqual(Buffer.from(token), Buffer.from(secret));
+    tokenBuffer.length === secretBuffer.length &&
+    timingSafeEqual(tokenBuffer, secretBuffer);
   if (!tokenMatches) {
     return jsonResponse({ error: "unauthorized" }, 401);
   }

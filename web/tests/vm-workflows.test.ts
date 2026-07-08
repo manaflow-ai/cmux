@@ -299,7 +299,7 @@ describe("VM Effect workflows", () => {
     expect(resumeCalls).toBe(1);
   });
 
-  test("does not sweep expired identity leases before VM authorization", async () => {
+  test("does not sweep expired identity leases during user VM exec", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000116",
       userId: "user-workflow-cleanup-owner",
@@ -315,18 +315,21 @@ describe("VM Effect workflows", () => {
           return [];
         }),
     });
-    const provider = unusedProviderGateway();
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+    };
 
-    const error = await Effect.runPromise(
+    const result = await Effect.runPromise(
       execVm({
-        userId: "user-workflow-cleanup-attacker",
+        userId: "user-workflow-cleanup-owner",
         providerVmId: "provider-vm-cleanup-owner",
         command: "true",
         timeoutMs: 1000,
-      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
     expect(sweepCalls).toBe(0);
   });
 
