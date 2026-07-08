@@ -792,6 +792,109 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(restoredSessionIds, sessionIds)
     }
 
+    func testPiDetectedLatestSessionDoesNotUsePanelOnlyFallbackWhenPanelIdIsAmbiguous() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-panel-id-ambiguous-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = sessionsRoot.path
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+        let oldWorkspaceIds = [UUID(), UUID()]
+        let restoredWorkspaceId = UUID()
+        let panelId = UUID()
+        let hookSessionIds = ["pi-old-workspace-a", "pi-old-workspace-b"]
+        let detectedLatestSessionId = "pi-detected-newest"
+        var hookSessions: [String: [String: Any]] = [:]
+        for (index, sessionId) in hookSessionIds.enumerated() {
+            let sessionFile = projectSessions.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
+            try fm.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
+                ofItemAtPath: sessionFile.path
+            )
+            hookSessions[sessionId] = driftedAgentHookRecord(
+                launcher: "pi",
+                sessionId: sessionId,
+                workspaceId: oldWorkspaceIds[index],
+                panelId: panelId,
+                recordedCwd: cwd.path,
+                launchCwd: cwd.path,
+                updatedAt: TimeInterval(10 + index)
+            )
+        }
+        let detectedLatestFile = projectSessions.appendingPathComponent("\(detectedLatestSessionId).jsonl", isDirectory: false)
+        try "{}\n".write(to: detectedLatestFile, atomically: true, encoding: .utf8)
+        try fm.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000)],
+            ofItemAtPath: detectedLatestFile.path
+        )
+        try writeHookStore(root: root, storeFilename: "pi-hook-sessions.json", sessions: hookSessions)
+
+        let process = CmuxTopProcessInfo(
+            pid: 4_400,
+            parentPID: 1,
+            name: "pi",
+            path: "/usr/local/bin/pi",
+            ttyDevice: nil,
+            cmuxWorkspaceID: restoredWorkspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/pi"],
+                    environment: [
+                        "PWD": cwd.path,
+                        "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                    ]
+                )
+            }
+        )
+        let restoredKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: restoredWorkspaceId,
+            panelId: panelId
+        )
+        let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
+        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestSessionId)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, detectedLatestSessionId)
+    }
+
     func testPiInferredLatestFallbackUsesSameKindPanelHookWhenAnotherKindIsNewer() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory

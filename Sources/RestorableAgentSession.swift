@@ -964,6 +964,12 @@ struct RestorableAgentSessionIndex: Sendable {
         let kind: RestorableAgentKind
     }
 
+    private struct PanelIDKindCandidate {
+        let panelKey: PanelKey
+        let entry: Entry
+        let isAmbiguous: Bool
+    }
+
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
@@ -1095,7 +1101,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
-        var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: Entry] = [:]
+        var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1174,11 +1180,22 @@ struct RestorableAgentSessionIndex: Sendable {
                 ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
-                if shouldReplaceHookEntry(
-                    existing: hookCandidatesByPanelIdAndKind[panelIDKindKey],
-                    incoming: entry
-                ) {
-                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = entry
+                if let existingPanelIDCandidate = hookCandidatesByPanelIdAndKind[panelIDKindKey] {
+                    let shouldReplace = shouldReplaceHookEntry(
+                        existing: existingPanelIDCandidate.entry,
+                        incoming: entry
+                    )
+                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
+                        panelKey: shouldReplace ? key : existingPanelIDCandidate.panelKey,
+                        entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
+                        isAmbiguous: existingPanelIDCandidate.isAmbiguous || existingPanelIDCandidate.panelKey != key
+                    )
+                } else {
+                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
+                        panelKey: key,
+                        entry: entry,
+                        isAmbiguous: false
+                    )
                 }
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesBySession[sessionKey],
@@ -1199,9 +1216,14 @@ struct RestorableAgentSessionIndex: Sendable {
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
-            let sameKindStablePanelCandidate = sameKindPanelCandidate ?? hookCandidatesByPanelIdAndKind[
+            let sameKindPanelIDCandidate = hookCandidatesByPanelIdAndKind[
                 PanelIDKindKey(panelId: key.panelId, kind: detected.snapshot.kind)
             ]
+            // Panel-only restore is safe only when this surface/kind maps back to one old workspace.
+            // Stale hook stores can otherwise reuse a surface id and make the fallback ambiguous.
+            let sameKindStablePanelCandidate = sameKindPanelCandidate ?? (
+                sameKindPanelIDCandidate?.isAmbiguous == false ? sameKindPanelIDCandidate?.entry : nil
+            )
             if detected.sessionIDSource == .inferredLatestSessionFile,
                let panelCandidate = sameKindStablePanelCandidate {
                 // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
