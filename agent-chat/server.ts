@@ -424,7 +424,13 @@ function sendPrompt(sess: Session, prompt: string) {
   baselines.set(generation, baseline);
   pruneTurnBaselines(baselines);
   sess.emit({ kind: "user", text: prompt });
-  baseline.then(() => (sess.adapter.send as any)(sess, prompt, generation)).catch((err) => {
+  // Conscious tradeoff: the prompt dispatches IMMEDIATELY and the baseline
+  // captures concurrently. Gating send on capture cost up to ~3.5s per
+  // message in large dirty repos (the primary chat path); the price of not
+  // gating is that files the agent edits within the capture window may be
+  // absorbed into the baseline and omitted from the cosmetic files-changed
+  // block. Turn completion still awaits the stored baseline promise.
+  Promise.resolve((sess.adapter.send as any)(sess, prompt, generation)).catch((err) => {
     console.error("[agent-chat] send failed", err);
     sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
     // The UI treats "done" as the turn boundary; without it a failed send
