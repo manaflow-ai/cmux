@@ -38,9 +38,6 @@ let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cm
 extension CommandPaletteContextKeys {
     /// Whether the Notes beta surface is enabled.
     static let notesBetaEnabled = CommandPaletteContextKeys(rawValue: "notes.betaEnabled")
-
-    /// Whether the selected workspace directory has staged or unstaged git changes.
-    static let workspaceHasDisplayableDiff = CommandPaletteContextKeys(rawValue: "workspace.hasDisplayableDiff")
 }
 
 private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
@@ -2516,7 +2513,6 @@ struct ContentView: View {
         guard notesBetaEnabled,
               let workspace = tabManager.selectedWorkspace else { return }
         notesTreeStore.applyObservedTerminals(workspace.notesTreeObservedTerminals())
-        notesTreeStore.refreshSessions(force: true)
     }
 
     private func handleNotesTerminalMetadataDidChange(_ notification: Notification) {
@@ -6329,11 +6325,6 @@ struct ContentView: View {
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
             snapshot.setBool(
-                CommandPaletteContextKeys.workspaceHasDisplayableDiff,
-                workspace.resolvedWorkingDirectory()
-                    .map { CmuxGitDiffAvailability.hasDisplayableDiff(in: $0) } ?? false
-            )
-            snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
                 workspace.bonsplitController.allPaneIds.count > 1
             )
@@ -7128,7 +7119,6 @@ struct ContentView: View {
                 keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "agent", "codex", "claude"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
-                    $0.bool(CommandPaletteContextKeys.workspaceHasDisplayableDiff) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
                 }
             )
@@ -7141,7 +7131,6 @@ struct ContentView: View {
                 keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "directory", "cwd", "folder"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
-                    $0.bool(CommandPaletteContextKeys.workspaceHasDisplayableDiff) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
                 }
             )

@@ -586,36 +586,6 @@ struct CmuxConfigDecodingTests {
         }
     }
 
-    @Test func testDiffViewerAvailabilityRequiresGitDiff() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-diff-availability-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let repo = root.appendingPathComponent("repo", isDirectory: true)
-        let plain = root.appendingPathComponent("plain", isDirectory: true)
-        let file = repo.appendingPathComponent("story.txt")
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        XCTAssertFalse(CmuxGitDiffAvailability.hasDisplayableDiff(in: plain.path))
-
-        try runGit(["init"], in: repo)
-        try runGit(["checkout", "-b", "main"], in: repo)
-        try runGit(["config", "user.name", "cmux tests"], in: repo)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repo)
-        try "one\n".write(to: file, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repo)
-        try runGit(["commit", "-m", "initial"], in: repo)
-        XCTAssertFalse(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
-
-        try "one\ntwo\n".write(to: file, atomically: true, encoding: .utf8)
-        XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
-
-        try runGit(["add", "story.txt"], in: repo)
-        XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
-    }
-
     @Test func testConfiguredSurfaceTabBarButtonsAppendMoreMenu() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

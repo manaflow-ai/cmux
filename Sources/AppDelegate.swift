@@ -6182,9 +6182,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
                 snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
             )
-            guard CmuxGitDiffAvailability.hasDisplayableDiff(in: snapshotWorkingDirectory ?? fallbackCwd) else {
-                return false
-            }
             let storeURL = Self.agentTurnDiffBaselineStoreURL()
             let workspaceId = workspace.id
             let originWindowId = tabManager.flatMap { manager in
@@ -6219,9 +6216,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             : nil
         let launchCwd = agentDiffContext?.cwd ?? fallbackCwd
-        guard CmuxGitDiffAvailability.hasDisplayableDiff(in: launchCwd) else {
-            return false
-        }
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
