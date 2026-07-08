@@ -272,6 +272,8 @@ public struct MobileBrowserView: UIViewRepresentable {
             state.navigationDidFail(message: error.localizedDescription)
         }
 
+        /// Applies the surface's content-mode preference (mobile/desktop/
+        /// recommended) to every navigation and allows it to proceed.
         public func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
