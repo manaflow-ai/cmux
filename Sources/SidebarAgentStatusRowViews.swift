@@ -41,7 +41,7 @@ struct SidebarAgentStatusRows: View {
             }
         case .belowChips:
             SidebarAgentChipsFlow(rows: rows, fontScale: fontScale, onFocusPanel: onFocusPanel)
-        case .inCardRows, .inCardCompact, .globalSection:
+        case .graphite, .inCardRows, .inCardCompact, .globalSection:
             EmptyView()
         }
     }
@@ -98,15 +98,27 @@ struct SidebarAgentStatusRows: View {
 /// nothing for the below-card and global variants.
 struct SidebarAgentStatusInCardRows: View {
     let rows: [SidebarAgentStatusRow]
+    let activePanelId: UUID?
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
+    let onFocus: () -> Void
     let onFocusPanel: (UUID) -> Void
 
     @ObservedObject private var variantStore = SidebarAgentRowsVariantStore.shared
 
     var body: some View {
         switch variantStore.variant {
+        case .graphite:
+            SidebarAgentStatusGraphiteRows(
+                rows: rows,
+                activePanelId: activePanelId,
+                isActive: isActive,
+                activeForegroundColor: activeForegroundColor,
+                fontScale: fontScale,
+                onFocus: onFocus,
+                onFocusPanel: onFocusPanel
+            )
         case .inCardRows:
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(rows) { row in
@@ -247,6 +259,20 @@ enum SidebarAgentRowStateStyle {
     static func stateColor(for row: SidebarAgentStatusRow) -> Color? {
         guard let raw = effectiveColorHex(for: row) else { return nil }
         return Color(hex: raw)
+    }
+
+    /// Short right-aligned state word for dense layouts.
+    static func stateWord(for row: SidebarAgentStatusRow) -> String? {
+        switch row.lifecycle {
+        case .running:
+            return String(localized: "sidebar.agentStatus.word.working", defaultValue: "working")
+        case .needsInput:
+            return String(localized: "sidebar.agentStatus.word.waiting", defaultValue: "waiting")
+        case .idle:
+            return String(localized: "sidebar.agentStatus.word.idle", defaultValue: "idle")
+        case .unknown, nil:
+            return nil
+        }
     }
 
     static func lifecycleText(for row: SidebarAgentStatusRow) -> String? {
@@ -411,5 +437,166 @@ struct SidebarAgentStatusEntryRowView: View {
 
     private var helpText: String {
         [primaryText, statusLineText].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+
+/// The picked design (round-2 mock "G"): in-card accordion under the
+/// workspace title, one row per agent with a right-aligned state word, and a
+/// periwinkle accent bar + tint marking the ACTIVE agent (the workspace's
+/// focused pane). Selection styling of the card itself is handled by
+/// `TabItemView` (graphite instead of the blue selection) while this variant
+/// is active.
+struct SidebarAgentStatusGraphiteRows: View {
+    static let accent = Color(red: 124 / 255, green: 140 / 255, blue: 248 / 255)
+
+    let rows: [SidebarAgentStatusRow]
+    let activePanelId: UUID?
+    let isActive: Bool
+    let activeForegroundColor: Color
+    let fontScale: CGFloat
+    let onFocus: () -> Void
+    let onFocusPanel: (UUID) -> Void
+
+    @State private var isCollapsed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            header
+            if !isCollapsed {
+                ForEach(rows) { row in
+                    SidebarAgentGraphiteRow(
+                        row: row,
+                        isActiveAgent: row.panelId == activePanelId,
+                        isActive: isActive,
+                        activeForegroundColor: activeForegroundColor,
+                        fontScale: fontScale,
+                        onFocusPanel: onFocusPanel
+                    )
+                }
+            }
+        }
+        .padding(.top, 3)
+    }
+
+    private var header: some View {
+        let summary = SidebarAgentStatusRowsSummary(rows: rows)
+        return Button {
+            onFocus()
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isCollapsed.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                CmuxSystemSymbolImage(
+                    magnified: isCollapsed ? "chevron.right" : "chevron.down",
+                    pointSize: 6.5 * fontScale,
+                    weight: .semibold
+                )
+                .foregroundColor(secondaryColor.opacity(0.8))
+                if isCollapsed, let accent = summary.accentColorHex, let color = Color(hex: accent) {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 5 * fontScale, height: 5 * fontScale)
+                }
+                Text(summary.text)
+                    .cmuxFont(size: 9.5 * fontScale, weight: .semibold)
+                    .foregroundColor(secondaryColor)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(summary.text)
+    }
+
+    private var secondaryColor: Color {
+        isActive ? activeForegroundColor.opacity(0.7) : .secondary
+    }
+}
+
+private struct SidebarAgentGraphiteRow: View {
+    let row: SidebarAgentStatusRow
+    let isActiveAgent: Bool
+    let isActive: Bool
+    let activeForegroundColor: Color
+    let fontScale: CGFloat
+    let onFocusPanel: (UUID) -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            onFocusPanel(row.panelId)
+        } label: {
+            HStack(spacing: 6) {
+                SidebarAgentBrandIcon(row: row, fontScale: fontScale)
+                Text(row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey))
+                    .cmuxFont(size: 10.5 * fontScale, weight: .medium)
+                    .foregroundColor(nameColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                if let stateColor = SidebarAgentRowStateStyle.stateColor(for: row) {
+                    Circle()
+                        .fill(stateColor)
+                        .frame(width: 5 * fontScale, height: 5 * fontScale)
+                }
+                if let word = SidebarAgentRowStateStyle.stateWord(for: row) {
+                    Text(word)
+                        .cmuxFont(size: 9.5 * fontScale)
+                        .foregroundColor(stateWordColor)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowBackground)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .safeHelp(tooltip)
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isActiveAgent {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(SidebarAgentStatusGraphiteRows.accent.opacity(0.16))
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(SidebarAgentStatusGraphiteRows.accent)
+                        .frame(width: 2.5)
+                        .padding(.vertical, 2)
+                }
+        } else {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.primary.opacity(isHovering ? 0.07 : 0))
+        }
+    }
+
+    private var nameColor: Color {
+        if isActiveAgent {
+            return isActive ? activeForegroundColor : Color(red: 205 / 255, green: 212 / 255, blue: 1)
+        }
+        return isActive ? activeForegroundColor.opacity(0.92) : .primary.opacity(0.85)
+    }
+
+    private var stateWordColor: Color {
+        if row.lifecycle == .needsInput {
+            return Color(hex: "#FF9F0A") ?? .orange
+        }
+        return isActive ? activeForegroundColor.opacity(0.6) : .secondary.opacity(0.8)
+    }
+
+    private var tooltip: String {
+        [
+            row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey),
+            SidebarAgentRowStateStyle.statusText(for: row),
+        ].compactMap { $0 }.joined(separator: " · ")
     }
 }

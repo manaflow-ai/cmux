@@ -13357,6 +13357,12 @@ struct TabItemView: View, Equatable {
         settings.activeTabIndicatorStyle
     }
 
+    // Debug lab observation: bounded (it mutates only on explicit picks in
+    // the Agent Rows Style window) and removed with the lab once a final
+    // design ships. Needed here because the graphite prototype restyles the
+    // workspace card's own selection background and border.
+    @ObservedObject private var agentRowsVariantStore = SidebarAgentRowsVariantStore.shared
+
     private var isActive: Bool {
         observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
@@ -13370,7 +13376,16 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
+        // Debug lab "graphite" prototype: neutral elevated selection instead
+        // of the accent color, so agent state dots stay the only hues on the
+        // card. The foreground helper below auto-contrasts on it. Dies with
+        // the variant lab once a final design ships.
+        if agentRowsVariantStore.variant == .graphite {
+            return colorScheme == .dark
+                ? NSColor(calibratedWhite: 0.24, alpha: 1.0)
+                : NSColor(calibratedWhite: 0.82, alpha: 1.0)
+        }
+        return sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex
         )
@@ -13432,6 +13447,9 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeBorderLineWidth: CGFloat {
+        if agentRowsVariantStore.variant == .graphite {
+            return isActive ? 1 : 0
+        }
         switch activeTabIndicatorStyle {
         case .leftRail:
             return 0
@@ -13442,6 +13460,9 @@ struct TabItemView: View, Equatable {
 
     private var activeBorderColor: Color {
         guard isActive else { return .clear }
+        if agentRowsVariantStore.variant == .graphite {
+            return Color.primary.opacity(0.18)
+        }
         switch activeTabIndicatorStyle {
         case .leftRail:
             return .clear
@@ -13810,9 +13831,11 @@ struct TabItemView: View, Equatable {
                     // Renders only while an in-card debug variant is selected.
                     SidebarAgentStatusInCardRows(
                         rows: workspaceSnapshot.agentStatusRows,
+                        activePanelId: tab.focusedPanelId,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         fontScale: fontScale,
+                        onFocus: { updateSelection() },
                         onFocusPanel: { panelId in
                             updateSelection()
                             tab.focusPanel(panelId)

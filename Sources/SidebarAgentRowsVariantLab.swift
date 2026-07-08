@@ -6,6 +6,7 @@ import SwiftUI
 /// UserDefaults. This is a dogfood decision aid; once a winner is picked the
 /// losing variants get deleted and the store collapses to a constant.
 enum SidebarAgentRowsVariant: String, CaseIterable, Identifiable {
+    case graphite
     case belowAccordion
     case belowFlat
     case belowTree
@@ -22,6 +23,8 @@ enum SidebarAgentRowsVariant: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
+        case .graphite:
+            return String(localized: "debug.agentRows.variant.graphite", defaultValue: "Graphite prototype (picked)")
         case .belowAccordion:
             return String(localized: "debug.agentRows.variant.belowAccordion", defaultValue: "Below card · accordion")
         case .belowFlat:
@@ -41,6 +44,8 @@ enum SidebarAgentRowsVariant: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
+        case .graphite:
+            return String(localized: "debug.agentRows.variant.graphite.detail", defaultValue: "Graphite selection card, in-card accordion, accent bar on the active (focused) agent.")
         case .belowAccordion:
             return String(localized: "debug.agentRows.variant.belowAccordion.detail", defaultValue: "Summary header folds the rows; each row is its own button.")
         case .belowFlat:
