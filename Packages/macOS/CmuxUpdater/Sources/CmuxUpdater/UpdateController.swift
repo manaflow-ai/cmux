@@ -5,7 +5,7 @@ public import Foundation
 /// ``UpdateDriver``, exposes the observable ``UpdateStateModel``, and sequences the
 /// user-facing actions (check, attempt-and-install).
 ///
-/// The previous implementation observed the model's `@Published` state through Combine
+/// The previous implementation observed the model's Combine-backed state through Combine
 /// (`$state.sink`, `Publishers.CombineLatest`). This version consumes the model's
 /// ``UpdateStateModel/stateChanges()`` `AsyncStream` in one long-lived main-actor task and
 /// runs its reactions (attempt-update via ``AttemptUpdateCoordinator``, "no updates"

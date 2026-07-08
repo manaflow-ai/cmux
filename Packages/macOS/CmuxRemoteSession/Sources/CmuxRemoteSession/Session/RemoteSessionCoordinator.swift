@@ -1,3 +1,4 @@
+import Observation
 public import CmuxCore
 public import CmuxRemoteDaemon
 public import CmuxRemoteWorkspace

@@ -1,3 +1,4 @@
+import Observation
 import CmuxFoundation
 import AppKit
 import SwiftUI
@@ -45,9 +46,10 @@ private enum PDFPreviewChromeDebugAction {
     }
 }
 
-private final class PDFPreviewChromeDebugModel: ObservableObject {
-    @Published var lastActionTitle = ""
-    @Published var actionCount = 0
+@Observable
+private final class PDFPreviewChromeDebugModel {
+    var lastActionTitle = ""
+    var actionCount = 0
 
     func record(_ action: PDFPreviewChromeDebugAction) {
         lastActionTitle = action.title
@@ -56,7 +58,7 @@ private final class PDFPreviewChromeDebugModel: ObservableObject {
 }
 
 private struct PDFPreviewChromeDebugView: View {
-    @ObservedObject var model: PDFPreviewChromeDebugModel
+    @Bindable var model: PDFPreviewChromeDebugModel
 
     @AppStorage(FilePreviewPDFChromeStyleVariant.defaultsKey)
     private var chromeStyleRawValue = FilePreviewPDFChromeStyleVariant.liquidGlass.rawValue
@@ -214,7 +216,7 @@ private struct PDFPreviewChromeDebugView: View {
 
 private struct PDFPreviewChromeDebugSample: View {
     let variant: FilePreviewPDFChromeStyleVariant
-    @ObservedObject var model: PDFPreviewChromeDebugModel
+    @Bindable var model: PDFPreviewChromeDebugModel
 
     var body: some View {
         FilePreviewPDFZoomChromeView(

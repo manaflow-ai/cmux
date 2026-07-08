@@ -50,11 +50,19 @@ struct WorkspaceSidebarObservationTests {
         )
 
         let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
-        var workspaceWillChangeCount = 0
-        let objectWillChangeCancellable = workspace.objectWillChange.sink {
-            workspaceWillChangeCount += 1
+        let sidebarRelevantChangeFlag = ObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.statusEntries
+            _ = workspace.metadataBlocks
+            _ = workspace.logEntries
+            _ = workspace.progress
+            _ = workspace.gitBranch
+            _ = workspace.panelGitBranches
+            _ = workspace.pullRequest
+            _ = workspace.panelPullRequests
+        } onChange: {
+            sidebarRelevantChangeFlag.mark()
         }
-        defer { objectWillChangeCancellable.cancel() }
 
         workspace.recordAgentPID(
             key: "codex.session-b",
@@ -72,8 +80,8 @@ struct WorkspaceSidebarObservationTests {
             "Agent PID ownership changes must notify the sidebar row runtime observation stream."
         )
         #expect(
-            workspaceWillChangeCount == 0,
-            "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
+            sidebarRelevantChangeFlag.fired == false,
+            "Agent PID ownership is sidebar presentation state and must not invalidate the sidebar-relevant workspace fields."
         )
     }
 
@@ -118,7 +126,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherDeliversFirstChangeSynchronously() {
+    @Test func sidebarImmediateObservationPublisherDeliversFirstChangeInCurrentRunLoopCycle() {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -129,10 +137,11 @@ struct WorkspaceSidebarObservationTests {
         publishCount = 0
 
         workspace.title = "User Edit"
+        pumpMainRunLoop(until: { publishCount == 1 }, timeout: 0.2)
 
         #expect(
             publishCount == 1,
-            "The first immediate-field change after subscribing must reach the sidebar in the same run-loop turn; coalescing may only defer the tail of a burst."
+            "The first immediate-field change after subscribing must reach the sidebar in the current run-loop cycle; coalescing may only defer the tail of a burst."
         )
     }
 
@@ -146,17 +155,23 @@ struct WorkspaceSidebarObservationTests {
         defer { cancellable.cancel() }
         publishCount = 0
 
-        for turn in 0..<20 {
-            workspace.title = "Agent Turn \(turn)"
-        }
+        workspace.title = "Agent Turn Leading"
+        pumpMainRunLoop(until: { publishCount == 1 }, timeout: 0.2)
 
         #expect(
             publishCount == 1,
-            "A synchronous burst of distinct titles must deliver only its leading edge immediately."
+            "The first distinct title update should deliver the leading edge after the observation re-read hop."
         )
 
-        // Generous pump so the 50ms trailing emission fires deterministically.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        workspace.title = "Agent Turn Trailing"
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+
+        #expect(
+            publishCount == 1,
+            "A second delivered value inside the open coalesce window should be held as the pending trailing value."
+        )
+
+        pumpMainRunLoop(until: { publishCount == 2 }, timeout: 0.3)
 
         #expect(
             publishCount == 2,
@@ -172,7 +187,7 @@ struct WorkspaceSidebarObservationTests {
             .sink { received.append($0) }
         defer { cancellable.cancel() }
 
-        // First value models the @Published current-state replay: forwarded
+        // First value models the current-state replay: forwarded
         // synchronously without opening a coalesce window.
         subject.send(1)
         #expect(received == [1])
@@ -240,6 +255,7 @@ struct WorkspaceSidebarObservationTests {
 
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         #expect(
             publishCount == 0,
@@ -254,6 +270,13 @@ private final class ObservationChangeFlag: @unchecked Sendable {
 
     func mark() {
         fired = true
+    }
+}
+
+private func pumpMainRunLoop(until condition: () -> Bool, timeout: TimeInterval) {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition(), Date() < deadline {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
 }
 

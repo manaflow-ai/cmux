@@ -1,3 +1,4 @@
+import Observation
 import CmuxFoundation
 import AppKit
 import AVKit
@@ -977,19 +978,20 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+@Observable
+final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
-    @Published private(set) var displayTitle: String
-    @Published private(set) var displayIcon: String?
-    @Published private(set) var isFileUnavailable = false
-    @Published private(set) var textContent = ""
-    @Published private(set) var isDirty = false
-    @Published private(set) var isSaving = false
-    @Published private(set) var focusFlashToken = 0
-    @Published private(set) var previewMode: FilePreviewMode
+    private(set) var displayTitle: String
+    private(set) var displayIcon: String?
+    private(set) var isFileUnavailable = false
+    private(set) var textContent = ""
+    private(set) var isDirty = false
+    private(set) var isSaving = false
+    private(set) var focusFlashToken = 0
+    private(set) var previewMode: FilePreviewMode
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1278,7 +1280,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 }
 
 struct FilePreviewPanelView: View {
-    @ObservedObject var panel: FilePreviewPanel
+    @Bindable var panel: FilePreviewPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int

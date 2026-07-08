@@ -1,3 +1,4 @@
+import Observation
 import AppKit
 import CMUXProjectModel
 import Combine
@@ -55,22 +56,23 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
 /// state is plain SwiftUI ``Published`` properties so the view layer can
 /// re-render without dealing with reload events.
 @MainActor
-public final class ProjectPanel: NSObject, Panel, ObservableObject {
+@Observable
+public final class ProjectPanel: NSObject, Panel {
     public let id = UUID()
     public let panelType: PanelType = .project
 
-    @Published public private(set) var projectURL: URL
-    @Published public private(set) var loadState: ProjectPanelLoadState = .idle
-    @Published public var activeTab: ProjectPanelTab = .files
-    @Published public var selectedFilePath: String?
-    @Published public var selectedTargetID: TargetID?
-    @Published public var selectedSchemeName: String?
-    @Published public var selectedConfigurationName: String?
-    @Published public var settingsSearchText: String = ""
-    @Published public var settingsCustomizedOnly: Bool = false
-    @Published public var collapsedNodeIDs: Set<ProjectNodeID> = []
-    @Published public var filesSearchText: String = ""
-    @Published public var lastLoadError: String?
+    public private(set) var projectURL: URL
+    public private(set) var loadState: ProjectPanelLoadState = .idle
+    public var activeTab: ProjectPanelTab = .files
+    public var selectedFilePath: String?
+    public var selectedTargetID: TargetID?
+    public var selectedSchemeName: String?
+    public var selectedConfigurationName: String?
+    public var settingsSearchText: String = ""
+    public var settingsCustomizedOnly: Bool = false
+    public var collapsedNodeIDs: Set<ProjectNodeID> = []
+    public var filesSearchText: String = ""
+    public var lastLoadError: String?
     private var reloadTask: Task<Void, Never>?
 
     public var displayTitle: String {

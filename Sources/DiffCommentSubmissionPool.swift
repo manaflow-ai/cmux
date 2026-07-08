@@ -1,3 +1,4 @@
+import Observation
 import Foundation
 
 /// Workspace-scoped pool of saved-but-unsent diff review comments.
@@ -8,7 +9,8 @@ import Foundation
 /// chip clears everywhere. Diff viewer pages repopulate the pool through the
 /// comments bridge on load and on every save/delete.
 @MainActor
-final class DiffCommentSubmissionPool: ObservableObject {
+@Observable
+final class DiffCommentSubmissionPool {
     static let shared = DiffCommentSubmissionPool()
 
     struct Entry: Equatable {
@@ -17,7 +19,7 @@ final class DiffCommentSubmissionPool: ObservableObject {
         let submissionText: String
     }
 
-    @Published private(set) var entriesByWorkspace: [UUID: [Entry]] = [:]
+    private(set) var entriesByWorkspace: [UUID: [Entry]] = [:]
 
     func setPending(_ entry: Entry, workspaceId: UUID) {
         var entries = entriesByWorkspace[workspaceId] ?? []

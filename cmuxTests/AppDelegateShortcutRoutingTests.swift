@@ -10198,21 +10198,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         originalTextView.string = "preserve this"
 
-        var objectWillChangeCount = 0
-        let cancellable = terminalPanel.objectWillChange.sink {
-            objectWillChangeCount += 1
+        var draftChangeCount = 0
+        let token = observeValue(initial: false, {
+            terminalPanel.sessionTextBoxDraftSnapshot()
+        }) { _ in
+            draftChangeCount += 1
         }
+        defer { token.cancel() }
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         let draft = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
         XCTAssertEqual(textBoxSessionDraftPartSummaries(draft.parts), [.text("preserve this")])
         XCTAssertEqual(
-            objectWillChangeCount,
+            draftChangeCount,
             0,
-            "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
+            "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not invalidate SwiftUI-observed draft state during teardown"
         )
-        withExtendedLifetime(cancellable) {}
     }
 
     func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {

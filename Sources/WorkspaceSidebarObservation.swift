@@ -37,6 +37,18 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestSubmittedAt: Date?
 }
 
+private struct SidebarWorkspaceObservationFields: Equatable {
+    let currentDirectory: String
+    let extensionSidebarProjectRootPath: String?
+    let panelDirectories: [UUID: String]
+    let remoteConfiguration: WorkspaceRemoteConfiguration?
+    let remoteConnectionState: WorkspaceRemoteConnectionState
+    let remoteConnectionDetail: String?
+    let activeRemoteTerminalSessionCount: Int
+    let listeningPorts: [Int]
+    let browserMediaActivity: BrowserMediaActivity
+}
+
 private struct SidebarObservationState: Equatable {
     let currentDirectory: String
     let extensionSidebarProjectRootPath: String?
@@ -75,31 +87,28 @@ extension Workspace {
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
 
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
-        let workspaceFields = Publishers.CombineLatest4(
-            $title,
-            $customDescription,
-            $isPinned,
-            $customColor
-        )
-        let conversationFields = Publishers.CombineLatest3(
-            $latestConversationMessage,
-            $latestSubmittedMessage,
-            $latestSubmittedAt
-        )
-
-        return workspaceFields
-            .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
-                SidebarImmediateObservationState(
-                    title: workspaceFields.0,
-                    customDescription: workspaceFields.1,
-                    isPinned: workspaceFields.2,
-                    customColor: workspaceFields.3,
-                    latestConversationMessage: conversationFields.0,
-                    latestSubmittedMessage: conversationFields.1,
-                    latestSubmittedAt: conversationFields.2
+        observedValuesPublisher { [weak self] in
+            guard let self else {
+                return SidebarImmediateObservationState(
+                    title: "",
+                    customDescription: nil,
+                    isPinned: false,
+                    customColor: nil,
+                    latestConversationMessage: nil,
+                    latestSubmittedMessage: nil,
+                    latestSubmittedAt: nil
                 )
             }
+            return SidebarImmediateObservationState(
+                title: self.title,
+                customDescription: self.customDescription,
+                isPinned: self.isPinned,
+                customColor: self.customColor,
+                latestConversationMessage: self.latestConversationMessage,
+                latestSubmittedMessage: self.latestSubmittedMessage,
+                latestSubmittedAt: self.latestSubmittedAt
+            )
+        }
             .removeDuplicates()
             .coalesceLatest(
                 for: Self.sidebarImmediateObservationCoalesceInterval,
@@ -126,12 +135,33 @@ extension Workspace {
     }
 
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
-        let workspaceFields = Publishers.CombineLatest4(
-            $currentDirectory,
-            $extensionSidebarProjectRootPath,
-            panelsPublisher.map(SidebarPanelObservationState.init),
-            $panelDirectories
-        )
+        let workspaceFields = observedValuesPublisher { [weak self] in
+            guard let self else {
+                return SidebarWorkspaceObservationFields(
+                    currentDirectory: "",
+                    extensionSidebarProjectRootPath: nil,
+                    panelDirectories: [:],
+                    remoteConfiguration: nil,
+                    remoteConnectionState: .disconnected,
+                    remoteConnectionDetail: nil,
+                    activeRemoteTerminalSessionCount: 0,
+                    listeningPorts: [],
+                    browserMediaActivity: BrowserMediaActivity()
+                )
+            }
+            return SidebarWorkspaceObservationFields(
+                currentDirectory: self.currentDirectory,
+                extensionSidebarProjectRootPath: self.extensionSidebarProjectRootPath,
+                panelDirectories: self.panelDirectories,
+                remoteConfiguration: self.remoteConfiguration,
+                remoteConnectionState: self.remoteConnectionState,
+                remoteConnectionDetail: self.remoteConnectionDetail,
+                activeRemoteTerminalSessionCount: self.activeRemoteTerminalSessionCount,
+                listeningPorts: self.listeningPorts,
+                browserMediaActivity: self.browserMediaActivity
+            )
+        }
+        let panels = panelsPublisher.map(SidebarPanelObservationState.init)
         let metadataFields = Publishers.CombineLatest4(
             sidebarMetadata.statusEntriesPublisher,
             sidebarMetadata.metadataBlocksPublisher,
@@ -144,33 +174,27 @@ extension Workspace {
             sidebarMetadata.pullRequestPublisher,
             sidebarMetadata.panelPullRequestsPublisher
         )
-        let remoteFields = Publishers.CombineLatest4(
-            $remoteConfiguration,
-            $remoteConnectionState,
-            $remoteConnectionDetail,
-            $activeRemoteTerminalSessionCount
-        )
         let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
         return Publishers.CombineLatest4(
             workspaceFields,
+            panels,
             metadataFields,
-            gitFields,
-            remoteFields
+            gitFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest(sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
+                let (groupedFields, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
-                let metadataFields = groupedFields.1
-                let gitFields = groupedFields.2
-                let remoteFields = groupedFields.3
+                let panels = groupedFields.1
+                let metadataFields = groupedFields.2
+                let gitFields = groupedFields.3
                 return SidebarObservationState(
-                    currentDirectory: workspaceFields.0,
-                    extensionSidebarProjectRootPath: workspaceFields.1,
-                    panels: workspaceFields.2,
-                    panelDirectories: workspaceFields.3,
+                    currentDirectory: workspaceFields.currentDirectory,
+                    extensionSidebarProjectRootPath: workspaceFields.extensionSidebarProjectRootPath,
+                    panels: panels,
+                    panelDirectories: workspaceFields.panelDirectories,
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
@@ -181,12 +205,12 @@ extension Workspace {
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
                     panelPullRequests: gitFields.3,
-                    remoteConfiguration: remoteFields.0,
-                    remoteConnectionState: remoteFields.1,
-                    remoteConnectionDetail: remoteFields.2,
-                    activeRemoteTerminalSessionCount: remoteFields.3,
-                    listeningPorts: listeningPorts,
-                    browserMediaActivity: self.browserMediaActivity
+                    remoteConfiguration: workspaceFields.remoteConfiguration,
+                    remoteConnectionState: workspaceFields.remoteConnectionState,
+                    remoteConnectionDetail: workspaceFields.remoteConnectionDetail,
+                    activeRemoteTerminalSessionCount: workspaceFields.activeRemoteTerminalSessionCount,
+                    listeningPorts: workspaceFields.listeningPorts,
+                    browserMediaActivity: workspaceFields.browserMediaActivity
                 )
             }
             .removeDuplicates()

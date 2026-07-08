@@ -296,12 +296,12 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     private func observeRevealState() {
-        MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber
+        MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumberPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.syncButtons() }
             .store(in: &cancellables)
 
-        NotificationsPopoverVisibilityState.shared.$shownWindowNumbers
+        NotificationsPopoverVisibilityState.shared.shownWindowNumbersPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.syncButtons() }
             .store(in: &cancellables)

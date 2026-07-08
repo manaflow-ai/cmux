@@ -106,10 +106,10 @@ extension RightSidebarMode {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
-    @ObservedObject var tabManager: TabManager
-    @ObservedObject var fileExplorerStore: FileExplorerStore
-    @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sessionIndexStore: SessionIndexStore
+    @Bindable var tabManager: TabManager
+    @Bindable var fileExplorerStore: FileExplorerStore
+    @Bindable var fileExplorerState: FileExplorerState
+    @Bindable var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
@@ -125,7 +125,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @Bindable private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY

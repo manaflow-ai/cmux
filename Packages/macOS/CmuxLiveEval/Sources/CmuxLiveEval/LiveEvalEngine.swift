@@ -1,3 +1,4 @@
+import Observation
 import CmuxSwiftRender
 import SwiftSyntax
 import SwiftUI

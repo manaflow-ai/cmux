@@ -372,8 +372,8 @@ private struct BrowserChromeStyle {
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
-    @ObservedObject var panel: BrowserPanel
-    @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
+    @Bindable var panel: BrowserPanel
+    @Bindable private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -409,7 +409,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @Bindable private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -1221,7 +1221,7 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             handleMoveOmnibarSelection(notification)
         }
-        .onReceive(panel.historyStore.$entries) { _ in
+        .onReceive(panel.historyStore.entriesPublisher) { _ in
             handleHistoryEntriesChange()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar)) { notification in

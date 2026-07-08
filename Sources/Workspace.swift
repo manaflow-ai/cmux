@@ -1,3 +1,4 @@
+import Observation
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
@@ -1913,7 +1914,8 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject {
+@Observable
+final class Workspace: Identifiable {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -1938,20 +1940,20 @@ final class Workspace: Identifiable, ObservableObject {
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    @Published var title: String
-    @Published var customTitle: String?
+    var title: String
+    var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
     /// custom title is set. A present title with absent provenance is
     /// treated as `.user` so auto-naming never overwrites a title it
     /// cannot prove it owns.
-    @Published var customTitleSource: CustomTitleSource?
-    @Published var customDescription: String?
-    @Published var isPinned: Bool = false
+    var customTitleSource: CustomTitleSource?
+    var customDescription: String?
+    var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
-    @Published var groupId: UUID?
-    @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    var groupId: UUID?
+    var customColor: String?  // hex string, e.g. "#C0392B"
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -1961,11 +1963,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
     /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
     /// Persisted in the session manifest and restored before surfaces are rebuilt.
-    @Published var workspaceEnvironment: [String: String] = [:]
+    var workspaceEnvironment: [String: String] = [:]
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
-    @Published private(set) var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String {
+    private(set) var terminalScrollBarHidden: Bool = false
+    var currentDirectory: String {
         didSet {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1983,9 +1985,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
     }
-    @Published private(set) var extensionSidebarProjectRootPath: String?
+    private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
-    @Published private(set) var surfaceTabBarDirectory: String?
+    private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
 
@@ -2026,7 +2028,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.
-    @Published var layoutMode: WorkspaceLayoutMode = .splits
+    var layoutMode: WorkspaceLayoutMode = .splits
 
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
@@ -2059,17 +2061,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// per-surface registry annotations (tty names, shell-activity states)
     /// and the transient tab-selection/focus-reassert request state. The
     /// legacy accessors below forward here. None of the moved properties
-    /// were `@Published`, so no observer hooks are required.
+    /// were part of the old Combine-backed observed state, so no observer hooks are required.
     private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
 
     /// The split-layout sub-model (CmuxPanes): owns the split/detach
     /// choreography bookkeeping (programmatic-split flag, detaching surface
     /// ids, captured transfer payloads, detach-close transaction count). The
     /// legacy accessors below forward here. None of the moved properties
-    /// were `@Published`, so no observer hooks are required.
+    /// were part of the old Combine-backed observed state, so no observer hooks are required.
     private let splitLayout = SplitLayoutModel<DetachedSurfaceTransfer>()
 
-    /// Legacy Combine bridge for the remaining `workspace.$panels`
+    /// Legacy Combine bridge for the remaining workspace panels stream
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
     /// subscribe — the exact `Published.Publisher` semantics those call
@@ -2089,18 +2091,18 @@ final class Workspace: Identifiable, ObservableObject {
     /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
     /// order of panels changes without the panel *set* changing — i.e. a pure
     /// drag-reorder of tabs within or across panes. Membership changes already
-    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
-    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
+    /// fire `panelsPublisher`; pure reorders mutate only `bonsplitController` state, which
+    /// is not tracked by that bridge, so observers (e.g. the mobile workspace-list observer)
     /// would otherwise never learn about a reorder. We gate the bump on an actual
     /// change of `orderedPanelIds` so that divider drags and selection-only events
-    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
+    /// (which also flow through `didChangeGeometry`) do not fire workspace-wide bridge updates.
     var paneLayoutVersion: Int {
         get { paneTree.paneLayoutVersion }
         set { paneTree.paneLayoutVersion = newValue }
     }
 
     /// Subscriptions for panel updates (e.g., browser title changes)
-    var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    var panelSubscriptions: [UUID: ObservationToken] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// Aggregate media-device activity across every browser pane in this
@@ -2171,7 +2173,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
+    var panelDirectories: [UUID: String] = [:]
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -2183,20 +2185,20 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelDirectoryDisplayLabels }
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
-    @Published var panelTitles: [UUID: String] = [:]
-    @Published var panelCustomTitles: [UUID: String] = [:]
+    var panelTitles: [UUID: String] = [:]
+    var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
-    @Published var pinnedPanelIds: Set<UUID> = []
-    @Published var manualUnreadPanelIds: Set<UUID> = [] {
+    var pinnedPanelIds: Set<UUID> = []
+    var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
             guard manualUnreadPanelIds != oldValue else { return }
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    @Published private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
+    private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
         didSet {
             guard restoredUnreadPanelIndicators != oldValue else { return }
             syncPanelDerivedWorkspaceUnread()
@@ -2205,15 +2207,15 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredUnreadPanelIds: Set<UUID> {
         Set(restoredUnreadPanelIndicators.keys)
     }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
-    @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
-    @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
-    @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    private(set) var tmuxWorkspaceFlashPanelId: UUID?
+    private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
+    private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
     /// The sidebar-metadata sub-model (CmuxSidebar): owns the
     /// sidebar status entries, metadata blocks, log entries, progress, and
     /// git-branch / pull-request presentation state. The legacy accessors below
-    /// forward here. The moved properties were `@Published` and fed the sidebar
+    /// forward here. The moved properties used the old Combine-backed observation path and fed the sidebar
     /// observation publishers, so the model exposes per-field Combine publishers
     /// (`statusEntriesPublisher` etc.) that `makeSidebarObservationPublisher()`
     /// subscribes to in place of the former `$projection`s, preserving the
@@ -2229,9 +2231,9 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
     }
-    @Published private(set) var latestConversationMessage: String?
-    @Published private(set) var latestSubmittedMessage: String?
-    @Published private(set) var latestSubmittedAt: Date?
+    private(set) var latestConversationMessage: String?
+    private(set) var latestSubmittedMessage: String?
+    private(set) var latestSubmittedAt: Date?
     var logEntries: [SidebarLogEntry] {
         get { sidebarMetadata.logEntries }
         set { sidebarMetadata.logEntries = newValue }
@@ -2256,27 +2258,27 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
-    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
-    @Published var remoteConnectionDetail: String?
-    @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-    @Published var remoteDetectedPorts: [Int] = []
-    @Published var remoteForwardedPorts: [Int] = []
-    @Published var remotePortConflicts: [Int] = []
-    @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
-    @Published var remoteHeartbeatCount: Int = 0
-    @Published var remoteLastHeartbeatAt: Date?
-    @Published var listeningPorts: [Int] = []
-    @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
+    var remoteConfiguration: WorkspaceRemoteConfiguration?
+    var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
+    var remoteConnectionDetail: String?
+    var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
+    var remoteDetectedPorts: [Int] = []
+    var remoteForwardedPorts: [Int] = []
+    var remotePortConflicts: [Int] = []
+    var remoteProxyEndpoint: BrowserProxyEndpoint?
+    var remoteHeartbeatCount: Int = 0
+    var remoteLastHeartbeatAt: Date?
+    var listeningPorts: [Int] = []
+    private(set) var activeRemoteTerminalSessionCount: Int = 0
     /// The controlling-terminal device name per panel id; stored in the
     /// surface-registry sub-model.
     var surfaceTTYNames: [UUID: String] {
         get { surfaceRegistry.surfaceTTYNames }
         set { surfaceRegistry.surfaceTTYNames = newValue }
     }
-    private var remoteSessionController: RemoteSessionCoordinator?
+    @ObservationIgnored private var remoteSessionController: RemoteSessionCoordinator?
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
@@ -2353,15 +2355,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
-    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    @ObservationIgnored private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
 
     // Sidebar rows cache snapshots, so observation must begin with the current
-    // workspace state. Build state publishers from @Published current values
+    // workspace state. Build state publishers from current values
     // instead of dropping the first value and repairing timing with a Void event.
+    @ObservationIgnored
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
+    @ObservationIgnored
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
@@ -3082,20 +3086,21 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
-        // Fork Conversation availability when a background refresh lands.
+        // Forward shared agent-index refreshes so Observation-driven callers
+        // re-evaluate Fork Conversation availability when a background refresh lands.
         sharedLiveAgentIndexObserver = NotificationCenter.default.addObserver(
             forName: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.objectWillChange.send()
+                self?.sharedLiveAgentIndexRevision &+= 1
             }
         }
     }
 
-    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    private(set) var sharedLiveAgentIndexRevision: Int = 0
+    @ObservationIgnored private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -3108,7 +3113,6 @@ final class Workspace: Identifiable, ObservableObject {
         if let sharedLiveAgentIndexObserver {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
         }
-        activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
     }
 
@@ -3580,16 +3584,33 @@ final class Workspace: Identifiable, ObservableObject {
         refreshBrowserMediaActivity()
     }
 
-    private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let browserTabState = Publishers.CombineLatest4(
-            browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
-            browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
+    private struct BrowserPanelTabObservationState: Equatable {
+        let pageTitle: String
+        let currentURL: URL?
+        let isLoading: Bool
+        let faviconPNGData: Data?
+        let isMuted: Bool
+
+        static let empty = BrowserPanelTabObservationState(
+            pageTitle: "",
+            currentURL: nil,
+            isLoading: false,
+            faviconPNGData: nil,
+            isMuted: false
         )
-        let subscription = browserTabState
-        .combineLatest(browserPanel.$isMuted.removeDuplicates())
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] output in
-            let ((_, _, isLoading, favicon), isMuted) = output
+    }
+
+    private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+        let subscription = observeValue { [weak browserPanel] in
+            guard let browserPanel else { return BrowserPanelTabObservationState.empty }
+            return BrowserPanelTabObservationState(
+                pageTitle: browserPanel.pageTitle,
+                currentURL: browserPanel.currentURL,
+                isLoading: browserPanel.isLoading,
+                faviconPNGData: browserPanel.faviconPNGData,
+                isMuted: browserPanel.isMuted
+            )
+        } onChange: { [weak self, weak browserPanel] state in
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
@@ -3601,9 +3622,9 @@ final class Workspace: Identifiable, ObservableObject {
             }
             let resolvedTitle = self.resolvedPanelTitle(panelId: browserPanel.id, fallback: nextTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
-            let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
-            let mutedUpdate: Bool? = existing.isAudioMuted == isMuted ? nil : isMuted
+            let faviconUpdate: Data?? = existing.iconImageData == state.faviconPNGData ? nil : .some(state.faviconPNGData)
+            let loadingUpdate: Bool? = existing.isLoading == state.isLoading ? nil : state.isLoading
+            let mutedUpdate: Bool? = existing.isAudioMuted == state.isMuted ? nil : state.isMuted
             guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
@@ -3669,24 +3690,32 @@ final class Workspace: Identifiable, ObservableObject {
         return BrowserProfileStore.shared.effectiveLastUsedProfileID
     }
 
+    private struct MarkdownPanelTabObservationState: Equatable {
+        let displayTitle: String
+        let isDirty: Bool
+
+        static let empty = MarkdownPanelTabObservationState(displayTitle: "", isDirty: false)
+    }
+
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
-        let subscription = Publishers.CombineLatest(
-            markdownPanel.$displayTitle.removeDuplicates(),
-            markdownPanel.$isDirty.removeDuplicates()
-        )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak markdownPanel] newTitle, isDirty in
+        let subscription = observeValue { [weak markdownPanel] in
+            guard let markdownPanel else { return MarkdownPanelTabObservationState.empty }
+            return MarkdownPanelTabObservationState(
+                displayTitle: markdownPanel.displayTitle,
+                isDirty: markdownPanel.isDirty
+            )
+        } onChange: { [weak self, weak markdownPanel] state in
                 guard let self,
                       let markdownPanel,
                       let tabId = self.surfaceIdFromPanelId(markdownPanel.id) else { return }
                 guard let existing = self.bonsplitController.tab(tabId) else { return }
 
-                if self.panelTitles[markdownPanel.id] != newTitle {
-                    self.panelTitles[markdownPanel.id] = newTitle
+                if self.panelTitles[markdownPanel.id] != state.displayTitle {
+                    self.panelTitles[markdownPanel.id] = state.displayTitle
                 }
-                let resolvedTitle = self.resolvedPanelTitle(panelId: markdownPanel.id, fallback: newTitle)
+                let resolvedTitle = self.resolvedPanelTitle(panelId: markdownPanel.id, fallback: state.displayTitle)
                 let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-                let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+                let dirtyUpdate: Bool? = existing.isDirty == state.isDirty ? nil : state.isDirty
                 guard titleUpdate != nil || dirtyUpdate != nil else { return }
                 self.bonsplitController.updateTab(
                     tabId,
@@ -3698,31 +3727,40 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[markdownPanel.id] = subscription
     }
 
+    private struct FilePreviewPanelTabObservationState: Equatable {
+        let displayTitle: String
+        let isDirty: Bool
+        let displayIcon: String?
+
+        static let empty = FilePreviewPanelTabObservationState(
+            displayTitle: "",
+            isDirty: false,
+            displayIcon: nil
+        )
+    }
+
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let titleAndDirty = Publishers.CombineLatest(
-            filePreviewPanel.$displayTitle.removeDuplicates(),
-            filePreviewPanel.$isDirty.removeDuplicates()
-        )
-        let subscription = Publishers.CombineLatest(
-            titleAndDirty,
-            filePreviewPanel.$displayIcon.removeDuplicates()
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
+        let subscription = observeValue { [weak filePreviewPanel] in
+            guard let filePreviewPanel else { return FilePreviewPanelTabObservationState.empty }
+            return FilePreviewPanelTabObservationState(
+                displayTitle: filePreviewPanel.displayTitle,
+                isDirty: filePreviewPanel.isDirty,
+                displayIcon: filePreviewPanel.displayIcon
+            )
+        } onChange: { [weak self, weak filePreviewPanel] state in
             guard let self,
                   let filePreviewPanel,
                   let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
-            let (newTitle, isDirty) = titleAndDirty
             guard let existing = self.bonsplitController.tab(tabId) else { return }
 
-            if self.panelTitles[filePreviewPanel.id] != newTitle {
-                self.panelTitles[filePreviewPanel.id] = newTitle
+            if self.panelTitles[filePreviewPanel.id] != state.displayTitle {
+                self.panelTitles[filePreviewPanel.id] = state.displayTitle
             }
-            let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
-            let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
+            let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: state.displayTitle)
+            let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(state.displayIcon)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
-            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+            let dirtyUpdate: Bool? = existing.isDirty == state.isDirty ? nil : state.isDirty
             guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
@@ -5257,7 +5295,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
-        objectWillChange.send()
         if let mirror {
             remoteTmuxWindowMirrors[panelId] = mirror
         } else {
@@ -9599,7 +9636,7 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
-            panelSubscriptions.removeValue(forKey: detached.panelId)
+            panelSubscriptions.removeValue(forKey: detached.panelId)?.cancel()
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
                 agentPanel.onDisplayStateChanged = nil
@@ -11698,13 +11735,12 @@ final class Workspace: Identifiable, ObservableObject {
 
 // MARK: - BonsplitDelegate
 
-// MARK: - PaneTreeHosting (legacy @Published observer hooks)
+// MARK: - PaneTreeHosting (legacy observer hooks)
 
 extension Workspace: PaneTreeHosting {
-    /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
-    /// Combine bridge at the exact timing `@Published` used.
+    /// Legacy `panels` willSet: re-emits the Combine bridge at the
+    /// exact timing the old projection used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
-        objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),
             invalidateSidebarObservation: false
@@ -11712,9 +11748,8 @@ extension Workspace: PaneTreeHosting {
         panelsPublisher.send(newValue)
     }
 
-    /// Legacy `@Published paneLayoutVersion` willSet; same contract.
+    /// Legacy `paneLayoutVersion` willSet; same contract.
     func paneLayoutVersionWillChange(to newValue: Int) {
-        objectWillChange.send()
         paneLayoutVersionPublisher.send(newValue)
     }
 }
@@ -12026,7 +12061,7 @@ extension Workspace: BonsplitDelegate {
         pullRequest = panelPullRequests[panelId]
 
         // Broadcast the focus change. This is deferred + coalesced (not posted
-        // synchronously) so the `@Published` mutations above settle before any
+        // synchronously) so the Combine-backed state mutations above settle before any
         // observer runs, and so a notification-driven focus cycle (command-palette
         // restore + cross-workspace handoff) cannot synchronously re-enter
         // applyTabSelectionNow and hang the main thread. See issue #5100.
@@ -13217,10 +13252,10 @@ extension Workspace: BonsplitDelegate {
         )
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
+        // bonsplit's internal state, which is not part of the old Combine-backed observed state, so observers
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
+        // (also routed here) do not fire whole-object invalidation app-wide.
         surfaceList.registerGeometryChange()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {

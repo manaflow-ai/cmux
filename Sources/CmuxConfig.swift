@@ -1,3 +1,4 @@
+import Observation
 import Bonsplit
 import CmuxFoundation
 import Combine
@@ -1722,26 +1723,27 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 }
 
 @MainActor
-final class CmuxConfigStore: ObservableObject {
+@Observable
+final class CmuxConfigStore {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
     ]
 
-    @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
-    @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
-    @Published private(set) var newWorkspaceCommandName: String?
-    @Published private(set) var newWorkspaceActionID: String?
-    @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
-    @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
+    private(set) var loadedCommands: [CmuxCommandDefinition] = []
+    private(set) var loadedActions: [CmuxResolvedConfigAction] = []
+    private(set) var newWorkspaceCommandName: String?
+    private(set) var newWorkspaceActionID: String?
+    private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
     /// configured.
-    @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
-    @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
-    @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
-    @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
-    @Published private(set) var configRevision: UInt64 = 0
+    private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
+    private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
+    private(set) var configurationIssues: [CmuxConfigIssue] = []
+    private(set) var configRevision: UInt64 = 0
 
     /// Which config file each command came from, keyed by command id.
     private(set) var commandSourcePaths: [String: String] = [:]
@@ -1804,25 +1806,25 @@ final class CmuxConfigStore: ObservableObject {
         let issue: CmuxConfigIssue?
     }
 
-    private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
-    private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
-    private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
-    private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
-    private var lifetimeCancellables = Set<AnyCancellable>()
-    private var trackingCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
+    @ObservationIgnored private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
+    @ObservationIgnored private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
+    @ObservationIgnored private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    @ObservationIgnored private var lifetimeCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var trackingCancellables = Set<AnyCancellable>()
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
-    private var localFileWatchSource: DispatchSourceFileSystemObject?
-    private var localFileDescriptor: Int32 = -1
-    private var localConfigSearchDirectory: String?
-    private var hookWatchers: [String: FileWatcher] = [:]
-    private var hookWatchTasks: [String: Task<Void, Never>] = [:]
-    private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
-    private var localFallbackDirectoryDescriptor: Int32 = -1
-    private var globalWatcher: FileWatcher?
-    private var globalWatchTask: Task<Void, Never>?
-    private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
+    @ObservationIgnored private var localFileWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var localFileDescriptor: Int32 = -1
+    @ObservationIgnored private var localConfigSearchDirectory: String?
+    @ObservationIgnored private var hookWatchers: [String: FileWatcher] = [:]
+    @ObservationIgnored private var hookWatchTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var localFallbackDirectoryDescriptor: Int32 = -1
+    @ObservationIgnored private var globalWatcher: FileWatcher?
+    @ObservationIgnored private var globalWatchTask: Task<Void, Never>?
+    @ObservationIgnored private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
     private static let reattachDelay: TimeInterval = 0.5
@@ -1883,7 +1885,7 @@ final class CmuxConfigStore: ObservableObject {
             }
             .removeDuplicates(by: { $0.id == $1.id })
             .map { workspace -> AnyPublisher<String?, Never> in
-                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
+                observedValuesPublisher { [weak workspace] in workspace?.surfaceTabBarDirectory }
             }
             .switchToLatest()
             .removeDuplicates()

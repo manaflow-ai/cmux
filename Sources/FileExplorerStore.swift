@@ -1,3 +1,4 @@
+import Observation
 import CmuxFoundation
 import AppKit
 import Combine
@@ -738,14 +739,30 @@ enum FileExplorerSelectionRestoration {
 /// All access must happen on the main thread. Properties are not marked @MainActor
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
-final class FileExplorerStore: ObservableObject {
-    @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
-    @Published private(set) var isRootLoading: Bool = false
-    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
-    @Published private(set) var contentRevision = 0
-    @Published private(set) var rootStatusMessage: String?
-    private(set) var workspaceRootIdentity: UUID?
+@Observable
+final class FileExplorerStore {
+    var rootPath: String = "" {
+        didSet { signalChange() }
+    }
+    var rootNodes: [FileExplorerNode] = [] {
+        didSet { signalChange() }
+    }
+    private(set) var isRootLoading: Bool = false {
+        didSet { signalChange() }
+    }
+    private(set) var gitStatusByPath: [String: GitFileStatus] = [:] {
+        didSet { signalChange() }
+    }
+    private(set) var contentRevision = 0 {
+        didSet { signalChange() }
+    }
+    private(set) var rootStatusMessage: String? {
+        didSet { signalChange() }
+    }
+    private(set) var workspaceRootIdentity: UUID? {
+        didSet { signalChange() }
+    }
+    let storeDidChange = PassthroughSubject<Void, Never>()
 
     var provider: FileExplorerProvider?
 
@@ -758,19 +775,27 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
-    private(set) var expandedPaths: Set<String> = []
+    private(set) var expandedPaths: Set<String> = [] {
+        didSet { signalChange() }
+    }
 
     /// Stable navigation selection. The outline view mirrors this path after reloads.
-    private(set) var selectedPath: String?
+    private(set) var selectedPath: String? {
+        didSet { signalChange() }
+    }
 
     /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
-    private(set) var selectedPaths: Set<String> = []
+    private(set) var selectedPaths: Set<String> = [] {
+        didSet { signalChange() }
+    }
 
     /// Folder path whose first child should be selected once its async load completes.
     private var pendingDescendIntoFirstChildPath: String?
 
     /// Paths currently being loaded
-    private(set) var loadingPaths: Set<String> = []
+    private(set) var loadingPaths: Set<String> = [] {
+        didSet { signalChange() }
+    }
 
     /// In-flight load tasks keyed by path
     private var loadTasks: [String: Task<Void, Never>] = [:]
@@ -830,7 +855,15 @@ final class FileExplorerStore: ObservableObject {
             )
         }
     }
-    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; objectWillChange.send(); workspaceRootIdentity = identity }
+    private func signalChange() {
+        storeDidChange.send()
+    }
+
+    private func setWorkspaceRootIdentity(_ identity: UUID?) {
+        guard workspaceRootIdentity != identity else { return }
+        workspaceRootIdentity = identity
+        signalChange()
+    }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -968,7 +1001,7 @@ final class FileExplorerStore: ObservableObject {
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
-            objectWillChange.send()
+            signalChange()
             let nodePath = node.path
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -983,7 +1016,7 @@ final class FileExplorerStore: ObservableObject {
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        objectWillChange.send()
+        signalChange()
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
@@ -1060,7 +1093,7 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
-            objectWillChange.send()
+            signalChange()
         }
 
         do {
@@ -1096,12 +1129,12 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
+            signalChange()
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                objectWillChange.send()
+                signalChange()
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
@@ -1120,7 +1153,7 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                objectWillChange.send()
+                signalChange()
             }
         }
     }

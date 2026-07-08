@@ -8735,13 +8735,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
+            .environment(tabManager)
+            .environment(notificationStore)
+            .environment(notificationStore.sidebarUnread)
+            .environment(sidebarState)
+            .environment(sidebarSelectionState)
+            .environment(fileExplorerState)
+            .environment(cmuxConfigStore)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it

@@ -34,7 +34,7 @@ final class DockSplitStore: BonsplitDelegate {
     // Internal so cross-container transfers can move live panels without tearing them down.
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
-    var panelCancellables: [UUID: AnyCancellable] = [:]
+    var panelCancellables: [UUID: ObservationToken] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
@@ -569,16 +569,37 @@ final class DockSplitStore: BonsplitDelegate {
 
     // MARK: - Tab metadata subscriptions
 
+    private struct DockBrowserTabObservationState: Equatable {
+        let pageTitle: String
+        let isLoading: Bool
+        let faviconPNGData: Data?
+        let isMuted: Bool
+
+        static let empty = DockBrowserTabObservationState(
+            pageTitle: "",
+            isLoading: false,
+            faviconPNGData: nil,
+            isMuted: false
+        )
+    }
+
+    private struct DockTerminalTabObservationState: Equatable {
+        let title: String
+
+        static let empty = DockTerminalTabObservationState(title: "")
+    }
+
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
-            let cancellable = Publishers.CombineLatest4(
-                browser.$pageTitle.removeDuplicates(),
-                browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$isMuted.removeDuplicates()
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak browser] _ in
+            let cancellable = observeValue { [weak browser] in
+                guard let browser else { return DockBrowserTabObservationState.empty }
+                return DockBrowserTabObservationState(
+                    pageTitle: browser.pageTitle,
+                    isLoading: browser.isLoading,
+                    faviconPNGData: browser.faviconPNGData,
+                    isMuted: browser.isMuted
+                )
+            } onChange: { [weak self, weak browser] _ in
                 guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
                       let existing = self.bonsplitController.tab(tabId) else { return }
                 // Only push fields that actually changed. CombineLatest4 fires on
@@ -604,10 +625,10 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
-            let cancellable = terminal.$title
-                .removeDuplicates()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak terminal] _ in
+            let cancellable = observeValue { [weak terminal] in
+                guard let terminal else { return DockTerminalTabObservationState.empty }
+                return DockTerminalTabObservationState(title: terminal.title)
+            } onChange: { [weak self, weak terminal] _ in
                     guard let self, let terminal, let tabId = self.surfaceId(forPanelId: terminal.id),
                           let existing = self.bonsplitController.tab(tabId) else { return }
                     // Skip the @Observable mutation when the resolved title is

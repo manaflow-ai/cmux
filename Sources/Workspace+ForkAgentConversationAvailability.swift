@@ -4,6 +4,7 @@ extension Workspace {
     func forkAgentConversationContextMenuAvailability(
         forPanelId panelId: UUID
     ) -> WorkspaceForkAgentConversationAvailability {
+        _ = sharedLiveAgentIndexRevision
         guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
         guard let snapshot = forkAgentConversationContextMenuCandidateSnapshot(forPanelId: panelId) else {
             return .noAgentSnapshot
@@ -24,6 +25,7 @@ extension Workspace {
     func forkAgentConversationContextMenuOpenAvailability(
         forPanelId panelId: UUID
     ) -> WorkspaceForkAgentConversationAvailability {
+        _ = sharedLiveAgentIndexRevision
         guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
         if restoredAgentSnapshotsByPanelId[panelId] == nil {
             guard SharedLiveAgentIndex.shared.prepareForkAvailabilityProbe(

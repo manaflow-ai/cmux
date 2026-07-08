@@ -10,7 +10,7 @@ import SwiftUI
 /// Resolved column is computed locally as the first non-empty value in the
 /// stack (target → project → empty). The cell whose value won is marked.
 struct ProjectBuildSettingsTabView: View {
-    @ObservedObject var panel: ProjectPanel
+    @Bindable var panel: ProjectPanel
     let model: ProjectModel
 
     var body: some View {

@@ -10,7 +10,7 @@ import Testing
 /// Regression coverage for the focus-broadcast re-entrancy hang (issue #5100).
 ///
 /// Production symptom: `Workspace.applyTabSelectionNow` posted
-/// `.ghosttyDidFocusSurface` *synchronously* while `@Published` selection state was
+/// `.ghosttyDidFocusSurface` *synchronously* while Combine-backed selection state was
 /// mid-mutation. The Combine `.onReceive` subscriber in `ContentView` received it on
 /// the posting thread and synchronously re-entered the focus path
 /// (`attemptCommandPaletteFocusRestoreIfNeeded` → `TabManager.focusTab` →
@@ -70,7 +70,7 @@ struct FocusSurfaceBroadcasterTests {
         broadcaster.emit(only)
 
         // The whole point: nothing is delivered on the emit() call itself, so a
-        // caller mutating @Published state is fully settled before observers run.
+        // caller mutating state is fully settled before observers run.
         #expect(delivered.isEmpty)
         #expect(scheduler.count == 1)
 

@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Darwin
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,8 +12,8 @@ import Testing
 #endif
 
 @MainActor
+@Observable
 private final class DockTransferTestPanel: Panel {
-    let objectWillChange = ObservableObjectPublisher()
     let id: UUID
     let panelType: PanelType
     var displayTitle: String

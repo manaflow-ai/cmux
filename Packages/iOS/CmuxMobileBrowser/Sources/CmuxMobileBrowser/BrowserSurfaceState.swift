@@ -10,9 +10,9 @@ import Observation
 /// `isLoading`/`estimatedProgress`, and a pending ``loadRequest`` tells the
 /// representable what URL to load next.
 ///
-/// It is `@MainActor @Observable` (not `ObservableObject`/`@Published`), so
-/// SwiftUI tracks individual property reads and the `WKWebView` coordinator can
-/// mutate it directly on the main actor.
+/// It is `@MainActor @Observable` rather than the older Combine-backed object
+/// model, so SwiftUI tracks individual property reads and the `WKWebView`
+/// coordinator can mutate it directly on the main actor.
 @MainActor
 @Observable
 public final class BrowserSurfaceState: Identifiable {

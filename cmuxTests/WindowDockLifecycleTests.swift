@@ -1,3 +1,4 @@
+import Observation
 import AppKit
 import Bonsplit
 import Combine
@@ -11,7 +12,8 @@ import Testing
 #endif
 
 @MainActor
-private final class WindowDockTestPanel: Panel, ObservableObject {
+@Observable
+private final class WindowDockTestPanel: Panel {
     let id = UUID()
     let panelType: PanelType = .terminal
     let displayTitle = "Test Dock Panel"

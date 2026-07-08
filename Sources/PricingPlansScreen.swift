@@ -1,3 +1,4 @@
+import Observation
 import AppKit
 import Bonsplit
 import Foundation
@@ -195,7 +196,8 @@ private struct NativePricingSnapshot: Equatable {
 }
 
 @MainActor
-private final class NativePricingPlanStore: ObservableObject {
+@Observable
+private final class NativePricingPlanStore {
     enum LoadState: Equatable {
         case idle
         case loading
@@ -203,9 +205,9 @@ private final class NativePricingPlanStore: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var state: LoadState = .idle
+    private(set) var state: LoadState = .idle
 
-    private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
     private var activeRequestID: UUID?
 
     deinit {
@@ -265,7 +267,7 @@ private final class NativePricingPlanStore: ObservableObject {
 }
 
 private struct NativePricingPlansView: View {
-    @StateObject private var store = NativePricingPlanStore()
+    @State private var store = NativePricingPlanStore()
 
     var body: some View {
         ScrollView([.vertical, .horizontal]) {

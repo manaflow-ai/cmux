@@ -2144,7 +2144,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         var observedStates: [BrowserWebViewLifecycleState] = []
         var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
+        cancellable = observedValuesPublisher { panel.webViewLifecycleState }.sink { state in
             observedStates.append(state)
         }
         defer { cancellable?.cancel() }
@@ -2188,7 +2188,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         var observedStates: [BrowserWebViewLifecycleState] = []
         var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.dropFirst().sink { state in
+        cancellable = observedValuesPublisher { panel.webViewLifecycleState }.dropFirst().sink { state in
             observedStates.append(state)
         }
         defer { cancellable?.cancel() }
@@ -2238,7 +2238,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         var observedStates: [BrowserWebViewLifecycleState] = []
         var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
+        cancellable = observedValuesPublisher { panel.webViewLifecycleState }.sink { state in
             observedStates.append(state)
         }
         defer { cancellable?.cancel() }

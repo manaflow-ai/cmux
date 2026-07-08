@@ -699,7 +699,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let didAutoReload = expectation(description: "cmux.json should not hot reload")
         didAutoReload.isInverted = true
         var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
+        cancellable = observedValuesPublisher { store.loadedActions }.dropFirst().sink { actions in
             if actions.contains(where: { $0.id == "second" }) {
                 didAutoReload.fulfill()
             }
@@ -803,7 +803,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let loaded = expectation(description: "created local cmux config is loaded")
         loaded.assertForOverFulfill = false
         var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
+        cancellable = observedValuesPublisher { store.loadedActions }.dropFirst().sink { actions in
             if actions.contains(where: { $0.id == "created" }) {
                 loaded.fulfill()
             }
@@ -851,7 +851,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let loaded = expectation(description: "created legacy cmux config is loaded")
         loaded.assertForOverFulfill = false
         var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
+        cancellable = observedValuesPublisher { store.loadedActions }.dropFirst().sink { actions in
             if actions.contains(where: { $0.id == "legacy-created" }) {
                 loaded.fulfill()
             }

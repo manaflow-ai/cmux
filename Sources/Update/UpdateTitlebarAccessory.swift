@@ -1,3 +1,4 @@
+import Observation
 import AppKit
 import Bonsplit
 import Combine
@@ -155,7 +156,8 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
     1
 }
 
-final class TitlebarControlsViewModel: ObservableObject {
+@Observable
+final class TitlebarControlsViewModel {
     weak var notificationsAnchorView: NSView?
 }
 
@@ -235,11 +237,15 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let windowNumber = "windowNumber"
 }
 
-final class NotificationsPopoverVisibilityState: ObservableObject {
+@MainActor
+@Observable
+final class NotificationsPopoverVisibilityState {
     static let shared = NotificationsPopoverVisibilityState()
 
-    @Published private(set) var isShown = false
-    @Published private(set) var shownWindowNumbers: Set<Int> = []
+    private(set) var isShown = false
+    private(set) var shownWindowNumbers: Set<Int> = []
+    @ObservationIgnored lazy var shownWindowNumbersPublisher: AnyPublisher<Set<Int>, Never> =
+        observedValuesPublisher { [weak self] in self?.shownWindowNumbers ?? [] }
     private var shownPopoverIDs: Set<ObjectIdentifier> = []
     private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
     private var sourceLessShown = false
@@ -305,6 +311,7 @@ final class NotificationsPopoverVisibilityState: ObservableObject {
     #endif
 }
 
+@MainActor
 private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, source: AnyObject? = nil, windowNumber: Int? = nil) {
     let state = NotificationsPopoverVisibilityState.shared
     state.setShown(isShown, source: source, windowNumber: windowNumber)
@@ -870,15 +877,15 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 struct TitlebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject var viewModel: TitlebarControlsViewModel
+    @Bindable var notificationStore: TerminalNotificationStore
+    @Bindable var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    @Bindable private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
@@ -1385,14 +1392,14 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
 }
 
 struct HiddenTitlebarSidebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    @Bindable var notificationStore: TerminalNotificationStore
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
-    @StateObject private var viewModel = TitlebarControlsViewModel()
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    @State private var viewModel = TitlebarControlsViewModel()
+    @Bindable private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
@@ -1511,7 +1518,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             alignment: .leading
         )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
-        .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
+        .onReceive(MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumberPublisher) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -2140,8 +2147,8 @@ private enum NotificationsPopoverMetrics {
 }
 
 private struct NotificationsPopoverView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @Bindable var notificationStore: TerminalNotificationStore
+    @Bindable private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
 
     @AppStorage("cmux.notifications.popover.width")
@@ -2326,7 +2333,7 @@ private struct NotificationsPopoverView: View {
             )
         } else {
             // Snapshot the notifications array as an immutable value before the LazyVStack
-            // so the row closures don't reach back into the ObservableObject. Reading the
+            // so the row closures don't reach back into the older Combine-backed model. Reading the
             // store from inside the ForEach builder reintroduces a store dependency below
             // the list boundary, which is the same anti-pattern CLAUDE.md flags for the
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).

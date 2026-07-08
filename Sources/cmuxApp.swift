@@ -51,11 +51,11 @@ struct cmuxApp: App {
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
 
-    @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
-    @StateObject private var sidebarState = SidebarState()
-    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var tabManager: TabManager
+    @State private var notificationStore = TerminalNotificationStore.shared
+    @State var closedItemHistoryStore = ClosedItemHistoryStore.shared
+    @State private var sidebarState = SidebarState()
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyle = TitlebarControlsStyle.defaultRawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
@@ -63,7 +63,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
-    @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
+    @State var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -190,7 +190,7 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager())
+        _tabManager = State(initialValue: TabManager())
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {

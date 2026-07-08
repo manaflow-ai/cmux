@@ -285,7 +285,9 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
         waiter.addObserver(hostedViewObserver)
 
-        let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
+        let pendingObserver = observedValuesPublisher { [weak tabManager] in
+            tabManager?.pendingBackgroundWorkspaceLoadIds ?? []
+        }
             .dropFirst()
             .sink { [weak self, weak waiter, weak tabManager] pendingIds in
                 guard !pendingIds.contains(workspaceId),

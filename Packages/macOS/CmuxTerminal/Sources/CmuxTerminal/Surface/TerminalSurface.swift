@@ -1,3 +1,4 @@
+import Observation
 public import AppKit
 public import Combine
 public import Foundation
@@ -22,17 +23,28 @@ internal import CMUXDebugLog
 /// stored properties are unannotated (the class itself is not `Sendable`, so
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
-public final class TerminalSurface: Identifiable, ObservableObject {
+@Observable
+public final class TerminalSurface: Identifiable {
     /// The live find-in-terminal session state for one surface.
-    public final class SearchState: ObservableObject {
+    @MainActor
+    @Observable
+    public final class SearchState {
         /// The current search needle.
-        @Published public var needle: String
+        public var needle: String {
+            didSet {
+                guard needle != oldValue else { return }
+                onNeedleChanged?(needle)
+            }
+        }
 
         /// The 1-based index of the selected match, if known.
-        @Published public var selected: UInt?
+        public var selected: UInt?
 
         /// The total number of matches, if known.
-        @Published public var total: UInt?
+        public var total: UInt?
+
+        @ObservationIgnored
+        var onNeedleChanged: (@MainActor (String) -> Void)?
 
         /// Creates search state with an initial needle.
         public init(needle: String = "") {
@@ -278,34 +290,22 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Main-actor isolated: the observer cancels pane focus requests on the
     /// hosted view (the legacy didSet always ran on the main thread).
     @MainActor
-    @Published public var searchState: SearchState? = nil {
+    public var searchState: SearchState? = nil {
 	        didSet {
+            oldValue?.onNeedleChanged = nil
 	            if let searchState {
 	                paneHost.cancelFocusRequest()
 #if DEBUG
                 logDebugEvent("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                searchNeedleCancellable = searchState.$needle
-                    .removeDuplicates()
-                    .map { needle -> AnyPublisher<String, Never> in
-                        if needle.isEmpty || needle.count >= 3 {
-                            return Just(needle).eraseToAnyPublisher()
-                        }
-
-                        return Just(needle)
-                            .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
-                            .eraseToAnyPublisher()
-                    }
-                    .switchToLatest()
-                    .sink { [weak self] needle in
-#if DEBUG
-                        logDebugEvent("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
-#endif
-                        _ = self?.performBindingAction("search:\(needle)")
-                    }
+                searchState.onNeedleChanged = { [weak self] needle in
+                    self?.scheduleSearchNeedle(needle)
+                }
+                scheduleSearchNeedle(searchState.needle)
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
-                searchNeedleCancellable = nil
+                searchNeedleTask?.cancel()
+                searchNeedleTask = nil
 #if DEBUG
                 logDebugEvent("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
@@ -315,11 +315,40 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Whether keyboard copy mode is active (mirrors the surface view).
-    @Published public internal(set) var keyboardCopyModeActive: Bool = false
+    public internal(set) var keyboardCopyModeActive: Bool = false
 
     /// The needle from the most recently closed find session.
     public private(set) var lastSearchNeedle = ""
-    var searchNeedleCancellable: AnyCancellable?
+    var searchNeedleTask: Task<Void, Never>?
+
+    @MainActor
+    private func scheduleSearchNeedle(_ needle: String) {
+        searchNeedleTask?.cancel()
+        searchNeedleTask = nil
+        guard !needle.isEmpty, needle.count < 3 else {
+            fireSearchNeedle(needle)
+            return
+        }
+
+        searchNeedleTask = Task { @MainActor [weak self] in
+            do {
+                // Intentional bounded debounce for short terminal-find needles; cancelled on every edit/close.
+                try await Task.sleep(for: .milliseconds(300))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.fireSearchNeedle(needle)
+        }
+    }
+
+    @MainActor
+    private func fireSearchNeedle(_ needle: String) {
+#if DEBUG
+        logDebugEvent("find.needle updated tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5)) chars=\(needle.count)")
+#endif
+        _ = performBindingAction("search:\(needle)")
+    }
 
     /// The key-state indicator text currently shown for the surface view.
     @MainActor

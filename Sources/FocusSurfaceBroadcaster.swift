@@ -5,7 +5,7 @@ import Foundation
 ///
 /// ## Why this exists
 ///
-/// `Workspace.applyTabSelectionNow` mutates a large amount of `@Published` selection
+/// `Workspace.applyTabSelectionNow` mutates a large amount of Combine-backed selection
 /// state and, historically, finished by posting `.ghosttyDidFocusSurface`
 /// *synchronously*. The Combine `.onReceive` subscriber in `ContentView` delivers
 /// that notification synchronously on the posting thread and reacts by calling back
@@ -19,7 +19,7 @@ import Foundation
 /// ## Contract
 ///
 /// - ``emit(_:)`` never delivers synchronously. It records the latest payload and
-///   schedules a single flush on the main queue, so all `@Published` mutations made
+///   schedules a single flush on the main queue, so all Combine-backed state mutations made
 ///   by the caller settle before any observer runs.
 /// - Multiple emits before a flush coalesce to the most recent payload.
 /// - If an observer synchronously emits again during delivery, that emit updates the
@@ -118,7 +118,7 @@ final class FocusSurfaceBroadcaster {
     /// Records a focus broadcast for asynchronous, coalesced delivery.
     ///
     /// Never delivers synchronously: this is what makes emitting safe while
-    /// `@Published` selection state is mid-mutation. If a delivery is already in
+    /// Combine-backed selection state is mid-mutation. If a delivery is already in
     /// progress (an observer re-entered during a flush), the payload is recorded for
     /// the active drain loop instead of scheduling another flush.
     func emit(_ payload: FocusSurfacePayload) {

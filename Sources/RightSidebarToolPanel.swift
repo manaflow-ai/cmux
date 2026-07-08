@@ -1,14 +1,38 @@
+import Observation
 import AppKit
 import Combine
+import CmuxCore
+import CmuxRemoteWorkspace
 import SwiftUI
 
 @MainActor
-final class RightSidebarToolPanel: Panel, ObservableObject {
+@Observable
+final class RightSidebarToolPanel: Panel {
+    private struct WorkspaceRootObservationState: Equatable {
+        let currentDirectory: String
+        let panelDirectories: [UUID: String]
+        let activeRemoteTerminalSessionCount: Int
+        let remoteConfiguration: WorkspaceRemoteConfiguration?
+        let remoteConnectionState: WorkspaceRemoteConnectionState
+        let remoteConnectionDetail: String?
+        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus
+
+        static let empty = WorkspaceRootObservationState(
+            currentDirectory: "",
+            panelDirectories: [:],
+            activeRemoteTerminalSessionCount: 0,
+            remoteConfiguration: nil,
+            remoteConnectionState: .disconnected,
+            remoteConnectionDetail: nil,
+            remoteDaemonStatus: WorkspaceRemoteDaemonStatus()
+        )
+    }
+
     let id: UUID
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
@@ -16,7 +40,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
-    private var workspaceObservationCancellable: AnyCancellable?
+    private var workspaceObservationToken: ObservationToken?
+    private var workspaceDirectoryRevisionCancellable: AnyCancellable?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
@@ -126,7 +151,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
-        workspaceObservationCancellable = nil
+        workspaceObservationToken?.cancel()
+        workspaceObservationToken = nil
+        workspaceDirectoryRevisionCancellable?.cancel()
+        workspaceDirectoryRevisionCancellable = nil
     }
 
     func focus() {
@@ -167,24 +195,28 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
-        workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
-            workspace.currentDirectoryChangeRevisionPublisher()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
-        )
-        .sink { [weak self, weak workspace] _ in
-            Task { @MainActor in
+        workspaceObservationToken?.cancel()
+        workspaceDirectoryRevisionCancellable?.cancel()
+        workspaceObservationToken = observeValue { [weak workspace] in
+            guard let workspace else { return WorkspaceRootObservationState.empty }
+            return WorkspaceRootObservationState(
+                currentDirectory: workspace.currentDirectory,
+                panelDirectories: workspace.panelDirectories,
+                activeRemoteTerminalSessionCount: workspace.activeRemoteTerminalSessionCount,
+                remoteConfiguration: workspace.remoteConfiguration,
+                remoteConnectionState: workspace.remoteConnectionState,
+                remoteConnectionDetail: workspace.remoteConnectionDetail,
+                remoteDaemonStatus: workspace.remoteDaemonStatus
+            )
+        } onChange: { [weak self, weak workspace] _ in
+            guard let self, let workspace else { return }
+            self.syncWorkspaceRoot(from: workspace)
+        }
+        workspaceDirectoryRevisionCancellable = workspace.currentDirectoryChangeRevisionPublisher()
+            .sink { [weak self, weak workspace] _ in
                 guard let self, let workspace else { return }
                 self.syncWorkspaceRoot(from: workspace)
             }
-        }
     }
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
@@ -236,8 +268,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 }
 
 struct RightSidebarToolPanelView: View {
-    @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
+    @Bindable var panel: RightSidebarToolPanel
+    @Environment(TabManager.self) private var tabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance

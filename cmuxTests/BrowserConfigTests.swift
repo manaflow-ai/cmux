@@ -16,6 +16,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
+import Observation
 import Bonsplit
 import UserNotifications
 import Network
@@ -3827,18 +3828,19 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         panel.syncDeveloperToolsPreferenceFromInspector()
         waitForDeveloperToolsTransitions()
 
-        var publishCount = 0
-        let cancellable = panel.objectWillChange.sink {
-            publishCount += 1
+        let changeFlag = BrowserObservationChangeFlag()
+        withObservationTracking {
+            _ = panel.isDeveloperToolsVisible()
+        } onChange: {
+            changeFlag.mark()
         }
-        defer { _ = cancellable }
 
         panel.syncDeveloperToolsPreferenceFromInspector()
 
         XCTAssertEqual(
-            publishCount,
-            0,
-            "Repeated hidden-inspector syncs should not republish the same hidden DevTools intent"
+            changeFlag.fired,
+            false,
+            "Repeated hidden-inspector syncs should not invalidate the same hidden DevTools intent"
         )
     }
 
@@ -5569,5 +5571,13 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
                 nextResponderIsOtherTextField: false
             )
         )
+    }
+}
+
+private final class BrowserObservationChangeFlag: @unchecked Sendable {
+    private(set) var fired = false
+
+    func mark() {
+        fired = true
     }
 }

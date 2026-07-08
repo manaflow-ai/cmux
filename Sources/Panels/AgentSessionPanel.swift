@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
+import Observation
 
 @MainActor
+@Observable
 final class AgentSessionPanel: Panel {
     let id: UUID
     let panelType: PanelType = .agentSession

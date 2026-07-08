@@ -1,3 +1,4 @@
+import Observation
 import CmuxFoundation
 import AppKit
 import Bonsplit
@@ -49,11 +50,11 @@ enum SessionEntryResumeCoordinator {
 }
 
 struct SessionIndexView: View {
-    @ObservedObject var store: SessionIndexStore
+    @Bindable var store: SessionIndexStore
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
-    @StateObject private var dragCoordinator = SessionDragCoordinator()
+    @State private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Section whose "Show more" popover is currently open.
@@ -324,7 +325,7 @@ typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySn
 /// Callback bundle handed to `IndexSectionView` in place of a store reference.
 /// Every capability the row needs is expressed as a closure so no child view
 /// below the snapshot boundary can subscribe to broad store updates;
-/// a future `@ObservedObject var store` on a row becomes a type error rather
+/// a future `@Bindable var store` on a row becomes a type error rather
 /// than a silent 100% CPU regression.
 struct IndexSectionActions {
     let onBeginDrag: @MainActor () -> Void
@@ -486,7 +487,7 @@ private struct SectionReorderGap: View, Equatable {
     /// the gap from reading drag state itself.
     let isValidDrop: Bool
     /// Closure bundle — the gap never sees `SessionIndexStore` or
-    /// `SessionDragCoordinator` directly, so it cannot `@ObservedObject` them.
+    /// `SessionDragCoordinator` directly, so it cannot `@Bindable` them.
     let actions: SectionGapActions
     @State private var isDropTarget: Bool = false
 
@@ -722,7 +723,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 private struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    @Bindable var sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -874,8 +875,9 @@ private enum SessionTranscriptPreviewLayout {
     }
 }
 
-private final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
+@Observable
+private final class SessionTranscriptPopoverSizeModel {
+    var size: CGSize
 
     init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
         self.size = size

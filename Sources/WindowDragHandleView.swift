@@ -1,5 +1,7 @@
+import Observation
 import AppKit
 import Bonsplit
+import Combine
 import CmuxTestSupport
 import SwiftUI
 
@@ -878,10 +880,14 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     }
 }
 
-final class MinimalModeSidebarChromeHoverState: ObservableObject {
+@MainActor
+@Observable
+final class MinimalModeSidebarChromeHoverState {
     static let shared = MinimalModeSidebarChromeHoverState()
 
-    @Published private(set) var hoveredWindowNumber: Int?
+    private(set) var hoveredWindowNumber: Int?
+    @ObservationIgnored lazy var hoveredWindowNumberPublisher: AnyPublisher<Int?, Never> =
+        observedValuesPublisher { [weak self] in self?.hoveredWindowNumber }
 
     private init() {}
 

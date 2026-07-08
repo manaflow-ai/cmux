@@ -87,7 +87,7 @@ struct MobileWorkspaceListFidelityTests {
         #expect(afterOrder != ordered, "reorder should change the ordered sequence")
 
         // The reorder must wake the observer (bonsplit selection state is not
-        // @Published, so paneLayoutVersion is the only signal).
+        // old Combine-backed observed state, so paneLayoutVersion is the only signal).
         #expect(
             workspace.paneLayoutVersion > versionBefore,
             "a pure reorder must bump paneLayoutVersion so the observer re-evaluates"

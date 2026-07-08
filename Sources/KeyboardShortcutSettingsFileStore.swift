@@ -1,3 +1,4 @@
+import Observation
 import Combine
 import CmuxFoundation
 import CmuxSettings
@@ -7,10 +8,11 @@ import os
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
+@Observable
+final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
 
     private var settingsCancellable: AnyCancellable?
     private var recorderCancellable: AnyCancellable?

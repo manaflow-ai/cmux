@@ -8,7 +8,7 @@ import Observation
 /// `UserDefaults` and the injected ``BrowserProfileHistoryProviding``,
 /// ``BrowserProfileWebsiteDataStoreProviding``, and ``BrowserProfileFileRemoving``
 /// seams so the WebKit, filesystem, and bundle dependencies stay in the app
-/// target. The app's `BrowserProfileStore` is a thin `ObservableObject` facade
+/// target. The app's `BrowserProfileStore` is a thin older Combine-backed facade
 /// over this repository.
 ///
 /// `@MainActor` because it seeds synchronously in `init` and is consumed by the

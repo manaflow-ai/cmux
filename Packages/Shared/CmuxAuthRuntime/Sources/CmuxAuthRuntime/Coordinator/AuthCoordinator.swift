@@ -10,7 +10,7 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 /// Owns the observable session state (``isAuthenticated`` / ``currentUser`` /
 /// ``isLoading`` / ``isRestoringSession``) and sequences every sign-in flow plus
 /// session restore/validation. Replaces the iOS `AuthManager.shared` singleton
-/// (and is intended to replace the macOS `ObservableObject` AuthManager too).
+/// (and is intended to replace the older macOS Combine-backed AuthManager too).
 ///
 /// Construct it once at the app composition root with an injected
 /// ``AuthClient``, persistence stores, presentation anchor, config, and launch

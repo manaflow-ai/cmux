@@ -12,7 +12,7 @@ public import WebKit
 ///
 /// Loading progress and navigation flags come from `NSKeyValueObservation` on
 /// the web view plus `WKNavigationDelegate` callbacks rather than Combine, to
-/// fit the `@Observable` model and avoid `ObservableObject`.
+/// fit the `@Observable` model and avoid the older Combine-backed object model.
 public struct MobileBrowserView: UIViewRepresentable {
     /// The state this view drives and reflects.
     public let state: BrowserSurfaceState

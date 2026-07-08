@@ -11,9 +11,9 @@ import Observation
 ///
 /// State transitions funnel through ``setState(_:)`` / ``setOverrideState(_:)`` (and the
 /// higher-level mutators), which both apply the change and emit on the ``stateChanges()``
-/// stream. ``UpdateController`` consumes that stream to drive force-install, attempt-update,
-/// and the auto-dismiss of a "no updates" result — replacing the previous Combine
-/// `@Published` subscriptions.
+/// stream. ``UpdateController`` consumes that stream to drive force-install,
+/// attempt-update, and the auto-dismiss of a "no updates" result, replacing
+/// the previous Combine state subscriptions.
 ///
 /// All access is main-actor isolated; ``UpdateState`` values never cross an actor boundary, so
 /// the non-`Sendable` callbacks they carry are safe.
@@ -62,7 +62,7 @@ public final class UpdateStateModel {
     /// re-reading the latest ``state`` — reading only the latest silently conflates
     /// back-to-back transitions (two states landing before the consumer's task runs), which is
     /// how a control-flow consumer can miss the `.checking` restart signal entirely. This is
-    /// the `@Observable`-native replacement for observing `@Published var state`.
+    /// the `@Observable`-native replacement for observing `var state`.
     public func stateChanges() -> AsyncStream<Void> {
         AsyncStream { continuation in
             let id = UUID()

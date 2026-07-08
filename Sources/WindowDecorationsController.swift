@@ -141,6 +141,7 @@ final class WindowDecorationsController {
         }
     }
 
+    @MainActor
     func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
         guard event.type == .leftMouseDown else { return false }
         return handleMinimalModeSidebarChromeMouseDown(
@@ -161,6 +162,7 @@ final class WindowDecorationsController {
         )
     }
 
+    @MainActor
     private func handleMinimalModeSidebarChromeMouseDown(
         window: NSWindow,
         locationInWindow: NSPoint,

@@ -35,8 +35,8 @@ enum FileExplorerPanelPlacement: Equatable {
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
-    @ObservedObject var store: FileExplorerStore
-    @ObservedObject var state: FileExplorerState
+    @Bindable var store: FileExplorerStore
+    @Bindable var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
@@ -158,7 +158,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func observeStore() {
-            observationCancellable = store.objectWillChange
+            observationCancellable = store.storeDidChange
                 .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
                 .sink { [weak self] _ in
                     Task { @MainActor [weak self] in

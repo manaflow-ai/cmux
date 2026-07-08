@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
+import Observation
 import Bonsplit
 import CmuxPanes
 import CmuxSettings
@@ -2966,8 +2967,8 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
+    @Observable
     private final class DetachedWorkspaceTestPanel: Panel {
-        let objectWillChange = ObservableObjectPublisher()
         let id: UUID
         let panelType: PanelType = .terminal
         let displayTitle = "Detached"
@@ -5355,6 +5356,14 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
     }
 }
 
+// Mutable flag captured by Observation's Sendable onChange closure in these tests.
+private final class WorkspaceUnitObservationChangeFlag: @unchecked Sendable {
+    private(set) var fired = false
+
+    func mark() {
+        fired = true
+    }
+}
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
@@ -6566,26 +6575,35 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
-            publishCount += 1
+        let firstChangeFlag = WorkspaceUnitObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.panelGitBranches
+            _ = workspace.gitBranch
+        } onChange: {
+            firstChangeFlag.mark()
         }
-        defer { cancellable.cancel() }
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        let baselinePublishCount = publishCount
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
-        XCTAssertGreaterThan(
-            baselinePublishCount,
-            0,
+        XCTAssertTrue(
+            firstChangeFlag.fired,
             "Expected the first focused branch update to publish workspace changes"
         )
 
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        let identicalChangeFlag = WorkspaceUnitObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.panelGitBranches
+            _ = workspace.gitBranch
+        } onChange: {
+            identicalChangeFlag.mark()
+        }
 
-        XCTAssertEqual(
-            publishCount,
-            baselinePublishCount,
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertFalse(
+            identicalChangeFlag.fired,
             "Expected identical focused branch refreshes to avoid extra workspace publishes"
         )
     }
@@ -6599,11 +6617,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
-        var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
-            publishCount += 1
+        let firstChangeFlag = WorkspaceUnitObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.panelPullRequests
+            _ = workspace.pullRequest
+        } onChange: {
+            firstChangeFlag.mark()
         }
-        defer { cancellable.cancel() }
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
         workspace.updatePanelPullRequest(
@@ -6614,13 +6634,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             status: .open,
             branch: "feature/sidebar-pr"
         )
-        let baselinePublishCount = publishCount
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
-        XCTAssertGreaterThan(
-            baselinePublishCount,
-            0,
+        XCTAssertTrue(
+            firstChangeFlag.fired,
             "Expected the first focused pull request update to publish workspace changes"
         )
+
+        let identicalChangeFlag = WorkspaceUnitObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.panelPullRequests
+            _ = workspace.pullRequest
+        } onChange: {
+            identicalChangeFlag.mark()
+        }
 
         workspace.updatePanelPullRequest(
             panelId: panelId,
@@ -6630,10 +6657,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             status: .open,
             branch: "feature/sidebar-pr"
         )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
-        XCTAssertEqual(
-            publishCount,
-            baselinePublishCount,
+        XCTAssertFalse(
+            identicalChangeFlag.fired,
             "Expected identical focused pull request refreshes to avoid extra workspace publishes"
         )
     }

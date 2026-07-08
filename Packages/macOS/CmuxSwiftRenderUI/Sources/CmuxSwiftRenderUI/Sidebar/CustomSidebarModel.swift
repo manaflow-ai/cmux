@@ -1,3 +1,4 @@
+import Observation
 import CmuxFoundation
 import CmuxSettings
 import CmuxSwiftRender

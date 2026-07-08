@@ -16,12 +16,12 @@ extension Publisher where Failure == Never {
     /// onto the scheduler, so even an isolated value is deferred to the next
     /// run-loop turn and a subscriber never observes a synchronous emission.
     /// The sidebar's immediate observation contract requires the opposite:
-    /// the current-state replay a subscriber receives from `@Published`
+    /// the current-state replay a subscriber receives from the old Combine-backed publisher
     /// upstreams, and the first change after an idle period, must both arrive
     /// in the same run-loop turn; only the tail of a burst may be deferred.
     ///
     /// Semantics per subscription:
-    /// - The first value (the `@Published` replay of current state) is
+    /// - The first value (the old Combine-backed replay of current state) is
     ///   forwarded synchronously and does not open a coalesce window, so a
     ///   change made right after subscribing is still synchronous.
     /// - A value arriving when no window is open is forwarded synchronously

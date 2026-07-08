@@ -1,3 +1,4 @@
+import Observation
 import AppKit
 import CmuxFoundation
 import CmuxTerminalCore
@@ -175,7 +176,8 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 // the pure batch-reorder planning live in CmuxWorkspaces.
 
 @MainActor
-class TabManager: ObservableObject {
+@Observable
+class TabManager {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
@@ -188,8 +190,8 @@ class TabManager: ObservableObject {
     // WorkspacesModel (CmuxWorkspaces). TabManager stays the per-window
     // composition point: it owns the model, forwards the legacy accessors
     // below, and implements WorkspacesHosting (bottom of this file) to run
-    // the legacy @Published property-observer side effects at identical
-    // timing (objectWillChange + bridge publishers in willSet, selection
+    // the legacy property-observer side effects at identical
+    // timing (bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private var workspacesById: [UUID: Workspace] = [:]
@@ -206,17 +208,17 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
-    /// Legacy Combine bridge for the remaining `tabManager.$tabs`
+    /// Legacy Combine bridge for the remaining tab-manager tabs stream
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
     /// value on subscribe — the exact `Published.Publisher` semantics those
     /// call sites were written against. Single seam; delete when the
     /// subscribers move to @Observable observation.
     let tabsPublisher = CurrentValueSubject<[Workspace], Never>([])
-    /// Legacy Combine bridge for the remaining `tabManager.$selectedTabId`
+    /// Legacy Combine bridge for the remaining tab-manager selected-tab stream
     /// subscribers; same contract as `tabsPublisher`.
     let selectedTabIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
-    /// Legacy Combine bridge for the remaining `tabManager.$workspaceGroups`
+    /// Legacy Combine bridge for the remaining tab-manager workspace-groups stream
     /// subscribers (e.g. MobileWorkspaceListObserver); same contract as
     /// `tabsPublisher`. Emits during willSet and replays the current value
     /// on subscribe — the `Published.Publisher` semantics those call sites
@@ -225,10 +227,14 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
-    @Published private(set) var isWorkspaceCycleHot: Bool = false
-    @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    private(set) var isWorkspaceCycleHot: Bool = false
+    private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
+    private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    @ObservationIgnored lazy var mountedBackgroundWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> =
+        observedValuesPublisher { [weak self] in self?.mountedBackgroundWorkspaceLoadIds ?? [] }
+    @ObservationIgnored lazy var debugPinnedWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> =
+        observedValuesPublisher { [weak self] in self?.debugPinnedWorkspaceLoadIds ?? [] }
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -238,26 +244,23 @@ class TabManager: ObservableObject {
         set { workspaces.selectedTabId = newValue }
     }
 
-    // MARK: - WorkspacesHosting hooks (legacy @Published property observers)
+    // MARK: - WorkspacesHosting hooks (legacy property observers)
 
-    /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
-    /// bridge fire before storage changes, matching @Published timing.
+    /// Legacy `tabs` willSet: the Combine bridge fires before storage
+    /// changes, matching timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        objectWillChange.send()
         tabsPublisher.send(newValue)
     }
 
-    /// Legacy `@Published workspaceGroups` willSet.
+    /// Legacy `workspaceGroups` willSet.
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
-        objectWillChange.send()
         workspaceGroupsPublisher.send(newValue)
     }
 
-    /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
+    /// Legacy `selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
-        objectWillChange.send()
         selectedTabIdPublisher.send(newValue)
 #if DEBUG
             guard newValue != selectedTabId else {
@@ -286,7 +289,7 @@ class TabManager: ObservableObject {
 #endif
     }
 
-    /// Legacy `@Published selectedTabId` didSet: the selection side-effect
+    /// Legacy `selectedTabId` didSet: the selection side-effect
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
@@ -369,7 +372,7 @@ class TabManager: ObservableObject {
 #endif
             }
     }
-    private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -392,7 +395,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
 
-    @Published private(set) var focusHistoryRevision: UInt64 = 0 {
+    private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
             guard focusHistoryRevision != oldValue else { return }
             NotificationCenter.default.post(name: .tabManagerFocusHistoryRevisionDidChange, object: self)
@@ -418,14 +421,14 @@ class TabManager: ObservableObject {
     }
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
-    private var workspaceCycleCooldownTask: Task<Void, Never>?
+    @ObservationIgnored private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    private var agentPIDSweepTimer: DispatchSourceTimer?
+    @ObservationIgnored private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -520,7 +523,7 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.attach(host: self)
         // Workspace-list/group/selection storage (CmuxWorkspaces). Attached
         // before the first addWorkspace so the property-observer hooks fire
-        // from the very first insertion, matching the legacy @Published
+        // from the very first insertion, matching the pre-Observation
         // observer timing.
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
@@ -1047,7 +1050,7 @@ class TabManager: ObservableObject {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
-        // @Published selectedTabId storage after the inheritance helpers. The arm64 Nightly
+        // selectedTabId storage after the inheritance helpers. The arm64 Nightly
         // Cmd+N crash is in PublishedSubject.value.getter on that second getter read.
         let capturedSelectedTabId = sourceWorkspace?.id
         // Keep both the source workspace and the pre-creation workspace array alive for the
@@ -1077,7 +1080,7 @@ class TabManager: ObservableObject {
             )
             // Resolve placement against the pre-creation snapshot before Workspace init
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
-            // reading @Published placement state from existing workspaces mid-creation.
+            // reading placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -5972,7 +5975,7 @@ extension TabManager {
         )
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
-        // Clear non-@Published state without touching tabs/selectedTabId yet.
+        // Clear ancillary state before mutating tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         focusHistoryNavigation.reset()
@@ -5984,7 +5987,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
-        // Build the new workspace list locally to avoid intermediate @Published
+        // Build the new workspace list locally to avoid intermediate bridge
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
@@ -6022,7 +6025,7 @@ extension TabManager {
             newTabs.append(fallback)
         }
 
-        // Determine selection before mutating @Published properties.
+        // Determine selection before mutating properties.
         let newSelectedId: UUID?
         if let selectedWorkspaceIndex,
            newTabs.indices.contains(selectedWorkspaceIndex) {
@@ -6031,7 +6034,7 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
-        // Single atomic assignment of @Published properties so SwiftUI observers
+        // Single atomic assignment of properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         let restoredGroups: [WorkspaceGroup] = {

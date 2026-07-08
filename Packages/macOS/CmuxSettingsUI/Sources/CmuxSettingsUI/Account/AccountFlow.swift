@@ -1,3 +1,4 @@
+import Observation
 import Foundation
 
 /// Host-supplied dependency the package's ``AccountSection`` uses to

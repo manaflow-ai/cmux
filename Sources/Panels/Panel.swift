@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import Observation
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -279,7 +280,7 @@ enum FocusFlashPattern {
 
 /// Protocol for all panel types (terminal, browser, etc.)
 @MainActor
-public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUID {
+public protocol Panel: AnyObject, Identifiable, Observable where ID == UUID {
     /// Unique identifier for this panel
     var id: UUID { get }
 
@@ -372,6 +373,7 @@ extension Panel {
 }
 
 @MainActor
+@Observable
 final class CloudVMLoadingPanel: Panel {
     enum Phase {
         case loading
@@ -381,8 +383,8 @@ final class CloudVMLoadingPanel: Panel {
     let id: UUID
     let workspaceId: UUID
     let panelType: PanelType = .cloudVMLoading
-    @Published var startedAt: Date
-    @Published var phase: Phase = .loading
+    var startedAt: Date
+    var phase: Phase = .loading
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")
