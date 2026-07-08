@@ -305,16 +305,15 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     @discardableResult
     public func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
         guard let host else { return 0 }
-        guard model.workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
+        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return 0 }
         let members = model.tabs.filter { $0.groupId == groupId }
+        let affectedWorkspaceIds = members.isEmpty
+            ? model.tabs.contains(where: { $0.id == group.anchorWorkspaceId }) ? [group.anchorWorkspaceId] : []
+            : members.map(\.id)
         var closed = 0
         for tab in members {
-            // closeWorkspace short-circuits when tabs.count <= 1, so the last
-            // remaining workspace would be left alive with a stale groupId.
-            // Convert the holdout into a regular workspace (clear groupId)
-            // instead, and let the caller's surrounding flow decide whether
-            // to close the window. We still report it in the count of items
-            // "removed from the group" so the response is accurate.
+            // closeWorkspace short-circuits when tabs.count <= 1, so clear the
+            // final holdout's membership instead of leaving a stale groupId.
             if model.tabs.count <= 1 {
                 model.assignGroup(workspaceId: tab.id, groupId: nil)
                 continue
@@ -323,11 +322,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
             if model.tabs.count < countBefore { closed += 1 }
         }
-        // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
-        // when the anchor is among the closed members, but if every member
-        // was non-anchor (callers can construct that shape via socket
-        // workspace.group.set_anchor races) the group survives — clean up.
+        // closeWorkspace may already dissolve the group if the anchor closed;
+        // cleanup still covers stale/empty and non-anchor-only membership.
         model.workspaceGroups.removeAll { $0.id == groupId }
+        host.workspaceOrderDidChange(movedWorkspaceIds: affectedWorkspaceIds)
         return closed
     }
 
