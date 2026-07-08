@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
 private struct MobileSettingsAccountDeletionAlerts: ViewModifier {

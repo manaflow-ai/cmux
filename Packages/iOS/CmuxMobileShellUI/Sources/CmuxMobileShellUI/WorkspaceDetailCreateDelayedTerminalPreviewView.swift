@@ -42,7 +42,8 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             store: store,
             signOut: {},
             showAddDevice: nil,
-            telemetryConsentStore: telemetryConsentStore
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: nil
         )
         .environment(browserStore)
         .task {
