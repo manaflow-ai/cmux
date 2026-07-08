@@ -4409,7 +4409,7 @@ extension TabManager {
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
-        remapClosedPanelHistory: Bool = true
+        remapClosedPanelHistory: Bool = true, excludingStableIdentities: Set<UUID> = []
     ) -> [[UUID: UUID]] {
         let (normalizedWorkspaces, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
             snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
@@ -4423,7 +4423,7 @@ extension TabManager {
         return sessionSnapshotRestore.restore(
             persistedGroupSnapshots: normalizedSnapshot.workspaceGroups,
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            remapClosedPanelHistory: remapClosedPanelHistory
+            remapClosedPanelHistory: remapClosedPanelHistory, excludingStableIdentities: excludingStableIdentities
         )
     }
 
@@ -4468,7 +4468,7 @@ extension TabManager {
         browserModel.clearRecentlyClosedBrowserPanels()
     }
 
-    func buildRestoredWorkspaces() -> SessionSnapshotRestoreBuild<Workspace> {
+    func buildRestoredWorkspaces(excludingStableIdentities: Set<UUID>) -> SessionSnapshotRestoreBuild<Workspace> {
         // The snapshot is set by `restoreSessionSnapshot` for the duration of the
         // synchronous restore turn the coordinator drives.
         let snapshot = pendingSessionRestoreSnapshot
@@ -4485,7 +4485,7 @@ extension TabManager {
                 portOrdinal: ordinal
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
+            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)

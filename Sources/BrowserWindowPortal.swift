@@ -10,6 +10,7 @@ import WebKit
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
+private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
@@ -31,6 +32,35 @@ private extension NSResponder {
             return editedView
         }
         return self as? NSView
+    }
+}
+
+private extension NSWindow {
+    var browserPortalHasInteractiveSplitDividerDrag: Bool {
+        get {
+            let isActive =
+                (objc_getAssociatedObject(self, &cmuxWindowInteractiveSplitDividerDragKey) as? NSNumber)?
+                    .boolValue ?? false
+            guard isActive else { return false }
+            guard (NSEvent.pressedMouseButtons & 1) != 0 else {
+                objc_setAssociatedObject(
+                    self,
+                    &cmuxWindowInteractiveSplitDividerDragKey,
+                    NSNumber(value: false),
+                    .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+                )
+                return false
+            }
+            return true
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxWindowInteractiveSplitDividerDragKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
     }
 }
 

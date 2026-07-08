@@ -12,6 +12,45 @@ import Testing
 
 @Suite("OMP support")
 struct OmpSupportTests {
+    @Test func ompIsAllowedForAgentHibernationLifecycle() {
+        #expect(AgentHibernationLifecycleStatusKeys.isAllowed("omp"))
+    }
+
+    @Test func textBoxDetectsOmpAsPiAlias() {
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "agentPIDKey:omp"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "agentPIDKey:omp.session-123"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "restoredAgent:omp"))
+        #expect(TextBoxAgentDetection.boundedLaunchCommandContext(from: "omp --model anthropic/claude-sonnet-4-5") == "pi")
+    }
+
+    @Test func textBoxDetectsOmpLaunchCommands() {
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "initialCommand:omp --model anthropic/claude-sonnet-4-5"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "tmuxStartCommand:omp"))
+        #expect(!TextBoxAgentDetection.supportsAgentPrefixes(context: "initialCommand:vim notes.txt"))
+    }
+
+    @Test func sleepyAgentCensusBucketsOmpWithPi() {
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "omp") == .pi)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "pi") == .pi)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "claude") == .claude)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "unknown-agent") == .other)
+    }
+
+    @Test func sleepyAgentCensusBucketsDottedLivePIDKeys() {
+        // The agent-hook path stores PID keys as "<statusKey>.<sessionId>".
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "omp.session-abc") == .pi)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "pi.session-abc") == .pi)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "unknown-agent.session-abc") == .other)
+    }
+
+    @Test func ompRegistriesUsePiIconAsset() throws {
+        let taskManagerDefinition = try #require(
+            CmuxTaskManagerCodingAgentDefinition.builtIns.first { $0.id == "omp" }
+        )
+        #expect(taskManagerDefinition.assetName == "AgentIcons/Pi")
+        #expect(CmuxVaultAgentRegistration.builtInOmp.iconAssetName == "AgentIcons/Pi")
+    }
+
     @Test func directProcessDetectionUsesExplicitSessionSelectorsBeforeLatestFallback() throws {
         struct Selector {
             let name: String

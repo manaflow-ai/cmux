@@ -109,6 +109,7 @@ extension Workspace {
 
         return SessionWorkspaceSnapshot(
             workspaceId: id,
+            stableId: stableId,
             processTitle: processTitle,
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
@@ -135,10 +136,18 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
+        defer { sessionRestoreIdentityExclusions.endRestore() }
+
+        // Legacy snapshots keep the fresh id; duplicate reopens exclude live ids.
+        if let persistedStableId = snapshot.stableId,
+           sessionRestoreIdentityExclusions.shouldAdopt(persistedStableId) {
+            stableId = persistedStableId
+        }
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -549,6 +558,7 @@ extension Workspace {
 
         return SessionPanelSnapshot(
             id: panelId,
+            stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
@@ -1507,6 +1517,8 @@ extension Workspace {
     }
 
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+        adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
+
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
@@ -1750,6 +1762,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // (a separate file) can reach the injected notification store for
     // `hostAddRemoteNotification`.
     let hostEnvironment: (any WorkspaceHostEnvironment)?
+    /// Restart-stable workspace identifier persisted for durable deep links.
+    private(set) var stableId = UUID()
     /// When this workspace instance came into existence in this app session
     /// (creation, or restore at launch). The mobile list's last-activity
     /// fallback: a workspace that never fired a notification still carries a
@@ -3464,6 +3478,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// ``ClosedBrowserRestoreStagingHosting`` and the coordinator reads the live
     /// Bonsplit/panel state through it.
     let closedBrowserRestoreStaging = ClosedBrowserRestoreStaging()
+    /// Stable identities not re-adopted by the in-flight snapshot restore.
+    let sessionRestoreIdentityExclusions = SessionRestoreIdentityExclusions()
     /// Re-entrancy guard for the tab-selection apply loop; stored in the
     /// surface-registry sub-model.
     private var isApplyingTabSelection: Bool {
@@ -3570,10 +3586,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return String(format: "%.2f", ms)
     }
 #endif
-
-    func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
-        paneTree.panelId(forSurfaceId: surfaceId)
-    }
 
     func markExplicitClose(surfaceId: TabID) {
         surfaceRegistry.markExplicitClose(surfaceId: surfaceId, panelId: panelIdFromSurfaceId(surfaceId))
@@ -3733,10 +3745,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
             clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         }
-    }
-
-    func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
-        paneTree.surfaceId(forPanelId: panelId)
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel, allowTextBoxFocusDefault: Bool = true) {
@@ -6753,6 +6761,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             tmuxStartCommand: trimmedCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
+        // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
+        replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
         configureNewTerminalPanel(replacementPanel)
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
@@ -6875,7 +6885,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
-        configureNewTerminalPanel(replacementPanel, allowTextBoxFocusDefault: allowTextBoxFocusDefault)
+        // Respawn replaces the panel object but keeps the logical tab identity.
+        replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
+        configureNewTerminalPanel(
+            replacementPanel,
+            allowTextBoxFocusDefault: shouldFocus && allowTextBoxFocusDefault
+        )
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle
         if let customTitle {
@@ -7578,16 +7593,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         splitClose.requestCloseTab(tabId, force: force)
     }
 
-    func paneId(forPanelId panelId: UUID) -> PaneID? {
-        surfaceLifecycle.paneId(forPanelId: panelId)
-    }
-
     private func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
         surfaceLifecycle.applyInitialSplitDividerPosition(position, sourcePaneId: sourcePaneId, newPaneId: newPaneId)
-    }
-
-    func indexInPane(forPanelId panelId: UUID) -> Int? {
-        surfaceLifecycle.indexInPane(forPanelId: panelId)
     }
 
     /// Returns the nearest right-side sibling pane for browser/file-preview placement.

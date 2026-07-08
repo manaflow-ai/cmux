@@ -70,7 +70,10 @@ struct SidebarTabItemActions {
     }
 
     func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
+        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(
+            ids,
+            resolvingStableIdsFrom: tabManager.tabs
+        )
     }
 
     func moveBy(_ delta: Int) {

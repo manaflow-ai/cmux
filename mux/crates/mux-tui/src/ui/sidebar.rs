@@ -13,6 +13,14 @@ use ratatui::Frame;
 use super::truncate;
 use crate::app::{App, Hit};
 
+fn workspace_has_unread(ws: &crate::session::WorkspaceView) -> bool {
+    ws.screens
+        .iter()
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .any(|tab| tab.notification.is_some_and(|notification| notification.unread))
+}
+
 pub fn draw(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let width = app.sidebar_width;
@@ -74,6 +82,11 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             let rail_style = active_style.fg(rail);
             buf[(0, y)].set_symbol("▎").set_style(rail_style);
             buf[(0, y + 1)].set_symbol("▎").set_style(rail_style);
+        }
+        if workspace_has_unread(ws) && content_w > 1 {
+            let dot_style =
+                style.fg(app.config.theme.notification_info).add_modifier(Modifier::BOLD);
+            buf[(0, y)].set_symbol("•").set_style(dot_style);
         }
         set_line_from(buf, 1, y, &truncate(&ws.name, content_w - 1), style);
         hits.push((row_rect(y), Hit::Workspace { index: i, id: ws.id }));

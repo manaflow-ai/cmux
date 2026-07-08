@@ -68,8 +68,14 @@ extension TabManager: ClosedPanelRestoreHosting {
         tabs.first(where: { $0.id == entry.workspaceId })?.id
     }
 
-    func restoreClosedPanelInWorkspace(_ entry: ClosedPanelHistoryEntry) -> UUID? {
-        tabs.first(where: { $0.id == entry.workspaceId })?.restoreClosedPanel(entry)
+    func restoreClosedPanelInWorkspace(
+        _ entry: ClosedPanelHistoryEntry,
+        excludingStableIdentities: Set<UUID>
+    ) -> UUID? {
+        tabs.first(where: { $0.id == entry.workspaceId })?.restoreClosedPanel(
+            entry,
+            excludingStableIdentities: excludingStableIdentities
+        )
     }
 
     func remapPanelAnchorIds(for entry: ClosedPanelHistoryEntry, to panelId: UUID) {
@@ -99,8 +105,15 @@ extension TabManager: ClosedPanelRestoreHosting {
         )
     }
 
-    func restoreSessionSnapshot(_ entry: ClosedWorkspaceHistoryEntry, into workspace: Workspace) -> [UUID: UUID] {
-        workspace.restoreSessionSnapshot(entry.snapshot)
+    func restoreSessionSnapshot(
+        _ entry: ClosedWorkspaceHistoryEntry,
+        into workspace: Workspace,
+        excludingStableIdentities: Set<UUID>
+    ) -> [UUID: UUID] {
+        workspace.restoreSessionSnapshot(
+            entry.snapshot,
+            excludingStableIdentities: excludingStableIdentities
+        )
     }
 
     func closeRestoredWorkspace(_ workspace: Workspace) {

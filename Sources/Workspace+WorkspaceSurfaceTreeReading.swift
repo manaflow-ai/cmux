@@ -10,6 +10,22 @@ import Foundation
 /// reads exactly. The model is held by `Workspace` and references this host
 /// weakly, so there is no retain cycle.
 extension Workspace: WorkspaceSurfaceTreeReading {
+    func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
+        paneTree.panelId(forSurfaceId: surfaceId)
+    }
+
+    func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
+        paneTree.surfaceId(forPanelId: panelId)
+    }
+
+    func paneId(forPanelId panelId: UUID) -> PaneID? {
+        surfaceLifecycle.paneId(forPanelId: panelId)
+    }
+
+    func indexInPane(forPanelId panelId: UUID) -> Int? {
+        surfaceLifecycle.indexInPane(forPanelId: panelId)
+    }
+
     var surfaceIdsInTabOrderAcrossAllPanes: [UUID] {
         bonsplitController.allTabIds.map(\.uuid)
     }

@@ -88,13 +88,16 @@ public final class SessionSnapshotRestoreCoordinator<Tab> where Tab: WorkspaceTa
     ///   - remapClosedPanelHistory: whether to remap closed-panel history after
     ///     the swap (legacy parameter of the same name; window restore passes
     ///     false and remaps separately).
+    ///   - excludingStableIdentities: stable workspace and surface identities
+    ///     that must not be re-adopted while replaying the snapshot.
     /// - Returns: the index-aligned old→new panel-id maps for the restored
     ///   workspaces.
     @discardableResult
     public func restore(
         persistedGroupSnapshots: [SessionWorkspaceGroupSnapshot]?,
         selectedWorkspaceIndex: Int?,
-        remapClosedPanelHistory: Bool
+        remapClosedPanelHistory: Bool,
+        excludingStableIdentities: Set<UUID> = []
     ) -> [[UUID: UUID]] {
         guard let host else { return [] }
         host.beginSessionSnapshotRestore()
@@ -107,7 +110,7 @@ public final class SessionSnapshotRestoreCoordinator<Tab> where Tab: WorkspaceTa
         // @Published emissions (empty tabs, nil selectedTabId) that can leave
         // SwiftUI's mountedWorkspaceIds empty and cause a frozen blank launch
         // state (#399).
-        let build = host.buildRestoredWorkspaces()
+        let build = host.buildRestoredWorkspaces(excludingStableIdentities: excludingStableIdentities)
         let newTabs = build.tabs
 
         // Determine selection before mutating @Published properties.

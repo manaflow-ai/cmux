@@ -1,9 +1,11 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
+use std::collections::HashMap;
+
 use mux_core::{
     assign_short_ids, BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId,
-    SurfaceKind, WorkspaceId,
+    SurfaceKind, SurfaceNotification, WorkspaceId,
 };
 use serde_json::Value;
 
@@ -31,6 +33,7 @@ pub struct ScreenView {
     pub name: Option<String>,
     pub layout: Node,
     pub active_pane: PaneId,
+    pub zoomed_pane: Option<PaneId>,
     pub panes: Vec<PaneView>,
 }
 
@@ -54,6 +57,13 @@ pub struct TabView {
     pub kind: SurfaceKind,
     pub browser_source: Option<BrowserSource>,
     pub browser_frames_stalled: bool,
+    pub notification: Option<TabNotificationView>,
+}
+
+#[derive(Clone, Copy)]
+pub struct TabNotificationView {
+    pub unread: bool,
+    pub level: &'static str,
 }
 
 impl TreeView {
@@ -132,8 +142,10 @@ impl PaneView {
     }
 }
 
-/// Snapshot a local mux state into a TreeView.
-pub fn tree_from_state(state: &State) -> TreeView {
+pub fn tree_from_state_with_notifications(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+) -> TreeView {
     let ids = state
         .workspaces
         .iter()
@@ -168,6 +180,10 @@ pub fn tree_from_state(state: &State) -> TreeView {
                         .get(sid)
                         .and_then(|s| s.browser_frames_stalled())
                         .unwrap_or(false),
+                    notification: notifications.get(sid).map(|notification| TabNotificationView {
+                        unread: notification.unread,
+                        level: notification.level.as_str(),
+                    }),
                 })
                 .collect(),
         })
@@ -194,6 +210,7 @@ pub fn tree_from_state(state: &State) -> TreeView {
                             name: screen.name.clone(),
                             layout: screen.root.clone(),
                             active_pane: screen.active_pane,
+                            zoomed_pane: screen.zoomed_pane,
                             panes: pane_ids.iter().filter_map(pane_view).collect(),
                         }
                     })
@@ -262,11 +279,24 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .get("browser_frames_stalled")
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false),
+                            notification: tab.get("notification").and_then(parse_notification),
                         })
                     })
                     .collect()
             })
             .unwrap_or_default(),
+    })
+}
+
+fn parse_notification(value: &Value) -> Option<TabNotificationView> {
+    let level = match value.get("level").and_then(|v| v.as_str()).unwrap_or("info") {
+        "warning" => "warning",
+        "error" => "error",
+        _ => "info",
+    };
+    Some(TabNotificationView {
+        unread: value.get("unread").and_then(|v| v.as_bool()).unwrap_or(false),
+        level,
     })
 }
 
@@ -277,6 +307,7 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         layout: value.get("layout").and_then(parse_layout)?,
         active_pane: value.get("active_pane").and_then(|v| v.as_u64()).unwrap_or(0),
+        zoomed_pane: value.get("zoomed_pane").and_then(|v| v.as_u64()),
         panes: value
             .get("panes")
             .and_then(|v| v.as_array())

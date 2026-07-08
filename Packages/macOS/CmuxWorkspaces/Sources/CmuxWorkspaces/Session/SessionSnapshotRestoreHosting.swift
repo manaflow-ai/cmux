@@ -64,7 +64,10 @@ public protocol SessionSnapshotRestoreHosting<Tab>: AnyObject {
     /// tracking, allocate its port ordinal, and inject the fallback workspace
     /// when the snapshot restored none). No `@Published` property is mutated
     /// here; that is the point of the off-publish build.
-    func buildRestoredWorkspaces() -> SessionSnapshotRestoreBuild<Tab>
+    ///
+    /// - Parameter excludingStableIdentities: stable workspace and surface
+    ///   identities that must not be re-adopted while replaying the snapshot.
+    func buildRestoredWorkspaces(excludingStableIdentities: Set<UUID>) -> SessionSnapshotRestoreBuild<Tab>
 
     /// Commits the fully resolved restore state in one atomic assignment of the
     /// `@Published` stored properties (legacy `tabs = newTabs`,

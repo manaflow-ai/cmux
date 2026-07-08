@@ -3588,16 +3588,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         )
     }
 
-    @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
-        guard let terminalSurface else { return }
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: terminalSurface.tabId,
-                surfaceId: terminalSurface.id
-            )
-        )
-    }
-
     private func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
         GhosttyApp.terminalSurfaceRuntimeDependencies.hibernationRecorder.recordTerminalInput(

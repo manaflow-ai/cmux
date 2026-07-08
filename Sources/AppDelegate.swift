@@ -8,6 +8,7 @@ import CmuxPanes
 import CmuxControlSocket
 import CmuxWindowing
 import CmuxNotifications
+import CmuxRemoteWorkspace
 import CmuxTerminalCore
 import CmuxTerminal
 import CmuxSettings
@@ -1420,6 +1421,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static let displayReconfigurationNotification = Notification.Name("com.cmuxterm.app.displayReconfiguration")
     static let screenChangeReconcileRetryLimit = 3
     var isApplyingSessionRestore = false
+    /// Durable navigation links that arrived before startup restore registered
+    /// their target workspaces.
+    var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
     var windowConfigFrames: [UUID: SessionConfigFrameRing] = [:]
     var lastAppliedConfigurationSignature: String?
     var didObserveUnknownDisplayConfiguration = false
@@ -2684,6 +2688,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
+        // Flush deferred navigation links unless additional restored windows remain pending.
+        defer {
+            if !isApplyingSessionRestore {
+                flushPendingStartupNavigationURLRequests()
+            }
+        }
         guard !didHandleExplicitOpenIntentAtStartup else { return false }
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
@@ -2752,6 +2762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isScreenChangeCaptureSuppressed {
             scheduleScreenChangeReconcileWhenIdle()
         }
+        flushPendingStartupNavigationURLRequests()
         if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -2785,7 +2796,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
-                shouldActivate: false
+                shouldActivate: false,
+                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet()
             )
             createdWindowIds.append(windowId)
         }
@@ -5803,6 +5815,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
+            // Explicit open intent cancels restore; deferred links cannot gain targets.
+            flushPendingStartupNavigationURLRequests()
         }
     }
 
@@ -6289,6 +6303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
+        excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -6306,7 +6321,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let sessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
-                remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
+                remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
+                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
@@ -10598,7 +10614,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             actionSelectorName: item.action.map { NSStringFromSelector($0) }
         )
     }
-
 
     private func configureUserNotifications() {
         notificationDelivery.configureUserNotifications(delegate: self)

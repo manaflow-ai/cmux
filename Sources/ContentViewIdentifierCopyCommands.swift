@@ -43,12 +43,13 @@ extension ContentView {
     }
 
     private func copySelectedWorkspaceLink() {
-        guard let workspaceId = tabManager.selectedWorkspace?.id else {
+        guard let workspace = tabManager.selectedWorkspace else {
             NSSound.beep()
             return
         }
+        // Links encode the restart-stable id so they survive an app relaunch.
         WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeWorkspaceLink(workspaceId: workspaceId)
+            WorkspaceSurfaceIdentifierClipboardText.makeWorkspaceLink(workspaceId: workspace.stableId)
         )
     }
 
@@ -70,14 +71,16 @@ extension ContentView {
     }
 
     private func copyFocusedPaneLink() {
-        guard let context = focusedPanelIdentifierContext(),
-              let paneId = context.paneId else {
+        guard let panelContext = focusedPanelContext,
+              let paneId = panelContext.workspace.paneId(forPanelId: panelContext.panelId)?.id else {
             NSSound.beep()
             return
         }
+        // The workspace route is restart-stable; panes have no persisted
+        // identity, so the pane segment stays session-scoped.
         WorkspaceSurfaceIdentifierClipboardText.copy(
             WorkspaceSurfaceIdentifierClipboardText.makePaneLink(
-                workspaceId: context.workspaceId,
+                workspaceId: panelContext.workspace.stableId,
                 paneId: paneId
             )
         )
@@ -92,14 +95,15 @@ extension ContentView {
     }
 
     private func copyFocusedSurfaceLink() {
-        guard let context = focusedPanelIdentifierContext() else {
+        guard let panelContext = focusedPanelContext else {
             NSSound.beep()
             return
         }
+        // Links encode the restart-stable ids so they survive an app relaunch.
         WorkspaceSurfaceIdentifierClipboardText.copy(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: context.workspaceId,
-                surfaceId: context.surfaceId
+                workspaceId: panelContext.workspace.stableId,
+                surfaceId: panelContext.panel.stableSurfaceId
             )
         )
     }

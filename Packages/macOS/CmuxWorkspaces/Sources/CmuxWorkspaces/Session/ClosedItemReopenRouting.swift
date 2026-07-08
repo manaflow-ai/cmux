@@ -106,7 +106,11 @@ public final class ClosedItemReopenRouting<Host: ClosedPanelRestoreHosting> {
     public func restoreClosedWorkspace(_ entry: Host.WorkspaceEntry) -> Bool {
         let preRestoreFocus = host.focusHistory.currentFocusHistoryEntry
         let workspace = host.addRestoredWorkspace(for: entry)
-        let restoredPanelIds = host.restoreSessionSnapshot(entry, into: workspace)
+        let restoredPanelIds = host.restoreSessionSnapshot(
+            entry,
+            into: workspace,
+            excludingStableIdentities: host.liveStableIdentitySet()
+        )
         guard !host.snapshotHasRestorablePanels(entry) || !restoredPanelIds.isEmpty else {
             host.closeRestoredWorkspace(workspace)
             return false
@@ -177,7 +181,10 @@ public final class ClosedItemReopenRouting<Host: ClosedPanelRestoreHosting> {
 
         let preRestoreFocus = host.focusHistory.currentFocusHistoryEntry
         let panelId = host.focusHistory.withFocusHistoryRecordingSuppressed {
-            host.restoreClosedPanelInWorkspace(entry)
+            host.restoreClosedPanelInWorkspace(
+                entry,
+                excludingStableIdentities: host.liveStableIdentitySet()
+            )
         }
 
         guard let panelId else { return false }

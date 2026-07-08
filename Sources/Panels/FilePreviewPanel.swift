@@ -256,6 +256,7 @@ private struct FileExternalOpenHeaderMenuButton: View {
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel, FilePreviewNativeHosting {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID

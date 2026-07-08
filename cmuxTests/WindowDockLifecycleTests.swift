@@ -13,6 +13,7 @@ import Testing
 @MainActor
 private final class WindowDockTestPanel: Panel, ObservableObject {
     let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
     let displayTitle = "Test Dock Panel"
     let displayIcon: String? = "terminal.fill"

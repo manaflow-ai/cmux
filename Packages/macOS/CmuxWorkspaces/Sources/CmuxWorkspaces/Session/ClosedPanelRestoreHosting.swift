@@ -63,6 +63,11 @@ public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, Rem
     /// recording stays a single source of truth.
     var focusHistory: any FocusHistoryNavigating { get }
 
+    /// Stable workspace/panel identities already live in this window. Restore
+    /// paths use this to avoid duplicating a still-live surface identity when a
+    /// closed item snapshot is replayed.
+    func liveStableIdentitySet() -> Set<UUID>
+
     // MARK: AppDelegate delegation guards
 
     /// When a composition-root `AppDelegate` exists, routes the reopen-most-recent
@@ -123,8 +128,12 @@ public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, Rem
     func addRestoredWorkspace(for entry: WorkspaceEntry) -> RestoredWorkspace
 
     /// Replays `entry`'s session snapshot into `workspace`, returning the
-    /// old-to-new panel id map (legacy `workspace.restoreSessionSnapshot(entry.snapshot)`).
-    func restoreSessionSnapshot(_ entry: WorkspaceEntry, into workspace: RestoredWorkspace) -> [UUID: UUID]
+    /// old-to-new panel id map.
+    func restoreSessionSnapshot(
+        _ entry: WorkspaceEntry,
+        into workspace: RestoredWorkspace,
+        excludingStableIdentities: Set<UUID>
+    ) -> [UUID: UUID]
 
     /// Closes `workspace` without recording close history, the rollback both
     /// has-panels guards run (legacy `closeWorkspace(workspace, recordHistory: false)`).
@@ -184,11 +193,13 @@ public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, Rem
     /// surfaced as the workspace id the rest of the flow threads).
     func panelRestoreWorkspaceId(for entry: PanelEntry) -> UUID?
 
-    /// Restores `entry`'s panel into its workspace, returning the new panel id
-    /// (legacy `workspace.restoreClosedPanel(entry)`); `nil` when the workspace is
-    /// gone or the restore declines. The coordinator wraps this call in
-    /// focus-history suppression.
-    func restoreClosedPanelInWorkspace(_ entry: PanelEntry) -> UUID?
+    /// Restores `entry`'s panel into its workspace, returning the new panel id;
+    /// `nil` when the workspace is gone or the restore declines. The coordinator
+    /// wraps this call in focus-history suppression.
+    func restoreClosedPanelInWorkspace(
+        _ entry: PanelEntry,
+        excludingStableIdentities: Set<UUID>
+    ) -> UUID?
 
     /// Remaps the store's panel-anchor ids from `entry`'s snapshot id to the
     /// newly restored `panelId` (legacy
@@ -205,4 +216,10 @@ public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, Rem
     /// `rememberFocusedSurface(tabId:surfaceId:)`). Shared with
     /// ``FocusHistoryHosting``.
     func rememberFocusedSurface(workspaceId: UUID, surfaceId: UUID)
+}
+
+public extension ClosedPanelRestoreHosting {
+    func liveStableIdentitySet() -> Set<UUID> {
+        []
+    }
 }
