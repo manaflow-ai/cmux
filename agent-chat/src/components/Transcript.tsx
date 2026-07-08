@@ -1,5 +1,5 @@
 import { Popover } from "@base-ui-components/react/popover";
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
 import { activityIndicatorState, activityTailKey } from "../activity";
@@ -17,23 +17,49 @@ const DISCLOSURE_COLLAPSE_MS = 130;
 
 function DisclosureMotion({ open, className, children }: { open: boolean; className?: string; children: () => ReactNode }) {
   const [present, setPresent] = useState(open);
+  const [animating, setAnimating] = useState(false);
+  const nodeRef = useRef<HTMLDivElement>(null);
   const shouldRender = open || present;
 
+  const requestRemeasure = () => {
+    nodeRef.current?.closest(".turn-virtual-row")?.dispatchEvent(new Event("virtual-row-remeasure"));
+  };
+
   useEffect(() => {
-    if (open) {
-      setPresent(true);
+    if (!open && !present) {
+      setAnimating(false);
       return;
     }
+    setAnimating(true);
+    if (open) {
+      setPresent(true);
+      const timeout = window.setTimeout(() => {
+        setAnimating(false);
+        requestRemeasure();
+      }, 210);
+      return () => window.clearTimeout(timeout);
+    }
     if (!present) return;
-    const timeout = window.setTimeout(() => setPresent(false), DISCLOSURE_COLLAPSE_MS);
+    const timeout = window.setTimeout(() => {
+      setPresent(false);
+      setAnimating(false);
+      requestRemeasure();
+    }, DISCLOSURE_COLLAPSE_MS);
     return () => window.clearTimeout(timeout);
   }, [open, present]);
 
   return (
     <div
+      ref={nodeRef}
       className={"disclosure-motion" + (className ? ` ${className}` : "")}
       data-open={open ? "true" : "false"}
+      data-disclosure-animating={animating ? "true" : undefined}
       aria-hidden={shouldRender ? undefined : true}
+      onTransitionEnd={(event) => {
+        if (event.target !== event.currentTarget) return;
+        setAnimating(false);
+        requestRemeasure();
+      }}
     >
       <div className="disclosure-motion-inner">{shouldRender ? children() : null}</div>
     </div>

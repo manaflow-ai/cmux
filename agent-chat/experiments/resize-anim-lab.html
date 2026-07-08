@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resize Animation Lab — 10 approaches</title>
+<style>
+  :root {
+    --bg: #26261f; --raised: #32322a; --panel: #3a3a31;
+    --fg: #e8e8e2; --dim: #a4a49a; --faint: #74746c;
+    --accent: #d8a657; --green: #6fbf82; --red: #e06c75;
+    --dur: 180ms;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 24px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 16px; max-width: 70ch; }
+  #controls {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    background: var(--raised); border-radius: 10px; padding: 10px 14px; margin-bottom: 20px;
+    position: sticky; top: 12px; z-index: 5; box-shadow: 0 2px 10px rgba(0,0,0,.3);
+  }
+  #controls label { color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  button {
+    background: var(--panel); color: var(--fg); border: 0; border-radius: 7px;
+    padding: 5px 12px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: #45453a; }
+  button.primary { background: var(--accent); color: #1c1c16; font-weight: 600; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 18px; }
+  .card {
+    background: var(--raised); border-radius: 12px; padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 8px; overflow: hidden;
+  }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0; display: flex; gap: 8px; align-items: baseline; }
+  .card h2 .num { color: var(--accent); }
+  .mech { color: var(--dim); font-size: 12.5px; margin: 0; }
+  .tradeoff { color: var(--faint); font-size: 12px; margin: 0; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .meter { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; min-height: 16px; }
+  .meter b.good { color: var(--green); } .meter b.bad { color: var(--red); }
+  .unsupported { color: var(--red); font-size: 12px; font-weight: 600; }
+
+  /* Fake transcript content shared by every demo */
+  .panel-content { padding: 6px 2px 2px; }
+  .act { color: var(--dim); padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .act .stat { color: var(--faint); }
+  .codeblock {
+    background: #2c2c24; border-radius: 8px; padding: 10px 12px; margin: 6px 0;
+    font: 12px/1.5 "Cascadia Code", Menlo, monospace; color: #c5c8b6;
+    overflow-x: auto; white-space: pre;
+  }
+  .filler { color: var(--faint); padding: 3px 0; border-top: 1px solid #3d3d33; margin-top: 2px; }
+  .summary-line { color: var(--fg); cursor: default; user-select: none; }
+  .summary-line .chev { display: inline-block; transition: transform var(--dur) ease-out; color: var(--faint); }
+  .open .summary-line .chev { transform: rotate(90deg); }
+
+  /* 1. grid-template-rows */
+  .d-grid .wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur) ease-out; }
+  .d-grid .wrap > .inner { min-height: 0; overflow: hidden; }
+  .d-grid.open .wrap { grid-template-rows: 1fr; }
+
+  /* 2. max-height cap */
+  .d-maxh .wrap { max-height: 0; overflow: hidden; transition: max-height var(--dur) ease-out; }
+  .d-maxh.open .wrap { max-height: 2400px; }
+
+  /* 3 + 4 + 10 measured height (JS drives) */
+  .d-measured .wrap, .d-waapi .wrap, .d-spring .wrap { overflow: hidden; height: 0; }
+  .d-measured .wrap { transition: height var(--dur) ease-out; }
+
+  /* 5. counter-scale */
+  .d-scale .wrap { overflow: hidden; height: 0; }
+  .d-scale .wrap, .d-scale .inner { transform-origin: top left; will-change: transform; }
+
+  /* 6. interpolate-size */
+  @supports (interpolate-size: allow-keywords) {
+    .d-interp { interpolate-size: allow-keywords; }
+    .d-interp .wrap { height: 0; overflow: hidden; transition: height var(--dur) ease-out; }
+    .d-interp.open .wrap { height: auto; }
+  }
+
+  /* 7. translate siblings, clip reveal (no layout during animation) */
+  .d-clip .wrap { overflow: clip; height: 0; }
+  .d-clip .inner { will-change: transform; }
+  .d-clip .after, .d-clip .inner { transition: none; }
+
+  /* 8. margin pull-up */
+  .d-margin .wrap { overflow: hidden; }
+  .d-margin .inner { transition: margin-top var(--dur) ease-out; }
+
+  /* 9. view transitions */
+  .d-vt .wrap { overflow: hidden; height: 0; }
+  .d-vt.open .wrap { height: auto; }
+
+  .entry .act, .entry .codeblock { animation: entryIn 140ms ease-out backwards; }
+  .entry .act:nth-child(2) { animation-delay: 20ms; } .entry .act:nth-child(3) { animation-delay: 40ms; }
+  .entry .act:nth-child(4) { animation-delay: 60ms; } .entry .act:nth-child(n+5) { animation-delay: 80ms; }
+  @keyframes entryIn { from { opacity: 0; transform: translateY(4px); } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<h1>Resize Animation Lab</h1>
+<p class="sub">Ten ways to animate an accordion/disclosure open-close. Each card is an isolated implementation with the same transcript-like content. The meter reports frame times sampled during the last run (worst frame &gt; 20ms in red = perceptible jank). Toggle <b>heavy content</b> to stress layout cost, and try rapid double-toggles to feel interruption handling.</p>
+
+<div id="controls">
+  <button class="primary" id="toggleAll">Toggle all</button>
+  <label><input type="checkbox" id="heavy"> heavy content (×10)</label>
+  <label><input type="checkbox" id="entry" checked> entry animation on rows</label>
+  <label>duration
+    <select id="dur"><option value="180">180ms</option><option value="300">300ms</option><option value="120">120ms</option></select>
+  </label>
+</div>
+
+<div id="grid"></div>
+
+<script>
+"use strict";
+
+/* ---------- shared content ---------- */
+const ACTIVITY = [
+  ["Read", "AGENTS.md", ""],
+  ["Searched", "RepositoryPicker", ""],
+  ["Listed", "Sources", ""],
+  ["Edited", "RepositoryPicker.tsx", "+1 -1"],
+  ["Ran", "bun test", "42 pass"],
+];
+const CODE = `export function pick(repos: Repo[], q: string) {
+  return repos
+    .map(r => ({ r, s: score(r.name, q) }))
+    .filter(x => Number.isFinite(x.s))
+    .sort((a, b) => a.s - b.s)
+    .map(x => x.r);
+}`;
+
+function contentHTML(heavy) {
+  const reps = heavy ? 10 : 1;
+  let html = "";
+  for (let i = 0; i < reps; i++) {
+    for (const [verb, what, stat] of ACTIVITY) {
+      html += `<div class="act">${verb} ${what} <span class="stat">${stat}</span></div>`;
+    }
+    html += `<div class="codeblock">${CODE.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</div>`;
+  }
+  return `<div class="panel-content">${html}</div>`;
+}
+
+/* ---------- frame-time instrumentation ---------- */
+function makeMeter(el) {
+  let raf = 0, samples = [], last = 0, until = 0;
+  function tick(t) {
+    if (last) samples.push(t - last);
+    last = t;
+    if (t < until) raf = requestAnimationFrame(tick);
+    else report();
+  }
+  function report() {
+    if (!samples.length) return;
+    const worst = Math.max(...samples);
+    const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+    const long = samples.filter(s => s > 20).length;
+    const cls = worst > 20 ? "bad" : "good";
+    el.innerHTML = `avg ${avg.toFixed(1)}ms · worst <b class="${cls}">${worst.toFixed(1)}ms</b> · ${long} long frame${long === 1 ? "" : "s"}`;
+  }
+  return function start(durMs) {
+    cancelAnimationFrame(raf);
+    samples = []; last = 0; until = performance.now() + durMs + 120;
+    raf = requestAnimationFrame(tick);
+  };
+}
+
+function durMs() { return Number(document.getElementById("dur").value); }
+
+/* ---------- approaches ---------- */
+const APPROACHES = [
+  {
+    id: "d-grid", name: "grid-template-rows 0fr → 1fr",
+    mech: "CSS grid track animates; inner has min-height:0 + overflow:hidden. Pure CSS, content stays auto-height.",
+    tradeoff: "Layout runs every frame for the whole subtree; cost scales with content complexity.",
+    toggle(card, open) { card.classList.toggle("open", open); },
+  },
+  {
+    id: "d-maxh", name: "max-height 0 → big cap",
+    mech: "Transition max-height to a cap larger than any content.",
+    tradeoff: "Easing is distorted: the animation spends time in the unused range, so close feels delayed and open speed depends on content height.",
+    toggle(card, open) { card.classList.toggle("open", open); },
+  },
+  {
+    id: "d-measured", name: "measured height → auto (CSS transition)",
+    mech: "JS reads scrollHeight, transitions height 0 → Npx, snaps to auto on transitionend.",
+    tradeoff: "Exact easing; needs reflow reads and careful interruption handling (double-toggle fast to test).",
+    toggle(card, open) {
+      const wrap = card.querySelector(".wrap");
+      const h = wrap.firstElementChild.scrollHeight;
+      wrap.style.transition = "none";
+      wrap.style.height = (open ? 0 : h) + "px";
+      void wrap.offsetHeight;
+      wrap.style.transition = `height ${durMs()}ms ease-out`;
+      wrap.style.height = (open ? h : 0) + "px";
+      wrap.ontransitionend = (e) => {
+        if (e.target === wrap && open) wrap.style.height = "auto";
+      };
+      card.classList.toggle("open", open);
+    },
+  },
+  {
+    id: "d-waapi", name: "measured height via WAAPI",
+    mech: "element.animate([{height:0},{height:Npx}]) then commit auto. Same math as #3, better interruption semantics (animations compose/cancel cleanly).",
+    tradeoff: "Height animation is still main-thread layout; WAAPI only improves control, not cost.",
+    toggle(card, open) {
+      const wrap = card.querySelector(".wrap");
+      const h = wrap.firstElementChild.scrollHeight;
+      wrap.getAnimations().forEach(a => a.cancel());
+      wrap.style.height = open ? "0px" : h + "px";
+      const anim = wrap.animate(
+        open ? [{ height: "0px" }, { height: h + "px" }] : [{ height: h + "px" }, { height: "0px" }],
+        { duration: durMs(), easing: "ease-out", fill: "forwards" }
+      );
+      anim.onfinish = () => { if (open) { anim.cancel(); wrap.style.height = "auto"; } };
+      card.classList.toggle("open", open);
+    },
+  },
+  {
+    id: "d-scale", name: "FLIP scaleY + per-frame counter-scale",
+    mech: "Container scaleY(0→1), inner scaleY(1/s) each rAF so content isn't squashed. Compositor-only transforms.",
+    tradeoff: "Siblings don't move until the end (layout snaps once); text distorts subtly between counter-scale frames. Feel where that matters.",
+    toggle(card, open) {
+      const wrap = card.querySelector(".wrap");
+      const inner = wrap.firstElementChild;
+      const h = inner.scrollHeight;
+      wrap.style.height = open ? h + "px" : "0px"; // layout snaps immediately
+      if (!open) { wrap.style.transform = ""; inner.style.transform = ""; card.classList.remove("open"); return; }
+      const t0 = performance.now(), D = durMs();
+      wrap.style.height = h + "px";
+      (function frame(t) {
+        const p = Math.min(1, (t - t0) / D);
+        const e = 1 - Math.pow(1 - p, 3);
+        const s = Math.max(0.0001, e);
+        wrap.style.transform = `scaleY(${s})`;
+        inner.style.transform = `scaleY(${1 / s})`;
+        if (p < 1) requestAnimationFrame(frame);
+        else { wrap.style.transform = ""; inner.style.transform = ""; }
+      })(t0);
+      card.classList.add("open");
+    },
+  },
+  {
+    id: "d-interp", name: "interpolate-size: height 0 → auto (native CSS)",
+    mech: "New CSS: interpolate-size:allow-keywords lets `height: auto` transition natively. Zero JS.",
+    tradeoff: "Engine support required (badge shows if this browser lacks it — matters for the WKWebView embedding).",
+    supported: CSS.supports("interpolate-size", "allow-keywords"),
+    toggle(card, open) { card.classList.toggle("open", open); },
+  },
+  {
+    id: "d-clip", name: "layout-free: translate siblings + clip reveal",
+    mech: "Layout commits ONCE (final height set instantly); following content starts translateY(-Δ) and slides to 0 while the new content un-clips. Every animated property is compositor/paint only.",
+    tradeoff: "Most engineering: must know Δ and enumerate 'everything below'. Interruption needs bookkeeping. Should be the smoothest under heavy content.",
+    toggle(card, open) {
+      const wrap = card.querySelector(".wrap");
+      const inner = wrap.firstElementChild;
+      const after = card.querySelector(".after");
+      const h = inner.scrollHeight;
+      const D = durMs();
+      [inner, after].forEach(el => el.getAnimations().forEach(a => a.cancel()));
+      if (open) {
+        wrap.style.height = h + "px";                       // one layout commit
+        after.animate([{ transform: `translateY(${-h}px)` }, { transform: "translateY(0)" }], { duration: D, easing: "ease-out" });
+        inner.animate([{ clipPath: "inset(0 0 100% 0)", opacity: .3 }, { clipPath: "inset(0 0 0% 0)", opacity: 1 }], { duration: D, easing: "ease-out" });
+      } else {
+        const a = after.animate([{ transform: "translateY(0)" }, { transform: `translateY(${-h}px)` }], { duration: D, easing: "ease-in" });
+        inner.animate([{ clipPath: "inset(0 0 0% 0)" }, { clipPath: "inset(0 0 100% 0)" }], { duration: D, easing: "ease-in" });
+        a.onfinish = () => { wrap.style.height = "0px"; };  // layout commit at end
+      }
+      card.classList.toggle("open", open);
+    },
+  },
+  {
+    id: "d-margin", name: "negative margin-top pull-up",
+    mech: "Wrapper overflow:hidden; inner sits with margin-top:-100% of its height when closed, transitions to 0.",
+    tradeoff: "Margin animation = per-frame layout like height, but of a single box; historically smoother than max-height, worse than transforms.",
+    toggle(card, open) {
+      const wrap = card.querySelector(".wrap");
+      const inner = wrap.firstElementChild;
+      const h = inner.scrollHeight;
+      inner.style.transition = "none";
+      inner.style.marginTop = open ? `-${h}px` : "0px";
+      void inner.offsetHeight;
+      inner.style.transition = `margin-top ${durMs()}ms ease-out`;
+      inner.style.marginTop = open ? "0px" : `-${h}px`;
+      card.classList.toggle("open", open);
+    },
+  },
+  {
+    id: "d-vt", name: "View Transitions API",
+    mech: "document.startViewTransition wraps the class flip; the engine snapshots old/new and morphs.",
+    tradeoff: "Cross-fade morph, not a true height sweep; whole-document snapshot cost; support required.",
+    supported: typeof document.startViewTransition === "function",
+    toggle(card, open) {
+      if (typeof document.startViewTransition !== "function") { card.classList.toggle("open", open); return; }
+      document.startViewTransition(() => { card.classList.toggle("open", open); });
+    },
+  },
+  {
+    id: "d-spring", name: "JS spring physics on height",
+    mech: "rAF integrator (stiffness 260, damping 24) drives height px; slight natural overshoot; no fixed duration.",
+    tradeoff: "The 'feel' benchmark: interruptible mid-flight with correct velocity. Still per-frame layout.",
+    toggle(card, open) {
+      const wrap = card.querySelector(".wrap");
+      const inner = wrap.firstElementChild;
+      const target = open ? inner.scrollHeight : 0;
+      const st = card._spring ?? (card._spring = { x: 0, v: 0, raf: 0 });
+      st.x = parseFloat(getComputedStyle(wrap).height) || 0;
+      cancelAnimationFrame(st.raf);
+      let lastT = performance.now();
+      (function frame(t) {
+        const dt = Math.min(0.032, (t - lastT) / 1000); lastT = t;
+        const k = 260, c = 24;
+        const a = k * (target - st.x) - c * st.v;
+        st.v += a * dt; st.x += st.v * dt;
+        wrap.style.height = Math.max(0, st.x) + "px";
+        if (Math.abs(target - st.x) > 0.5 || Math.abs(st.v) > 0.5) st.raf = requestAnimationFrame(frame);
+        else wrap.style.height = target ? "auto" : "0px";
+      })(lastT);
+      card.classList.toggle("open", open);
+    },
+  },
+];
+
+/* ---------- build cards ---------- */
+const grid = document.getElementById("grid");
+const cards = [];
+APPROACHES.forEach((ap, i) => {
+  const card = document.createElement("div");
+  card.className = `card ${ap.id}`;
+  card.innerHTML = `
+    <h2><span class="num">${i + 1}.</span> ${ap.name} ${ap.supported === false ? '<span class="unsupported">UNSUPPORTED HERE</span>' : ""}</h2>
+    <p class="mech">${ap.mech}</p>
+    <p class="tradeoff">${ap.tradeoff}</p>
+    <div class="row"><button data-toggle>Toggle</button><span class="meter"></span></div>
+    <div class="summary-line"><span class="chev">›</span> Edited 1 file, read 1 file, searched code, and ran 4 commands</div>
+    <div class="wrap"><div class="inner"></div></div>
+    <div class="after"><div class="filler">Turn actions · 5.9s</div><div class="filler">Next user message sits here and must move smoothly.</div></div>
+  `;
+  grid.appendChild(card);
+  const meter = makeMeter(card.querySelector(".meter"));
+  let open = false;
+  function doToggle() {
+    open = !open;
+    document.documentElement.style.setProperty("--dur", durMs() + "ms");
+    meter(durMs());
+    ap.toggle(card, open);
+    card.querySelector(".wrap .inner").classList.toggle("entry", open && document.getElementById("entry").checked);
+  }
+  card.querySelector("[data-toggle]").addEventListener("click", doToggle);
+  cards.push({ card, doToggle, isOpen: () => open });
+});
+
+function renderContent() {
+  const heavy = document.getElementById("heavy").checked;
+  document.querySelectorAll(".wrap .inner").forEach(inner => { inner.innerHTML = contentHTML(heavy); });
+  // The margin approach hides content via inner margin, not wrapper height,
+  // so its collapsed state must be initialized (and re-initialized when the
+  // content weight changes) or the card renders open.
+  document.querySelectorAll(".d-margin:not(.open) .wrap .inner").forEach(inner => {
+    inner.style.transition = "none";
+    inner.style.marginTop = `-${inner.scrollHeight}px`;
+  });
+}
+renderContent();
+document.getElementById("heavy").addEventListener("change", renderContent);
+document.getElementById("toggleAll").addEventListener("click", () => cards.forEach(c => c.doToggle()));
+</script>
+</body>
+</html>

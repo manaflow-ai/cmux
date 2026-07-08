@@ -1,6 +1,6 @@
 import type { Block } from "../src/session";
 import { activityRowLabel, groupTurns, summarizeTurnActivity } from "../src/turns";
-import { virtualRange } from "../src/hooks/useVirtualTurns";
+import { scrollCompensationDelta, virtualRange } from "../src/hooks/useVirtualTurns";
 
 const activity: Block[] = [
   { kind: "tool", toolId: "read", name: "cat", detail: "AGENTS.md", status: "ok" },
@@ -84,6 +84,18 @@ const heights = new Map<number, number>([[0, 100], [1, 100], [2, 100], [3, 100]]
 const range = virtualRange(10, heights, 250, 300, 100, 1);
 if (range.start > 2 || range.end < 5 || range.total !== 1000) {
   throw new Error(`unexpected virtual range: ${JSON.stringify(range)}`);
+}
+const measuredDelta = scrollCompensationDelta(1, 3, 100, 135, 260);
+if (measuredDelta !== 35) {
+  throw new Error(`measurement above anchor should compensate by exact delta, got ${measuredDelta}`);
+}
+const estimatedDelta = scrollCompensationDelta(1, 3, undefined, 220, 260);
+if (estimatedDelta !== -40) {
+  throw new Error(`first measurement above anchor should compensate against estimate, got ${estimatedDelta}`);
+}
+const visibleDelta = scrollCompensationDelta(3, 3, 100, 140, 260);
+if (visibleDelta !== 0) {
+  throw new Error(`measurement at/after anchor should not compensate, got ${visibleDelta}`);
 }
 
 console.log("turn summary and virtualization: OK");

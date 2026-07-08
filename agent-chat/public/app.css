@@ -182,6 +182,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .menu-item .mi-check { margin-left: auto; display: inline-flex; color: var(--accent); }
 .cmdk { min-width: 240px; }
 .cmdk-list { max-height: inherit; overflow-y: auto; }
+.cmdk-group [cmdk-group-items] { display: grid; gap: 1px; }
 .cmdk-search {
   display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); color: var(--text-faint);
@@ -239,7 +240,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   font: 400 calc(var(--font-size-base) - 1.5px) var(--font-sans);
 }
 .model-picker-list {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 6px;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 1px;
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
 .model-row {
@@ -544,6 +545,18 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   margin: 2px 0 0; padding: 0;
 }
 .turn-activity-item { margin: 1px 0; }
+.disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item {
+  animation: activity-row-enter 120ms cubic-bezier(.16, 1, .3, 1) both;
+}
+.disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item:nth-child(2) { animation-delay: 12ms; }
+.disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item:nth-child(3) { animation-delay: 24ms; }
+.disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item:nth-child(4) { animation-delay: 36ms; }
+.disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item:nth-child(5) { animation-delay: 48ms; }
+.disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item:nth-child(n+6) { animation-delay: 60ms; }
+@keyframes activity-row-enter {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .turn-activity-row {
   min-height: 24px; padding: 2px 6px; color: var(--text-dim);
 }
@@ -644,6 +657,9 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   .disclosure-motion,
   .activity-caret-icon {
     transition: none !important;
+  }
+  .disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item {
+    animation: none;
   }
 }
 
