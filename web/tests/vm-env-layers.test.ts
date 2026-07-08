@@ -146,6 +146,32 @@ describe("env layer cache", () => {
     }));
     expect(layer?.snapshotId).toBe(honestSnapshot);
     expect(layer?.stepIndex).toBe(1);
+
+    // The poisoned row alone resolves to nothing...
+    const poisoned = await run(resolveEnvLayers({
+      billingTeamId: scope.billingTeamId,
+      provider: "freestyle",
+      chainHashes: ["hash-envlayer-depth-0"],
+    }));
+    expect(poisoned).toBeNull();
+
+    // ...and an honest re-registration repairs it via the upsert path.
+    await run(recordEnvLayer({
+      ...scope,
+      provider: "freestyle",
+      baseImageId: "img-envlayer",
+      chainHash: "hash-envlayer-depth-0",
+      stepIndex: 0,
+      stepName: "step 0",
+      specDigest: "digest-envlayer-depth",
+      snapshotId: bogusSnapshot,
+    }));
+    const repaired = await run(resolveEnvLayers({
+      billingTeamId: scope.billingTeamId,
+      provider: "freestyle",
+      chainHashes: ["hash-envlayer-depth-0"],
+    }));
+    expect(repaired?.stepIndex).toBe(0);
   });
 
   dbTest("layers are isolated per billing team", async () => {

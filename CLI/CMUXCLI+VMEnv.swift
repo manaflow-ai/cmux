@@ -247,9 +247,11 @@ extension CMUXCLI {
 
         var failingStepIndex: Int?
         var failureKind: String?
-        // The final step's layer is registered only after verify passes, so
-        // `cmux vm env up` can never boot an environment whose verify failed.
-        var pendingFinalLayer: (chainHash: String, stepIndex: Int, stepName: String, snapshotId: String)?
+        // The final step is snapshotted and registered only after verify
+        // passes, so `cmux vm env up` can never boot an environment whose
+        // verify failed, and a failed verify never strands an unregistered
+        // (invisible, secret-bearing) provider snapshot.
+        var finalStepRanOK = false
 
         for index in startIndex..<spec.steps.count {
             let step = spec.steps[index]
@@ -265,20 +267,20 @@ extension CMUXCLI {
             reports[index].exitCode = outcome.exitCode
             reports[index].logTail = outcome.logTail
             if outcome.status == "ok" {
-                // Snapshot the successful layer and register it in the cache.
-                let snapshotResponse = try client.sendV2(
-                    method: "vm.snapshot",
-                    params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(index)"],
-                    responseTimeout: Self.vmEnvLongOpTimeout
-                )
-                let snapshotId = (snapshotResponse["snapshot_id"] as? String) ?? (snapshotResponse["id"] as? String)
                 reports[index].status = "ok"
-                if let snapshotId, !snapshotId.isEmpty {
-                    reports[index].snapshotId = snapshotId
-                    if index == spec.steps.count - 1 {
-                        pendingFinalLayer = (chainHashes[index], index, step.name, snapshotId)
-                        if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, snapshot taken; registered after verify)") }
-                    } else {
+                if index == spec.steps.count - 1 {
+                    finalStepRanOK = true
+                    if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, snapshot after verify)") }
+                } else {
+                    // Snapshot the successful layer and register it in the cache.
+                    let snapshotResponse = try client.sendV2(
+                        method: "vm.snapshot",
+                        params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(index)"],
+                        responseTimeout: Self.vmEnvLongOpTimeout
+                    )
+                    let snapshotId = (snapshotResponse["snapshot_id"] as? String) ?? (snapshotResponse["id"] as? String)
+                    if let snapshotId, !snapshotId.isEmpty {
+                        reports[index].snapshotId = snapshotId
                         try vmEnvRecordLayer(
                             client: client,
                             provider: provider,
@@ -290,11 +292,11 @@ extension CMUXCLI {
                             snapshotId: snapshotId
                         )
                         if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, layer cached)") }
+                    } else if !jsonOutput {
+                        // Step succeeded but the provider returned no snapshot id, so
+                        // this layer is not cached and the next build re-runs it.
+                        print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms); snapshot returned no id, layer NOT cached")
                     }
-                } else if !jsonOutput {
-                    // Step succeeded but the provider returned no snapshot id, so
-                    // this layer is not cached and the next build re-runs it.
-                    print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms); snapshot returned no id, layer NOT cached")
                 }
             } else {
                 reports[index].status = outcome.status
@@ -353,18 +355,30 @@ extension CMUXCLI {
 
         let ok = failingStepIndex == nil
         if ok {
-            if let pending = pendingFinalLayer {
-                try vmEnvRecordLayer(
-                    client: client,
-                    provider: provider,
-                    baseImageId: baseImageId,
-                    chainHash: pending.chainHash,
-                    stepIndex: pending.stepIndex,
-                    stepName: pending.stepName,
-                    specDigest: loaded.digest,
-                    snapshotId: pending.snapshotId
+            let finalIndex = spec.steps.count - 1
+            if finalStepRanOK {
+                let snapshotResponse = try client.sendV2(
+                    method: "vm.snapshot",
+                    params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(finalIndex)"],
+                    responseTimeout: Self.vmEnvLongOpTimeout
                 )
-                if !jsonOutput { print("final layer registered") }
+                let snapshotId = (snapshotResponse["snapshot_id"] as? String) ?? (snapshotResponse["id"] as? String)
+                if let snapshotId, !snapshotId.isEmpty {
+                    reports[finalIndex].snapshotId = snapshotId
+                    try vmEnvRecordLayer(
+                        client: client,
+                        provider: provider,
+                        baseImageId: baseImageId,
+                        chainHash: chainHashes[finalIndex],
+                        stepIndex: finalIndex,
+                        stepName: spec.steps[finalIndex].name,
+                        specDigest: loaded.digest,
+                        snapshotId: snapshotId
+                    )
+                    if !jsonOutput { print("final layer registered") }
+                } else if !jsonOutput {
+                    print("final snapshot returned no id; layer NOT cached, `cmux vm env up` will refuse until a re-build caches it")
+                }
             } else if cachedLayerIndex == spec.steps.count - 1, let restoredSnapshotId {
                 // Fully cached build: refresh the final layer's spec digest so a
                 // verify-only edit is re-verified exactly once and `up` unblocks.

@@ -1410,11 +1410,16 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         if (pgErrorCode(err) !== "23505") throw err;
         // A concurrent build registered this layer first; refresh its snapshot
         // pointer so the newest snapshot wins and return the surviving row.
+        // stepIndex and baseImageId are refreshed too so an honest re-build
+        // repairs a row whose stored depth the resolver would reject as
+        // corrupt (findDeepestEnvLayer skips index/position mismatches).
         const [existing] = await db
           .update(cloudVmEnvLayers)
           .set({
             snapshotId: input.snapshotId,
             specDigest: input.specDigest,
+            stepIndex: input.stepIndex,
+            baseImageId: input.baseImageId,
             stepName: input.stepName ?? null,
             lastUsedAt: new Date(),
           })

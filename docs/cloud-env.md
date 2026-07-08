@@ -35,12 +35,12 @@ Fields: `version` (required, must be `1`), `name`, `base` (`default` or a provid
 
 ## Caching model
 
-A layer's cache key is a hash chain over the provider, the resolved base image id, and every step up to and including it (`run` text plus the spec's `env` map). Editing step N invalidates layers N and later; renaming a step invalidates nothing; a base image rollout invalidates everything. The final step's layer is registered only after `verify` passes, and `up` also requires the registered spec digest to match the current spec text, so a failed or edited `verify` always forces one (cheap, fully cached) re-build before `up` works. Layers are stored per billing team and reference provider snapshots, which can contain secrets — they are never shared across teams.
+A layer's cache key is a hash chain over the provider, the resolved base image id, and every step up to and including it (`run` text plus the spec's `env` map). Editing step N invalidates layers N and later; renaming a step invalidates nothing; a base image rollout invalidates everything. The final step is snapshotted and its layer registered only after `verify` passes (so a failed verify neither caches the final layer nor strands an unregistered snapshot), and `up` also requires the registered spec digest to match the current spec text, so a failed or edited `verify` always forces one (cheap, fully cached) re-build before `up` works. Layers are stored per billing team and reference provider snapshots, which can contain secrets — they are never shared across teams.
 
 ## Commands
 
 - `cmux vm env init [--goal "<text>"]` — scaffold `.cmux/env.yaml`.
-- `cmux vm env build [--spec <path>] [--json] [--no-cache]` — run the spec. Restores the deepest cached layer, executes remaining steps (snapshot + register after each success), then runs `verify`. On failure the VM is left running for inspection and the report names the failing step. `--json` prints a single machine-readable report (see the `cmux-cloud-env` skill for the contract).
+- `cmux vm env build [--spec <path>] [--json] [--no-cache]` — run the spec. Restores the deepest cached layer, executes remaining steps (snapshot + register after each success), then runs `verify`; the final step is snapshotted and registered only after `verify` passes. On failure the VM is left running for inspection and the report names the failing step. `--json` prints a single machine-readable report (see the `cmux-cloud-env` skill for the contract).
 - `cmux vm env up [--spec <path>] [--window <id>] [--detach]` — requires a fully cached spec whose exact text has a passing build; restores the final layer into a fresh VM and opens it as a cmux workspace.
 - `cmux vm env layers [--all] [--json]` — list cached layers (defaults to the current spec).
 - `cmux vm env logs <vm-id> [--step <n>]` — tail a step's log inside the VM.
