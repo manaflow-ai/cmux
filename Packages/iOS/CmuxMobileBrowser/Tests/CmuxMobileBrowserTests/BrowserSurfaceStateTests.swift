@@ -139,6 +139,24 @@ import Testing
         #expect(state.prefersDesktopSite == false)
     }
 
+    @Test func recommendedResolvesToDesktopOnPadClassDevices() {
+        // On iPad, WebKit's recommended mode already loads desktop sites, so
+        // the effective preference must report desktop while .recommended and
+        // the first toggle must request the MOBILE site, not no-op to desktop.
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+        state.recommendedContentModeIsDesktop = true
+
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .mobile)
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == .reload)
+    }
+
     @Test func desktopSiteToggleReloadsCurrentPage() {
         let state = makeState(initialURL: URL(string: "https://example.com")!)
         _ = state.consumeLoadRequest()

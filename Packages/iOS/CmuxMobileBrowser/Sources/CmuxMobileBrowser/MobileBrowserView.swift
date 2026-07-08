@@ -97,6 +97,11 @@ public struct MobileBrowserView: UIViewRepresentable {
         func attach(webView: WKWebView) {
             self.webView = webView
             observe(webView)
+            // WebKit's `.recommended` content mode resolves to desktop on
+            // iPad-class devices. Inject that resolution so the desktop-site
+            // menu label and toggle direction are correct on first use.
+            state.recommendedContentModeIsDesktop =
+                UIDevice.current.userInterfaceIdiom == .pad
             // A fresh web view starts idle, but the surface may still carry
             // `isLoading` from a navigation that was in flight when the old
             // web view was torn down. Mirror the new web view's state so the
