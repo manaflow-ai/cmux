@@ -1105,7 +1105,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static let screenChangeReconcileRetryLimit = 3
     var windowConfigFrames: [UUID: SessionConfigFrameRing] = [:]
     var lastAppliedConfigurationSignature: String?
+    var lastVisibleFrameFitTopologySignature: [MainWindowVisibleFrameTopologySignatureEntry]?
+    var didObserveUnknownVisibleFrameFitTopology = false
     var didObserveUnknownDisplayConfiguration = false
+    var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
     var screenChangeCaptureSuppressionSignature: String?
@@ -2083,6 +2086,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         // Seed so the first display change after launch can restore geometry.
         lastAppliedConfigurationSignature = currentDisplayConfigurationSignature()
+        lastVisibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
+            .trustedTopologySignature(of: currentDisplayGeometries().available)
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
@@ -3565,6 +3570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return resolvedWindowFrame(
                 frame: frame,
                 displaySnapshot: displaySnapshot,
+                availableDisplays: availableDisplays,
                 targetDisplay: targetDisplay,
                 minWidth: minWidth,
                 minHeight: minHeight
@@ -3602,24 +3608,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func resolvedWindowFrame(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
+        availableDisplays: [SessionDisplayGeometry],
         targetDisplay: SessionDisplayGeometry,
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
+        let fitCore = MainWindowVisibleFrameFitCore()
         if targetDisplay.visibleFrame.intersects(frame) {
-            // Preserve exact frames whose titlebar remains reachable.
-            if shouldPreserveAccessibleFrame(
-                frame: frame,
-                targetDisplay: targetDisplay
-            ) {
-                return frame
-            }
-            return clampFrame(
-                frame,
-                within: targetDisplay.visibleFrame,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
+            return fitCore.fittedFrame(for: frame, displays: availableDisplays, minimumWidth: minWidth, minimumHeight: minHeight) ?? frame
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
