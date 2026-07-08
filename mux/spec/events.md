@@ -6,9 +6,9 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `empty` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `empty` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
-| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `detached` |
+| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached` |
 
 Events and command responses share one JSON-lines connection. Clients must route lines by checking for `event`. If `event` is absent, the line is a command response and should be matched by `id`.
 
@@ -94,6 +94,30 @@ Example:
 
 ```json
 {"event":"surface-output","surface":1}
+```
+
+### scroll-changed
+
+| Field | Value |
+| --- | --- |
+| event | `scroll-changed` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"scroll-changed",surface:Id,offset:uint64,at_bottom:boolean}
+```
+
+Meaning: A PTY surface viewport moved within its scrollback. The event is emitted after a settled viewport mutation from user scrolling, `scroll-surface`, input snapping the viewport to the live bottom, or PTY output that changes the viewport position. `offset` is the same row offset used by the scrollbar geometry, and `at_bottom` is true when the viewport is pinned to the live bottom.
+
+Subscribe streams receive all scroll changes. Attach streams receive scroll changes for the attached surface only.
+
+Example:
+
+```json
+{"event":"scroll-changed","surface":1,"offset":12,"at_bottom":false}
 ```
 
 ### surface-resized
@@ -204,6 +228,50 @@ Example:
 
 ```json
 {"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1}
+```
+
+### config-reload-requested
+
+| Field | Value |
+| --- | --- |
+| event | `config-reload-requested` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"config-reload-requested"}
+```
+
+Meaning: Emitted by `reload-config` so attached TUI frontends can re-read local mux config and redraw.
+
+Example:
+
+```json
+{"event":"config-reload-requested"}
+```
+
+### window-title-requested
+
+| Field | Value |
+| --- | --- |
+| event | `window-title-requested` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"window-title-requested",title:string}
+```
+
+Meaning: Emitted by `set-window-title` and `clear-window-title` so attached TUI frontends can write OSC 0/2 to their controlling stdout. Empty `title` clears the title.
+
+Example:
+
+```json
+{"event":"window-title-requested","title":"hello"}
 ```
 
 ### empty
