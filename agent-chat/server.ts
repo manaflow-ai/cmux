@@ -106,6 +106,7 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
+const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 const optionCatalog = new Map<string, {
   options: SessionOption[];
   fetchedAt: number;
@@ -122,6 +123,7 @@ const fileCatalog = new Map<string, { files: string[]; fetchedAt: number; refres
 // long-lived launchd sidecar that is unbounded. Evict the stalest settled
 // entries beyond a small cap (in-flight refreshes are skipped).
 const MAX_CWD_CATALOG_ENTRIES = 64;
+const START_REQUEST_TTL_MS = 60_000;
 function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Promise<unknown> }>) {
   while (map.size > MAX_CWD_CATALOG_ENTRIES) {
     let oldestKey: string | null = null;
@@ -135,6 +137,13 @@ function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Prom
     }
     if (oldestKey === null) return;
     map.delete(oldestKey);
+  }
+}
+
+function pruneStartRequests() {
+  const now = Date.now();
+  for (const [key, entry] of startRequests) {
+    if (now - entry.createdAt > START_REQUEST_TTL_MS) startRequests.delete(key);
   }
 }
 const keyConfig = await readKeyConfig();
@@ -214,7 +223,10 @@ function createSession(
     setStatus(status: SessionStatus) {
       const pendingDone = sess.internal.pendingDoneEmit as Promise<void> | undefined;
       if (status === "idle" && pendingDone) {
-        pendingDone.finally(() => sess.setStatus(status));
+        const pendingGeneration = Number(sess.internal.pendingDoneGeneration ?? sess.internal.turnGeneration ?? 0);
+        pendingDone.finally(() => {
+          if (Number(sess.internal.turnGeneration ?? 0) === pendingGeneration) sess.setStatus(status);
+        });
         return;
       }
       if (sess.status === status) return;
@@ -230,32 +242,101 @@ function createSession(
 }
 
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
+  const generation = Number(sess.internal.turnGeneration ?? 0);
+  const generations = eventGenerations(sess);
   sess.events.push(evt);
+  generations.push(generation);
+  capSessionEvents(sess);
+  broadcastSessionEvent(sess, evt);
+}
+
+function eventGenerations(sess: Session): number[] {
+  let generations = sess.internal.eventGenerations as number[] | undefined;
+  if (!generations || generations.length !== sess.events.length) {
+    generations = sess.events.map(() => 0);
+    sess.internal.eventGenerations = generations;
+  }
+  return generations;
+}
+
+function capSessionEvents(sess: Session) {
+  const generations = eventGenerations(sess);
   // Long agent streams accumulate thousands of retained events in this
   // long-lived process; cap the replayable transcript per session.
   if (sess.events.length > MAX_SESSION_EVENTS) {
-    sess.events.splice(0, sess.events.length - MAX_SESSION_EVENTS);
+    const drop = sess.events.length - MAX_SESSION_EVENTS;
+    sess.events.splice(0, drop);
+    generations.splice(0, drop);
     if (sess.events[0]?.kind !== "status" || !sess.events[0].text.startsWith("(transcript truncated")) {
       sess.events.unshift({ kind: "status", text: "(transcript truncated: older events dropped)" });
+      generations.unshift(generations[0] ?? 0);
     }
   }
+}
+
+function broadcastSessionEvent(sess: Session, evt: AgentEvent) {
   const payload = JSON.stringify({ kind: "event", sessionId: sess.id, evt });
   for (const ws of sess.sockets) ws.send(payload);
 }
 
+function broadcastSessionHistory(sess: Session) {
+  const payload = JSON.stringify({
+    kind: "history",
+    sessionId: sess.id,
+    session: sessionSummary(sess),
+    events: sess.events,
+  });
+  for (const ws of sess.sockets) ws.send(payload);
+}
+
+export function insertDeferredTurnEvents(events: AgentEvent[], generations: number[], generation: number, finalEvents: AgentEvent[]): { insertedAt: number; dropped: boolean } {
+  if (!finalEvents.length) return { insertedAt: events.length, dropped: false };
+  if (events.some((evt, index) => generations[index] === generation && evt.kind === "done")) {
+    return { insertedAt: events.length, dropped: true };
+  }
+  let insertedAt = events.length;
+  for (let i = 0; i < events.length; i++) {
+    if (generations[i] > generation && events[i].kind === "user") {
+      insertedAt = i;
+      break;
+    }
+  }
+  events.splice(insertedAt, 0, ...finalEvents);
+  generations.splice(insertedAt, 0, ...finalEvents.map(() => generation));
+  return { insertedAt, dropped: false };
+}
+
 function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
+  const generation = Number(sess.internal.turnGeneration ?? 0);
   const pending = (async () => {
-    await emitFilesChanged(sess, DONE_FILES_TIMEOUT_MS)
-      .catch((err) => console.error("[agent-chat] files-changed failed", err));
-    emitSessionEvent(sess, evt);
+    const finalEvents: AgentEvent[] = [];
+    const filesEvt = await filesChangedEvent(sess, DONE_FILES_TIMEOUT_MS)
+      .catch((err) => {
+        console.error("[agent-chat] files-changed failed", err);
+        return null;
+      });
+    if (filesEvt) finalEvents.push(filesEvt);
+    finalEvents.push(evt);
+    const oldLength = sess.events.length;
+    const result = insertDeferredTurnEvents(sess.events, eventGenerations(sess), generation, finalEvents);
+    if (result.dropped) return;
+    capSessionEvents(sess);
+    if (result.insertedAt >= oldLength) {
+      for (const finalEvt of finalEvents) broadcastSessionEvent(sess, finalEvt);
+    } else {
+      broadcastSessionHistory(sess);
+    }
   })();
   sess.internal.pendingDoneEmit = pending;
+  sess.internal.pendingDoneGeneration = generation;
   pending.finally(() => {
     if (sess.internal.pendingDoneEmit === pending) delete sess.internal.pendingDoneEmit;
+    if (sess.internal.pendingDoneGeneration === generation) delete sess.internal.pendingDoneGeneration;
   });
 }
 
 function sendPrompt(sess: Session, prompt: string) {
+  sess.internal.turnGeneration = Number(sess.internal.turnGeneration ?? 0) + 1;
   sess.emit({ kind: "user", text: prompt });
   Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
     console.error("[agent-chat] send failed", err);
@@ -666,13 +747,18 @@ async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Ch
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function emitFilesChanged(sess: Session, timeoutMs = GIT_TIMEOUT_MS) {
+async function filesChangedEvent(sess: Session, timeoutMs = GIT_TIMEOUT_MS): Promise<Extract<AgentEvent, { kind: "files-changed" }> | null> {
   const files = await changedFiles(sess.cwd, timeoutMs);
-  if (!files.length) return;
+  if (!files.length) return null;
   const key = JSON.stringify(files);
-  if (sess.internal.lastFilesChangedKey === key) return;
+  if (sess.internal.lastFilesChangedKey === key) return null;
   sess.internal.lastFilesChangedKey = key;
-  sess.emit({ kind: "files-changed", files });
+  return { kind: "files-changed", files };
+}
+
+async function emitFilesChanged(sess: Session, timeoutMs = GIT_TIMEOUT_MS) {
+  const evt = await filesChangedEvent(sess, timeoutMs);
+  if (evt) sess.emit(evt);
 }
 
 export function resolveFileDiffPath(cwd: string, path: string): string {
@@ -1134,12 +1220,29 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const provider = String(msg.provider);
       const autoApprove = msg.autoApprove !== false;
       const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
-      Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
+      pruneStartRequests();
+      const existing = requestId ? startRequests.get(requestId) : undefined;
+      const startPromise = existing?.promise ?? Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
         const sess = createSession(provider, cwd, autoApprove, title, options);
-        subscribe(ws, sess);
-        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId }));
         refreshSession(sess);
         sendPrompt(sess, prompt);
+        return sess;
+      });
+      if (requestId && !existing) {
+        startRequests.set(requestId, { createdAt: Date.now(), promise: startPromise });
+        startPromise.catch(() => startRequests.delete(requestId));
+      }
+      startPromise.then((sess) => {
+        subscribe(ws, sess);
+        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId }));
+        if (existing) {
+          ws.send(JSON.stringify({
+            kind: "history",
+            sessionId: sess.id,
+            session: sessionSummary(sess),
+            events: sess.events,
+          }));
+        }
       }).catch((err) => {
         sendWsErrorDetails(ws, "start", err, { provider, requestId });
       });

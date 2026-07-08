@@ -160,6 +160,7 @@ export interface SessionState {
 
 const routedSessionId = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1] || null;
 export const composerDraftKey = "agentui.draft";
+const PENDING_START_TIMEOUT_MS = 30_000;
 
 export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
   storage.setItem(composerDraftKey, prompt);
@@ -198,7 +199,41 @@ export function useSession(): SessionState {
     queuedReplies: string[];
     failed?: boolean;
   } | null>(null);
+  const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+
+  const clearPendingStartTimeout = useCallback(() => {
+    if (pendingStartTimeoutRef.current) window.clearTimeout(pendingStartTimeoutRef.current);
+    pendingStartTimeoutRef.current = null;
+  }, []);
+
+  const failPendingStart = useCallback((message: string) => {
+    const pending = pendingStartRef.current;
+    if (!pending) return;
+    clearPendingStartTimeout();
+    pendingStartRef.current = null;
+    restoreComposerDraft(sessionStorage, pending.prompt);
+    history.replaceState(null, "", "/");
+    document.title = "cmux agent";
+    sessionIdRef.current = null;
+    optimisticUsersRef.current = [];
+    setSession(null);
+    setBlocks([]);
+    setOptions([]);
+    setActions({});
+    setCommands([]);
+    pendingFileDiffKeysRef.current = {};
+    setFileDiffs({});
+    setLastError(message);
+    setPhase("composer");
+  }, [clearPendingStartTimeout]);
+
+  const armPendingStartTimeout = useCallback(() => {
+    clearPendingStartTimeout();
+    pendingStartTimeoutRef.current = window.setTimeout(() => {
+      failPendingStart("Failed to start agent: request timed out");
+    }, PENDING_START_TIMEOUT_MS);
+  }, [clearPendingStartTimeout, failPendingStart]);
 
   const sendRaw = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -215,7 +250,12 @@ export function useSession(): SessionState {
       const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
       wsRef.current = ws;
       ws.onopen = () => {
+        const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
+        else if (pending && !pending.failed) {
+          sendRaw({ op: "start", requestId: pending.requestId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
+          armPendingStartTimeout();
+        }
       };
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
@@ -236,6 +276,7 @@ export function useSession(): SessionState {
             document.title = msg.session.title || "cmux agent";
             if (msg.requestId && pendingStartRef.current?.requestId === msg.requestId) {
               const queuedReplies = pendingStartRef.current.queuedReplies;
+              clearPendingStartTimeout();
               pendingStartRef.current = null;
               setSession({ ...msg.session, status: "running" });
               for (const prompt of queuedReplies) {
@@ -327,21 +368,7 @@ export function useSession(): SessionState {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
               if (pending && (!msg.requestId || msg.requestId === pending.requestId)) {
-                pendingStartRef.current = null;
-                restoreComposerDraft(sessionStorage, pending.prompt);
-                history.replaceState(null, "", "/");
-                document.title = "cmux agent";
-                sessionIdRef.current = null;
-                optimisticUsersRef.current = [];
-                setSession(null);
-                setBlocks([]);
-                setOptions([]);
-                setActions({});
-                setCommands([]);
-                pendingFileDiffKeysRef.current = {};
-                setFileDiffs({});
-                setLastError(message);
-                setPhase("composer");
+                failPendingStart(message);
               } else {
                 setLastError(message);
               }
@@ -360,8 +387,8 @@ export function useSession(): SessionState {
       ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
     };
     connect();
-    return () => { closed = true; wsRef.current?.close(); };
-  }, [sendRaw]);
+    return () => { closed = true; clearPendingStartTimeout(); wsRef.current?.close(); };
+  }, [armPendingStartTimeout, clearPendingStartTimeout, failPendingStart, sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -370,6 +397,7 @@ export function useSession(): SessionState {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     if (!sendRaw({ op: "start", requestId, ...opts })) return false;
     pendingStartRef.current = { requestId, key, queuedReplies: [], ...opts };
+    armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
     sessionIdRef.current = null;
     history.replaceState(null, "", "/");
@@ -390,8 +418,10 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setPhase("chat");
     return true;
-  }, [sendRaw]);
+  }, [armPendingStartTimeout, sendRaw]);
   const compose = useCallback(() => {
+    clearPendingStartTimeout();
+    pendingStartRef.current = null;
     history.replaceState(null, "", "/");
     document.title = "cmux agent";
     sessionIdRef.current = null;
@@ -403,7 +433,7 @@ export function useSession(): SessionState {
     pendingFileDiffKeysRef.current = {};
     setFileDiffs({});
     setPhase("composer");
-  }, []);
+  }, [clearPendingStartTimeout]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {

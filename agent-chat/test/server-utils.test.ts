@@ -6,9 +6,11 @@ import {
   gitFilesFromOutput,
   gitOutputWithCodes,
   gitOutputWithCodesResult,
+  insertDeferredTurnEvents,
   resetAssetCachesForTest,
   resolveFileDiffPath,
 } from "../server";
+import type { AgentEvent } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -72,5 +74,22 @@ const capped = await gitOutputWithCodes(root, ["diff", "--no-ext-diff", "HEAD", 
 assert(!capped.includes("[truncated]"), "string git output should not append a display marker");
 const files = gitFilesFromOutput({ text: "src/a.ts\nsrc/b.ts\npartial-or-marker", truncated: true });
 assert(files.join("|") === "src/a.ts|src/b.ts", `truncated git files should drop torn final entries: ${files.join("|")}`);
+
+const orderedEvents: AgentEvent[] = [
+  { kind: "user", text: "first" },
+  { kind: "assistant", text: "first answer" },
+  { kind: "user", text: "second" },
+  { kind: "assistant", text: "second answer" },
+];
+const generations = [1, 1, 2, 2];
+const inserted = insertDeferredTurnEvents(orderedEvents, generations, 1, [
+  { kind: "files-changed", files: [{ path: "a.txt", adds: 1, dels: 0, status: "modified" }] },
+  { kind: "done", stats: "1s" },
+]);
+assert(inserted.insertedAt === 2 && !inserted.dropped, `deferred finalization inserted at wrong position: ${JSON.stringify(inserted)}`);
+assert(orderedEvents.map((evt) => evt.kind).join("|") === "user|assistant|files-changed|done|user|assistant", "deferred finalization should precede the newer user event");
+assert(generations.join("|") === "1|1|1|1|2|2", `deferred generations were not preserved: ${generations.join("|")}`);
+const dropped = insertDeferredTurnEvents(orderedEvents, generations, 1, [{ kind: "done" }]);
+assert(dropped.dropped, "duplicate finalization should be dropped once the turn already has a footer");
 
 console.log("server utility assertions passed");
