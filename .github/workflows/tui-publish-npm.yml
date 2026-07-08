@@ -1,33 +1,29 @@
-name: mux tui release binaries
+name: tui publish npm
 
-# Builds the cmux-mux TUI binary for every distribution target (npm/PyPI `cmux`).
-# Manual dispatch or cmux-tui tag builds upload one artifact per target so the
-# npm/PyPI wrapper-packaging jobs can bundle them.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "TUI package version to build, for example 0.1.0"
+        description: "TUI package version to publish, for example 0.1.0"
         required: true
         type: string
-  push:
-    tags:
-      - "cmux-tui-v*"
+      confirm_tui_cmux:
+        description: "Set true only for the coordinated npm cmux TUI publish"
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
 concurrency:
-  group: mux-tui-release-${{ github.ref }}
-  cancel-in-progress: true
+  group: tui-publish-npm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    # Windows is experimental (bindgen clang include-path issue with the nested
-    # ghostty vt headers); its failure must not block the unix release.
-    continue-on-error: ${{ matrix.experimental || false }}
     permissions:
       contents: read
     strategy:
@@ -50,11 +46,6 @@ jobs:
             runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
             cross: true
             ext: ""
-          - target: x86_64-pc-windows-gnu
-            runner: windows-latest
-            cross: true
-            experimental: true
-            ext: ".exe"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -75,41 +66,23 @@ jobs:
           version: 0.15.2
 
       - name: Install Rust target
-        shell: bash
-        run: |
-          rustup target add ${{ matrix.target }}
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
-          fi
+        run: rustup target add ${{ matrix.target }}
 
       - name: Install cargo-zigbuild
-        if: matrix.cross == true && runner.os != 'Windows'
-        shell: bash
+        if: matrix.cross == true
         run: cargo install --locked cargo-zigbuild@0.20.0
 
       - name: Build cmux-mux (native)
         if: matrix.cross == false
         working-directory: mux
-        shell: bash
         run: cargo build -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
 
-      - name: Build cmux-mux (cross, non-Windows)
-        if: matrix.cross == true && runner.os != 'Windows'
+      - name: Build cmux-mux (cross)
+        if: matrix.cross == true
         working-directory: mux
-        shell: bash
         run: cargo zigbuild -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
 
-      - name: Build libghostty-vt + cmux-mux (Windows GNU)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cd ghostty
-          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
-          cd ../mux
-          cargo build -p mux-tui --bin cmux-mux --release --locked --target x86_64-pc-windows-gnu
-
       - name: Stage binary
-        shell: bash
         run: |
           mkdir -p dist
           cp "mux/target/${{ matrix.target }}/release/cmux-mux${{ matrix.ext }}" "dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}"
@@ -123,7 +96,7 @@ jobs:
           if-no-files-found: error
 
   package:
-    name: package npm and PyPI distributions
+    name: package npm distributions
     needs: build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -158,50 +131,38 @@ jobs:
           name: cmux-mux-aarch64-unknown-linux-gnu
           path: dist/binaries
 
-      - name: Derive package version
-        id: version
+      - name: Validate version
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "tag must match cmux-tui-vX.Y.Z" >&2
-              exit 1
-            }
-            version="${GITHUB_REF_NAME#cmux-tui-v}"
-          else
-            version="$DISPATCH_VERSION"
-            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "workflow_dispatch version must match X.Y.Z" >&2
-              exit 1
-            }
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "workflow_dispatch version must match X.Y.Z" >&2
+            exit 1
+          }
 
-      - name: Build package directories and wheels
+      - name: Build npm package directories
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
         run: |
-          set -euo pipefail
           python3 mux/dist/scripts/package_npm.py \
             --binaries-dir dist/binaries \
-            --version "${{ steps.version.outputs.version }}" \
+            --version "$DISPATCH_VERSION" \
             --out dist/npm-packages
-          python3 mux/dist/scripts/package_pypi.py \
-            --binaries-dir dist/binaries \
-            --version "${{ steps.version.outputs.version }}" \
-            --out dist/pypi-wheels
 
-      - name: Smoke verify distributions
+      - name: Smoke verify npm packages
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import os
           import pathlib
           import stat
           import sys
-          import zipfile
 
-          version = "${{ steps.version.outputs.version }}"
+          version = os.environ["DISPATCH_VERSION"]
           root = pathlib.Path("dist/npm-packages")
           platforms = {
               "cmux-tui-darwin-arm64": ("darwin", "arm64"),
@@ -221,35 +182,12 @@ jobs:
               if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
                   raise SystemExit(f"{name}: os/cpu mismatch")
               binary = root / name / "bin" / "cmux-mux"
-              mode = binary.stat().st_mode
-              if not mode & stat.S_IXUSR:
+              if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
-          for wheel_path in sorted(pathlib.Path("dist/pypi-wheels").glob("*.whl")):
-              with zipfile.ZipFile(wheel_path) as wheel:
-                  names = set(wheel.namelist())
-                  required = {
-                      "cmux_tui/__init__.py",
-                      "cmux_tui/_main.py",
-                      "cmux_tui/bin/cmux-mux",
-                      f"cmux-{version}.dist-info/WHEEL",
-                      f"cmux-{version}.dist-info/METADATA",
-                      f"cmux-{version}.dist-info/entry_points.txt",
-                      f"cmux-{version}.dist-info/RECORD",
-                  }
-                  missing = required - names
-                  if missing:
-                      raise SystemExit(f"{wheel_path}: missing {sorted(missing)}")
           PY
           chmod +x dist/binaries/cmux-mux-x86_64-unknown-linux-gnu
           dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --version >/tmp/cmux-mux-version.txt 2>&1 || \
             dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --help >/tmp/cmux-mux-version.txt 2>&1
-          for wheel in dist/pypi-wheels/*.whl; do
-            python3 -m zipfile -l "$wheel" >>/tmp/cmux-wheel-list.txt
-          done
-          python3 -m venv /tmp/cmux-tui-wheel-smoke
-          /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="${{ steps.version.outputs.version }}"
-          /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
-          grep -i usage /tmp/cmux-help.txt
 
       - name: Upload npm package directories
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -258,9 +196,74 @@ jobs:
           path: dist/npm-packages
           if-no-files-found: error
 
-      - name: Upload PyPI wheels
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+  publish:
+    needs: package
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: npm-tui
+      url: https://www.npmjs.com/package/cmux
+    steps:
+      - name: Require npm cmux confirmation
+        if: inputs.confirm_tui_cmux != true
+        run: |
+          echo "Refusing to publish npm package cmux for the TUI without confirm_tui_cmux=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          name: pypi-wheels
-          path: dist/pypi-wheels/*.whl
-          if-no-files-found: error
+          persist-credentials: false
+
+      - name: Download npm package directories
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist/npm-packages
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with OIDC support
+        run: npm install -g npm@^11.5.1
+
+      - name: Publish platform packages
+        run: |
+          set -euo pipefail
+          packages=(
+            cmux-tui-darwin-arm64
+            cmux-tui-darwin-x64
+            cmux-tui-linux-x64
+            cmux-tui-linux-arm64
+          )
+          for package in "${packages[@]}"; do
+            echo "Publishing $package"
+            if ! npm publish --provenance "dist/npm-packages/$package"; then
+              cat >&2 <<'EOF'
+          npm publish failed.
+
+          For the first publish of the new TUI platform package names, add npm Trusted Publishers for:
+          - cmux-tui-darwin-arm64
+          - cmux-tui-darwin-x64
+          - cmux-tui-linux-x64
+          - cmux-tui-linux-arm64
+
+          Trusted publisher settings for each package:
+          - Repository: manaflow-ai/cmux
+          - Workflow: tui-publish-npm.yml
+          - Environment: npm-tui
+          EOF
+              exit 1
+            fi
+          done
+
+      - name: Publish launcher package
+        run: |
+          set -euo pipefail
+          # Deliberately do not pass --tag: this coordinated TUI publish takes
+          # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
+          npm publish --provenance dist/npm-packages/cmux
