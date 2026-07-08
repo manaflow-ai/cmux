@@ -156,6 +156,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         continuation.yield(.superProperties(properties))
     }
 
+    /// Updates whether subsequent telemetry events may be sent to the analytics backend.
     public nonisolated func setTelemetryConsentEnabled(_ isEnabled: Bool) {
         continuation.yield(.consentChanged(isEnabled: isEnabled))
     }

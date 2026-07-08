@@ -1,19 +1,17 @@
 import CmuxAuthRuntime
 import Foundation
 
+/// Client that submits account deletion requests from the mobile settings UI.
 public struct MobileAccountDeletionClient: Sendable {
-    public enum DeletionError: Error, Equatable, Sendable {
-        case missingRefreshToken
-        case invalidURL
-        case invalidResponse
-        case rejected(statusCode: Int)
-    }
+    /// Backward-compatible nested name for mobile account deletion request failures.
+    public typealias DeletionError = MobileAccountDeletionError
 
     private let apiBaseURL: String
     private let tokenProvider: any TokenProviding
     private let session: URLSession
     private let requestTimeout: TimeInterval
 
+    /// Creates a client for the account deletion endpoint at the given API base URL.
     public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
@@ -26,6 +24,7 @@ public struct MobileAccountDeletionClient: Sendable {
         self.requestTimeout = requestTimeout
     }
 
+    /// Sends the authenticated account deletion request and validates the HTTP response.
     public func deleteAccount() async throws {
         let accessToken = try await tokenProvider.accessToken()
         guard let refreshToken = await tokenProvider.refreshToken(), !refreshToken.isEmpty else {

@@ -19,6 +19,7 @@ public struct NoopAnalytics: AnalyticsEmitting {
 
     public func setSuperProperties(_ properties: [String: AnalyticsValue]) {}
 
+    /// Ignores telemetry consent updates because this emitter never sends analytics.
     public func setTelemetryConsentEnabled(_ isEnabled: Bool) {}
 
     public func flush() async {}
