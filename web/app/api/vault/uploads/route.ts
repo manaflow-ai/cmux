@@ -4,7 +4,12 @@ import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../db/schema";
 import { vaultConfig } from "../../../../services/vault/config";
-import { buildObjectKey, deleteObject, presignPut } from "../../../../services/vault/storage";
+import {
+  buildObjectKey,
+  buildUploadObjectKey,
+  deleteObject,
+  presignPut,
+} from "../../../../services/vault/storage";
 import {
   getVaultPendingGrantBytes,
   getVaultStoredCompressedBytes,
@@ -27,6 +32,7 @@ const GRANT_GC_BATCH = 10;
 
 type ExistingUploadGrant = {
   readonly id: string;
+  readonly uploadObjectKey: string;
   readonly compressedSizeBytes: number;
   readonly reservationToken: string;
   readonly createdAt: Date;
@@ -53,6 +59,7 @@ type ReservedUploadResult =
     readonly grantReservationToken: string;
     readonly previousGrant: ExistingUploadGrant | null;
     readonly objectKey: string;
+    readonly uploadObjectKey: string;
     readonly compressedSizeBytes: number;
   });
 
@@ -193,6 +200,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
       const [previousGrant] = await lockedDb
         .select({
           id: vaultUploadGrants.id,
+          uploadObjectKey: vaultUploadGrants.uploadObjectKey,
           compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
           reservationToken: vaultUploadGrants.reservationToken,
           createdAt: vaultUploadGrants.createdAt,
@@ -202,11 +210,13 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .where(eq(vaultUploadGrants.objectKey, objectKey))
         .limit(1);
       const grantReservationToken = randomUUID();
+      const uploadObjectKey = buildUploadObjectKey(objectKey, grantReservationToken);
       const [grant] = await lockedDb
         .insert(vaultUploadGrants)
         .values({
           userId,
           objectKey,
+          uploadObjectKey,
           compressedSizeBytes: item.compressedSizeBytes,
           reservationToken: grantReservationToken,
           createdAt: now,
@@ -215,6 +225,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .onConflictDoUpdate({
           target: vaultUploadGrants.objectKey,
           set: {
+            uploadObjectKey,
             compressedSizeBytes: item.compressedSizeBytes,
             reservationToken: grantReservationToken,
             createdAt: now,
@@ -236,6 +247,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
           ? previousGrant
           : null,
         objectKey,
+        uploadObjectKey,
         compressedSizeBytes: item.compressedSizeBytes,
       });
     }
@@ -270,7 +282,7 @@ async function presignReservedUploads(
         relPath: item.relPath,
         status: "upload",
         objectKey: item.objectKey,
-        putUrl: await presignPut(item.objectKey, item.compressedSizeBytes),
+        putUrl: await presignPut(item.uploadObjectKey, item.compressedSizeBytes),
       });
       successfulObjectKeys.add(item.objectKey);
     } catch {
@@ -291,6 +303,7 @@ async function presignReservedUploads(
         .update(vaultUploadGrants)
         .set({
           compressedSizeBytes: item.previousGrant.compressedSizeBytes,
+          uploadObjectKey: item.previousGrant.uploadObjectKey,
           reservationToken: item.previousGrant.reservationToken,
           createdAt: item.previousGrant.createdAt,
           expiresAt: item.previousGrant.expiresAt,
@@ -326,6 +339,7 @@ async function gcExpiredGrants(db: ReturnType<typeof cloudDb>, now: Date): Promi
     .select({
       id: vaultUploadGrants.id,
       objectKey: vaultUploadGrants.objectKey,
+      uploadObjectKey: vaultUploadGrants.uploadObjectKey,
     })
     .from(vaultUploadGrants)
     .where(lt(vaultUploadGrants.expiresAt, now))
@@ -346,7 +360,7 @@ async function gcExpiredGrants(db: ReturnType<typeof cloudDb>, now: Date): Promi
   for (const grant of expired) {
     if (!committedKeys.has(grant.objectKey)) {
       try {
-        await deleteObject(grant.objectKey);
+        await deleteObject(grant.uploadObjectKey);
       } catch {
         continue;
       }

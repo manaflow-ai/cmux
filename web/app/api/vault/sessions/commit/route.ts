@@ -4,7 +4,12 @@ import { cloudDb } from "../../../../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../../db/schema";
 import { vaultConfig } from "../../../../../services/vault/config";
 import { withAuthedVaultApiRoute } from "../../../../../services/vault/routeHelpers";
-import { buildObjectKey, headObject } from "../../../../../services/vault/storage";
+import {
+  buildObjectKey,
+  copyObject,
+  deleteObject,
+  headObject,
+} from "../../../../../services/vault/storage";
 import {
   getVaultStoredCompressedBytes,
   withVaultUserQuotaLock,
@@ -60,6 +65,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
       const [grant] = await lockedDb
         .select({
           id: vaultUploadGrants.id,
+          uploadObjectKey: vaultUploadGrants.uploadObjectKey,
           compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
         })
         .from(vaultUploadGrants)
@@ -94,7 +100,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         continue;
       }
 
-      const object = await headObject(objectKey);
+      const object = await headObject(grant.uploadObjectKey);
       if (!object) {
         lockedResults.push(itemResult(item, "error", "object_missing"));
         continue;
@@ -105,6 +111,8 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         lockedResults.push(itemResult(item, "error", "size_mismatch"));
         continue;
       }
+
+      await copyObject(grant.uploadObjectKey, objectKey);
 
       const [session] = await lockedDb
         .insert(vaultSessions)
@@ -153,6 +161,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
       // The snapshot now accounts for these bytes, so release the upload
       // grant that reserved them at presign time.
       await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
+      await deleteObject(grant.uploadObjectKey).catch(() => undefined);
 
       projectedUserBytes += item.compressedSizeBytes;
       lockedResults.push({

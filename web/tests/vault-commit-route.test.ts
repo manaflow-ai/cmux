@@ -11,11 +11,20 @@ const sha256 = "b".repeat(64);
 const storageModule = await import("../services/vault/storage");
 const realBuildObjectKey = storageModule.buildObjectKey;
 let objectContentLength = 456;
-const headObject = mock(async () => ({ contentLength: objectContentLength }));
+const headedKeys: string[] = [];
+const headObject = mock(async (...args: unknown[]) => {
+  const [key] = args as [string];
+  headedKeys.push(key);
+  return { contentLength: objectContentLength };
+});
+const copyObject = mock(async () => undefined);
+const deleteObject = mock(async () => undefined);
 const getUser = mock(async () => stackUser());
 
 mock.module("../services/vault/storage", () => ({
   ...storageModule,
+  copyObject,
+  deleteObject,
   headObject,
 }));
 
@@ -46,7 +55,10 @@ beforeEach(async () => {
   process.env.CMUX_VAULT_MAX_UPLOAD_BYTES = "1000000";
   process.env.CMUX_VAULT_MAX_USER_BYTES = "1000000";
   objectContentLength = 456;
+  headedKeys.length = 0;
   headObject.mockClear();
+  copyObject.mockClear();
+  deleteObject.mockClear();
   getUser.mockClear();
   if (runDbTests) await resetVaultTables();
 });
@@ -69,6 +81,9 @@ describe("Vault commit route", () => {
     expect(response.status).toBe(200);
     expect((await response.json()).items[0].status).toBe("committed");
     expect(headObject).toHaveBeenCalledTimes(1);
+    expect(headedKeys).toEqual([`${objectKey}.upload`]);
+    expect(copyObject).toHaveBeenCalledWith(`${objectKey}.upload`, objectKey);
+    expect(deleteObject).toHaveBeenCalledWith(`${objectKey}.upload`);
     const grants = await db
       .select({ id: vaultUploadGrants.id })
       .from(vaultUploadGrants)
@@ -112,6 +127,7 @@ async function insertGrant(objectKey: string, compressedSizeBytes: number): Prom
     .values({
       userId,
       objectKey,
+      uploadObjectKey: `${objectKey}.upload`,
       compressedSizeBytes,
       createdAt: new Date("2030-01-01T00:00:00.000Z"),
       expiresAt: new Date("2030-01-02T00:00:00.000Z"),

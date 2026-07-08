@@ -84,6 +84,7 @@ describe("Vault uploads route", () => {
       .values({
         userId,
         objectKey,
+        uploadObjectKey: `${objectKey}.previous-upload`,
         compressedSizeBytes: 123,
         createdAt: previousCreatedAt,
         expiresAt: previousExpiresAt,
@@ -123,6 +124,7 @@ describe("Vault uploads route", () => {
       .values({
         userId,
         objectKey,
+        uploadObjectKey: `${objectKey}.previous-upload`,
         compressedSizeBytes: 123,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
         expiresAt: new Date("2030-01-02T00:00:00.000Z"),
@@ -186,25 +188,24 @@ describe("Vault uploads route", () => {
     const response = await POST(duplicateUploadRequest());
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      items: [
-        {
-          agent: "codex",
-          agentSessionId: "session-1",
-          relPath: "sessions/session-1.jsonl.zst",
-          status: "upload",
-          objectKey,
-          putUrl: `https://storage.test/${encodeURIComponent(objectKey)}?contentLength=456`,
-        },
-        {
-          agent: "codex",
-          agentSessionId: "session-1",
-          relPath: "sessions/session-1-duplicate.jsonl.zst",
-          status: "error",
-          error: "duplicate_object_key",
-        },
-      ],
+    const body = await response.json();
+    expect(body.items[0]).toMatchObject({
+      agent: "codex",
+      agentSessionId: "session-1",
+      relPath: "sessions/session-1.jsonl.zst",
+      status: "upload",
+      objectKey,
     });
+    expect(body.items[0].putUrl).toContain("vault%2Fuploads%2F");
+    expect(body.items[0].putUrl).toContain("contentLength=456");
+    expect(body.items[1]).toEqual({
+      agent: "codex",
+      agentSessionId: "session-1",
+      relPath: "sessions/session-1-duplicate.jsonl.zst",
+      status: "error",
+      error: "duplicate_object_key",
+    });
+    expect(body.items).toHaveLength(2);
     expect(presignPut).toHaveBeenCalledTimes(1);
     const rows = await db
       .select({ compressedSizeBytes: vaultUploadGrants.compressedSizeBytes })
