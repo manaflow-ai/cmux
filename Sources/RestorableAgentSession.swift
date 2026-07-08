@@ -2157,28 +2157,6 @@ struct RestorableAgentSessionIndex: Sendable {
         return pid
     }
 
-    private static func liveProcessExecutableMatchesRecordedAgent(
-        kind: RestorableAgentKind,
-        liveExecutable: String,
-        recordedExecutable: String,
-        arguments: [String],
-        environment: [String: String]
-    ) -> Bool {
-        if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
-            return true
-        }
-        if CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
-            kind: kind,
-            executableCandidates: [liveExecutable],
-            environment: environment
-        ) {
-            return true
-        }
-
-        return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
-            || CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
-    }
-
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
         let executable = normalizedProcessValue(record.launchCommand?.executablePath)
             ?? normalizedProcessValue(record.launchCommand?.arguments.first)
