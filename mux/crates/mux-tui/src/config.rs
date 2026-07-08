@@ -62,6 +62,7 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mux_core::platform;
+use mux_core::SurfaceOptions;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -727,6 +728,17 @@ pub fn load() -> Config {
     }
     config.keys.apply(&raw.keys);
     config
+}
+
+pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
+    options.chrome_binary = config.browser.chrome_binary.clone();
+    options.cdp_url = config.browser.cdp_url.clone();
+    options.browser_discover = config.browser.discover;
+    options.browser_discover_ports = config.browser.discover_ports.clone();
+    options.browser_user_data_dir = config.browser.user_data_dir.clone();
+    options.browser_ephemeral = config.browser.ephemeral;
+    options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
+    options.browser_capture_scale = config.browser.capture_scale;
 }
 
 /// The label for a tab: user name if set, otherwise its 1-based number

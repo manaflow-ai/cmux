@@ -840,6 +840,21 @@ impl App {
         }
     }
 
+    fn reload_config(&mut self) {
+        let config = crate::config::load();
+        self.session.apply_config(&config);
+        self.config = config;
+    }
+
+    fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
+        let mut stdout = std::io::stdout();
+        stdout.write_all(&mux_core::server::window_title_osc(title))?;
+        stdout.flush()?;
+        Ok(())
+    }
+
     /// Refresh the tree snapshot, recompute the active screen's layout
     /// (each pane's border box eats one cell on every side), and push
     /// content sizes to surfaces.
@@ -928,6 +943,14 @@ impl App {
             AppEvent::Mux(MuxEvent::Status(message)) => {
                 self.status_message = Some(message);
                 Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
+                self.reload_config();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::WindowTitleRequested(title)) => {
+                self.write_window_title(&title)?;
+                Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
                 if self.frame_only_browser_update(id) {
@@ -1048,14 +1071,7 @@ impl App {
         };
         let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
         let Some(surface) = self.session.surface(surface_id) else { return false };
-        let moved = surface
-            .with_terminal(|t| {
-                let before = t.scrollbar().map(|sb| sb.offset).unwrap_or(0);
-                t.scroll_delta(dir as isize);
-                let after = t.scrollbar().map(|sb| sb.offset).unwrap_or(0);
-                before != after
-            })
-            .unwrap_or(false);
+        let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
         if let Some(sel) = self.selection.as_mut() {
@@ -1618,7 +1634,7 @@ impl App {
             if surface.kind() == SurfaceKind::Browser {
                 return;
             }
-            let _ = surface.with_terminal(|t| t.scroll_delta(delta));
+            let _ = surface.scroll_delta(delta);
         }
     }
 
@@ -1633,9 +1649,8 @@ impl App {
         let Some(input) = keys::key_input_from(key) else { return };
         let Some(surface) = self.active_surface_handle() else { return };
         self.encode_buf.clear();
+        let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
-            // New input snaps the viewport back to the live screen.
-            term.scroll_to_bottom();
             self.encoder.sync_from_terminal(term);
             self.encoder.encode(&input, &mut self.encode_buf)
         }) else {
@@ -2317,23 +2332,27 @@ impl App {
     /// outside it jumps first, then anchors at the clicked position.
     fn start_scrollbar_drag(&mut self, surface: SurfaceId, track: Rect, y: u16) {
         let Some(handle) = self.session.surface(surface) else { return };
-        let mut anchor_offset = None;
-        let _ = handle.with_terminal(|t| {
-            let Some(sb) = t.scrollbar() else { return };
-            let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
-            let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
-            let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
-            if !on_thumb {
+        let jump_delta = handle
+            .with_terminal(|t| {
+                let sb = t.scrollbar()?;
+                let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+                let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
+                let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
+                if on_thumb {
+                    return None;
+                }
                 let denom = track.height.saturating_sub(1).max(1) as f64;
                 let frac = (rel_y as f64 / denom).clamp(0.0, 1.0);
                 let target = ((sb.total - sb.len) as f64 * frac).round() as i64;
                 let delta = target - sb.offset as i64;
-                if delta != 0 {
-                    t.scroll_delta(delta as isize);
-                }
-            }
-            anchor_offset = t.scrollbar().map(|after| after.offset);
-        });
+                (delta != 0).then_some(delta as isize)
+            })
+            .flatten();
+        if let Some(delta) = jump_delta {
+            let _ = handle.scroll_delta(delta);
+        }
+        let anchor_offset =
+            handle.with_terminal(|t| t.scrollbar().map(|scrollbar| scrollbar.offset)).flatten();
         if let Some(anchor_offset) = anchor_offset {
             self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
         }
@@ -2349,20 +2368,23 @@ impl App {
         y: u16,
     ) {
         let Some(handle) = self.session.surface(surface) else { return };
-        handle.with_terminal(|t| {
-            let Some(sb) = t.scrollbar() else { return };
-            let (_, thumb_len) = thumb_geometry(&sb, track.height);
-            let range = sb.total.saturating_sub(sb.len);
-            let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
-            let dy = y as i128 - anchor_y as i128;
-            let delta = dy * range as i128 / travel;
-            let target = (anchor_offset as i128 + delta).clamp(0, range as i128) as i64;
-            let current = sb.offset as i64;
-            let scroll_delta = target - current;
-            if scroll_delta != 0 {
-                t.scroll_delta(scroll_delta as isize);
-            }
-        });
+        let delta = handle
+            .with_terminal(|t| {
+                let sb = t.scrollbar()?;
+                let (_, thumb_len) = thumb_geometry(&sb, track.height);
+                let range = sb.total.saturating_sub(sb.len);
+                let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
+                let dy = y as i128 - anchor_y as i128;
+                let delta = dy * range as i128 / travel;
+                let target = (anchor_offset as i128 + delta).clamp(0, range as i128) as i64;
+                let current = sb.offset as i64;
+                let scroll_delta = target - current;
+                (scroll_delta != 0).then_some(scroll_delta as isize)
+            })
+            .flatten();
+        if let Some(delta) = delta {
+            let _ = handle.scroll_delta(delta);
+        }
     }
 
     fn resize_focused_split(&mut self, delta: f32) {
@@ -2527,20 +2549,21 @@ impl App {
         }
         let Some(sent_arrows) = surface.with_terminal(|term| {
             if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
-                term.scroll_to_bottom();
                 true
             } else {
-                term.scroll_delta(if down { 3 } else { -3 });
                 false
             }
         }) else {
             return Ok(RenderAction::None);
         };
         if sent_arrows {
+            let _ = surface.scroll_to_bottom();
             // Alt-screen apps without mouse support get arrow keys
             // (the usual alternate-scroll behavior).
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
             surface.write_bytes(seq);
+        } else {
+            let _ = surface.scroll_delta(if down { 3 } else { -3 });
         }
         Ok(RenderAction::Draw)
     }
