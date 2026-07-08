@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
+import { createTestflightUser } from "./helpers/testflight-user";
+
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -8,7 +10,7 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = true;
 let ascConfigured = true;
-let currentUser = testflightUser();
+let currentUser = createTestflightUser();
 let user: typeof currentUser | null = currentUser;
 let useStubDb = false;
 
@@ -79,7 +81,7 @@ describe("TestFlight route", () => {
   beforeEach(() => {
     stackConfigured = true;
     ascConfigured = true;
-    currentUser = testflightUser();
+    currentUser = createTestflightUser();
     user = currentUser;
     getUser.mockClear();
     ascFetch.mockClear();
@@ -120,7 +122,7 @@ describe("TestFlight route", () => {
   });
 
   test("does not enroll ineligible users", async () => {
-    currentUser = testflightUser({ eligible: false });
+    currentUser = createTestflightUser({ eligible: false });
     user = currentUser;
 
     const response = await postAction("join");
@@ -216,34 +218,6 @@ function postAction(
       body: new URLSearchParams({ action }),
     }),
   );
-}
-
-function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
-  return {
-    id: "user-pro",
-    isAnonymous: false,
-    primaryEmail: "Pro@Example.com",
-    displayName: "Pro User",
-    clientReadOnlyMetadata: {},
-    listProducts: mock(async () =>
-      Object.assign(
-        eligible
-          ? [
-              {
-                id: "pro",
-                quantity: 1,
-                subscription: {
-                  cancelAtPeriodEnd: false,
-                  currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-                },
-              },
-            ]
-          : [],
-        { nextCursor: null },
-      ),
-    ),
-    update: mock(async () => undefined),
-  };
 }
 
 function callInit(index: number): RequestInit {

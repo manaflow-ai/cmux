@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
+import { createTestflightUser } from "./helpers/testflight-user";
 
 let stackConfigured = true;
-let currentUser: ReturnType<typeof testflightUser> | null = null;
+let currentUser: ReturnType<typeof createPageTestflightUser> | null = null;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 const eligibilityByUser = new WeakMap<object, boolean>();
@@ -89,7 +90,7 @@ const { default: DashboardTestflightPage } = await import("../app/[locale]/dashb
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
-    currentUser = testflightUser();
+    currentUser = createPageTestflightUser();
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
@@ -99,7 +100,7 @@ describe("dashboard TestFlight page", () => {
   });
 
   test("renders not eligible state with pricing link", async () => {
-    currentUser = testflightUser({ eligible: false });
+    currentUser = createPageTestflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 
@@ -157,32 +158,10 @@ async function renderTestflightPage(searchParams: Record<string, string> = {}) {
   return renderToStaticMarkup(element);
 }
 
-function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
-  const user = {
-    id: "user-pro",
-    isAnonymous: false,
-    primaryEmail: "Pro@Example.com",
-    displayName: "Pro User",
-    clientReadOnlyMetadata: {},
-    listProducts: mock(async () =>
-      Object.assign(
-        eligible
-          ? [
-              {
-                id: "pro",
-                quantity: 1,
-                subscription: {
-                  cancelAtPeriodEnd: false,
-                  currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-                },
-              },
-            ]
-          : [],
-        { nextCursor: null },
-      ),
-    ),
-    update: mock(async () => undefined),
-  };
+function createPageTestflightUser({
+  eligible = true,
+}: { eligible?: boolean } = {}) {
+  const user = createTestflightUser({ eligible });
   eligibilityByUser.set(user, eligible);
   return user;
 }
