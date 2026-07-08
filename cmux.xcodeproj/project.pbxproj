@@ -789,6 +789,7 @@
 		4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */; };
 		4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */; };
 		C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */; };
+		C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
 		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
@@ -2232,6 +2233,7 @@
 		4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiter.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiterTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTerminalTheme.swift; sourceTree = "<group>"; };
+		C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostWorkspaceTicketAuthorizationTests.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
 		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
@@ -4411,6 +4413,7 @@
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
+				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
 			);
@@ -6045,6 +6048,7 @@
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
+				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
