@@ -865,9 +865,9 @@ async function filesChangedEvents(sess: Session, generation: number, timeoutMs =
       }
     }
     if (!filtered.length) return events;
-    const key = JSON.stringify(filtered);
-    if (sess.internal.lastFilesChangedKey === key) return events;
-    sess.internal.lastFilesChangedKey = key;
+    // No cross-turn dedupe: the baseline filter already limits the block to
+    // files that changed during THIS turn, so an identical-looking list from
+    // a later turn is a real, distinct edit that must be reported.
     // Diffs are intentionally fetched from the current working tree on click;
     // the files-changed block is turn-attributed, while diff content is best
     // effort current-tree state.
