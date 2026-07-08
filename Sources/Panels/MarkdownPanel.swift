@@ -261,7 +261,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let notesRoot = ((NoteSupport.notesDirectory(forProjectRoot: projectRoot) as NSString)
             .standardizingPath as NSString).resolvingSymlinksInPath
         let canonical = (standardized as NSString).resolvingSymlinksInPath
-        return canonical == notesRoot || canonical.hasPrefix(notesRoot + "/")
+        guard canonical.hasPrefix(notesRoot + "/") else { return false }
+        // Same body restrictions as CmuxNoteStore.absoluteBodyPath: note
+        // behavior may only ever attach to visible `.md` bodies — never the
+        // notes root itself, cmux metadata (`index.json`, tree markers), or
+        // hidden components — otherwise opening `.cmux/notes/index.json` in a
+        // markdown panel would autosave over the note index.
+        let relative = canonical.dropFirst(notesRoot.count + 1)
+            .split(separator: "/").map(String.init)
+        return !relative.isEmpty
+            && relative.allSatisfy { !CmuxNoteStore.isDisallowedBodyComponent($0) }
+            && relative[relative.count - 1].lowercased().hasSuffix(".md")
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"

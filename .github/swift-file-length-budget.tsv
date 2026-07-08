@@ -66,12 +66,12 @@
 1433	Sources/RemoteTmuxControlConnection.swift
 1428	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
-1392	cmuxTests/NotesTreeStorageTests.swift
+1465	cmuxTests/NotesTreeStorageTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1354	Sources/NotesTreeStore.swift
+1335	Sources/NotesTreeStore.swift
 1317	Sources/FileExplorerStore.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1291	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
@@ -137,7 +137,7 @@
 762	Packages/iOS/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 757	Sources/TerminalController+ControlWorkspaceContext.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
-756	Sources/Panels/MarkdownPanel.swift
+766	Sources/Panels/MarkdownPanel.swift
 754	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 753	Sources/Mobile/AgentChat/AgentChatSessionRegistry.swift
 752	Sources/TerminalController+Notes.swift

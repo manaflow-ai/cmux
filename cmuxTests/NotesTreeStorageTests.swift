@@ -1088,6 +1088,79 @@ extension NotesTreeStore {
         #expect(!MarkdownPanel.isWorkspaceNotesPath(outside))
     }
 
+    /// Note classification must also reject everything that is not a visible
+    /// `.md` body: cmux metadata (`index.json`, tree markers), hidden
+    /// components, non-markdown files, and the notes root itself — otherwise
+    /// opening them in a markdown panel would enable implicit autosave over
+    /// cmux metadata.
+    @Test @MainActor func noteClassificationRejectsMetadataAndNonMarkdownPaths() throws {
+        let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
+        try fm.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
+        for name in ["index.json", "_workspace.json", "_session.json", ".hidden.md", "todo.txt"] {
+            let path = (notesDir as NSString).appendingPathComponent(name)
+            try write("content", to: path)
+            #expect(!MarkdownPanel.isWorkspaceNotesPath(path), "\(name) must not classify as a note")
+        }
+        #expect(!MarkdownPanel.isWorkspaceNotesPath(notesDir))
+
+        let folder = (notesDir as NSString).appendingPathComponent("folder")
+        try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let nestedMarker = (folder as NSString).appendingPathComponent("_session.json")
+        try write("{}", to: nestedMarker)
+        #expect(!MarkdownPanel.isWorkspaceNotesPath(nestedMarker))
+        let nested = (folder as NSString).appendingPathComponent("real.md")
+        try write("note", to: nested)
+        #expect(MarkdownPanel.isWorkspaceNotesPath(nested))
+    }
+
+    /// Hookless (anonymous) agent observations carry only an executable name
+    /// and a start time, so they may bind a session only when exactly one
+    /// live session matches; two same-agent sessions in one cwd must fail
+    /// closed rather than attach notes to — or resume — the wrong one.
+    @Test func anonymousAgentResolutionRequiresUnambiguousMatch() {
+        let now = Date().timeIntervalSince1970
+        let anon = NotesTreeAnonymousAgentObservation(
+            agent: "claude", startedAt: now - 60,
+            surfaceAnchorId: "anchor-1", terminalPanelId: "panel-1"
+        )
+        func session(_ id: String, modified: TimeInterval, cwd: String = "/work") -> NotesSessionDescriptor {
+            NotesSessionDescriptor(agent: "claude", sessionId: id, title: id, cwd: cwd, modified: modified)
+        }
+
+        // Exactly one live candidate: binds, and carries the pane identity.
+        let unique = NotesTreeAnonymousResolution.resolve(
+            anonymous: [anon],
+            liveSessions: [session("s-1", modified: now)],
+            workspaceCwd: "/work"
+        )
+        #expect(unique == [NotesTreeObservedSession(
+            agent: "claude", sessionId: "s-1",
+            surfaceAnchorId: "anchor-1", terminalPanelId: "panel-1"
+        )])
+
+        // Two same-agent sessions active in the cwd: ambiguous, no binding.
+        let ambiguous = NotesTreeAnonymousResolution.resolve(
+            anonymous: [anon],
+            liveSessions: [session("s-1", modified: now), session("s-2", modified: now - 10)],
+            workspaceCwd: "/work"
+        )
+        #expect(ambiguous.isEmpty)
+
+        // Sessions inactive since before the process started (beyond the
+        // resume slack) or in another cwd are not candidates, so a single
+        // genuinely-live session still binds next to them.
+        let filtered = NotesTreeAnonymousResolution.resolve(
+            anonymous: [anon],
+            liveSessions: [
+                session("s-live", modified: now),
+                session("s-stale", modified: now - 3600),
+                session("s-elsewhere", modified: now, cwd: "/other"),
+            ],
+            workspaceCwd: "/work"
+        )
+        #expect(filtered.map(\.sessionId) == ["s-live"])
+    }
+
     /// The per-workspace folder name is predictable, so a repository can
     /// commit `.cmux/notes/<workspace-folder>` as a symlink; the tree must
     /// neither adopt it, create through it, nor read/write its marker.

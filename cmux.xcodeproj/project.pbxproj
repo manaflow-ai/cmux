@@ -863,6 +863,7 @@
 		012FA7CA7B910B29E66EE894 /* NotesShortcutContextSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD9EDA7A045F0587BB319A7 /* NotesShortcutContextSwiftTests.swift */; };
 		6B8F4E5430A508904F624A77 /* NotesShortcutRoutingSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 293FDAD7563E00BC293C9C57 /* NotesShortcutRoutingSwiftTests.swift */; };
 		EE9C2D7C83B82929FBB3BECB /* NotesTreeAnonymousAgentObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10BA09AC5234AD38C7FF178 /* NotesTreeAnonymousAgentObservation.swift */; };
+		85C69C07F65A040B0CB67F4B /* NotesTreeAnonymousResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C939401A83246F8431F950 /* NotesTreeAnonymousResolution.swift */; };
 		CAFE000000000000000000B4 /* NotesTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A4 /* NotesTreeCellView.swift */; };
 		CAFE000000000000000000B6 /* NotesTreeContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A6 /* NotesTreeContainerView.swift */; };
 		990E36D283CCD09A55B05BCC /* NotesTreeEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A4D7B8B9C8200382951864 /* NotesTreeEntry.swift */; };
@@ -2428,6 +2429,7 @@
 		FAD9EDA7A045F0587BB319A7 /* NotesShortcutContextSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesShortcutContextSwiftTests.swift; sourceTree = "<group>"; };
 		293FDAD7563E00BC293C9C57 /* NotesShortcutRoutingSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesShortcutRoutingSwiftTests.swift; sourceTree = "<group>"; };
 		F10BA09AC5234AD38C7FF178 /* NotesTreeAnonymousAgentObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeAnonymousAgentObservation.swift; sourceTree = "<group>"; };
+		22C939401A83246F8431F950 /* NotesTreeAnonymousResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeAnonymousResolution.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A4 /* NotesTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeCellView.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A6 /* NotesTreeContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeContainerView.swift; sourceTree = "<group>"; };
 		88A4D7B8B9C8200382951864 /* NotesTreeEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeEntry.swift; sourceTree = "<group>"; };
@@ -4201,6 +4203,7 @@
 				B074C565539BB96838032304 /* NotesTreeObservation.swift */,
 				E48EE8C55F242A25453C5E45 /* NotesTreeObservedTerminal.swift */,
 				F10BA09AC5234AD38C7FF178 /* NotesTreeAnonymousAgentObservation.swift */,
+				22C939401A83246F8431F950 /* NotesTreeAnonymousResolution.swift */,
 				8D047923CF214409588D5FC3 /* NotesTreeObservedSession.swift */,
 				BB1BD9625B36475E9F0DCBD3 /* NotesWorkspaceSessionRecord.swift */,
 				CAEFBE2D522F2C7C27E1BA6A /* NotesWorkspaceMarker.swift */,
@@ -5705,6 +5708,7 @@
 				B9519E33A433064D32A93F8F /* NotesSessionFolderRef.swift in Sources */,
 				5CEC78D9A6B413FAF92787D7 /* NotesSessionMarker.swift in Sources */,
 				EE9C2D7C83B82929FBB3BECB /* NotesTreeAnonymousAgentObservation.swift in Sources */,
+				85C69C07F65A040B0CB67F4B /* NotesTreeAnonymousResolution.swift in Sources */,
 				CAFE000000000000000000B4 /* NotesTreeCellView.swift in Sources */,
 				CAFE000000000000000000B6 /* NotesTreeContainerView.swift in Sources */,
 				990E36D283CCD09A55B05BCC /* NotesTreeEntry.swift in Sources */,

@@ -66,8 +66,10 @@ extension CmuxNoteStore {
     /// Whether a project-controlled body path component may never be part of a
     /// resolved note body: empty/relative/hidden names and cmux metadata (the
     /// note index and the tree markers). Compared case-insensitively because
-    /// the default APFS volume is case-insensitive.
-    private static func isDisallowedBodyComponent(_ component: String) -> Bool {
+    /// the default APFS volume is case-insensitive. Internal so note
+    /// classification (`MarkdownPanel.isWorkspaceNotesPath`) applies the same
+    /// restrictions before enabling implicit note writes.
+    static func isDisallowedBodyComponent(_ component: String) -> Bool {
         if component.isEmpty || component == ".." || component.hasPrefix(".") {
             return true
         }

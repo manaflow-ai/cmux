@@ -755,34 +755,15 @@ final class NotesTreeStore {
             let lateObservation = await provider?() ?? NotesTreeObservation()
             let lateObserved = lateObservation.sessions
             // Hookless agents (bare launches that bypassed the wrapper):
-            // resolve each agent-on-a-pane-TTY to the workspace cwd's newest
-            // session of that agent that has been active since the process
-            // started — the same inference a human makes in the Vault.
+            // bind each agent-on-a-pane-TTY to the workspace cwd's session
+            // files, but only when the match is unambiguous — see
+            // NotesTreeAnonymousResolution.
             let anonymous = observation.anonymousAgents + lateObservation.anonymousAgents
-            var resolvedAnonymous: [NotesTreeObservedSession] = []
-            if !anonymous.isEmpty {
-                var taken = Set<String>()
-                let cwdLive = liveSnapshot
-                    .filter { ($0.cwd as NSString).standardizingPath == workspaceCwd }
-                    .sorted { $0.modified > $1.modified }
-                for anon in anonymous {
-                    // 120s slack: a just-resumed session's file mtime can
-                    // slightly predate the process start.
-                    if let match = cwdLive.first(where: { candidate in
-                        candidate.agent == anon.agent
-                            && candidate.modified >= anon.startedAt - 120
-                            && !taken.contains("\(candidate.agent)\n\(candidate.sessionId)")
-                    }) {
-                        taken.insert("\(match.agent)\n\(match.sessionId)")
-                        resolvedAnonymous.append(NotesTreeObservedSession(
-                            agent: match.agent,
-                            sessionId: match.sessionId,
-                            surfaceAnchorId: anon.surfaceAnchorId,
-                            terminalPanelId: anon.terminalPanelId
-                        ))
-                    }
-                }
-            }
+            let resolvedAnonymous = NotesTreeAnonymousResolution.resolve(
+                anonymous: anonymous,
+                liveSessions: liveSnapshot,
+                workspaceCwd: workspaceCwd
+            )
             let allObserved = observed + lateObserved + resolvedAnonymous
             if !allObserved.isEmpty, observed.isEmpty {
                 _ = try? self.ensureRoot(folder: nil)
