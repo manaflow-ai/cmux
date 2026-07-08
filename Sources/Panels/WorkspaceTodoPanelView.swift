@@ -123,6 +123,9 @@ private struct WorkspaceTodoPaneContent: View {
         .onChange(of: isFocused) { _, focused in
             if focused, editingItemId == nil { addFieldFocused = true }
         }
+        .onChange(of: editFieldFocused) { _, focused in
+            if !focused { finishItemEditOnFocusLoss() }
+        }
         .accessibilityIdentifier("WorkspaceTodoPane")
     }
 
@@ -194,81 +197,41 @@ private struct WorkspaceTodoPaneContent: View {
 
     private func itemRow(_ item: WorkspaceChecklistItem, displayIndex: Int) -> some View {
         let isCompleted = item.state == .completed
-        return HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Button {
-                WorkspaceTodoActions.setChecklistItemState(
-                    id: item.id,
-                    state: isCompleted ? .pending : .completed,
-                    in: workspace
-                )
-            } label: {
-                CmuxSystemSymbolImage(
-                    systemName: checkboxSymbolName(for: item.state),
-                    pointSize: Self.checkboxPointSize
-                )
-                .foregroundColor(isCompleted ? .secondary : .primary)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .safeHelp(
-                isCompleted
-                    ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
-                    : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
-            )
-            if editingItemId == item.id {
-                TextField(
-                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: Self.itemFontSize))
-                .foregroundColor(.primary)
-                .focused($editFieldFocused)
-                .onSubmit { commitItemEdit(item.id) }
-                .onExitCommand(perform: cancelItemEdit)
-                .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
-            } else {
-                Text(item.text)
-                    .font(.system(size: Self.itemFontSize))
-                    .foregroundColor(isCompleted ? .secondary : .primary)
-                    .strikethrough(isCompleted)
-                    .opacity(isCompleted ? 0.6 : 1)
-                    .contentShape(Rectangle())
-                    .onTapGesture { beginItemEdit(item) }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(highlightedItemId == item.id ? Color.primary.opacity(0.08) : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            highlightedItemId = item.id
-            itemsFocused = true
-        }
-        // Drag to reorder within the item's completion partition; the model
-        // clamps the target so completed items always stay last (item 5).
-        .draggable(item.id.uuidString)
-        .dropDestination(for: String.self) { payload, _ in
-            handleReorderDrop(payload: payload, onto: displayIndex)
-        }
-        .contextMenu {
-            Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
-                beginItemEdit(item)
-            }
-            if item.state != .inProgress {
-                Button(String(localized: "sidebar.checklist.markInProgress", defaultValue: "Mark In Progress")) {
+        return WorkspaceTodoPaneItemRow(
+            item: item,
+            displayIndex: displayIndex,
+            isEditing: editingItemId == item.id,
+            isHighlighted: highlightedItemId == item.id,
+            editingText: $editingText,
+            editFieldFocused: $editFieldFocused,
+            itemFontSize: Self.itemFontSize,
+            checkboxPointSize: Self.checkboxPointSize,
+            actions: WorkspaceTodoPaneItemRowActions(
+                toggleCompletion: {
+                    WorkspaceTodoActions.setChecklistItemState(
+                        id: item.id,
+                        state: isCompleted ? .pending : .completed,
+                        in: workspace
+                    )
+                },
+                beginEdit: { beginItemEdit(item) },
+                commitEdit: { commitItemEdit(item.id) },
+                cancelEdit: cancelItemEdit,
+                select: {
+                    highlightedItemId = item.id
+                    itemsFocused = true
+                },
+                markInProgress: {
                     WorkspaceTodoActions.setChecklistItemState(id: item.id, state: .inProgress, in: workspace)
+                },
+                remove: {
+                    WorkspaceTodoActions.removeChecklistItem(id: item.id, from: workspace)
+                },
+                handleDrop: { payload, displayIndex in
+                    handleReorderDrop(payload: payload, onto: displayIndex)
                 }
-            }
-            Button(String(localized: "sidebar.checklist.removeItem", defaultValue: "Remove")) {
-                WorkspaceTodoActions.removeChecklistItem(id: item.id, from: workspace)
-            }
-        }
-        .accessibilityIdentifier("WorkspaceTodoPaneItemRow")
+            )
+        )
     }
 
     // MARK: Keyboard navigation + reorder
@@ -309,14 +272,6 @@ private struct WorkspaceTodoPaneContent: View {
         guard let raw = payload.first, let id = UUID(uuidString: raw) else { return false }
         WorkspaceTodoActions.moveChecklistItem(id: id, toIndex: displayIndex, in: workspace)
         return true
-    }
-
-    private func checkboxSymbolName(for state: WorkspaceChecklistItem.State) -> String {
-        switch state {
-        case .pending: return "square"
-        case .inProgress: return "minus.square"
-        case .completed: return "checkmark.square.fill"
-        }
     }
 
     // MARK: Add-item row (pinned at the bottom, always armed)
@@ -372,9 +327,122 @@ private struct WorkspaceTodoPaneContent: View {
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
     }
 
+    private func finishItemEditOnFocusLoss() {
+        guard let id = editingItemId else { return }
+        let text = editingText
+        editingItemId = nil
+        editingText = ""
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
+    }
+
     private func cancelItemEdit() {
         editingItemId = nil
         editingText = ""
         editFieldFocused = false
+    }
+}
+
+private struct WorkspaceTodoPaneItemRowActions {
+    let toggleCompletion: () -> Void
+    let beginEdit: () -> Void
+    let commitEdit: () -> Void
+    let cancelEdit: () -> Void
+    let select: () -> Void
+    let markInProgress: () -> Void
+    let remove: () -> Void
+    let handleDrop: ([String], Int) -> Bool
+}
+
+private struct WorkspaceTodoPaneItemRow: View {
+    let item: WorkspaceChecklistItem
+    let displayIndex: Int
+    let isEditing: Bool
+    let isHighlighted: Bool
+    @Binding var editingText: String
+    let editFieldFocused: FocusState<Bool>.Binding
+    let itemFontSize: CGFloat
+    let checkboxPointSize: CGFloat
+    let actions: WorkspaceTodoPaneItemRowActions
+
+    private var isCompleted: Bool { item.state == .completed }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Button {
+                actions.toggleCompletion()
+            } label: {
+                CmuxSystemSymbolImage(
+                    systemName: checkboxSymbolName(for: item.state),
+                    pointSize: checkboxPointSize
+                )
+                .foregroundColor(isCompleted ? .secondary : .primary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .safeHelp(
+                isCompleted
+                    ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
+                    : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
+            )
+            if isEditing {
+                TextField(
+                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    text: $editingText
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: itemFontSize))
+                .foregroundColor(.primary)
+                .focused(editFieldFocused)
+                .onSubmit { actions.commitEdit() }
+                .onExitCommand(perform: actions.cancelEdit)
+                .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
+            } else {
+                Text(item.text)
+                    .font(.system(size: itemFontSize))
+                    .foregroundColor(isCompleted ? .secondary : .primary)
+                    .strikethrough(isCompleted)
+                    .opacity(isCompleted ? 0.6 : 1)
+                    .contentShape(Rectangle())
+                    .onTapGesture { actions.beginEdit() }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isHighlighted ? Color.primary.opacity(0.08) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { actions.select() }
+        // Drag to reorder within the item's completion partition; the model
+        // clamps the target so completed items always stay last (item 5).
+        .draggable(item.id.uuidString)
+        .dropDestination(for: String.self) { payload, _ in
+            actions.handleDrop(payload, displayIndex)
+        }
+        .contextMenu {
+            Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
+                actions.beginEdit()
+            }
+            if item.state != .inProgress {
+                Button(String(localized: "sidebar.checklist.markInProgress", defaultValue: "Mark In Progress")) {
+                    actions.markInProgress()
+                }
+            }
+            Button(String(localized: "sidebar.checklist.removeItem", defaultValue: "Remove")) {
+                actions.remove()
+            }
+        }
+        .accessibilityIdentifier("WorkspaceTodoPaneItemRow")
+    }
+
+    private func checkboxSymbolName(for state: WorkspaceChecklistItem.State) -> String {
+        switch state {
+        case .pending: return "square"
+        case .inProgress: return "minus.square"
+        case .completed: return "checkmark.square.fill"
+        }
     }
 }
