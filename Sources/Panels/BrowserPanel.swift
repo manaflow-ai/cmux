@@ -2797,6 +2797,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
     let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
     var hasCommittedDocumentSinceWebViewReplacement = false
+    weak var pendingDiscardRestoreNavigation: WKNavigation?
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
@@ -3352,7 +3353,8 @@ final class BrowserPanel: Panel, ObservableObject {
     func restoreDiscardedWebViewIfNeeded(
         reason: String,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
-        allowBlankShellHeal: Bool = true
+        allowBlankShellHeal: Bool = true,
+        forceRestartPendingRestore: Bool = false
     ) -> Bool {
         if Self.isRestoreStalled(
             isRestoreNavigationPending: hiddenWebViewDiscardManager.isRestoreNavigationPending,
@@ -3370,7 +3372,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
         }
 
-        if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, performRestore: {
+        if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {
             shouldRenderWebView = true
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
@@ -3847,7 +3849,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
         }
-        navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
+        navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
@@ -3860,18 +3862,22 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.faviconPNGData = nil
                 self.lastFaviconURLString = nil
                 self.applyMuteState(to: failedWebView, reason: "navigationFail")
-                self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
+                if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
+                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
+                }
                 // Keep find-in-page open and clear stale counters on failed loads.
                 self.restoreFindStateAfterNavigation(replaySearch: false)
             }
         }
-        navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView in
+        navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.navigationDelegate?.clearAttemptedRequest()
                 self.refreshBackgroundAppearance()
-                self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
+                if self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation) {
+                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
+                }
             }
         }
         navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame in
@@ -5804,8 +5810,11 @@ final class BrowserPanel: Panel, ObservableObject {
             historyStore.recordTypedNavigation(url: originalURL)
         }
         noteDiscardedWebViewRestoreNavigationStarted()
-        if browserLoadRequest(effectiveRequest, in: webView) == nil {
+        let startedNavigation = browserLoadRequest(effectiveRequest, in: webView)
+        if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
+        } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
+            pendingDiscardRestoreNavigation = startedNavigation
         }
     }
 
@@ -6405,7 +6414,7 @@ extension BrowserPanel {
         if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
             return true
         }
-        if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+        if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy, forceRestartPendingRestore: true) {
             return true
         }
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent

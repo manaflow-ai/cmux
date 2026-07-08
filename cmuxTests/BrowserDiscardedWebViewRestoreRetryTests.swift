@@ -228,6 +228,26 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         }
     }
 
+    @Test func explicitReloadForcesRestartOfPendingRestore() {
+        withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            manager.markDiscarded(reason: "test.discard", now: Date(timeIntervalSince1970: 900))
+
+            var restoreCount = 0
+            #expect(manager.restoreIfNeeded(reason: "test.restore") { restoreCount += 1 })
+            manager.noteRestoreNavigationStarted(reason: "test.navigation")
+
+            // A plain restore touch is deduplicated while a restore is pending…
+            #expect(manager.restoreIfNeeded(reason: "test.touch") { restoreCount += 1 })
+            #expect(restoreCount == 1)
+
+            // …but an explicit reload restarts the pending restore.
+            #expect(manager.restoreIfNeeded(reason: "test.reload", force: true) { restoreCount += 1 })
+            #expect(restoreCount == 2)
+            #expect(manager.isDiscardedForMemory)
+        }
+    }
+
     @Test func markDiscardedResetsStalePendingRestoreNavigation() {
         withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
             let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)

@@ -23,12 +23,26 @@ extension BrowserPanel {
         guard hiddenWebViewDiscardManager.noteRestoreNavigationCommitted(reason: reason) else {
             return
         }
+        pendingDiscardRestoreNavigation = nil
         refreshWebViewLifecycleState()
     }
 
     func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
         hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
+        pendingDiscardRestoreNavigation = nil
         refreshWebViewLifecycleState()
+    }
+
+    /// Whether a WebKit failure/cancel callback belongs to the navigation the
+    /// discard-restore bookkeeping is tracking. WebKit can deliver an older
+    /// provisional load's cancellation after a newer attempt has already
+    /// started; clearing the pending state for that stale callback would let a
+    /// visibility touch hijack the in-flight navigation with a restore reload.
+    /// A nil callback navigation or no tracked navigation matches conservatively.
+    func isDiscardRestoreBookkeepingNavigation(_ navigation: WKNavigation?) -> Bool {
+        guard let tracked = pendingDiscardRestoreNavigation else { return true }
+        guard let navigation else { return true }
+        return navigation === tracked
     }
 
     /// Restore fallback for a discarded pane with no restorable document (nil

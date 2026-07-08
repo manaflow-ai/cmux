@@ -8,8 +8,8 @@ import WebKit
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String) -> Void)?
-    var didCancelProvisionalNavigation: ((WKWebView) -> Void)?
+    var didFailNavigation: ((WKWebView, String, WKNavigation?) -> Void)?
+    var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
@@ -111,7 +111,7 @@ import WebKit
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
-        didFailNavigation?(webView, failedURL)
+        didFailNavigation?(webView, failedURL, navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -120,7 +120,7 @@ import WebKit
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-            didCancelProvisionalNavigation?(webView)
+            didCancelProvisionalNavigation?(webView, navigation)
             return
         }
 
@@ -128,14 +128,14 @@ import WebKit
         // navigation response is converted into a download via .download policy.
         // This is expected and should not show an error page.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            didCancelProvisionalNavigation?(webView)
+            didCancelProvisionalNavigation?(webView, navigation)
             return
         }
 
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        didFailNavigation?(webView, failedURL)
+        didFailNavigation?(webView, failedURL, navigation)
         loadErrorPage(
             in: webView,
             failedURL: failedURL,

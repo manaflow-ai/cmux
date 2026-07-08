@@ -247,10 +247,15 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     @discardableResult
-    func restoreIfNeeded(reason: String, performRestore: () -> Void) -> Bool {
+    func restoreIfNeeded(reason: String, force: Bool = false, performRestore: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        if isRestoreNavigationPending { return true }
+        if isRestoreNavigationPending {
+            // An explicit user reload restarts an in-flight restore instead of
+            // being swallowed by the pending dedup.
+            guard force else { return true }
+            isRestoreNavigationPending = false
+        }
         lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
         performRestore()
