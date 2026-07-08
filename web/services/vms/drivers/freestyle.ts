@@ -18,6 +18,7 @@ import {
   setSpanAttributes,
   withVmSpan,
 } from "../telemetry";
+import { isProviderNotFoundError } from "../providerErrors";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
@@ -625,9 +626,9 @@ export class FreestyleProvider implements VMProvider {
         try {
           await client().identities.delete({ identityId: identityHandle });
         } catch (err) {
-          // Best effort: identity may already be gone (e.g. VM was destroyed by the provider
-          // itself). Don't let cleanup failures cascade into the caller, but keep it visible.
+          if (isProviderNotFoundError(err)) return;
           recordSpanError(span, err);
+          throw new ProviderError("freestyle", `revokeSSHIdentity(${identityHandle})`, err);
         }
       },
     );

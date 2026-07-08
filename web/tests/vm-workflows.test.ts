@@ -379,6 +379,52 @@ describe("VM Effect workflows", () => {
     expect(revokedLeaseIds).toEqual(["lease-expired-identity"]);
   });
 
+  test("keeps expired identity leases retryable when provider revocation fails", async () => {
+    const now = new Date();
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000119",
+      userId: "user-workflow-expired-identity-failure",
+      providerVmId: "provider-vm-expired-identity-failure",
+      status: "running",
+    });
+    const lease: CloudVmIdentityLeaseRow = {
+      id: "lease-expired-identity-failure",
+      vmId: vm.id,
+      userId: vm.userId,
+      kind: "ssh",
+      tokenHash: "expired-token-hash-failure",
+      providerIdentityHandle: "identity-still-live",
+      sessionId: null,
+      transport: "ssh",
+      metadata: {},
+      expiresAt: new Date(now.getTime() - 1000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: new Date(now.getTime() - 2000),
+      provider: "freestyle",
+    };
+    const revokedLeaseIds: string[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      expiredIdentityLeases: () => Effect.succeed([lease]),
+      revokedLeaseIds,
+    });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: () =>
+        Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed")),
+    };
+
+    const revoked = await Effect.runPromise(
+      revokeExpiredIdentityLeases({ now, limit: 1 }).pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revoked).toBe(0);
+    expect(revokedLeaseIds).toEqual([]);
+  });
+
   test("fails closed when team-scoped VM access omits team membership context", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000118",
