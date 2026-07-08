@@ -173,10 +173,20 @@ async function billingSuccessMessages(
   const messages = (await import(`../../../messages/${locale}.json`)).default as {
     billingSuccess?: BillingSuccessMessages;
   };
-  if (!messages.billingSuccess) {
-    throw new Error(`Missing billingSuccess messages for locale ${locale}`);
+  if (messages.billingSuccess) {
+    return { locale, messages: messages.billingSuccess };
   }
-  return { locale, messages: messages.billingSuccess };
+  // Only en and ja carry billingSuccess copy today. A buyer whose browser
+  // resolves to any other locale must still see their post-purchase page
+  // (this is the screen shown right after paying), so fall back to the
+  // English copy rather than throwing a 500.
+  const fallback = (await import("../../../messages/en.json")).default as {
+    billingSuccess?: BillingSuccessMessages;
+  };
+  if (!fallback.billingSuccess) {
+    throw new Error("Missing billingSuccess messages for the default locale");
+  }
+  return { locale: routing.defaultLocale, messages: fallback.billingSuccess };
 }
 
 function preferredLocale(headersList: Headers): Locale {
