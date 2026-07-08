@@ -301,6 +301,17 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Wrapper marker detection identifies injected argv")
+    func wrapperMarkerDetectionIdentifiesInjectedArgv() {
+        #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments(realisticCodexHookArgv()))
+        #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+            "/Users/u/.local/bin/claude", cmuxClaudeHookSettingsMarker,
+        ]))
+        #expect(!AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+            codexExecutable, "--model", "gpt-5.5",
+        ]))
+    }
+
     private func realisticCodexHookArgv() -> [String] {
         [
             codexExecutable,

@@ -360,6 +360,32 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
+    @Test func commandLineReplaysNativeWrappedCodexThroughBareName() {
+        // Native install: the cmux wrapper execs the resolved absolute binary
+        // with its injected hook args. The marker proves the user typed
+        // `codex`, so the saved command must be the bare name (replay
+        // re-enters the per-surface PATH shim and hooks are re-injected),
+        // never the absolute real binary that would bypass the shim.
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "/usr/local/bin/codex",
+                "--enable",
+                "hooks",
+                "--dangerously-bypass-hook-trust",
+                "-c",
+                "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+                "--model",
+                "gpt-5.5",
+            ]) == "codex --model gpt-5.5"
+        )
+        // Without the marker the user's own absolute-path launch is preserved.
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "/usr/local/bin/codex", "--model", "gpt-5.5",
+            ]) == "/usr/local/bin/codex --model gpt-5.5"
+        )
+    }
+
     @Test func commandLineKeepsClaudeDirectBinaryBehavior() {
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [

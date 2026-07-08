@@ -103,6 +103,16 @@ enum TerminalForegroundCommandCapture {
                 // starts a fresh session.
                 sanitizedArgv = [executable]
             }
+            // The wrapper marker (checked on the pre-sanitization argv — the
+            // sanitizer strips it) proves the user launched the agent by bare
+            // name and the shim resolved it to this absolute binary. Save the
+            // bare name so replay routes back through the per-surface PATH
+            // shim and cmux hooks are re-injected fresh; a marker-less argv
+            // (user typed a path themselves) keeps its executable verbatim.
+            if !sanitizedArgv.isEmpty,
+               AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments(argv) {
+                sanitizedArgv[0] = executableName
+            }
         }
         return sanitizedArgv.map(shellQuoted).joined(separator: " ")
     }

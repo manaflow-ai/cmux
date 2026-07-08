@@ -111,6 +111,16 @@ extension AgentLaunchSanitizer {
         return [matchedName] + Array(argv.dropFirst(scriptIndex + 1))
     }
 
+    /// Whether captured argv carries cmux wrapper-injected hook arguments for
+    /// any known agent — the deterministic launch-time proof that cmux's
+    /// per-surface PATH shim wrapper spawned this process from a bare agent
+    /// name. Capture uses this to save the bare name instead of the resolved
+    /// absolute binary path, so replay routes back through the shim and hooks
+    /// are re-injected fresh.
+    public static func containsCmuxWrapperInjectedHookArguments(_ argv: [String]) -> Bool {
+        cmuxWrapperInjectedAgentName(argv) != nil
+    }
+
     struct CodexForkCommand {
         let forkIndex: Int
         let sessionIndex: Int
