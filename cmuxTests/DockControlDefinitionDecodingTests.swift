@@ -149,29 +149,38 @@ struct DockControlDefinitionDecodingTests {
 
     @Test("Dock config rejects excessive controls before trust rendering")
     func configRejectsExcessiveControls() throws {
-        let controls: [[String: String]] = (0...DockConfigFile.maximumControlCount).map { index in
+        var controls: [[String: String]] = (0..<DockConfigFile.maximumControlCount).map { index in
             ["id": "control-\(index)", "command": "echo \(index)"]
         }
+        controls.append(["id": "invalid-extra", "type": "browser"])
         let data = try JSONSerialization.data(withJSONObject: ["controls": controls])
 
-        #expect(throws: (any Error).self) {
+        do {
             _ = try JSONDecoder().decode(DockConfigFile.self, from: data)
+            Issue.record("Expected excessive controls to throw before decoding overflow entries")
+        } catch let error as NSError {
+            #expect(error.domain == "cmux.dock")
+            #expect(error.code == 8)
         }
     }
 
     @Test("Dock controls reject excessive environment variables before trust rendering")
     func controlRejectsExcessiveEnvironmentVariables() throws {
-        let environment = Dictionary(
-            uniqueKeysWithValues: (0...DockControlDefinition.maximumEnvironmentVariableCount).map { index in
-                ("KEY_\(index)", "value-\(index)")
-            }
-        )
+        var environment: [String: Any] = [:]
+        for index in 0..<DockControlDefinition.maximumEnvironmentVariableCount {
+            environment["KEY_\(index)"] = "value-\(index)"
+        }
+        environment["INVALID_EXTRA"] = 42
         let data = try JSONSerialization.data(
             withJSONObject: ["id": "env-heavy", "command": "echo ok", "env": environment]
         )
 
-        #expect(throws: (any Error).self) {
+        do {
             _ = try JSONDecoder().decode(DockControlDefinition.self, from: data)
+            Issue.record("Expected excessive env variables to throw before decoding overflow values")
+        } catch let error as NSError {
+            #expect(error.domain == "cmux.dock")
+            #expect(error.code == 9)
         }
     }
 

@@ -145,24 +145,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         if let rawCWD { try Self.validateTextField(rawCWD) }
         cwd = rawCWD?.trimmingCharacters(in: .whitespacesAndNewlines)
         height = try container.decodeIfPresent(Double.self, forKey: .height)
-        let decodedEnv = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
-        guard decodedEnv.count <= Self.maximumEnvironmentVariableCount else {
-            throw Self.validationError(
-                code: 9,
-                message: String(
-                    format: String(
-                        localized: "dock.error.tooManyEnvironmentVariables",
-                        defaultValue: "Dock control env supports at most %lld variables."
-                    ),
-                    Int64(Self.maximumEnvironmentVariableCount)
-                )
-            )
-        }
-        for (key, value) in decodedEnv {
-            try Self.validateTextField(key)
-            try Self.validateTextField(value)
-        }
-        env = decodedEnv
+        env = try Self.decodeEnvironment(from: container)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -194,6 +177,38 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         )
     }
 
+    private static func decodeEnvironment(from container: KeyedDecodingContainer<CodingKeys>) throws -> [String: String] {
+        guard container.contains(.env) else {
+            return [:]
+        }
+        if try container.decodeNil(forKey: .env) { return [:] }
+
+        let environmentContainer = try container.nestedContainer(keyedBy: DockControlEnvironmentCodingKey.self, forKey: .env)
+        let environmentKeys = environmentContainer.allKeys
+        guard environmentKeys.count <= Self.maximumEnvironmentVariableCount else {
+            throw Self.validationError(
+                code: 9,
+                message: String(
+                    format: String(
+                        localized: "dock.error.tooManyEnvironmentVariables",
+                        defaultValue: "Dock control env supports at most %lld variables."
+                    ),
+                    Int64(Self.maximumEnvironmentVariableCount)
+                )
+            )
+        }
+
+        var decodedEnvironment: [String: String] = [:]
+        decodedEnvironment.reserveCapacity(environmentKeys.count)
+        for key in environmentKeys {
+            try Self.validateTextField(key.stringValue)
+            let value = try environmentContainer.decode(String.self, forKey: key)
+            try Self.validateTextField(value)
+            decodedEnvironment[key.stringValue] = value
+        }
+        return decodedEnvironment
+    }
+
     private static func validateTextField(_ value: String) throws {
         guard value.utf8.count <= Self.maximumTextFieldByteCount else {
             throw Self.validationError(
@@ -208,4 +223,5 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             )
         }
     }
+
 }
