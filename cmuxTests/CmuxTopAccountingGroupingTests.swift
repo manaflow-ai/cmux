@@ -113,8 +113,9 @@ import Testing
 
         #expect(groupNames.contains("Claude Code"))
         #expect(groupNames.contains("com.apple.WebKit.WebContent"))
-        #expect(groupIds.contains("Claude Code"))
-        #expect(groupIds.contains("com.apple.WebKit.WebContent"))
+        // Group ids stay lowercased (stable row identity); names keep display casing.
+        #expect(groupIds.contains("claude code"))
+        #expect(groupIds.contains("com.apple.webkit.webcontent"))
         #expect(!groupNames.contains("2.1.204"))
         #expect(!groupNames.contains("com.apple.WebKi"))
         // Casing variants of the same executable fold into one group.

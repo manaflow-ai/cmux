@@ -163,11 +163,12 @@ nonisolated extension CmuxTopProcessSnapshot {
                 ?? cmuxTopCanonicalProcessName(name: process.name, path: process.path)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             let groupName = displayName.isEmpty ? "pid-\(pid)" : displayName
-            // Case-insensitive key so casing variants of one executable share a group;
-            // id/name keep the first-seen display casing.
+            // Case-insensitive key so casing variants of one executable share a group.
+            // The key is also the stable group id (row identity across samples);
+            // only the display name keeps the first-seen casing.
             let key = groupName.lowercased()
             if groups[key] == nil {
-                groups[key] = MemoryDiagnosticGroupAccumulator(id: groupName, name: groupName)
+                groups[key] = MemoryDiagnosticGroupAccumulator(id: key, name: groupName)
             }
             groups[key]?.append(
                 process: process,
