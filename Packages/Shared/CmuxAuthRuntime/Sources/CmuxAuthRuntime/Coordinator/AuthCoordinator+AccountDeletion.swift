@@ -32,6 +32,7 @@ struct AccountDeletionClient: Sendable {
         self.load = load
     }
 
+    @concurrent
     func deleteAccount(accessToken: String, refreshToken: String) async throws {
         let trimmedBaseURL = apiBaseURL.hasSuffix("/") ? String(apiBaseURL.dropLast()) : apiBaseURL
         guard let url = URL(string: trimmedBaseURL + "/api/account") else {
@@ -59,7 +60,7 @@ struct AccountDeletionClient: Sendable {
         case 401:
             throw AccountDeletionRequestError.unauthorized
         default:
-            if Self.errorCode(in: data) == "account_stack_delete_failed_after_data_delete" {
+            if Self.isRetryablePartialDeletionError(Self.errorCode(in: data)) {
                 throw AccountDeletionRequestError.stackDeleteIncomplete
             }
             throw AccountDeletionRequestError.rejected(statusCode: httpResponse.statusCode)
@@ -68,6 +69,11 @@ struct AccountDeletionClient: Sendable {
 
     private static func errorCode(in data: Data) -> String? {
         try? JSONDecoder().decode(AccountDeletionErrorResponse.self, from: data).error
+    }
+
+    private static func isRetryablePartialDeletionError(_ code: String?) -> Bool {
+        code == "account_delete_retryable" ||
+            code == "account_stack_delete_failed_after_data_delete"
     }
 }
 

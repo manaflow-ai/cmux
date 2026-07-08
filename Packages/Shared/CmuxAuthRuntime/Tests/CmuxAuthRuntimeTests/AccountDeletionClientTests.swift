@@ -49,6 +49,24 @@ struct AccountDeletionClientTests {
     @Test func deleteAccountMapsStackDeleteIncompleteResponse() async {
         let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
             (
+                Data(#"{"error":"account_delete_retryable"}"#.utf8),
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+            )
+        }
+
+        await #expect(throws: AccountDeletionRequestError.stackDeleteIncomplete) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
+
+    @Test func deleteAccountMapsLegacyPartialDeletionResponse() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
+            (
                 Data(#"{"error":"account_stack_delete_failed_after_data_delete"}"#.utf8),
                 HTTPURLResponse(
                     url: request.url!,

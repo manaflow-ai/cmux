@@ -12,6 +12,7 @@ struct MobileSettingsAccountSection: View {
     @State private var showingDeleteAccountFailure = false
     @State private var deleteAccountFailureKind = DeleteAccountFailureKind.generic
     @State private var deletingAccount = false
+    @State private var deleteAccountTask: Task<Void, Never>?
 
     var body: some View {
         Section {
@@ -85,9 +86,13 @@ struct MobileSettingsAccountSection: View {
     }
 
     private func deleteAccount() {
-        guard !deletingAccount else { return }
+        guard !deletingAccount, deleteAccountTask == nil else { return }
         deletingAccount = true
-        Task {
+        deleteAccountTask = Task {
+            defer {
+                deleteAccountTask = nil
+                deletingAccount = false
+            }
             do {
                 try await authManager.deleteAccount()
                 if let signOut {
@@ -108,7 +113,6 @@ struct MobileSettingsAccountSection: View {
                 }
                 showingDeleteAccountFailure = true
             }
-            deletingAccount = false
         }
     }
 

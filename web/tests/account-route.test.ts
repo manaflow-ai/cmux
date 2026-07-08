@@ -52,10 +52,12 @@ const deleteObject = mock(async (...args: unknown[]) => {
 const cancelSubscription = mock(async (...args: unknown[]) => {
   const [subscriptionId] = args as [string];
   cancelledStripeSubscriptions.push(subscriptionId);
+  if (stripeCancelError) throw stripeCancelError;
 });
 const deleteCustomer = mock(async (...args: unknown[]) => {
   const [customerId] = args as [string];
   deletedStripeCustomers.push(customerId);
+  if (stripeDeleteCustomerError) throw stripeDeleteCustomerError;
 });
 
 let deletedTableCount = 0;
@@ -69,6 +71,8 @@ let vaultDeleteError: unknown = null;
 let stripeConfigured = true;
 let cancelledStripeSubscriptions: string[] = [];
 let deletedStripeCustomers: string[] = [];
+let stripeCancelError: unknown = null;
+let stripeDeleteCustomerError: unknown = null;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -178,6 +182,8 @@ beforeEach(() => {
   stripeConfigured = true;
   cancelledStripeSubscriptions = [];
   deletedStripeCustomers = [];
+  stripeCancelError = null;
+  stripeDeleteCustomerError = null;
 });
 
 afterEach(() => {
@@ -279,7 +285,7 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({
-      error: "account_stack_delete_failed_after_data_delete",
+      error: "account_delete_retryable",
       retryable: true,
       destroyedVms: 2,
     });
@@ -294,6 +300,28 @@ describe("account deletion route", () => {
       "account.delete.stack_user_failed_after_data_delete",
       "Error: raw [redacted] leaked by upstream",
     );
+  });
+
+  test("continues when Stripe resources are already in the deletion target state", async () => {
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [{ id: "sub_user_active" }],
+      [{ id: "cus_user" }],
+    ];
+    stripeCancelError = new Error("This subscription has already been canceled");
+    stripeDeleteCustomerError = { statusCode: 404, message: "No such customer" };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
+    expect(deletedStripeCustomers).toEqual(["cus_user"]);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("rejects a Stack user mismatch before deleting data", async () => {

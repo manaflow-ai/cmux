@@ -65,7 +65,7 @@ export async function DELETE(request: Request): Promise<Response> {
     } catch (error) {
       logAccountDeleteError("account.delete.stack_user_failed_after_data_delete", error);
       return jsonResponse({
-        error: "account_stack_delete_failed_after_data_delete",
+        error: "account_delete_retryable",
         retryable: true,
         destroyedVms,
       }, 500);
@@ -176,15 +176,54 @@ async function resolveUserBillingForAccountDeletion(userId: string): Promise<voi
 
   const client = stripe();
   for (const subscription of activeSubscriptions) {
-    await client.subscriptions.cancel(subscription.id);
+    await cancelStripeSubscriptionForAccountDeletion(client, subscription.id);
   }
   for (const customer of customers) {
-    await client.customers.del(customer.id);
+    await deleteStripeCustomerForAccountDeletion(client, customer.id);
   }
 }
 
 async function clearUserBillingEntitlementsForAccountDeletion(user: DeletableStackUser): Promise<void> {
   await syncProPlanMetadata(user, false);
+}
+
+async function cancelStripeSubscriptionForAccountDeletion(
+  client: ReturnType<typeof stripe>,
+  subscriptionId: string,
+): Promise<void> {
+  try {
+    await client.subscriptions.cancel(subscriptionId);
+  } catch (error) {
+    if (isStripeAlreadyInDeletionTargetState(error, [/already been canceled/i])) return;
+    throw error;
+  }
+}
+
+async function deleteStripeCustomerForAccountDeletion(
+  client: ReturnType<typeof stripe>,
+  customerId: string,
+): Promise<void> {
+  try {
+    await client.customers.del(customerId);
+  } catch (error) {
+    if (isStripeAlreadyInDeletionTargetState(error, [/already deleted/i])) return;
+    throw error;
+  }
+}
+
+function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: readonly RegExp[]): boolean {
+  const statusCode =
+    error && typeof error === "object"
+      ? (error as { statusCode?: unknown; raw?: { statusCode?: unknown } }).statusCode ??
+        (error as { raw?: { statusCode?: unknown } }).raw?.statusCode
+      : undefined;
+  if (statusCode === 404) return true;
+
+  const message =
+    error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : String(error);
+  return messagePatterns.some((pattern) => pattern.test(message));
 }
 
 async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
