@@ -219,13 +219,27 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
-    @Test("Unwrap ignores unknown JavaScript scripts")
-    func unwrapIgnoresUnknownJavaScriptScripts() {
+    @Test("Unwrap derives the agent name from the cmux marker for package entrypoints")
+    func unwrapDerivesAgentNameFromCmuxMarkerForPackageEntrypoints() {
+        // Claude Code's real npm entrypoint is cli.js — the basename never
+        // matches an agent name, so the injected-marker identity is used.
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                [
+                    "node",
+                    "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                    cmuxClaudeHookSettingsMarker,
+                    "--model",
+                    "claude-fable-5",
+                ],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == ["claude", cmuxClaudeHookSettingsMarker, "--model", "claude-fable-5"]
+        )
         #expect(
             AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
                 ["node", "script.js", cmuxCodexHookMarker, "--model", "gpt-5.5"],
                 isKnownAgentExecutableName: isKnownAgentExecutableName
-            ) == nil
+            ) == ["codex", cmuxCodexHookMarker, "--model", "gpt-5.5"]
         )
     }
 

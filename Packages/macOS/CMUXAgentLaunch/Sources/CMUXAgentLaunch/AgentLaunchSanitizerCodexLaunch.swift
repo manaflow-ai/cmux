@@ -75,6 +75,12 @@ extension AgentLaunchSanitizer {
     /// them when the user invoked the agent by bare name through the
     /// per-surface PATH shim, so replaying the bare name reproduces that
     /// launch exactly. Argv without the marker keeps its original form.
+    ///
+    /// The marker also identifies which wrapper injected it, so when the
+    /// script basename is not itself an agent name (Claude Code's real npm
+    /// entrypoint is `.../@anthropic-ai/claude-code/cli.js`), the agent name
+    /// derived from the marker is used. Basename wins first so a wrapped agent
+    /// that shares another agent's hook plumbing still unwraps to its own name.
     public static func unwrappedJavaScriptRuntimeAgentArgv(
         _ argv: [String],
         isKnownAgentExecutableName: (String) -> Bool
@@ -82,7 +88,7 @@ extension AgentLaunchSanitizer {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
         guard runtimeName == "node" || runtimeName == "bun",
-              containsCmuxWrapperInjectedHookArguments(argv),
+              let markerAgentName = cmuxWrapperInjectedAgentName(argv),
               let scriptIndex = javaScriptRuntimeScriptArgumentIndex(argv) else {
             return nil
         }
@@ -93,6 +99,8 @@ extension AgentLaunchSanitizer {
         } else if let strippedName = scriptName.removingSingleJavaScriptExtension(),
                   isKnownAgentExecutableName(strippedName) {
             matchedName = strippedName
+        } else if isKnownAgentExecutableName(markerAgentName) {
+            matchedName = markerAgentName
         } else {
             return nil
         }
@@ -198,13 +206,15 @@ extension AgentLaunchSanitizer {
         value.hasPrefix("hooks.") && value.contains("cmux-codex-hook")
     }
 
-    /// Whether captured argv carries cmux wrapper-injected hook arguments —
-    /// the deterministic signal that cmux's PATH shim wrapper spawned this
-    /// process from a bare agent name (vs the user launching a script or
-    /// explicit path directly).
-    static func containsCmuxWrapperInjectedHookArguments(_ argv: [String]) -> Bool {
-        if containsCmuxInjectedCodexHookConfig(argv) { return true }
-        return containsCmuxInjectedClaudeHookSettings(argv)
+    /// The agent whose cmux wrapper injected hook arguments into captured
+    /// argv, or nil when no cmux-injected marker is present. A non-nil name is
+    /// the deterministic signal that cmux's PATH shim wrapper for that agent
+    /// spawned this process from a bare agent name (vs the user launching a
+    /// script or explicit path directly).
+    static func cmuxWrapperInjectedAgentName(_ argv: [String]) -> String? {
+        if containsCmuxInjectedCodexHookConfig(argv) { return "codex" }
+        if containsCmuxInjectedClaudeHookSettings(argv) { return "claude" }
+        return nil
     }
 
     private static func containsCmuxInjectedClaudeHookSettings(_ argv: [String]) -> Bool {

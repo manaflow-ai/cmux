@@ -342,6 +342,24 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
+    @Test func commandLineUnwrapsNodeClaudeCliEntrypointAndStripsCmuxSettings() {
+        // Claude Code's real npm entrypoint is cli.js: the basename never
+        // matches "claude", so the cmux-injected settings marker identifies
+        // the agent, and the shared sanitizer strips the injected hooks while
+        // keeping the user's own settings keys.
+        let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]},"preferredNotifChannel":"notifications_disabled"}"#
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "node",
+                "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                "--settings",
+                mergedHookSettings,
+                "--model",
+                "claude-fable-5",
+            ]) == #"claude --settings '{"env":{"USER_FLAG":"1"}}' --model claude-fable-5"#
+        )
+    }
+
     @Test func commandLineKeepsClaudeDirectBinaryBehavior() {
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
