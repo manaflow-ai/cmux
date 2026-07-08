@@ -11,6 +11,7 @@ import Foundation
 @MainActor
 final class WorkspaceTodoPanel: Panel, ObservableObject {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .workspaceTodo
 
     /// The workspace whose todo state this pane renders. Weak: the workspace
