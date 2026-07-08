@@ -560,6 +560,14 @@ struct cmuxApp: App {
                     }
                     Button(
                         String(
+                            localized: "debug.menu.chromiumBrowser",
+                            defaultValue: "Chromium Browser (Experimental)…"
+                        )
+                    ) {
+                        ChromiumBrowserDebugWindowController.shared.show()
+                    }
+                    Button(
+                        String(
                             localized: "debug.menu.browserProfilePopoverDebug",
                             defaultValue: "Browser Profile Popover Debug…"
                         )
