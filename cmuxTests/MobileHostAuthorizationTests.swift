@@ -717,6 +717,13 @@ struct MobileHostAuthorizationTests {
         service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
         #expect(service.authenticatedConnectionCount == 0)
 
+        // Marking an untracked connection (client disconnected while the
+        // authorization await was suspended) must be refused, or the stale
+        // entry would pin the keep-awake assertion until restart.
+        service.debugRecordAuthorizedConnectionForTesting(id: connectionID)
+        #expect(service.authenticatedConnectionCount == 0)
+
+        service.debugRegisterLiveConnectionForTesting(id: connectionID)
         service.debugRecordAuthorizedConnectionForTesting(id: connectionID)
         #expect(service.authenticatedConnectionCount == 1)
         #expect(service.statusSnapshot().authenticatedConnectionCount == 1)

@@ -106,6 +106,12 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.count
     }
 
+    func contains(id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections[id] != nil
+    }
+
     func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
         lock.lock()
         guard connections.count < limit else {
@@ -973,6 +979,17 @@ final class MobileHostService {
     /// `onAuthorizedRequest` hook: subscription RPCs are intercepted before
     /// that hook runs.
     private func recordAuthorizedConnection(_ connectionID: UUID) {
+        // authorizationError can suspend on network Stack verification. If the
+        // client disconnects during that await, onClose has already removed
+        // the connection, so an unconditional insert here would be stale and
+        // nothing would ever clean it up — pinning the authenticated count
+        // (and the keep-awake assertion) until the listener restarts. Both
+        // this method and removeConnection run on the main actor, so gating
+        // on live tracking makes either interleaving converge.
+        guard activeConnections[connectionID] != nil
+            || MobileHostConnectionRegistry.shared.contains(id: connectionID) else {
+            return
+        }
         guard authorizedConnectionIDs.insert(connectionID).inserted else { return }
         // Unauthenticated -> authenticated transition; authenticated-count
         // consumers (keep-awake) resync on this signal.
@@ -1754,6 +1771,21 @@ extension MobileHostService {
 
     func debugRecordAuthorizedConnectionForTesting(id: UUID) {
         recordAuthorizedConnection(id)
+    }
+
+    /// Registers a never-started dummy session so authorized-connection
+    /// tracking tests can exercise the real liveness gate in
+    /// `recordAuthorizedConnection`.
+    func debugRegisterLiveConnectionForTesting(id: UUID) {
+        let session = MobileHostConnection(
+            id: id,
+            connection: NWConnection(host: "127.0.0.1", port: 65535, using: .tcp),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .failure(MobileHostRPCError(code: "test", message: "test")) },
+            onClose: { _ in }
+        )
+        activeConnections[id] = session
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {
