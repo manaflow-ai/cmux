@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { cloudDb } from "../db/client";
-import { vaultUploadGrants } from "../db/schema";
+import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../db/schema";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -213,6 +213,56 @@ describe("Vault uploads route", () => {
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(rows).toHaveLength(1);
     expect(rows[0].compressedSizeBytes).toBe(456);
+  });
+
+  dbTest("deletes expired staged uploads even when the final object is committed", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    const uploadObjectKey = `${objectKey}.staged`;
+    const uploadedAt = new Date("2030-01-01T00:00:00.000Z");
+    const [session] = await db
+      .insert(vaultSessions)
+      .values({
+        userId,
+        agent: "codex",
+        agentSessionId: "session-1",
+        relPath: "sessions/session-1.jsonl.zst",
+        cwd: "/workspace",
+        latestSha256: sha256,
+        latestObjectKey: objectKey,
+        sizeBytes: 999,
+        compressedSizeBytes: 456,
+        firstUploadedAt: uploadedAt,
+        lastUploadedAt: uploadedAt,
+        metadata: {},
+      })
+      .returning({ id: vaultSessions.id });
+    await db.insert(vaultSnapshots).values({
+      sessionId: session!.id,
+      sha256,
+      objectKey,
+      sizeBytes: 999,
+      compressedSizeBytes: 456,
+      uploadedAt,
+    });
+    await db.insert(vaultUploadGrants).values({
+      userId,
+      objectKey,
+      uploadObjectKey,
+      compressedSizeBytes: 456,
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledWith(uploadObjectKey);
+    const grants = await db
+      .select({ id: vaultUploadGrants.id })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(grants).toHaveLength(0);
   });
 });
 

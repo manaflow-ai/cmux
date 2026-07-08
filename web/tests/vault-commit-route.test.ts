@@ -11,6 +11,7 @@ const sha256 = "b".repeat(64);
 const storageModule = await import("../services/vault/storage");
 const realBuildObjectKey = storageModule.buildObjectKey;
 let objectContentLength = 456;
+let deleteFailure: Error | null = null;
 const headedKeys: string[] = [];
 const headObject = mock(async (...args: unknown[]) => {
   const [key] = args as [string];
@@ -18,7 +19,9 @@ const headObject = mock(async (...args: unknown[]) => {
   return { contentLength: objectContentLength };
 });
 const copyObject = mock(async () => undefined);
-const deleteObject = mock(async () => undefined);
+const deleteObject = mock(async () => {
+  if (deleteFailure) throw deleteFailure;
+});
 const getUser = mock(async () => stackUser());
 
 mock.module("../services/vault/storage", () => ({
@@ -55,6 +58,7 @@ beforeEach(async () => {
   process.env.CMUX_VAULT_MAX_UPLOAD_BYTES = "1000000";
   process.env.CMUX_VAULT_MAX_USER_BYTES = "1000000";
   objectContentLength = 456;
+  deleteFailure = null;
   headedKeys.length = 0;
   headObject.mockClear();
   copyObject.mockClear();
@@ -118,6 +122,28 @@ describe("Vault commit route", () => {
       .from(vaultSnapshots)
       .where(eq(vaultSnapshots.objectKey, objectKey));
     expect(snapshots).toHaveLength(0);
+  });
+
+  dbTest("keeps the grant retryable when staging cleanup fails after commit", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    await insertGrant(objectKey, 456);
+    deleteFailure = new Error("storage delete failed");
+
+    const response = await POST(commitRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).items[0].status).toBe("committed");
+    const grants = await db
+      .select({ id: vaultUploadGrants.id })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(grants).toHaveLength(1);
+    const snapshots = await db
+      .select({ objectKey: vaultSnapshots.objectKey })
+      .from(vaultSnapshots)
+      .where(eq(vaultSnapshots.objectKey, objectKey));
+    expect(snapshots).toHaveLength(1);
   });
 });
 

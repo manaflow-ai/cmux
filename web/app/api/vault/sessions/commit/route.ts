@@ -158,10 +158,15 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
           target: [vaultSnapshots.sessionId, vaultSnapshots.sha256],
         });
 
-      // The snapshot now accounts for these bytes, so release the upload
-      // grant that reserved them at presign time.
-      await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
-      await deleteObject(grant.uploadObjectKey).catch(() => undefined);
+      // The snapshot now accounts for these bytes. Delete the staging object
+      // before releasing the grant so a transient storage cleanup failure keeps
+      // a retryable GC record.
+      const stagingDeleted = await deleteObject(grant.uploadObjectKey)
+        .then(() => true)
+        .catch(() => false);
+      if (stagingDeleted) {
+        await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
+      }
 
       projectedUserBytes += item.compressedSizeBytes;
       lockedResults.push({
