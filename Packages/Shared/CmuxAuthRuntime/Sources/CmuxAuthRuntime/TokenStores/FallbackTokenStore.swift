@@ -101,6 +101,12 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
             // Reads can fall back to the file store when Keychain returns nil;
             // apply the same compare-guarded mutation so a matching stale
             // file-fallback token cannot resurrect after the keychain path.
+            // A NON-matching file token is intentionally preserved: it was
+            // written by a newer setTokens whose keychain write failed and was
+            // never rejected by the server, so clearing it here would destroy
+            // a possibly-valid session. If it is invalid, the next refresh
+            // definitively rejects it and this compareAndSet (routed to the
+            // file store once reads flip keychainWorks) clears it then.
             await file.compareAndSet(
                 compareRefreshToken: compareRefreshToken,
                 newRefreshToken: newRefreshToken,
