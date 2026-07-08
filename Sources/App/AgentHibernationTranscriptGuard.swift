@@ -24,6 +24,7 @@ enum AgentHibernationTranscriptGuard {
     }
 
     static let restoreCheckDelaysSeconds: [UInt64] = [20, 60, 180, 600]
+    private static let maxScannedLineBytes = 16 * 1024 * 1024
 
     static func runPostTeardownRestoreChecks(
         snapshot: TeardownTranscriptSnapshot,
@@ -63,7 +64,10 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> String? {
-        guard agent.kind == .claude else { return nil }
+        guard agent.kind == .claude,
+              isSafeSessionIdPathComponent(agent.sessionId) else {
+            return nil
+        }
 
         var candidates: [String] = []
         if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
@@ -89,7 +93,8 @@ enum AgentHibernationTranscriptGuard {
 
     static func transcriptHasConversationTurns(
         atPath path: String,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maxScannedLineBytes: Int = Self.maxScannedLineBytes
     ) -> Bool {
         guard fileManager.fileExists(atPath: path),
               let handle = FileHandle(forReadingAtPath: path) else {
@@ -98,18 +103,38 @@ enum AgentHibernationTranscriptGuard {
         defer { try? handle.close() }
 
         var buffered = Data()
+        var discardingOversizedLine = false
         while true {
             guard let chunk = try? handle.read(upToCount: 64 * 1024),
                   !chunk.isEmpty else {
+                guard !discardingOversizedLine,
+                      buffered.count <= maxScannedLineBytes else {
+                    return false
+                }
                 return lineDataHasConversationTurn(buffered)
             }
-            buffered.append(chunk)
+
+            var chunkRemainder = chunk[chunk.startIndex..<chunk.endIndex]
+            if discardingOversizedLine {
+                guard let newlineIndex = chunkRemainder.firstIndex(of: 10) else { continue }
+                chunkRemainder = chunk[chunk.index(after: newlineIndex)..<chunk.endIndex]
+                discardingOversizedLine = false
+            }
+
+            buffered.append(contentsOf: chunkRemainder)
             while let newlineIndex = buffered.firstIndex(of: 10) {
                 let lineData = Data(buffered[..<newlineIndex])
                 buffered.removeSubrange(buffered.startIndex...newlineIndex)
-                if lineDataHasConversationTurn(lineData) {
+                if lineData.count <= maxScannedLineBytes,
+                   lineDataHasConversationTurn(lineData) {
                     return true
                 }
+            }
+            if buffered.count > maxScannedLineBytes {
+                // Oversized malformed lines are skipped, not fatal; later normal
+                // turns must remain visible to avoid false-negative live scans.
+                buffered.removeAll(keepingCapacity: true)
+                discardingOversizedLine = true
             }
         }
     }
@@ -121,6 +146,7 @@ enum AgentHibernationTranscriptGuard {
         fileManager: FileManager = .default
     ) -> TeardownSnapshotOutcome {
         guard agent.kind == .claude else { return .nothingToProtect }
+        guard isSafeSessionIdPathComponent(agent.sessionId) else { return .unableToProtect }
 
         guard let transcriptPath = resolveTranscriptPath(
             agent: agent,
@@ -141,6 +167,7 @@ enum AgentHibernationTranscriptGuard {
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             pruneOldSnapshots(in: directory, fileManager: fileManager)
+            guard isSafeSessionIdPathComponent(agent.sessionId) else { return .unableToProtect }
             let snapshotURL = directory.appendingPathComponent("\(agent.sessionId).jsonl", isDirectory: false)
             if fileManager.fileExists(atPath: snapshotURL.path) {
                 try fileManager.removeItem(at: snapshotURL)
@@ -197,6 +224,10 @@ enum AgentHibernationTranscriptGuard {
             .appendingPathComponent("messages") as NSString)
             .appendingPathComponent("\(sessionId).jsonl")
         return [directPath, nestedPath]
+    }
+
+    private static func isSafeSessionIdPathComponent(_ sessionId: String) -> Bool {
+        !sessionId.isEmpty && sessionId != "." && sessionId != ".." && !sessionId.contains("/")
     }
 
     // Mirrors regularNonEmptyFileExists in RestorableAgentSession.swift: an empty

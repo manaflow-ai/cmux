@@ -44,6 +44,12 @@ struct AgentHibernationTranscriptGuardTests {
                 atPath: directory.appendingPathComponent("missing.jsonl").path
             ) == false
         )
+        let oversizedThenUser = directory.appendingPathComponent("oversized-user.jsonl")
+        try (String(repeating: "x", count: 2_048) + "\n" + #"{"type":"user","message":{"content":"later"}}"#).write(to: oversizedThenUser, atomically: true, encoding: .utf8)
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: oversizedThenUser.path, maxScannedLineBytes: 1_024))
+        let oversizedOnly = directory.appendingPathComponent("oversized-only.jsonl")
+        try String(repeating: "x", count: 2_048).write(to: oversizedOnly, atomically: true, encoding: .utf8)
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: oversizedOnly.path, maxScannedLineBytes: 1_024) == false)
     }
 
     @Test
@@ -332,6 +338,9 @@ struct AgentHibernationTranscriptGuardTests {
             homeDirectory: home.path,
             snapshotDirectory: snapshots
         )))
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(agent: agent(sessionId: "../escape", workingDirectory: "/tmp/repo"), homeDirectory: home.path) == nil)
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent(sessionId: "../escape", workingDirectory: "/tmp/repo"), homeDirectory: home.path, snapshotDirectory: snapshots)))
+        #expect(FileManager.default.fileExists(atPath: home.appendingPathComponent("escape.jsonl").path) == false)
     }
 
     @Test
