@@ -298,8 +298,8 @@ extension AppDelegate {
     ) {
         let snapshot = workspace.captureConfigActionSnapshot()
         let globalConfigPath = cmuxConfigStore.globalConfigPath
-        if let oversizedCommand = snapshot.oversizedCommands.first {
-            presentWorkspaceCommandTooLongAlert(oversizedCommand, for: window)
+        if !snapshot.oversizedCommands.isEmpty {
+            presentWorkspaceCommandTooLongAlert(for: window)
             return
         }
 
@@ -400,7 +400,7 @@ extension AppDelegate {
         }
     }
 
-    private func presentWorkspaceCommandTooLongAlert(_ command: String, for window: NSWindow) {
+    private func presentWorkspaceCommandTooLongAlert(for window: NSWindow) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
@@ -409,25 +409,17 @@ extension AppDelegate {
         )
         let messageFormat = String(
             localized: "dialog.saveWorkspaceLayout.commandTooLongMessage",
-            defaultValue: "A captured command is longer than %1$lld UTF-8 bytes and cannot be replayed reliably from a saved layout. Shorten it before saving.\n\n%2$@"
+            defaultValue: "One or more captured commands are longer than %lld UTF-8 bytes and cannot be replayed reliably from a saved layout. Shorten them before saving."
         )
         alert.informativeText = String(
             format: messageFormat,
-            Int64(TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length),
-            truncatedWorkspaceCommandPreview(command)
+            Int64(TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length)
         )
         alert.addButton(withTitle: String(
             localized: "dialog.saveWorkspaceLayout.ok",
             defaultValue: "OK"
         ))
         alert.beginSheetModal(for: window)
-    }
-
-    private func truncatedWorkspaceCommandPreview(_ command: String) -> String {
-        let maxCharacters = 120
-        guard command.count > maxCharacters else { return command }
-        let endIndex = command.index(command.startIndex, offsetBy: maxCharacters)
-        return String(command[..<endIndex]) + "…"
     }
 
     private func presentNewWorkspaceDefaultLayoutError(_ error: Error, for window: NSWindow) {

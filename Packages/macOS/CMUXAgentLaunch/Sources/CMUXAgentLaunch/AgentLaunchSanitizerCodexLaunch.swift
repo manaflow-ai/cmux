@@ -15,47 +15,8 @@ extension AgentLaunchSanitizer {
     }
 
     static func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
-        guard containsCmuxInjectedCodexHookConfig(args) else { return args }
-        // The cmux codex wrapper splices exactly one `--enable hooks` and one
-        // `--dangerously-bypass-hook-trust` alongside its marker `-c hooks.*`
-        // configs (see CMUXCLI.emitCodexWrapperInjectArgs), so strip exactly one
-        // instance of each. Any further instance is the user's own flag and must
-        // survive so preserved user `hooks.*` config stays enabled on replay.
-        var strippedEnableHooks = false
-        var strippedHookTrust = false
-        var result: [String] = []
-        var index = 0
-        while index < args.count {
-            let arg = args[index]
-            if isCmuxInjectedCodexHookConfigOption(arg) {
-                index += 1
-                continue
-            }
-            if (arg == "-c" || arg == "--config"),
-               index + 1 < args.count,
-               isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
-                index += 2
-                continue
-            }
-            if !strippedEnableHooks, arg == "--enable", index + 1 < args.count, args[index + 1] == "hooks" {
-                strippedEnableHooks = true
-                index += 2
-                continue
-            }
-            if !strippedEnableHooks, arg == "--enable=hooks" {
-                strippedEnableHooks = true
-                index += 1
-                continue
-            }
-            if !strippedHookTrust, arg == "--dangerously-bypass-hook-trust" {
-                strippedHookTrust = true
-                index += 1
-                continue
-            }
-            result.append(arg)
-            index += 1
-        }
-        return result
+        guard let injectedPrefixEnd = cmuxInjectedCodexHookArgumentPrefixEnd(args) else { return args }
+        return Array(args.dropFirst(injectedPrefixEnd))
     }
 
     /// Unwraps a node/bun-hosted known agent to a bare agent executable argv.
@@ -218,6 +179,39 @@ private func containsCmuxInjectedCodexHookConfig(_ args: [String]) -> Bool {
     return false
 }
 
+private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
+    var index = 0
+    if index + 1 < args.count, args[index] == "--enable", args[index + 1] == "hooks" {
+        index += 2
+    } else if index < args.count, args[index] == "--enable=hooks" {
+        index += 1
+    } else {
+        return nil
+    }
+    if index < args.count, args[index] == "--dangerously-bypass-hook-trust" {
+        index += 1
+    }
+
+    var strippedHookConfig = false
+    while index < args.count {
+        let arg = args[index]
+        if isCmuxInjectedCodexHookConfigOption(arg) {
+            strippedHookConfig = true
+            index += 1
+            continue
+        }
+        if (arg == "-c" || arg == "--config"),
+           index + 1 < args.count,
+           isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
+            strippedHookConfig = true
+            index += 2
+            continue
+        }
+        break
+    }
+    return strippedHookConfig ? index : nil
+}
+
 private func isCmuxInjectedCodexHookConfigOption(_ arg: String) -> Bool {
     for prefix in ["-c=", "--config="] where arg.hasPrefix(prefix) {
         return isCmuxInjectedCodexHookConfigValue(String(arg.dropFirst(prefix.count)))
@@ -226,8 +220,53 @@ private func isCmuxInjectedCodexHookConfigOption(_ arg: String) -> Bool {
 }
 
 private func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
-    value.hasPrefix("hooks.") && value.contains("cmux-codex-hook")
+    guard let equals = value.firstIndex(of: "=") else { return false }
+    let key = String(value[..<equals])
+    guard key.hasPrefix("hooks.") else { return false }
+    let eventName = String(key.dropFirst("hooks.".count))
+    guard let event = codexWrapperInjectedHookEvents[eventName] else { return false }
+
+    let body = String(value[value.index(after: equals)...])
+    let prefix = "[{hooks=[{type=\"command\",command='''"
+    guard let suffix = event.timeoutMs
+        .map({ "''',timeout=\($0)}]}]" })
+        .first(where: { body.hasSuffix($0) }) else {
+        return false
+    }
+    guard body.hasPrefix(prefix), body.hasSuffix(suffix) else { return false }
+    let command = String(body.dropFirst(prefix.count).dropLast(suffix.count))
+    return isCmuxCodexHookCommand(command, subcommand: event.cmuxSubcommand)
 }
+
+private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, timeoutMs: [Int])] = [
+    "SessionStart": ("session-start", [10000]),
+    "UserPromptSubmit": ("prompt-submit", [10000]),
+    "Stop": ("stop", [10000]),
+    "SessionStop": ("stop", [10000]),
+    "PreToolUse": ("pre-tool-use", [120000, 10000]),
+    "PostToolUse": ("post-tool-use", [10000]),
+    "PermissionRequest": ("notification", [120000]),
+    "Notification": ("notification", [10000]),
+]
+
+private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
+    let normalized = command.replacingOccurrences(of: "\\", with: "/")
+    let subcommands = [subcommand] + (codexWrapperInjectedHookSubcommandAliases[subcommand] ?? [])
+    for candidate in subcommands {
+        if normalized.contains("/.cmux/hooks/cmux-codex-hook-\(candidate).sh") {
+            return true
+        }
+        if command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
+            return true
+        }
+    }
+    return false
+}
+
+private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
+    "prompt-submit": ["user-prompt-submit"],
+    "stop": ["session-stop"],
+]
 
 /// The agent whose cmux wrapper injected hook arguments into captured argv, or
 /// nil when no cmux-injected marker is present. A non-nil name is the
