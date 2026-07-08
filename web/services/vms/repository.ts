@@ -261,17 +261,47 @@ async function assertAccountVmCreateAllowed(
   tx: CloudDbTransaction,
   input: { readonly userId: string; readonly provider: ProviderId },
 ): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
-  const [deletion] = await tx
-    .select({ userIdHash: accountDeletionTombstones.userIdHash })
-    .from(accountDeletionTombstones)
-    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)))
-    .limit(1);
-  if (!deletion) return;
+  if (!await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
   throw new VmCreateDisabledError({
     provider: input.provider,
     reason: "Account deletion is in progress.",
   });
+}
+
+async function hasAccountDeletionTombstoneWithLock(
+  tx: CloudDbTransaction,
+  userId: string,
+): Promise<boolean> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+  const userIdHash = accountDeletionUserHash(userId);
+  const [deletion] = await tx
+    .select({ userIdHash: accountDeletionTombstones.userIdHash })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  return deletion?.userIdHash === userIdHash;
+}
+
+async function ensureAccountVmWriteAllowed(
+  tx: CloudDbTransaction,
+  userId: string,
+): Promise<void> {
+  if (!await hasAccountDeletionTombstoneWithLock(tx, userId)) return;
+  throw new Error("Account deletion is in progress.");
+}
+
+async function deletionAllowedUsageEvents<T extends { readonly userId: string }>(
+  tx: CloudDbTransaction,
+  inputs: readonly T[],
+): Promise<readonly T[]> {
+  const blockedUserIds = new Set<string>();
+  const userIds = [...new Set(inputs.map((input) => input.userId))].sort();
+  for (const userId of userIds) {
+    if (await hasAccountDeletionTombstoneWithLock(tx, userId)) {
+      blockedUserIds.add(userId);
+    }
+  }
+  return inputs.filter((input) => !blockedUserIds.has(input.userId));
 }
 
 async function findByIdempotencyKey(
@@ -889,6 +919,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("markBaseCreateRunning", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
+        await ensureAccountVmWriteAllowed(tx, input.userId);
         const now = new Date();
         const [vm] = await tx
           .update(cloudVms)
@@ -957,6 +988,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("markBaseCreateFailed", async () => {
       const db = cloudDb();
       await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
         const now = new Date();
         await tx
           .update(cloudVms)
@@ -1143,39 +1175,58 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
-      const [vm] = await db
-        .update(cloudVms)
-        .set({
-          providerVmId: input.providerVmId,
-          imageId: input.image,
-          imageVersion: input.imageVersion ?? null,
-          providerMetadata: input.providerMetadata ?? {},
-          status: "running",
-          failureCode: null,
-          failureMessage: null,
-          updatedAt: new Date(),
-        })
-        .where(and(
-          eq(cloudVms.id, input.id),
-          eq(cloudVms.status, "provisioning"),
-        ))
-        .returning();
-      if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
-      return vm;
+      return await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ userId: cloudVms.userId })
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!current) throw new Error(`vm row missing during create finalization: ${input.id}`);
+        await ensureAccountVmWriteAllowed(tx, current.userId);
+
+        const [vm] = await tx
+          .update(cloudVms)
+          .set({
+            providerVmId: input.providerVmId,
+            imageId: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            status: "running",
+            failureCode: null,
+            failureMessage: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.status, "provisioning"),
+          ))
+          .returning();
+        if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
+        return vm;
+      });
     }),
 
   markCreateFailed: (input) =>
     dbEffect("markCreateFailed", async () => {
       const db = cloudDb();
-      await db
-        .update(cloudVms)
-        .set({
-          status: "failed",
-          failureCode: input.code,
-          failureMessage: input.message,
-          updatedAt: new Date(),
-        })
-        .where(eq(cloudVms.id, input.id));
+      await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ userId: cloudVms.userId })
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!current) return;
+        if (await hasAccountDeletionTombstoneWithLock(tx, current.userId)) return;
+        await tx
+          .update(cloudVms)
+          .set({
+            status: "failed",
+            failureCode: input.code,
+            failureMessage: input.message,
+            updatedAt: new Date(),
+          })
+          .where(eq(cloudVms.id, input.id));
+      });
     }),
 
   hasOwnedSnapshot: (input) =>
@@ -1447,30 +1498,37 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   recordUsageEvent: (input) =>
     dbEffect("recordUsageEvent", async () => {
       const db = cloudDb();
-      await db.insert(cloudVmUsageEvents).values({
-        userId: input.userId,
-        billingTeamId: input.billingTeamId ?? null,
-        billingPlanId: input.billingPlanId ?? null,
-        vmId: input.vmId ?? null,
-        eventType: input.eventType,
-        provider: input.provider,
-        imageId: input.imageId,
-        metadata: input.metadata ?? {},
+      await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
+        await tx.insert(cloudVmUsageEvents).values({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId ?? null,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        });
       });
     }),
   recordUsageEvents: (inputs) =>
     dbEffect("recordUsageEvents", async () => {
       if (inputs.length === 0) return;
       const db = cloudDb();
-      await db.insert(cloudVmUsageEvents).values(inputs.map((input) => ({
-        userId: input.userId,
-        billingTeamId: input.billingTeamId ?? null,
-        billingPlanId: input.billingPlanId ?? null,
-        vmId: input.vmId ?? null,
-        eventType: input.eventType,
-        provider: input.provider,
-        imageId: input.imageId,
-        metadata: input.metadata ?? {},
-      })));
+      await db.transaction(async (tx) => {
+        const allowed = await deletionAllowedUsageEvents(tx, inputs);
+        if (allowed.length === 0) return;
+        await tx.insert(cloudVmUsageEvents).values(allowed.map((input) => ({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId ?? null,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        })));
+      });
     }),
 });

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
 import { cloudVmLeases, cloudVmSessions } from "../db/schema";
-import { deleteCmuxAccountData } from "../services/account/deletion";
+import { deleteCmuxAccountData, hasAccountDeletionTombstone } from "../services/account/deletion";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
@@ -38,6 +39,20 @@ beforeEach(() => {
 });
 
 describe("account deletion cleanup", () => {
+  test("detects durable tombstones by hashed Stack user id", async () => {
+    const runtime = {
+      cloudDb: () => ({
+        select: () => selectBuilder(() => [{ userIdHash: accountDeletionUserHash("user-1") }]),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(true);
+    await expect(hasAccountDeletionTombstone({ userId: "other-user" }, runtime)).resolves.toBe(false);
+  });
+
   test("claims providerless VMs before destroying provider-backed account VMs", async () => {
     providerBackedVmBatches = [
       [{ providerVmId: "provider-vm-1" }],
@@ -157,6 +172,10 @@ function fakeRuntime() {
 
 function fakeTransaction() {
   return {
+    execute: async () => {
+      calls.push("lock-account-deletion");
+      return [];
+    },
     update: () => updateBuilder(),
     delete: (table: unknown) => {
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");

@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { cloudDbConfig } from "../../db/config";
 import {
   accountDeletionTombstones,
   billingEmailClaims,
@@ -94,6 +95,30 @@ export function isStackAccountDeletionInProgress(metadata: unknown): boolean {
     typeof metadata === "object" &&
     !Array.isArray(metadata) &&
     (metadata as Record<string, unknown>)[ACCOUNT_DELETION_METADATA_KEY] === true;
+}
+
+export function isAccountDeletionTombstoneStoreConfigured(): boolean {
+  try {
+    cloudDbConfig();
+    return true;
+  } catch (error) {
+    if (isMissingCloudDbConfigError(error)) return false;
+    throw error;
+  }
+}
+
+export async function hasAccountDeletionTombstone(
+  input: AccountDeletionInput,
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<boolean> {
+  const db = runtime.cloudDb();
+  const userIdHash = accountDeletionUserHash(input.userId);
+  const [row] = await db
+    .select({ userIdHash: accountDeletionTombstones.userIdHash })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  return row?.userIdHash === userIdHash;
 }
 
 export async function markStackUserDeletionInProgress(
@@ -290,6 +315,7 @@ export async function deleteCmuxAccountData(
   const db = runtime.cloudDb();
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, input.userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, input.userId));
     await tx.delete(devices).where(eq(devices.userId, input.userId));
@@ -585,6 +611,13 @@ function accountDeletionErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message.slice(0, 500);
   if (typeof error === "string") return error.slice(0, 500);
   return "Account deletion failed";
+}
+
+function isMissingCloudDbConfigError(error: unknown): boolean {
+  return error instanceof Error && (
+    /DATABASE_URL is required/.test(error.message) ||
+    /aws-rds-iam database config is missing/.test(error.message)
+  );
 }
 
 function isStripeMissingResourceError(error: unknown): boolean {

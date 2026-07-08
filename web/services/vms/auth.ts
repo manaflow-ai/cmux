@@ -1,5 +1,9 @@
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
-import { isStackAccountDeletionInProgress } from "../account/deletion";
+import {
+  hasAccountDeletionTombstone,
+  isAccountDeletionTombstoneStoreConfigured,
+  isStackAccountDeletionInProgress,
+} from "../account/deletion";
 import {
   billingPlanIdFromMetadata,
   billingTeamFromUnknown,
@@ -53,7 +57,7 @@ export async function verifyRequest(
         tokenStore: { accessToken, refreshToken },
       });
       if (user) {
-        if (isStackAccountDeletionInProgress(user.clientReadOnlyMetadata)) return null;
+        if (await isAccountDeletionBlocked(user)) return null;
         return await authedUserFromStackUser(user, options);
       }
     }
@@ -66,10 +70,16 @@ export async function verifyRequest(
   // Fall back to the Next.js cookie flow (when browser hits the route).
   const user = await stackServerApp.getUser({ tokenStore: request as unknown as { headers: { get(name: string): string | null } } });
   if (user) {
-    if (isStackAccountDeletionInProgress(user.clientReadOnlyMetadata)) return null;
+    if (await isAccountDeletionBlocked(user)) return null;
     return await authedUserFromStackUser(user, options);
   }
   return null;
+}
+
+async function isAccountDeletionBlocked(user: StackUserLike): Promise<boolean> {
+  if (isStackAccountDeletionInProgress(user.clientReadOnlyMetadata)) return true;
+  if (!isAccountDeletionTombstoneStoreConfigured()) return false;
+  return await hasAccountDeletionTombstone({ userId: user.id });
 }
 
 async function authedUserFromStackUser(
