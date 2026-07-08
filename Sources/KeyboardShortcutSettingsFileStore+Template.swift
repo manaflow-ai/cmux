@@ -1,7 +1,5 @@
 import CmuxSettings
 import Foundation
-import CmuxSocketControl
-import CmuxSettings
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
@@ -92,10 +90,13 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
+                    "textBoxDefaultSubmitAction": TerminalTextBoxInputSettings.defaultSubmitActionID,
+                    "textBoxSubmitActions": textBoxSubmitActionTemplateValues(),
                     "agentHibernation": [
                         "enabled": AgentHibernationSettings.defaultEnabled,
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
@@ -158,10 +159,10 @@ extension CmuxSettingsFileStore {
             [
                 "sidebarAppearance": [
                     "matchTerminalBackground": false,
-                    "tintColor": SidebarTintDefaults.hex,
+                    "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
-                    "tintOpacity": SidebarTintDefaults.opacity,
+                    "tintOpacity": SidebarTintDefaults().opacity,
                 ],
             ],
             [
@@ -183,13 +184,14 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
-                    "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
-                    "customSearchEngineName": BrowserSearchSettings.defaultCustomSearchEngineName,
-                    "customSearchEngineURLTemplate": BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
-                    "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                    "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                    "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
+                    "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
+                    "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
                     "hiddenWebViewDiscardDelaySeconds": BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
+                    "askWhereToSaveDownloads": SettingCatalog().browser.askWhereToSaveDownloads.defaultValue,
                     "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
                     "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
                     "hostsToOpenInEmbeddedBrowser": [String](),
@@ -212,6 +214,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "fileExplorer": [
+                    "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "diffViewer": [
                     "defaultLayout": "unified",
                 ],
@@ -222,6 +229,31 @@ extension CmuxSettingsFileStore {
                 ],
             ],
         ]
+    }
+
+    private static func textBoxSubmitActionTemplateValues() -> [[String: Any]] {
+        TextBoxSubmitAction.builtInActions.map { action in
+            var value: [String: Any] = [
+                "id": action.id,
+                "title": action.title,
+                "kind": action.kind.rawValue,
+                "systemImage": action.systemImage,
+                "backgroundColorHex": action.backgroundColorHex,
+            ]
+            if let commandTemplate = action.commandTemplate {
+                value["commandTemplate"] = commandTemplate
+            }
+            if let preservePromptAfterLaunch = action.preservePromptAfterLaunch {
+                value["preservePromptAfterLaunch"] = preservePromptAfterLaunch
+            }
+            if let imagePath = action.imagePath {
+                value["imagePath"] = imagePath
+            }
+            if let assetName = action.assetName {
+                value["assetName"] = assetName
+            }
+            return value
+        }
     }
 
     private static func shortcutTemplateValue(

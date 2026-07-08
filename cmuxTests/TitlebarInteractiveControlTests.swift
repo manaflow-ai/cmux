@@ -151,7 +151,7 @@ struct TitlebarInteractiveControlTests {
         defer { window.orderOut(nil) }
         window.isMovable = false
 
-        let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared)
+        let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared, settingsRuntime: nil)
         let container = controller.view
         container.frame = NSRect(x: 0, y: 0, width: 180, height: 44)
         window.contentView = container
@@ -185,7 +185,7 @@ struct TitlebarInteractiveControlTests {
     @Test func accessoryControlsRemainNonDraggable() {
         _ = NSApplication.shared
 
-        let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared)
+        let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared, settingsRuntime: nil)
         let container = controller.view
         container.frame = NSRect(x: 0, y: 0, width: 180, height: 44)
 

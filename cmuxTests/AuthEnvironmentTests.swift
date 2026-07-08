@@ -57,6 +57,40 @@ struct AuthEnvironmentTests {
         assertNativeSignInURL(url)
     }
 
+    @Test("tagged debug sign-in URL uses local origin and tag callback scheme")
+    func taggedDebugSignInURLUsesLocalOriginAndTagCallbackScheme() throws {
+        let url = AuthEnvironment.signInURL(
+            callbackState: "state-1",
+            environment: [
+                "CMUX_TAG": "pair-auth",
+                "CMUX_PORT": "4123",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.pair-auth"
+        )
+
+        #expect(url.scheme == "http")
+        #expect(url.host == "localhost")
+        #expect(url.port == 4123)
+        #expect(url.path == "/handler/native-sign-in")
+
+        let afterAuthReturnTo = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "after_auth_return_to" })?
+            .value)
+        let afterSignInURL = try #require(URL(string: afterAuthReturnTo))
+        #expect(afterSignInURL.scheme == "http")
+        #expect(afterSignInURL.host == "localhost")
+        #expect(afterSignInURL.port == 4123)
+
+        let nativeReturnTo = try #require(URLComponents(url: afterSignInURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "native_app_return_to" })?
+            .value)
+        let nativeCallbackURL = try #require(URL(string: nativeReturnTo))
+        #expect(nativeCallbackURL.scheme == "cmux-dev-pair-auth")
+        #expect(nativeCallbackURL.host == "auth-callback")
+    }
+
     @Test("sign-in URL ignores locale-like environment values")
     func signInURLIgnoresLocaleLikeEnvironmentValues() {
         let englishURL = AuthEnvironment.signInURL(
@@ -83,6 +117,170 @@ struct AuthEnvironmentTests {
         )
 
         #expect(russianURL == englishURL)
+    }
+
+    @Test("billing checkout follows app web origin unless billing origin is explicit")
+    func billingCheckoutFollowsAppWebOriginUnlessBillingOriginIsExplicit() {
+        let appOriginURL = AuthEnvironment.resolvedBillingCheckoutURL(
+            environment: [
+                "CMUX_AUTH_CALLBACK_SCHEME": "cmux-dev",
+                "CMUX_WWW_ORIGIN": "http://127.0.0.1:4278",
+            ]
+        )
+        #expect(appOriginURL.scheme == "http")
+        #expect(appOriginURL.host == "localhost")
+        #expect(appOriginURL.port == 4278)
+        #expect(appOriginURL.path == "/api/billing/checkout")
+        #expect(URLComponents(url: appOriginURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_external_browser" && $0.value == "1" }) == true)
+        #expect(URLComponents(url: appOriginURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_scheme" && $0.value == "cmux-dev" }) == true)
+
+        let overrideURL = AuthEnvironment.resolvedBillingCheckoutURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://localhost:4278",
+                "CMUX_BILLING_WWW_ORIGIN": "https://billing-preview.example",
+                "CMUX_AUTH_CALLBACK_SCHEME": "cmux-dev-preview",
+            ]
+        )
+        #expect(overrideURL.scheme == "https")
+        #expect(overrideURL.host == "billing-preview.example")
+        #expect(overrideURL.path == "/api/billing/checkout")
+        #expect(URLComponents(url: overrideURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_scheme" && $0.value == "cmux-dev-preview" }) == true)
+    }
+
+    @Test("billing portal follows app web origin unless billing origin is explicit")
+    func billingPortalFollowsAppWebOriginUnlessBillingOriginIsExplicit() {
+        let appOriginURL = AuthEnvironment.resolvedBillingPortalURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://127.0.0.1:4278",
+            ]
+        )
+        #expect(appOriginURL.scheme == "http")
+        #expect(appOriginURL.host == "localhost")
+        #expect(appOriginURL.port == 4278)
+        #expect(appOriginURL.path == "/api/billing/portal")
+
+        let overrideURL = AuthEnvironment.resolvedBillingPortalURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://localhost:4278",
+                "CMUX_BILLING_WWW_ORIGIN": "https://billing-preview.example",
+            ]
+        )
+        #expect(overrideURL.scheme == "https")
+        #expect(overrideURL.host == "billing-preview.example")
+        #expect(overrideURL.path == "/api/billing/portal")
+    }
+
+    @Test("billing checkout default origin follows build web origin")
+    func billingCheckoutDefaultOriginFollowsBuildWebOrigin() {
+        let url = AuthEnvironment.resolvedBillingCheckoutURL(
+            environment: [
+                "CMUX_PORT": "4278",
+            ]
+        )
+
+        #if DEBUG
+        #expect(url.scheme == "http")
+        #expect(url.host == "localhost")
+        #expect(url.port == 4278)
+        #else
+        #expect(url.scheme == "https")
+        #expect(url.host == "cmux.com")
+        #expect(url.port == nil)
+
+        let releaseDefaultURL = AuthEnvironment.resolvedBillingCheckoutURL(environment: [:])
+        #expect(releaseDefaultURL.scheme == "https")
+        #expect(releaseDefaultURL.host == "cmux.com")
+        #expect(releaseDefaultURL.port == nil)
+        #endif
+
+        #expect(url.path == "/api/billing/checkout")
+        #if DEBUG
+        let expectedScheme = "cmux-dev"
+        #else
+        let expectedScheme = "cmux"
+        #endif
+        #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_scheme" && $0.value == expectedScheme }) == true)
+    }
+
+    @Test("tagged debug app pricing uses launch web origin before dotfile fallback")
+    func taggedDebugAppPricingUsesLaunchWebOriginBeforeDotfileFallback() {
+        let environment = [
+            "CMUX_AUTH_WWW_ORIGIN": "http://127.0.0.1:9210",
+            "CMUX_PORT": "9210",
+        ]
+
+        let pricingURL = AuthEnvironment.resolvedPricingURL(environment: environment)
+        #expect(pricingURL.scheme == "http")
+        #expect(pricingURL.host == "localhost")
+        #expect(pricingURL.port == 9210)
+        #expect(pricingURL.path == "/pricing")
+
+        let appPricingURL = AuthEnvironment.resolvedAppPricingURL(environment: environment)
+        #expect(appPricingURL.scheme == "http")
+        #expect(appPricingURL.host == "localhost")
+        #expect(appPricingURL.port == 9210)
+        #expect(appPricingURL.path == "/app-pricing")
+    }
+
+    @Test("Pro upgrade workspace reuse keeps a live tracked workspace")
+    func proUpgradeWorkspaceReuseKeepsLiveTrackedWorkspace() {
+        var state = ProUpgradeWorkspaceReuseState()
+        let workspaceId = UUID()
+
+        state.recordCreatedWorkspace(id: workspaceId)
+
+        #expect(state.reusableWorkspaceID { $0 == workspaceId } == workspaceId)
+        #expect(state.workspaceId == workspaceId)
+    }
+
+    @Test("Pro upgrade workspace reuse clears stale tracked workspace")
+    func proUpgradeWorkspaceReuseClearsStaleTrackedWorkspace() {
+        var state = ProUpgradeWorkspaceReuseState()
+        let closedWorkspaceId = UUID()
+
+        state.recordCreatedWorkspace(id: closedWorkspaceId)
+
+        #expect(state.reusableWorkspaceID { _ in false } == nil)
+        #expect(state.workspaceId == nil)
+    }
+
+    @MainActor
+    @Test("Pro upgrade workspace focus fails for a windowless tracked context")
+    func proUpgradeWorkspaceFocusFailsForWindowlessTrackedContext() {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+            }
+        }
+
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let pricingURL = URL(string: "https://cmux.com/app-pricing?cmux_app=1")!
+        let workspace = manager.addWorkspace(
+            title: "cmux Pro",
+            initialSurface: .browser,
+            initialBrowserURL: pricingURL,
+            initialBrowserOmnibarVisible: false,
+            initialBrowserTransparentBackground: true
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        #expect(appDelegate.focusProUpgradeWorkspace(workspaceId: workspace.id, url: pricingURL) == false)
     }
 }
 

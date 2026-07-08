@@ -78,6 +78,7 @@ extension TerminalController {
 extension TerminalController {
     nonisolated static let explicitFocusParamV2Methods: Set<String> = [
         "workspace.create",
+        "layout.open",
         "workspace.move_to_window",
         "surface.split",
         "surface.create",
@@ -92,7 +93,8 @@ extension TerminalController {
         "pane.break",
         "pane.join",
         "markdown.open",
-        "browser.open_split"
+        "browser.open_split",
+        "sidebar.custom.open"
     ]
 
     nonisolated static func explicitFocusParamAllowsFocus(commandKey: String, params: [String: Any]) -> Bool {

@@ -1,7 +1,10 @@
+import Darwin
+import Combine
 import XCTest
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
+import CmuxSidebar
 import CmuxRemoteWorkspace
 import CmuxTerminal
 
@@ -14,9 +17,7 @@ import CmuxTerminal
 /// Closure shape shared by the scripted process-runner tests; mirrors the
 /// legacy `runProcessOverrideForTesting` static signature so the scripted
 /// bodies stay byte-identical.
-private typealias RemoteProcessScript = (
-    _ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval
-) throws -> (status: Int32, stdout: String, stderr: String)
+private typealias RemoteProcessScript = (_ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval) throws -> (status: Int32, stdout: String, stderr: String)
 
 /// Test fake for the coordinator's injected process-runner seam: scripts each
 /// subprocess invocation. `@unchecked Sendable` because the scripts capture
@@ -24,28 +25,33 @@ private typealias RemoteProcessScript = (
 private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     let script: RemoteProcessScript
 
-    func run(
-        _ request: RemoteProcessRequest,
-        operation: (any RemoteTransferCancelling)?
-    ) throws -> RemoteCommandResult {
+    func run(_ request: RemoteProcessRequest, operation: (any RemoteTransferCancelling)?) throws -> RemoteCommandResult {
         let result = try script(request.executable, request.arguments, request.stdin, request.timeout)
         return RemoteCommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
     }
 }
 
+private func remoteDaemonServeCommand(_ command: String) -> Bool {
+    command.contains("serve") && command.contains("--stdio")
+}
+
+private func remoteReverseRelayControlOperation(from arguments: [String]) -> (command: String, spec: String)? {
+    guard let operationIndex = arguments.firstIndex(of: "-O"),
+          operationIndex + 1 < arguments.count,
+          let reverseIndex = arguments.firstIndex(of: "-R"),
+          reverseIndex + 1 < arguments.count else {
+        return nil
+    }
+    return (arguments[operationIndex + 1], arguments[reverseIndex + 1])
+}
+
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
-        let status: Int32
-        let stdout: String
-        let stderr: String
+        let status: Int32, stdout: String, stderr: String
         let timedOut: Bool
     }
 
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        timeout: TimeInterval
-    ) -> ProcessRunResult {
+    private func runProcess(executablePath: String, arguments: [String], timeout: TimeInterval) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -1097,6 +1103,185 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWebSocketRemoteTerminalEndLeavesConnectedStateWithinBoundedTime() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "cmux vm-pty-attach --id issue-4509",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to vm:issue-4509 via shared local proxy 127.0.0.1:59999",
+            target: "vm:issue-4509"
+        )
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+
+        let deadline = Date().addingTimeInterval(0.5)
+        while workspace.remoteConnectionState == .connected && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertNotEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+    }
+
+    @MainActor
+    func testWebSocketRemoteTerminalEndWithoutStartupCommandStillDisconnects() throws {
+        let workspace = Workspace()
+        let initialConfig = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509-no-startup",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "cmux vm-pty-attach --id issue-4509-no-startup",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509-no-startup",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(initialConfig, autoConnect: false)
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to vm:issue-4509-no-startup",
+            target: "vm:issue-4509-no-startup"
+        )
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndPublishesDisconnectedDetailWithoutTransientNil() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        let expectedDetail = String(
+            localized: "remote.status.terminalDisconnected",
+            defaultValue: "Remote terminal session disconnected"
+        )
+        var publishedDetails: [String?] = []
+        let cancellable = workspace.$remoteConnectionDetail
+            .dropFirst()
+            .sink { publishedDetails.append($0) }
+        defer { cancellable.cancel() }
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64007)
+
+        XCTAssertEqual(workspace.remoteConnectionDetail, expectedDetail)
+        XCTAssertEqual(publishedDetails, [expectedDetail])
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndIgnoresDuplicateRelayCallbackAfterSurfaceProcessed() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64034,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+        let replacement = workspace.createReplacementTerminalPanel()
+        let firstReplacementCommand = replacement.surface.initialCommand
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64034)
+        let secondReplacement = workspace.createReplacementTerminalPanel()
+
+        XCTAssertNotNil(firstReplacementCommand)
+        XCTAssertNil(secondReplacement.surface.initialCommand)
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1220,7 +1405,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteTerminalSessionEndRequestsControlMasterCleanupWhenWorkspaceDemotes() throws {
+    func testRemoteTerminalSessionEndRequestsControlMasterCleanupAndLeavesWorkspaceDisconnected() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1255,7 +1440,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         wait(for: [cleanupRequested], timeout: 1.0)
 
-        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertEqual(
             capturedArguments,
@@ -1266,6 +1453,56 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-i", "/Users/test/.ssh/id_ed25519",
                 "-o", "ControlPath=/tmp/cmux-ssh-%C",
                 "-o", "StrictHostKeyChecking=accept-new",
+                "-O", "exit",
+                "cmux-macmini",
+            ]
+        )
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndWithoutCallbackRelayPortStillCleansControlMaster() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64035,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        var capturedArguments: [String] = []
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+            capturedArguments = arguments
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+
+        wait(for: [cleanupRequested], timeout: 1.0)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(
+            capturedArguments,
+            [
+                "-o", "BatchMode=yes",
+                "-o", "ControlMaster=no",
+                "-p", "2222",
+                "-i", "/Users/test/.ssh/id_ed25519",
+                "-o", "ControlPath=/tmp/cmux-ssh-%C",
                 "-O", "exit",
                 "cmux-macmini",
             ]
@@ -1692,7 +1929,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteTerminalSessionEndSkipsControlMasterCleanupWhenBrowserPanelsKeepWorkspaceRemote() throws {
+    func testRemoteTerminalSessionEndDisconnectsWorkspaceWhenBrowserPanelsRemain() throws {
         let workspace = Workspace()
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
@@ -1713,7 +1950,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
-        cleanupRequested.isInverted = true
 
         Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
@@ -1728,6 +1964,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
@@ -1928,7 +2166,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         stderr: ""
                     )
                 }
-                if command.contains("serve --stdio") {
+                if remoteDaemonServeCommand(command) {
                     return (
                         status: 0,
                         stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
@@ -2007,11 +2245,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "unexpected executable")
             }
 
-            if let operationIndex = arguments.firstIndex(of: "-O"),
-               operationIndex + 3 < arguments.count,
-               arguments[operationIndex + 2] == "-R" {
-                let operation = arguments[operationIndex + 1]
-                let spec = arguments[operationIndex + 3]
+            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
+                let operation = controlOperation.command
+                let spec = controlOperation.spec
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
@@ -2034,10 +2270,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     stderr: ""
                 )
             }
-            if command.contains("serve --stdio") {
+            if remoteDaemonServeCommand(command) {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
@@ -2100,11 +2336,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "unexpected executable")
             }
 
-            if let operationIndex = arguments.firstIndex(of: "-O"),
-               operationIndex + 3 < arguments.count,
-               arguments[operationIndex + 2] == "-R" {
-                let operation = arguments[operationIndex + 1]
-                let spec = arguments[operationIndex + 3]
+            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
+                let operation = controlOperation.command
+                let spec = controlOperation.spec
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 if operation == "forward" {
@@ -2149,10 +2383,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     stderr: ""
                 )
             }
-            if command.contains("serve --stdio") {
+            if remoteDaemonServeCommand(command) {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
@@ -3263,6 +3497,133 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             "unavailable"
         )
     }
+
+    @MainActor
+    func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cloud VM",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64015,
+            relayID: String(repeating: "e", count: 16),
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            managedCloudVMID: "71smiccrg35sw9pydt8k",
+            terminalStartupCommand: "cmux vm ssh-attach --id 71smiccrg35sw9pydt8k --default-freestyle-sshd",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+
+        let proxyError = "Remote proxy to cloud VM unavailable: Failed to start local daemon proxy: timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cloud VM")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.statusEntries["remote.error"])
+        XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+
+        workspace.statusEntries["remote.error"] = SidebarStatusEntry(
+            key: "remote.error",
+            value: "Remote proxy unavailable (cloud VM): \(proxyError)",
+            icon: "exclamationmark.triangle.fill",
+            color: nil,
+            timestamp: Date()
+        )
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: .error,
+                source: "remote-proxy",
+                timestamp: Date()
+            )
+        )
+        workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: "Reconnecting to cloud VM", target: "cloud VM")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.statusEntries["remote.error"])
+        XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
+
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: .error,
+                source: "remote-proxy",
+                timestamp: Date()
+            )
+        )
+
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .logEntries
+                .last(where: { $0.source == "remote-proxy" })
+        )
+
+        var legacySnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        legacySnapshot.logEntries = [
+            SessionLogEntrySnapshot(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: SidebarLogLevel.error.rawValue,
+                source: "remote-proxy",
+                timestamp: Date().timeIntervalSince1970
+            )
+        ]
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(legacySnapshot)
+
+        XCTAssertNil(restored.logEntries.last(where: { $0.source == "remote-proxy" }))
+    }
+
+    @MainActor
+    func testWebSocketDaemonTransportErrorClearsConnectedSidebarState() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "cmux vm-pty-attach --id issue-4509",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to vm:issue-4509 via shared local proxy 127.0.0.1:59999",
+            target: "vm:issue-4509"
+        )
+
+        let proxyError = "Remote proxy to vm:issue-4509 unavailable: Remote daemon transport failed: daemon websocket keepalive timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "vm:issue-4509")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(
+            ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
+            "error"
+        )
+    }
 }
 
 final class CLINotifyProcessIntegrationTests: XCTestCase {
@@ -3589,6 +3950,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
         }
         return false
+    }
+
+    private func cliTestEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        return environment
     }
 
     private func waitForSocketCommand(

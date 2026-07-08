@@ -148,7 +148,11 @@ final class MobileAttachTicketStore {
         // rides in `payload(for:)["ticket"]` for RPC consumers.
         let data = try CmxAttachTicketCompactCoder().encode(ticket)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)") else {
+        // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback
+        // QR must open the matching iOS channel just like the v2 path in
+        // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
+        // phone a code the system camera routes to a dev build (or vice versa).
+        guard let url = URL(string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)") else {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
@@ -194,15 +198,103 @@ struct MobileAttachTicketAuthorization {
 
 enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
+    private static let sharedDeviceIDFileName = "mobile-host-device-id"
+    private static let stableBundleIdentifier = "com.cmuxterm.app"
 
     static func deviceID() -> String {
-        if let existing = UserDefaults.standard.string(forKey: deviceIDKey),
-           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return existing
+        let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
+            ? nil
+            : UserDefaults(suiteName: stableBundleIdentifier)
+        return deviceID(
+            defaults: .standard,
+            sharedIDURL: defaultSharedDeviceIDURL(),
+            stableDefaults: stableDefaults,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    static func deviceID(
+        defaults: UserDefaults,
+        sharedIDURL: URL?,
+        stableDefaults: UserDefaults? = nil,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> String {
+        if let id = readSharedDeviceID(from: sharedIDURL) {
+            defaults.set(id, forKey: deviceIDKey)
+            return id
         }
+
+        if shouldPreferStableDefaults(bundleIdentifier: bundleIdentifier),
+           let id = normalizedID(stableDefaults?.string(forKey: deviceIDKey)) {
+            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
+        }
+
+        if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
+            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
+        }
+
         let generated = UUID().uuidString
-        UserDefaults.standard.set(generated, forKey: deviceIDKey)
-        return generated
+        return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
+    }
+
+    private static func defaultSharedDeviceIDURL(fileManager: FileManager = .default) -> URL? {
+        guard let appSupport = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else {
+            return nil
+        }
+        let directory = appSupport.appendingPathComponent("cmux", isDirectory: true)
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory.appendingPathComponent(sharedDeviceIDFileName)
+    }
+
+    private static func shouldPreferStableDefaults(bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier,
+              !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return bundleIdentifier != stableBundleIdentifier
+    }
+
+    private static func normalizedID(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let uuid = UUID(uuidString: trimmed) else { return nil }
+        return uuid.uuidString
+    }
+
+    private static func readSharedDeviceID(from url: URL?) -> String? {
+        guard let url,
+              let existing = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        return normalizedID(existing)
+    }
+
+    private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
+        guard let sharedIDURL else {
+            defaults.set(candidate, forKey: deviceIDKey)
+            return candidate
+        }
+        try? FileManager.default.createDirectory(
+            at: sharedIDURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = Data(candidate.utf8)
+        if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
+            if let winner = readSharedDeviceID(from: sharedIDURL) {
+                defaults.set(winner, forKey: deviceIDKey)
+                return winner
+            }
+            try? data.write(to: sharedIDURL, options: .atomic)
+        }
+        let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
+        defaults.set(settled, forKey: deviceIDKey)
+        return settled
     }
 
     static func displayName() -> String? {

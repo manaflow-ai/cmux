@@ -3,7 +3,7 @@ import Foundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
-import CmuxSocketControl
+import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal
@@ -44,6 +44,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
+            codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,
             subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
             suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
@@ -127,6 +128,25 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     }
 }
 
+// MARK: Filesystem
+
+extension TerminalSurfaceRuntimeFilesystem {
+    static func live() -> TerminalSurfaceRuntimeFilesystem {
+        TerminalSurfaceRuntimeFilesystem(
+            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installClaudeCommandShim: {
+                TerminalSurface.installClaudeCommandShimIfPossible(
+                    wrapperURL: $0,
+                    surfaceId: $1,
+                    temporaryDirectory: $2,
+                    fileManager: .default
+                )
+            },
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+        )
+    }
+}
+
 // MARK: Construction
 
 extension TerminalSurface {
@@ -147,7 +167,10 @@ extension TerminalSurface {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        manualIO: Bool = false,
+        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         self.init(
             id: id,
@@ -162,6 +185,9 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
+            manualIO: manualIO,
+            manualInputHandler: manualInputHandler,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
     }

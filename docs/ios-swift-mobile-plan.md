@@ -11,7 +11,7 @@ Goal: ship the iOS path from current cmux main with Swift-owned app, session, tr
 
 ## Architecture
 
-- `Packages/CMUXMobileCore` owns the cross-platform Swift protocol layer: attach tickets, routes, frame codec, and Ghostty snapshot models.
+- `Packages/Shared/CMUXMobileCore` owns the cross-platform Swift protocol layer: attach tickets, routes, frame codec, and Ghostty snapshot models.
 - The iOS shell depends on `CMUXMobileCore` and a `CmxByteTransport`, not on Tailscale, Iroh, WebSocket, or daemon details.
 - The Mac host publishes a `CmxAttachTicket` with one or more `CmxAttachRoute` values. iOS chooses the first supported route.
 - Tailscale ships first as a Swift `Network` transport over the tailnet host and port.

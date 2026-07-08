@@ -823,8 +823,32 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: browser,
                 keywords: ["browser.showSearchSuggestions", "browser", "search", "suggestions", "autocomplete", "address", "bar"],
-                defaultValue: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-                defaultsKey: BrowserSearchSettings.searchSuggestionsEnabledKey
+                defaultValue: BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
+                defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "askWhereToSaveBrowserDownloads",
+                settingsKey: "browser.askWhereToSaveDownloads",
+                title: {
+                    String(
+                        localized: "settings.browser.askWhereToSaveDownloads",
+                        defaultValue: "Ask Where to Save Downloads"
+                    )
+                },
+                sectionTitle: browser,
+                keywords: [
+                    "browser.askWhereToSaveDownloads",
+                    "browser",
+                    "downloads",
+                    "save",
+                    "panel",
+                    "folder",
+                    "attachments",
+                    "files",
+                    "pdf",
+                ],
+                defaultValue: SettingCatalog().browser.askWhereToSaveDownloads.defaultValue,
+                defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "openTerminalLinksInCmuxBrowser",

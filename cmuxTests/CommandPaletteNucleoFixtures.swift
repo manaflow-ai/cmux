@@ -161,7 +161,7 @@ func makeLargeWorkspaceSwitcherEntries(count: Int) -> [FixtureEntry] {
         let projectSlug = "project-\(index)-cmd-p-search-performance"
         let worktreeSlug = "feature-\(index)-palette-latency"
         let title = "Workspace \(index) \(projectSlug)"
-        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let keywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: [
                 "workspace",
                 "switch",
@@ -187,7 +187,7 @@ func makeLargeWorkspaceSwitcherEntries(count: Int) -> [FixtureEntry] {
                 description: "Palette performance fixture \(index) for \(projectSlug)"
             ),
             detail: .workspace
-        )
+        ).keywords
         return FixtureEntry(
             id: "workspace.large.\(index)",
             rank: index,
@@ -213,9 +213,8 @@ func optimizedResults(
     query: String,
     resultLimit: Int
 ) -> [FixtureResult] {
-    CommandPaletteSearchEngine.search(
-        entries: corpus,
-        query: query,
+    CommandPaletteSearchEngine(entries: corpus).search(
+            query: query,
         resultLimit: resultLimit
     ) { _, _ in 0 }
         .map {

@@ -4,11 +4,8 @@ on:
   pull_request:
     paths:
       - "ios/**"
-      - "Packages/CMUXAuthCore/**"
-      - "Packages/CMUXMobileCore/**"
-      - "Packages/CmuxAuthRuntime/**"
-      - "Packages/CmuxMobile*/**"
-      - "Packages/CMUXMobile*/**"
+      - "Packages/Shared/**"
+      - "Packages/iOS/**"
       - "Sources/Mobile/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The namespace-type convention rule scans every package, so any package
@@ -43,7 +40,7 @@ permissions:
 
 jobs:
   detect-ios-changes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -71,7 +68,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -89,7 +86,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -113,7 +110,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -142,12 +139,30 @@ jobs:
 
       - name: Run CMUXMobileCore package tests
         run: |
-          swift test --package-path Packages/CMUXMobileCore
+          swift test --package-path Packages/Shared/CMUXMobileCore
+
+      - name: Run CmuxSyncStore package tests
+        run: |
+          # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
+          # or app-target dependency, so it runs as a real CI gate here.
+          swift test --package-path Packages/Shared/CmuxSyncStore
+
+      - name: Run CmuxMobileShell package tests
+        run: |
+          # iOS shell replay/liveness regressions live in this package target.
+          # Keep them under the iOS package gate so PR CI enforces the mobile
+          # terminal mirror behavior without relying on local-only SwiftPM runs.
+          swift test --package-path Packages/iOS/CmuxMobileShell
 
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
+    # carries). iOS simulator XCTest runs inside the Simulator, not as a
+    # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
+    # blocks macOS app-host XCTest does not apply here; this lane is verified
+    # green on blacksmith-6vcpu-macos-26.
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -185,6 +200,21 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Install zig
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          if xcrun simctl list runtimes available | grep -Eq '\biOS\b'; then
+            exit 0
+          fi
+          echo "No available iOS simulator runtime; downloading the iOS platform."
+          xcodebuild -downloadPlatform iOS
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b'
+
       - name: Provision GhosttyKit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
@@ -192,7 +222,6 @@ jobs:
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
 
       - name: Pick simulator
@@ -201,13 +230,29 @@ jobs:
           DEVICE_FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          python3 - <<'PY' > /tmp/simulator.env
+          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
+          mkdir -p "$(dirname "$SIMULATOR_ENV")"
+          python3 - <<'PY' > "$SIMULATOR_ENV"
           import json
           import os
           import subprocess
+          import sys
+
+          def simctl_json(*args):
+              return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
+
+          def version_key(runtime):
+              raw = str(runtime.get("version") or "")
+              parts = []
+              for part in raw.split("."):
+                  try:
+                      parts.append(int(part))
+                  except ValueError:
+                      parts.append(0)
+              return tuple(parts)
 
           family = os.environ["DEVICE_FAMILY"]
-          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          data = simctl_json("devices", "available")
           devices = [
               device
               for runtimes in data.get("devices", {}).values()
@@ -217,12 +262,58 @@ jobs:
           prefix = "iPad" if family == "ipad" else "iPhone"
           preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
-          selected = selected or next(d for d in devices if d.get("name", "").startswith(prefix))
+          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          if selected is None:
+              runtimes = [
+                  runtime
+                  for runtime in simctl_json("runtimes").get("runtimes", [])
+                  if runtime.get("isAvailable", True)
+                  and (
+                      runtime.get("platform") == "iOS"
+                      or "iOS" in runtime.get("name", "")
+                      or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+                  )
+              ]
+              device_types = [
+                  device_type
+                  for device_type in simctl_json("devicetypes").get("devicetypes", [])
+                  if device_type.get("name", "").startswith(prefix)
+              ]
+              runtime = max(runtimes, key=version_key, default=None)
+              device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
+              device_type = device_type or (device_types[-1] if device_types else None)
+              if runtime is None or device_type is None:
+                  raise SystemExit(f"No available {family} simulator or creatable iOS runtime/device type found")
+              created_name = f"cmux CI {device_type['name']}"
+              udid = subprocess.check_output([
+                  "xcrun",
+                  "simctl",
+                  "create",
+                  created_name,
+                  device_type["identifier"],
+                  runtime["identifier"],
+              ], text=True).strip()
+              selected = {"udid": udid, "name": created_name}
+              print(
+                  f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
+                  file=sys.stderr,
+              )
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
-          cat /tmp/simulator.env
-          cat /tmp/simulator.env >> "$GITHUB_ENV"
+          cat "$SIMULATOR_ENV"
+          cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
+
+      - name: Prepare iOS build paths
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
+          rm -rf "$IOS_DERIVED_DATA"
+          mkdir -p "$IOS_DERIVED_DATA/logs"
+          echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -230,7 +321,7 @@ jobs:
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
+            -derivedDataPath "$IOS_DERIVED_DATA" \
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
@@ -243,10 +334,16 @@ jobs:
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
+            -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+          else
+            # Full UI tests currently exceed the pull-request simulator budget
+            # on macos-26. Keep them runnable via workflow_dispatch +
+            # test_filter, while the PR lane still builds the app and runs
+            # non-UI iOS tests.
+            XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
           XCODEBUILD_ARGS+=(test)
           selected_tests_passed_despite_xcodebuild_status() {
@@ -261,7 +358,7 @@ jobs:
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
           for attempt in 1 2; do
-            LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
+            LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"
@@ -281,3 +378,52 @@ jobs:
             fi
             exit "$status"
           done
+
+  ios-tests:
+    name: ios-tests
+    # Aggregate gate for this workflow's iOS suites. Add this check to the branch
+    # protection required list (it is the iOS sibling of ci.yml's "tests" gate).
+    # References each suite by job KEY via needs:, so renaming or sharding a job
+    # never desyncs the required-checks list. Add new iOS jobs to needs: here.
+    needs:
+      - detect-ios-changes
+      - package-conventions-lint
+      - mobile-core-package
+      - ios-simulator
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check iOS test routing
+        env:
+          IOS_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["IOS_NEEDS"])
+
+          # The routing job must succeed for its should_run/should_lint outputs to
+          # be trustworthy; the suites below run or skip based on those outputs.
+          if needs["detect-ios-changes"]["result"] != "success":
+              print(f"detect-ios-changes: {needs['detect-ios-changes']['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          # A suite that opted out via the routing filter reports "skipped", which
+          # is fine; a suite that actually ran and failed must block the merge.
+          allowed = {"success", "skipped"}
+          bad = {
+              name: data["result"]
+              for name, data in sorted(needs.items())
+              if name != "detect-ios-changes" and data["result"] not in allowed
+          }
+          if bad:
+              for name, result in bad.items():
+                  print(f"{name} did not pass: {result}", file=sys.stderr)
+              sys.exit(1)
+
+          for name, data in sorted(needs.items()):
+              print(f"{name}={data['result']}")
+          PY

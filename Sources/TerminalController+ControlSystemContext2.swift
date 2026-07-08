@@ -94,7 +94,7 @@ extension TerminalController {
                 if workspace.panels.count <= 1 {
                     break
                 }
-                if workspace.requestCloseTabRecordingHistory(tabId, force: true) {
+                if workspace.requestNonInteractiveCloseTabRecordingHistory(tabId) {
                     closed += 1
                 }
             }
@@ -130,6 +130,15 @@ extension TerminalController {
         case "mark_unread", "mark_as_unread":
             workspace.markPanelUnread(surfaceId)
             return finish(.none)
+
+        case "toggle_full_width_tab", "toggle_full_width", "toggle_full_width_tab_mode":
+            guard let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                return .tabPaneNotFound
+            }
+            guard workspace.toggleFullWidthTabMode(panelId: surfaceId) else {
+                return .fullWidthTabToggleFailed
+            }
+            return finish(.fullWidthTabMode(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId)))
 
         case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":
             // The move-to-new-workspace family stays app-side (it re-homes
@@ -183,11 +192,23 @@ extension TerminalController {
             }
 
             let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-            guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: focus, inheritWorkingDirectoryFallback: true, workingDirectoryFallbackSourcePanelId: surfaceId) else {
+            switch workspace.newTerminalSurfaceOutcome(
+                inPane: paneId,
+                focus: focus,
+                inheritWorkingDirectoryFallback: true,
+                workingDirectoryFallbackSourcePanelId: surfaceId,
+                allowTextBoxFocusDefault: false
+            ) {
+            case .created(let newPanel):
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+                return finish(.created(newPanel.id))
+            case .routedToRemote:
+                // Routed to the remote tmux mirror as `new-window`; the tab arrives
+                // via %window-add and the mirror positions it, so no local reorder here.
+                return finish(.routedToRemote)
+            case .failed:
                 return .createFailed
             }
-            _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-            return finish(.created(newPanel.id))
 
         case "new_browser_right", "new_browser_to_right", "new_browser_tab_to_right":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),

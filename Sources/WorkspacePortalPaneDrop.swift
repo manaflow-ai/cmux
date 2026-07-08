@@ -1,6 +1,6 @@
 import Bonsplit
 import Foundation
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 
 extension Workspace {
     func portalPaneDropZone(
@@ -11,7 +11,7 @@ extension Workspace {
     ) -> DropZone {
         let sourcePane = PaneID(id: sourcePaneId)
         guard sourcePane != paneId,
-              bonsplitController.tab(TabID(uuid: tabId))?.kind == SurfaceKind.terminal else {
+              bonsplitController.tab(TabID(uuid: tabId))?.kind == SurfaceKind.terminal.rawValue else {
             return proposedZone
         }
 

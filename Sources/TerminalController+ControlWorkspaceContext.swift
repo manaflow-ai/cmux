@@ -64,7 +64,7 @@ extension TerminalController: ControlWorkspaceContext {
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.currentDirectory,
+            currentDirectory: workspace.presentedCurrentDirectory ?? "",
             customColor: workspace.customColor,
             latestConversationMessage: workspace.latestConversationMessage,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
@@ -440,7 +440,10 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
@@ -448,7 +451,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard workspace.remoteConfiguration != nil else {
             return .notConfigured(workspaceID: workspaceID)
         }
-        workspace.reconnectRemoteConnection()
+        workspace.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
@@ -548,6 +551,8 @@ extension TerminalController: ControlWorkspaceContext {
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let managedCloudVMID = v2RawString(params, "managed_cloud_vm_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -659,6 +664,7 @@ extension TerminalController: ControlWorkspaceContext {
             relayID: relayID?.isEmpty == true ? nil : relayID,
             relayToken: relayToken?.isEmpty == true ? nil : relayToken,
             localSocketPath: localSocketPath,
+            managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
@@ -749,4 +755,3 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
-

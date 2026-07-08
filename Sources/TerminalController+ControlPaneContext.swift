@@ -26,14 +26,25 @@ extension TerminalController: ControlPaneContext {
         tabManager: TabManager
     ) -> Workspace? {
         if let wsId = routing.workspaceID {
+            guard !AppDelegate.isWindowDockRoutingId(wsId) else { return nil }
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
         if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            if let workspace = tabManager.tabs.first(where: { $0.panels[surfaceId] != nil }) {
+                return workspace
+            }
+            guard windowDockContainingPanel(surfaceId) == nil else { return nil }
+            return tabManager.tabs.first(where: { $0.containsDockPanel(surfaceId) })
         }
-        if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
-            guard located.tabManager === tabManager else { return nil }
-            return located.workspace
+        if let paneId = routing.paneID {
+            if let located = v2LocatePane(paneId) {
+                guard located.tabManager === tabManager else { return nil }
+                return located.workspace
+            }
+            guard windowDockContainingPane(paneId) == nil else { return nil }
+            if let located = locateDockPane(paneId), located.tabManager === tabManager {
+                return located.workspace
+            }
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == wsId })
@@ -42,10 +53,13 @@ extension TerminalController: ControlPaneContext {
     // MARK: - list
 
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? {
-        guard let tabManager = resolveTabManager(routing: routing),
-              let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+        guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            return controlDockPaneList(dock: dock, tabManager: tabManager)
+        }
+        guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
         let focusedPaneId = ws.bonsplitController.focusedPaneId
         let snapshot = ws.bonsplitController.layoutSnapshot()
@@ -100,6 +114,62 @@ extension TerminalController: ControlPaneContext {
         )
     }
 
+    private func controlDockPaneList(
+        dock: DockSplitStore,
+        tabManager: TabManager
+    ) -> ControlPaneListSnapshot {
+        let focusedPaneId = dock.bonsplitController.focusedPaneId
+        let snapshot = dock.bonsplitController.layoutSnapshot()
+        let geometryByPaneId = Dictionary(
+            snapshot.panes.map { ($0.paneId, $0.frame) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        let panes: [ControlPaneSummary] = dock.bonsplitController.allPaneIds.map { paneId in
+            let tabs = dock.bonsplitController.tabs(inPane: paneId)
+            let surfaceUUIDs: [UUID] = tabs.compactMap { dock.panel(for: $0.id)?.id }
+            let selectedTab = dock.bonsplitController.selectedTab(inPane: paneId)
+            let selectedSurfaceUUID = selectedTab.flatMap { dock.panel(for: $0.id)?.id }
+
+            let pixelFrame: ControlPanePixelFrame? = geometryByPaneId[paneId.id.uuidString].map { frame in
+                ControlPanePixelFrame(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
+            }
+
+            var gridSize: ControlPaneGridSize?
+            if let panelUUID = selectedSurfaceUUID,
+               let panel = dock.panels[panelUUID] as? TerminalPanel,
+               panel.surface.hasLiveSurface,
+               let ghosttySurface = panel.surface.surface {
+                let size = ghostty_surface_size(ghosttySurface)
+                if size.columns > 0 && size.rows > 0 {
+                    gridSize = ControlPaneGridSize(
+                        columns: Int(size.columns),
+                        rows: Int(size.rows),
+                        cellWidthPx: Int(size.cell_width_px),
+                        cellHeightPx: Int(size.cell_height_px)
+                    )
+                }
+            }
+
+            return ControlPaneSummary(
+                paneID: paneId.id,
+                isFocused: paneId == focusedPaneId,
+                surfaceIDs: surfaceUUIDs,
+                selectedSurfaceID: selectedSurfaceUUID,
+                pixelFrame: pixelFrame,
+                gridSize: gridSize
+            )
+        }
+
+        return ControlPaneListSnapshot(
+            workspaceID: dock.workspaceId,
+            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+            panes: panes,
+            containerWidth: snapshot.containerFrame.width,
+            containerHeight: snapshot.containerFrame.height
+        )
+    }
+
     // MARK: - focus
 
     func controlPaneFocus(
@@ -108,6 +178,14 @@ extension TerminalController: ControlPaneContext {
     ) -> ControlPaneFocusResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
+        }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
+                return .paneNotFound(paneID)
+            }
+            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            dock.bonsplitController.focusPane(paneId)
+            return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -133,10 +211,39 @@ extension TerminalController: ControlPaneContext {
         routing: ControlRoutingSelectors,
         paneID: UUID?
     ) -> ControlPaneSurfacesSnapshot? {
-        guard let tabManager = resolveTabManager(routing: routing),
-              let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+        guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            let paneId: PaneID? = {
+                if let paneID {
+                    return dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID })
+                }
+                return dock.bonsplitController.focusedPaneId
+            }()
+            guard let paneId else { return nil }
+
+            let selectedTab = dock.bonsplitController.selectedTab(inPane: paneId)
+            let tabs = dock.bonsplitController.tabs(inPane: paneId)
+
+            let surfaces: [ControlPaneSurfaceSummary] = tabs.map { tab in
+                let panel = dock.panel(for: tab.id)
+                return ControlPaneSurfaceSummary(
+                    surfaceID: panel?.id,
+                    title: tab.title,
+                    typeRawValue: panel?.panelType.rawValue,
+                    isSelected: tab.id == selectedTab?.id
+                )
+            }
+
+            return ControlPaneSurfacesSnapshot(
+                workspaceID: dock.workspaceId,
+                paneID: paneId.id,
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                surfaces: surfaces
+            )
+        }
+        guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
         let paneId: PaneID? = {
             if let paneID {
@@ -187,7 +294,17 @@ extension TerminalController: ControlPaneContext {
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
+        let placement = resolveControlPlacement(inputs.placementRaw)
+        if case .invalid(let raw) = placement {
+            return .invalidPlacement(rawValue: raw)
+        }
+        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
+        if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
+            return invalid
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
@@ -203,14 +320,42 @@ extension TerminalController: ControlPaneContext {
             initialDividerPosition = min(max(rawPosition, 0.1), 0.9)
         }
 
+        if case .dock = placement {
+            return dockPaneCreate(
+                routing: routing,
+                tabManager: tabManager,
+                panelType: panelType,
+                url: url,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                inputs: inputs
+            )
+        }
+
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
         guard let sourcePanelId = inputs.requestedSourceSurfaceID ?? ws.focusedPanelId,
               ws.panels[sourcePanelId] != nil else {
             return .noSourceSurface
+        }
+
+        if ws.isRemoteTmuxMirror, panelType == .terminal {
+            let unsupported = mirrorRoutedUnsupportedOptions(
+                insertFirst: insertFirst,
+                workingDirectory: inputs.workingDirectory,
+                initialCommand: inputs.initialCommand,
+                tmuxStartCommand: inputs.tmuxStartCommand,
+                startupEnvironment: inputs.startupEnvironment,
+                initialDividerPosition: initialDividerPosition
+            )
+            if !unsupported.isEmpty {
+                return .mirrorUnsupportedOptions(unsupported)
+            }
         }
 
         let newPanelId: UUID?
@@ -226,7 +371,7 @@ extension TerminalController: ControlPaneContext {
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
         } else {
-            newPanelId = ws.newTerminalSplit(
+            switch ws.newTerminalSplitOutcome(
                 from: sourcePanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -235,8 +380,20 @@ extension TerminalController: ControlPaneContext {
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
-                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-            )?.id
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                allowTextBoxFocusDefault: false
+            ) {
+            case .created(let panel):
+                newPanelId = panel.id
+            case .routedToRemote:
+                return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            case .failed:
+                newPanelId = nil
+            }
         }
 
         guard let newPanelId else {
@@ -420,13 +577,21 @@ extension TerminalController: ControlPaneContext {
         var sourcePlaceholder: UUID?
         var targetPlaceholder: UUID?
         if workspace.bonsplitController.tabs(inPane: sourcePane).count <= 1 {
-            sourcePlaceholder = workspace.newTerminalSurface(inPane: sourcePane, focus: false)?.id
+            sourcePlaceholder = workspace.newTerminalSurface(
+                inPane: sourcePane,
+                focus: false,
+                allowTextBoxFocusDefault: false
+            )?.id
             if sourcePlaceholder == nil {
                 return .sourcePlaceholderFailed
             }
         }
         if workspace.bonsplitController.tabs(inPane: targetPane).count <= 1 {
-            targetPlaceholder = workspace.newTerminalSurface(inPane: targetPane, focus: false)?.id
+            targetPlaceholder = workspace.newTerminalSurface(
+                inPane: targetPane,
+                focus: false,
+                allowTextBoxFocusDefault: false
+            )?.id
             if targetPlaceholder == nil {
                 return .targetPlaceholderFailed
             }
@@ -607,5 +772,31 @@ extension TerminalController: ControlPaneContext {
             paneID: target.id,
             selectedSurfaceID: selectedSurfaceId
         )
+    }
+}
+
+/// Where a `pane.create` / `surface.create` request should land: the main-area
+/// workspace split, or the app-wide right-sidebar Dock.
+enum ControlPlacementResolution: Equatable {
+    case workspace
+    case dock
+    case invalid(String)
+}
+
+/// Resolves the raw `placement` param. Absent → `.workspace`; `dock` → `.dock`;
+/// any other non-empty value → `.invalid`. Shared by the pane and surface
+/// create paths.
+func resolveControlPlacement(_ raw: String?) -> ControlPlacementResolution {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !trimmed.isEmpty else {
+        return .workspace
+    }
+    switch trimmed {
+    case "workspace", "main", "content", "split":
+        return .workspace
+    case "dock", "rightsidebardock", "right-sidebar-dock", "sidebar":
+        return .dock
+    default:
+        return .invalid(raw ?? trimmed)
     }
 }

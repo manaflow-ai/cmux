@@ -2338,10 +2338,10 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: [3000, 9222]
         )
 
-        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let keywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace", "switch"],
             metadata: metadata
-        )
+        ).keywords
 
         XCTAssertTrue(keywords.contains("/Users/example/dev/cmuxterm-hq/worktrees/feat-cmd-palette"))
         XCTAssertTrue(keywords.contains("feat-cmd-palette"))
@@ -2358,10 +2358,10 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: [4317]
         )
 
-        let candidates = CommandPaletteSwitcherSearchIndexer.keywords(
+        let candidates = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace"],
             metadata: metadata
-        )
+        ).keywords
 
         XCTAssertNotNil(CommandPaletteFuzzyMatcher.score(query: "switcher-search", candidates: candidates))
         XCTAssertNotNil(CommandPaletteFuzzyMatcher.score(query: "switcher-metadata", candidates: candidates))
@@ -2375,11 +2375,11 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: [3000]
         )
 
-        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let keywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace"],
             metadata: metadata,
             detail: .workspace
-        )
+        ).keywords
 
         XCTAssertTrue(keywords.contains("/Users/example/dev/cmuxterm-hq/worktrees/feat-cmd-palette"))
         XCTAssertTrue(keywords.contains("feature/cmd-palette-indexing"))
@@ -2395,16 +2395,16 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: []
         )
 
-        let workspaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace"],
             metadata: metadata,
             detail: .workspace
-        )
-        let surfaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        ).keywords
+        let surfaceKeywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["surface"],
             metadata: metadata,
             detail: .surface
-        )
+        ).keywords
 
         let workspaceScore = try XCTUnwrap(
             CommandPaletteFuzzyMatcher.score(query: "cmux", candidates: workspaceKeywords)

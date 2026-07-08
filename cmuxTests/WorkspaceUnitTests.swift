@@ -1,4 +1,3 @@
-import XCTest
 import CmuxCore
 import AppKit
 import CmuxFoundation
@@ -15,9 +14,10 @@ import CmuxSidebar
 import UserNotifications
 import Combine
 import CmuxTerminal
-import CmuxWorkspaceCore
+import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -225,7 +225,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         )
 
         XCTAssertNotNil(railColor)
-        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+        XCTAssertEqual(railColor?.hexString(), "#D13929")
     }
 
     @MainActor
@@ -565,9 +565,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
+            .focusRightSidebar, .toggleRightSidebar, .findInDirectory,
+            .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
@@ -3168,7 +3167,6 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
 
         try body()
     }
-
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
         directory: String? = nil,
@@ -3186,13 +3184,17 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryIsTrustedRemoteReport: false,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
+            customTitleSource: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
@@ -3222,7 +3224,12 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            initialBrowserURL: URL?,
+            initialBrowserOmnibarVisible: Bool,
+            initialBrowserTransparentBackground: Bool,
+            workspaceEnvironment: [String: String],
+            allowTextBoxFocusDefault: Bool
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
@@ -3233,7 +3240,12 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
         }
     }
@@ -3523,7 +3535,12 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            initialBrowserURL: URL?,
+            initialBrowserOmnibarVisible: Bool,
+            initialBrowserTransparentBackground: Bool,
+            workspaceEnvironment: [String: String],
+            allowTextBoxFocusDefault: Bool
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -3534,7 +3551,12 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
         }
     }
@@ -3613,7 +3635,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(tabIds.count, 1)
         XCTAssertEqual(
             tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
-            SurfaceKind.browser
+            SurfaceKind.browser.rawValue
         )
         XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
     }
@@ -4015,7 +4037,7 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
         let fourth = UUID()
         let previousSelection: Set<UUID> = [second, third]
 
-        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+        let result = SidebarWorkspaceSelectionSyncPolicy().reconciledSelection(
             previousSelectionIds: previousSelection,
             liveWorkspaceIds: [first, third, fourth, second],
             fallbackSelectedWorkspaceId: second
@@ -4023,7 +4045,7 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
 
         XCTAssertEqual(result, previousSelection)
         XCTAssertEqual(
-            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+            SidebarWorkspaceSelectionSyncPolicy().anchorIndex(
                 preferredWorkspaceId: second,
                 selectedWorkspaceIds: result,
                 liveWorkspaceIds: [first, third, fourth, second]
@@ -4038,7 +4060,7 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
         let second = UUID()
         let removed = UUID()
 
-        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+        let result = SidebarWorkspaceSelectionSyncPolicy().reconciledSelection(
             previousSelectionIds: [removed],
             liveWorkspaceIds: [first, second],
             fallbackSelectedWorkspaceId: second
@@ -4898,6 +4920,79 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
 @MainActor
 final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
+    func testCloudVMLoadingWorkspaceStartsWithoutTerminalAndDoesNotPersist() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            title: "Cloud VM",
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        guard let focusedPanelId = workspace.focusedPanelId,
+              let loadingPanel = workspace.panels[focusedPanelId] as? CloudVMLoadingPanel else {
+            XCTFail("Expected initial Cloud VM loading panel")
+            return
+        }
+
+        XCTAssertEqual(loadingPanel.panelType, .cloudVMLoading)
+        XCTAssertNil(workspace.focusedTerminalPanel)
+        XCTAssertTrue(workspace.sessionSnapshot(includeScrollback: false).panels.isEmpty)
+    }
+
+    func testCloudVMLoadingSurfaceSwapsToTerminalInPlace() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            title: "Cloud VM",
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        guard let loadingPanelId = workspace.focusedPanelId,
+              let loadingSurfaceId = workspace.surfaceIdFromPanelId(loadingPanelId) else {
+            XCTFail("Expected initial Cloud VM loading surface")
+            return
+        }
+
+        let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_123"
+        let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+            workspaceId: workspace.id,
+            initialCommand: command,
+            focus: true
+        )
+
+        XCTAssertEqual(terminal?.id, loadingPanelId)
+        XCTAssertEqual(workspace.panels[loadingPanelId]?.panelType, .terminal)
+        XCTAssertEqual(workspace.surfaceIdFromPanelId(loadingPanelId), loadingSurfaceId)
+        XCTAssertEqual(workspace.focusedTerminalPanel?.id, loadingPanelId)
+        XCTAssertEqual(terminal?.surface.initialCommand, command)
+    }
+
+    func testCloudVMLoadingFailureSummarizesRetrySpam() {
+        let panel = CloudVMLoadingPanel(
+            workspaceId: UUID(),
+            startedAt: Date(timeIntervalSinceNow: -42)
+        )
+        panel.showFailure("""
+        Created Cloud VM in066h50tkjqapx042qn
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 1/120).
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 2/120).
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 3/120).
+        """)
+
+        guard case .failed(let message, let elapsedSeconds) = panel.phase else {
+            XCTFail("Expected failed loading panel")
+            return
+        }
+        XCTAssertTrue(message.contains("could not create a VM yet"), message)
+        XCTAssertTrue(message.contains("same VM"), message)
+        XCTAssertEqual(elapsedSeconds, 42)
+        XCTAssertFalse(message.contains("[cmux]"))
+        XCTAssertFalse(message.contains("[2K"))
+        XCTAssertFalse(message.contains("in066h50"))
+    }
+
     func testCreatesExtensionBrowserTabInFocusedPane() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -5692,7 +5787,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool.rawValue
         )
     }
 
@@ -5876,7 +5971,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "{ cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5977,7 +6072,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -6200,7 +6295,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -6237,7 +6332,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration)
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -6724,7 +6819,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: firstPanelId, directory: liveDirectory)
+        workspace.updateRemotePanelDirectory(panelId: firstPanelId, directory: liveDirectory)
 
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
         XCTAssertEqual(orderedPanelIds, [firstPanelId, requestedPanel.id])
@@ -6736,6 +6831,39 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
             [liveDirectory]
+        )
+    }
+
+    func testSidebarDirectoryDisplayLabelUpgradesSharedRowWhileFilesystemVariantKeepsPath() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected panels for display-label ordering test")
+            return
+        }
+
+        let sharedDirectory = "/tmp/cmux-display-label-shared"
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: sharedDirectory)
+        workspace.updatePanelDirectory(
+            panelId: secondPanel.id,
+            directory: sharedDirectory,
+            displayLabel: "Shared  main"
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [firstPanelId, secondPanel.id])
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            ["Shared  main"]
+        )
+        XCTAssertEqual(
+            workspace.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [Workspace.SidebarDisplayedDirectory(text: "Shared  main", isDisplayLabel: true)]
+        )
+        XCTAssertEqual(
+            workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [sharedDirectory]
         )
     }
 
@@ -7099,14 +7227,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
-        )
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspaces
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b])
     }
@@ -7117,14 +7245,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let c = UUID()
         let orderedTabIds: [UUID] = [a, b, c]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a, b, c],
             selected: c,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c, a])
     }
@@ -7133,14 +7261,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let a = UUID()
         let b = UUID()
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [b, a],
             selected: nil,
             pinnedIds: [],
             orderedTabIds: [a],
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [a])
     }
@@ -7150,14 +7278,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b, a])
     }
@@ -7167,14 +7295,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a, b],
             selected: nil,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 0
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [a])
     }
@@ -7186,14 +7314,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let d = UUID()
         let orderedTabIds: [UUID] = [a, b, c, d]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: c,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: true,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-        )
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c])
     }
@@ -7204,14 +7332,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let c = UUID()
         let orderedTabIds: [UUID] = [a, b, c]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a, b, c],
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: true,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b])
     }
@@ -7222,14 +7350,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let c = UUID()
         let orderedTabIds: [UUID] = [a, b, c]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: c,
             pinnedIds: [a],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c, a])
     }
@@ -7239,14 +7367,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: b,
             pinnedIds: [a],
             orderedTabIds: orderedTabIds,
             isCycleHot: true,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-        )
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b, a])
     }
@@ -7257,35 +7385,35 @@ final class WorkspaceMountPolicyTests: XCTestCase {
 final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+        SidebarWorkspaceShortcutHintMetrics().resetCacheForTesting()
     }
 
     override func tearDown() {
-        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+        SidebarWorkspaceShortcutHintMetrics().resetCacheForTesting()
         super.tearDown()
     }
 
     func testHintWidthCachesRepeatedMeasurements() {
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 0)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 0)
 
-        let first = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+        let first = SidebarWorkspaceShortcutHintMetrics().hintWidth(for: "⌘1")
         XCTAssertGreaterThan(first, 0)
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 1)
 
-        let second = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+        let second = SidebarWorkspaceShortcutHintMetrics().hintWidth(for: "⌘1")
         XCTAssertEqual(second, first)
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 1)
 
-        _ = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘2")
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 2)
+        _ = SidebarWorkspaceShortcutHintMetrics().hintWidth(for: "⌘2")
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 2)
     }
 
     func testSlotWidthAppliesMinimumAndDebugInset() {
-        let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: nil, debugXOffset: 999)
+        let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics().slotWidth(label: nil, debugXOffset: 999)
         XCTAssertEqual(nilLabelWidth, 28)
 
-        let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
-        let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
+        let base = SidebarWorkspaceShortcutHintMetrics().slotWidth(label: "⌘1", debugXOffset: 0)
+        let widened = SidebarWorkspaceShortcutHintMetrics().slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
     }
 }
@@ -7342,6 +7470,18 @@ final class ExtensionWorktreePrototypeTests: XCTestCase {
         let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: outputData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
+            // Apple's `/usr/bin/git` shim resolves the real git via
+            // `xcodebuild -find git`. On a CI runner whose xcode-select default is
+            // an Xcode ABI-incompatible with the test host, that resolution
+            // dlopen-crashes ("Symbol not found" / "Error loading required
+            // libraries") before git can run. That is a runner toolchain defect,
+            // not a product failure, so skip rather than fail. scripts/select-ci-
+            // xcode.sh aligns the default to prevent this; this guard keeps the
+            // test honest if a runner still diverges.
+            if output.contains("libxcodebuildLoader")
+                || output.contains("Error loading required libraries") {
+                throw XCTSkip("git toolchain unavailable on this runner: \(output)")
+            }
             XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)")
             throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
         }

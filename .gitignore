@@ -58,6 +58,10 @@ tmp/
 tmp-*/
 .iter-logs/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
+
+# tmux verbose debug logs (tmux -v) that land in the cwd
+tmux-*.log

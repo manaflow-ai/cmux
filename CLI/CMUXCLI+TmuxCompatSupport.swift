@@ -65,6 +65,93 @@ extension CMUXCLI {
         return commandText.isEmpty ? nil : commandText
     }
 
+    /// Returns a pane start-command that the surface can exec correctly.
+    ///
+    /// cmux hands a respawn/start command to the surface as the pane's process
+    /// command. On macOS, Ghostty execs that command via `exec -l <command>`
+    /// (see ghostty/src/termio/Exec.zig), which only works when `<command>` is a
+    /// single executable. tmux shell-commands are arbitrary shell expressions —
+    /// Claude Code agent-team teammates respawn with `cd <dir> && env … <claude> …`
+    /// — so `exec -l cd …` tries to exec the `cd` builtin as a binary, fails, and
+    /// the pane exits before the real command runs; that is why Claude Code
+    /// 2.1.183 teammates never opened a split pane (issue #6447).
+    ///
+    /// Every command is run through `/bin/sh -c '<command>'`, so Ghostty execs a
+    /// shell rather than a builtin/expression/assignment-prefix. The whole command
+    /// is single-quoted, so it round-trips verbatim regardless of operators or
+    /// quoting — there is no attempt to classify which commands "need" a shell,
+    /// which was unreliable (tmux shell-commands can hide operators with no
+    /// surrounding whitespace). Commands that are already a shell invocation (e.g.
+    /// OMO's `/bin/sh -c "…"`) are simply run through one more shell, which execs
+    /// straight into them.
+    ///
+    /// A POSIX shell (`/bin/sh`) is used deliberately rather than the user's
+    /// `$SHELL`: the commands being wrapped are POSIX `sh` syntax (Claude Code's
+    /// `cd … && env …`, and the no-command fallback `exec ${SHELL:-/bin/sh} -l`),
+    /// and `csh`/`tcsh` login shells cannot parse `${VAR:-default}` parameter
+    /// expansion or `NAME=value` command prefixes. `/bin/sh` is always present and
+    /// runs the bodies correctly for every user. `-l` is not passed (`/bin/sh`
+    /// does not take it); on macOS Ghostty already supplies a login-style argv0.
+    func tmuxShellInvokedStartCommand(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return command }
+        return "/bin/sh -c \(tmuxShellQuote(trimmed))"
+    }
+
+    /// Like `tmuxShellInvokedStartCommand`, but first exports `prependEnv` inside
+    /// the wrapping shell so the respawned process — and any `env …`/`exec` it
+    /// chains into — inherits those variables. Used to re-supply claude-teams
+    /// teammate panes the environment they need (see
+    /// `tmuxClaudeTeamsRespawnEnvironment`); with an empty `prependEnv` it is
+    /// byte-for-byte identical to `tmuxShellInvokedStartCommand`, so OMO and the
+    /// public `respawn-pane` command are unchanged.
+    func tmuxRespawnStartCommand(
+        _ command: String,
+        prependEnv: [(key: String, value: String)]
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return command }
+        guard !prependEnv.isEmpty else { return tmuxShellInvokedStartCommand(trimmed) }
+        let exports = prependEnv
+            .map { "export \($0.key)=\(tmuxShellQuote($0.value))" }
+            .joined(separator: "; ")
+        return tmuxShellInvokedStartCommand("\(exports); \(trimmed)")
+    }
+
+    /// Environment that a claude-teams teammate pane must start with.
+    ///
+    /// Teammate panes are respawned by cmux's surface layer, not by `cmux
+    /// claude-teams`, so they do NOT inherit the launcher environment the lead
+    /// got from `configureClaudeTeamsEnvironment`. The one variable that matters
+    /// for startup is `CLAUDE_CODE_SANDBOXED`: Claude Code short-circuits its
+    /// interactive "Do you trust this folder?" gate on it, and a teammate that
+    /// hits that gate hangs forever (its pane opens but it never checks in —
+    /// issue #6447). Re-supply it so teammates start the same way the lead does.
+    ///
+    /// That trust gate is a real safety boundary, so it is only waived when the
+    /// user already opted into skipping safety prompts. The opt-in is NOT inferred
+    /// from the respawn command text (a `--dangerously-skip-permissions` substring
+    /// can appear in a cwd, quoted value, or other non-flag position): the `cmux
+    /// claude-teams` launcher makes that decision once from its own argv and records
+    /// it in `CMUX_CLAUDE_TEAMS_SANDBOXED` (see `claudeTeamsExtraEnvVars`). That
+    /// launcher env is propagated by the tmux shim to this `__tmux-compat` process,
+    /// and is set only inside an opted-in claude-teams session, so OMO and the
+    /// public `respawn-pane` command never see it and are unaffected.
+    ///
+    /// The bypass is deliberately per-launch and is NOT baked into the pane's
+    /// `tmux_start_command` (kept raw for display / OMX-HUD / `#{pane_start_command}`),
+    /// so it is not carried into session persistence/restore. That is intentional:
+    /// a restored teammate pane is an orphan (its team/parent session is gone after
+    /// an app restart) and is not a fresh `--dangerously-skip-permissions` opt-in, so
+    /// it correctly falls back to Claude's trust prompt rather than silently bypassing
+    /// the trust boundary outside an explicit opt-in.
+    func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
+        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" else {
+            return []
+        }
+        return [(key: "CLAUDE_CODE_SANDBOXED", value: "1")]
+    }
+
     func tmuxShellWords(_ commandText: String) -> [String] {
         var words: [String] = []
         var current = ""
