@@ -75,6 +75,7 @@
         "url": {
           "type": "string",
           "format": "uri",
+          "pattern": "^https?://",
           "minLength": 1,
           "default": "http://127.0.0.1:7739",
           "description": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",

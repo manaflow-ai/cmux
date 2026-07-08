@@ -312,12 +312,12 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
   const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
   const pending = (async () => {
     const finalEvents: AgentEvent[] = [];
-    const filesEvt = await filesChangedEvent(sess, DONE_FILES_TIMEOUT_MS)
+    const fileEvents = await filesChangedEvents(sess, generation, DONE_FILES_TIMEOUT_MS)
       .catch((err) => {
         console.error("[agent-chat] files-changed failed", err);
-        return null;
+        return [];
       });
-    if (filesEvt) finalEvents.push(filesEvt);
+    finalEvents.push(...fileEvents);
     finalEvents.push(evt);
     const oldLength = sess.events.length;
     const result = insertDeferredTurnEvents(sess.events, eventGenerations(sess), generation, finalEvents);
@@ -340,6 +340,11 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
 function sendPrompt(sess: Session, prompt: string) {
   const generation = Number(sess.internal.turnGeneration ?? 0) + 1;
   sess.internal.turnGeneration = generation;
+  const baselines = turnBaselines(sess);
+  baselines.set(generation, captureDirtyBaseline(sess.cwd).catch((err) => ({
+    files: new Map<string, DirtyPathState>(),
+    failed: String(err instanceof Error ? err.message : err),
+  })));
   turnGenerationContext.run(generation, () => {
     sess.emit({ kind: "user", text: prompt });
     Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
@@ -752,18 +757,125 @@ async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Ch
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function filesChangedEvent(sess: Session, timeoutMs = GIT_TIMEOUT_MS): Promise<Extract<AgentEvent, { kind: "files-changed" }> | null> {
+interface DirtyPathState {
+  status: string;
+  signature: string;
+}
+
+interface DirtyBaseline {
+  files: Map<string, DirtyPathState>;
+  failed?: string;
+}
+
+function turnBaselines(sess: Session): Map<number, Promise<DirtyBaseline>> {
+  let baselines = sess.internal.turnBaselines as Map<number, Promise<DirtyBaseline>> | undefined;
+  if (!baselines) {
+    baselines = new Map();
+    sess.internal.turnBaselines = baselines;
+  }
+  return baselines;
+}
+
+async function captureDirtyBaseline(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<DirtyBaseline> {
+  return { files: await dirtyState(cwd, timeoutMs) };
+}
+
+async function dirtyState(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Map<string, DirtyPathState>> {
+  if (!(await isGitRepo(cwd, timeoutMs))) return new Map();
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 200_000, timeoutMs);
+  const entries = status.split(/\r?\n/)
+    .map(statusPath)
+    .filter((entry): entry is { path: string; status: string } => Boolean(entry))
+    .slice(0, FILES_LIMIT);
+  const existing: string[] = [];
+  for (const entry of entries) {
+    const path = resolve(cwd, entry.path);
+    const rel = relative(resolve(cwd), path);
+    if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
+    const st = await stat(path).catch(() => null);
+    if (st?.isFile()) existing.push(entry.path);
+  }
+  const hashes = await hashDirtyPaths(cwd, existing, timeoutMs);
+  const state = new Map<string, DirtyPathState>();
+  for (const entry of entries) {
+    state.set(entry.path, {
+      status: entry.status,
+      signature: hashes.get(entry.path) ?? "missing",
+    });
+  }
+  return state;
+}
+
+async function hashDirtyPaths(cwd: string, paths: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<Map<string, string>> {
+  if (!paths.length) return new Map();
+  const proc = Bun.spawn(["git", "-C", cwd, "hash-object", "--stdin-paths"], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env },
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, timeoutMs);
+  const stderrDrain = drainStream(proc.stderr);
+  proc.stdin.write(paths.join("\n") + "\n");
+  proc.stdin.end();
+  const out = await readStreamCapped(proc.stdout, Math.max(120_000, paths.length * 80)).finally(() => clearTimeout(timer));
+  const code = await proc.exited;
+  await stderrDrain;
+  if (timedOut) throw new Error("git hash-object timed out");
+  if (code !== 0 && !out.truncated) throw new Error("git hash-object failed");
+  const hashes = out.text.split(/\r?\n/).filter(Boolean);
+  const result = new Map<string, string>();
+  for (let i = 0; i < paths.length && i < hashes.length; i++) result.set(paths[i], hashes[i]);
+  return result;
+}
+
+export function filterChangedFilesSinceBaseline(files: ChangedFile[], baseline: Map<string, DirtyPathState>, endState: Map<string, DirtyPathState>): ChangedFile[] {
+  return files.filter((file) => {
+    const before = baseline.get(file.path);
+    const after = endState.get(file.path);
+    if (!after) return false;
+    return !before || before.status !== after.status || before.signature !== after.signature;
+  });
+}
+
+async function filesChangedEvents(sess: Session, generation: number, timeoutMs = GIT_TIMEOUT_MS): Promise<AgentEvent[]> {
   const files = await changedFiles(sess.cwd, timeoutMs);
-  if (!files.length) return null;
-  const key = JSON.stringify(files);
-  if (sess.internal.lastFilesChangedKey === key) return null;
+  if (!files.length) return [];
+  const baselines = turnBaselines(sess);
+  const baseline = await (baselines.get(generation) ?? Promise.resolve({
+    files: new Map<string, DirtyPathState>(),
+    failed: "missing turn baseline",
+  }));
+  baselines.delete(generation);
+  let filtered = files;
+  const events: AgentEvent[] = [];
+  if (baseline.failed) {
+    events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${baseline.failed})` });
+  } else {
+    try {
+      filtered = filterChangedFilesSinceBaseline(files, baseline.files, await dirtyState(sess.cwd, timeoutMs));
+    } catch (err) {
+      events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${String(err instanceof Error ? err.message : err)})` });
+    }
+  }
+  if (!filtered.length) return events;
+  const key = JSON.stringify(filtered);
+  if (sess.internal.lastFilesChangedKey === key) return events;
   sess.internal.lastFilesChangedKey = key;
-  return { kind: "files-changed", files };
+  // Diffs are intentionally fetched from the current working tree on click;
+  // the files-changed block is turn-attributed, while diff content is best
+  // effort current-tree state.
+  events.push({ kind: "files-changed", files: filtered });
+  return events;
 }
 
 async function emitFilesChanged(sess: Session, timeoutMs = GIT_TIMEOUT_MS) {
-  const evt = await filesChangedEvent(sess, timeoutMs);
-  if (evt) sess.emit(evt);
+  const generation = Number(sess.internal.turnGeneration ?? 0);
+  for (const evt of await filesChangedEvents(sess, generation, timeoutMs)) sess.emit(evt);
 }
 
 export function resolveFileDiffPath(cwd: string, path: string): string {

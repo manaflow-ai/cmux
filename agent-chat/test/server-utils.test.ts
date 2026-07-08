@@ -3,6 +3,7 @@ import {
   buildBundles,
   cssAsset,
   cssFontFamily,
+  filterChangedFilesSinceBaseline,
   gitFilesFromOutput,
   gitOutputWithCodes,
   gitOutputWithCodesResult,
@@ -91,5 +92,23 @@ assert(orderedEvents.map((evt) => evt.kind).join("|") === "user|assistant|files-
 assert(generations.join("|") === "1|1|1|1|2|2", `deferred generations were not preserved: ${generations.join("|")}`);
 const dropped = insertDeferredTurnEvents(orderedEvents, generations, 1, [{ kind: "done" }]);
 assert(dropped.dropped, "duplicate finalization should be dropped once the turn already has a footer");
+
+const attributed = filterChangedFilesSinceBaseline(
+  [
+    { path: "preexisting.txt", adds: 1, dels: 0, status: "modified" },
+    { path: "changed.txt", adds: 2, dels: 0, status: "modified" },
+    { path: "new.txt", adds: 1, dels: 0, status: "added" },
+  ],
+  new Map([
+    ["preexisting.txt", { status: "modified", signature: "aaa" }],
+    ["changed.txt", { status: "modified", signature: "bbb" }],
+  ]),
+  new Map([
+    ["preexisting.txt", { status: "modified", signature: "aaa" }],
+    ["changed.txt", { status: "modified", signature: "ccc" }],
+    ["new.txt", { status: "added", signature: "ddd" }],
+  ]),
+);
+assert(attributed.map((f) => f.path).join("|") === "changed.txt|new.txt", `baseline filtering attributed wrong files: ${JSON.stringify(attributed)}`);
 
 console.log("server utility assertions passed");

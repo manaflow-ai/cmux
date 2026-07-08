@@ -43,7 +43,7 @@ ws.send(JSON.stringify({
 }));
 const files = await filesChanged;
 if (!files.some((f) => f.path === "tracked.txt")) throw new Error(`tracked.txt missing from files-changed: ${JSON.stringify(files)}`);
-if (!files.some((f) => f.path === "untracked.txt")) throw new Error(`untracked.txt missing from files-changed: ${JSON.stringify(files)}`);
+if (files.some((f) => f.path === "untracked.txt")) throw new Error(`pre-existing untracked.txt should not be attributed to the turn: ${JSON.stringify(files)}`);
 
 function waitForDiff(path: string) {
   return new Promise<string>((resolve, reject) => {
@@ -61,10 +61,6 @@ const diff = waitForDiff("tracked.txt");
 ws.send(JSON.stringify({ op: "get-file-diff", sessionId, path: "tracked.txt" }));
 const text = await diff;
 if (!text.includes("tracked.txt") || !/^\+.+/m.test(text)) throw new Error(`unexpected diff: ${text}`);
-const untrackedDiff = waitForDiff("untracked.txt");
-ws.send(JSON.stringify({ op: "get-file-diff", sessionId, path: "untracked.txt" }));
-const untrackedText = await untrackedDiff;
-if (!untrackedText.includes("untracked.txt") || !/^\+new$/m.test(untrackedText)) throw new Error(`unexpected untracked diff: ${untrackedText}`);
 ws.close();
 console.log("files-changed: OK");
 
