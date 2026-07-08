@@ -1,10 +1,16 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = true;
 let ascConfigured = true;
 let currentUser = testflightUser();
 let user: typeof currentUser | null = currentUser;
+let useStubDb = false;
 
 const getUser = mock(async () => user);
 const ascFetch = mock(async (path: unknown) => {
@@ -43,18 +49,31 @@ mock.module("../services/errors", () => ({
 }));
 
 mock.module("../db/client", () => ({
-  cloudDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => [],
-        }),
-      }),
-    }),
-  }),
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: (() =>
+    useStubDb
+      ? ({
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                limit: async () => [],
+              }),
+            }),
+          }),
+        } as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb()) as typeof realCloudDb,
 }));
 
 const { POST } = await import("../app/api/testflight/route");
+
+beforeAll(() => {
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useStubDb = false;
+});
 
 describe("TestFlight route", () => {
   beforeEach(() => {
@@ -201,7 +220,7 @@ function postAction(
 
 function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
   return {
-    id: "",
+    id: "user-pro",
     isAnonymous: false,
     primaryEmail: "Pro@Example.com",
     displayName: "Pro User",

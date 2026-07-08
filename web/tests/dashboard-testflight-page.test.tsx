@@ -148,7 +148,7 @@ async function renderTestflightPage(searchParams: Record<string, string> = {}) {
 
 function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
   return {
-    id: "",
+    id: "user-pro",
     isAnonymous: false,
     primaryEmail: "Pro@Example.com",
     displayName: "Pro User",
