@@ -6777,16 +6777,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// pane's surface; injecting a substitute decouples callers from libproc.
     var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
 
-    /// Rescues split/new-tab cwd inheritance from a pane whose restored
-    /// auto-resume command is still running (#7155).
+    /// Rescues cwd inheritance while a restored agent's auto-resume command owns the foreground.
     ///
-    /// While the resumed agent owns the foreground, the shell never reaches a
-    /// prompt, so tracked cwd can be stranded on a spurious default/home report.
-    /// Trust it only while it still equals the restored session directory;
-    /// otherwise prefer the live foreground process cwd, then the recorded
-    /// session directory.
-    /// Local panes only: a remote pane's tracked cwd is a remote path that no
-    /// local process inspection or existence check can validate.
+    /// Until the shell reaches a prompt, tracked cwd can be stranded on a
+    /// default/home report. Prefer the live foreground process cwd when that
+    /// happens, then the recorded session directory. Remote panes are excluded
+    /// because their cwd is not locally inspectable.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
         guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
@@ -7007,6 +7003,17 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    private func inheritedTerminalWorkingDirectory(preferredPanelId: UUID?, inPane preferredPaneId: PaneID?) -> String? {
+        for terminalPanel in terminalPanelConfigInheritanceCandidates(preferredPanelId: preferredPanelId, inPane: preferredPaneId) {
+            let surface = terminalPanel.surface
+            guard let sourceSurface = surface.surface else { continue }
+            let inherited = ghostty_surface_inherited_config(sourceSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+            withExtendedLifetime((terminalPanel, surface)) {}
+            if let workingDirectory = inherited.working_directory.flatMap({ String(cString: $0, encoding: .utf8) }) { return workingDirectory }
+        }
+        return nil
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -7146,11 +7153,8 @@ final class Workspace: Identifiable, ObservableObject {
             base: startupEnvironmentWithRemoteSession,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
-        // Hold the pane open after the remote session ends so the user can read the
-        // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
-        // respawns a local login shell when the command exits (the PTY falls through
-        // to $SHELL), and a dead VM looks identical to a healthy workspace with a
-        // local prompt — which is what we saw during dogfood.
+        // Hold remote-command panes open after exit so startup errors remain visible
+        // instead of Ghostty respawning a local login shell.
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
@@ -7439,10 +7443,10 @@ final class Workspace: Identifiable, ObservableObject {
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
         let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && startupCommand == nil
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: shouldInheritWorkingDirectoryFallback ? fallbackSourcePanelId : nil, inPane: paneId)
-        // See the comment at the other call site: hold the PTY open after the remote
-        // command exits so the user sees the error rather than a silently-respawned
-        // local login shell.
+        let inheritedWorkingDirectory = shouldInheritWorkingDirectoryFallback
+            ? inheritedTerminalWorkingDirectory(preferredPanelId: fallbackSourcePanelId, inPane: paneId)
+            : nil
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
@@ -7452,14 +7456,12 @@ final class Workspace: Identifiable, ObservableObject {
             ? resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: fallbackSourcePanelId,
-                inheritedWorkingDirectory: inheritedConfig?.workingDirectory
+                inheritedWorkingDirectory: inheritedWorkingDirectory
             )
             : workingDirectory
 
-        // Create new terminal panel. A restored panel reuses its persisted
-        // surface id (the panel/surface id IS the ghostty surface id, a
-        // Swift-side UUID), so a session's terminal binding survives relaunch
-        // and restore. The caller only passes an id it has verified is free.
+        // Restored panels reuse their persisted Ghostty surface id so session
+        // bindings survive relaunch; callers only pass ids verified as free.
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
