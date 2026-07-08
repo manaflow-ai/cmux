@@ -3,6 +3,9 @@ name = "cmux-client"
 version = "0.1.2"
 edition.workspace = true
 license.workspace = true
+description = "Rust client for the cmux-mux terminal multiplexer control protocol"
+repository = "https://github.com/manaflow-ai/cmux"
+homepage = "https://github.com/manaflow-ai/cmux/tree/main/mux/bindings/rust"
 publish = true
 
 [dependencies]
