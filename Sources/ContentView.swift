@@ -12626,20 +12626,13 @@ private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-    @EnvironmentObject private var tabManager: TabManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Renders only while the globalSection debug variant is selected.
-            SidebarGlobalAgentsSection(
-                tabManager: tabManager,
-                fontScale: 1,
-                onFocus: { workspaceId, panelId in
-                    guard let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                    tabManager.selectedTabId = workspaceId
-                    tab.focusPanel(panelId)
-                }
-            )
+            // Owns its TabManager observation internally so the footer (and
+            // the dev footer) never re-render on TabManager changes.
+            SidebarGlobalAgentsSection(fontScale: 1)
 #if DEBUG
             SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
 #else

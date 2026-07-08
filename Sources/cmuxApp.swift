@@ -544,123 +544,7 @@ struct cmuxApp: App {
                 )
 
                 Divider()
-                Menu("Debug Windows") {
-                    Button("Background Debug…") {
-                        BackgroundDebugWindowController.shared.show()
-                    }
-                    Button("Pro Badge Style…") {
-                        ProBadgeDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.bonsplitTabBarDebug",
-                            defaultValue: "Bonsplit Tab Bar Debug…"
-                        )
-                    ) {
-                        BonsplitTabBarDebugWindowController.shared.show()
-                    }
-                    Button("Browser Import Hint Debug…") {
-                        BrowserImportHintDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.browserProfilePopoverDebug",
-                            defaultValue: "Browser Profile Popover Debug…"
-                        )
-                    ) {
-                        BrowserProfilePopoverDebugWindowController.shared.show()
-                    }
-                    Button("Debug Window Controls…") {
-                        DebugWindowControlsWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.devWindowDisplay",
-                            defaultValue: "Dev Window Display…"
-                        )
-                    ) {
-                        DevWindowDisplayDebugWindowController.shared.show()
-                    }
-                    Button("Feed Preview…") {
-                        FeedPreviewWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.feedTextEditorDebug",
-                            defaultValue: "Feed Text Editor Lab…"
-                        )
-                    ) {
-                        FeedTextEditorDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.feedButtonStyleDebug",
-                            defaultValue: "Feed Button Style Debug…"
-                        )
-                    ) {
-                        FeedButtonStyleDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.startupAppearanceDebug",
-                            defaultValue: "Startup Appearance Debug…"
-                        )
-                    ) {
-                        StartupAppearanceDebugWindowController.shared.show()
-                    }
-                    Button("Menu Bar Extra Debug…") {
-                        MenuBarExtraDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.aboutTitlebarDebug",
-                            defaultValue: "About Titlebar Debug…"
-                        )
-                    ) {
-                        AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.titlebarLayoutDebug",
-                            defaultValue: "Titlebar Layout Debug..."
-                        )
-                    ) {
-                        TitlebarLayoutDebugWindowController.shared.show()
-                    }
-                    Button("Sidebar Debug…") {
-                        SidebarDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.splitButtonLayoutDebug",
-                            defaultValue: "Split Button Layout Debug…"
-                        )
-                    ) {
-                        SplitButtonLayoutDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.tabBarBackdropLab",
-                            defaultValue: "Tab Bar Backdrop Lab…"
-                        )
-                    ) {
-                        TabBarBackdropLabWindowController.shared.show()
-                    }
-                    Button("File Explorer Style Debug…") {
-                        FileExplorerStyleDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.pdfPreviewChromeDebug",
-                            defaultValue: "PDF Preview Chrome Debug…"
-                        )
-                    ) {
-                        PDFPreviewChromeDebugWindowController.shared.show()
-                    }
-                    Button("Open All Debug Windows") {
-                        openAllDebugWindows()
-                    }
-                }
+                DebugWindowsMenu()
 
                 Menu(
                     String(
@@ -1427,26 +1311,6 @@ struct cmuxApp: App {
     private func showNotificationsPopover() {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
     }
-
-#if DEBUG
-    private func openAllDebugWindows() {
-        DebugWindowControlsWindowController.shared.show()
-        BrowserImportHintDebugWindowController.shared.show()
-        BrowserProfilePopoverDebugWindowController.shared.show()
-        AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
-        TitlebarLayoutDebugWindowController.shared.show()
-        SidebarDebugWindowController.shared.show()
-        BackgroundDebugWindowController.shared.show()
-        StartupAppearanceDebugWindowController.shared.show()
-        MenuBarExtraDebugWindowController.shared.show()
-        PDFPreviewChromeDebugWindowController.shared.show()
-        FeedPreviewWindowController.shared.show()
-        FeedTextEditorDebugWindowController.shared.show()
-        FeedButtonStyleDebugWindowController.shared.show()
-        BonsplitTabBarDebugWindowController.shared.show()
-        SplitButtonLayoutDebugWindowController.shared.show()
-    }
-#endif
 }
 
 private struct MainWindowBootstrapView: View {
@@ -1584,7 +1448,7 @@ private enum DebugWindowConfigSnapshot {
 }
 
 #if DEBUG
-private final class DebugWindowControlsWindowController: ReleasingWindowController {
+final class DebugWindowControlsWindowController: ReleasingWindowController {
     static let shared = DebugWindowControlsWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -1846,7 +1710,7 @@ private struct DebugWindowControlsView: View {
 }
 #endif
 
-private final class BrowserImportHintDebugWindowController: ReleasingWindowController {
+final class BrowserImportHintDebugWindowController: ReleasingWindowController {
     static let shared = BrowserImportHintDebugWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -1872,7 +1736,7 @@ private final class BrowserImportHintDebugWindowController: ReleasingWindowContr
     }
 }
 
-private final class BrowserProfilePopoverDebugWindowController: ReleasingWindowController {
+final class BrowserProfilePopoverDebugWindowController: ReleasingWindowController {
     static let shared = BrowserProfilePopoverDebugWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -2388,7 +2252,7 @@ extension Notification.Name {
     static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
 }
 
-private final class FileExplorerStyleDebugWindowController: ReleasingWindowController {
+final class FileExplorerStyleDebugWindowController: ReleasingWindowController {
     static let shared = FileExplorerStyleDebugWindowController()
 
     private override init() {
@@ -2423,7 +2287,7 @@ private final class FileExplorerStyleDebugWindowController: ReleasingWindowContr
     }
 }
 
-private final class SidebarDebugWindowController: ReleasingWindowController {
+final class SidebarDebugWindowController: ReleasingWindowController {
     static let shared = SidebarDebugWindowController()
 
     private override init() {
@@ -2789,7 +2653,7 @@ private struct SidebarDebugView: View {
 
 // MARK: - Menu Bar Extra Debug Window
 
-private final class MenuBarExtraDebugWindowController: ReleasingWindowController {
+final class MenuBarExtraDebugWindowController: ReleasingWindowController {
     static let shared = MenuBarExtraDebugWindowController()
 
     private override init() {
@@ -2961,7 +2825,7 @@ private struct MenuBarExtraDebugView: View {
 #if DEBUG
 // MARK: - Split Button Layout Debug Window
 
-private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
+final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
     static let shared = SplitButtonLayoutDebugWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -3285,7 +3149,7 @@ private struct SplitButtonLayoutDebugView: View {
 
 // MARK: - Tab Bar Backdrop Lab Window
 
-private final class TabBarBackdropLabWindowController: ReleasingWindowController {
+final class TabBarBackdropLabWindowController: ReleasingWindowController {
     static let shared = TabBarBackdropLabWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -3918,7 +3782,7 @@ private struct TabBarBackdropLabTerminalPane: View {
 
 // MARK: - Background Debug Window
 
-private final class BackgroundDebugWindowController: ReleasingWindowController {
+final class BackgroundDebugWindowController: ReleasingWindowController {
     static let shared = BackgroundDebugWindowController()
 
     private override init() {
@@ -4067,7 +3931,7 @@ private struct BackgroundDebugView: View {
     }
 }
 
-private final class StartupAppearanceDebugWindowController: ReleasingWindowController {
+final class StartupAppearanceDebugWindowController: ReleasingWindowController {
     static let shared = StartupAppearanceDebugWindowController()
 
     private override init() {

@@ -1,0 +1,80 @@
+import Foundation
+
+// Panel ownership of agent PID keys: which pane owns each reported key, and
+// how a bare shared key (claude-style hooks report one key per agent type for
+// the whole workspace) moves between panes without erasing a sibling pane's
+// live agent row. Cleanup of the maps written here stays with the callers in
+// `Workspace+PanelLifecycle.swift` (`clearAgentPID`, the liveness sweeps, and
+// `discardClosedPanelLifecycleState`).
+extension Workspace {
+    func removeAgentPIDOwnership(key: String) {
+        if let previousPanelId = agentPIDPanelIdsByKey[key] {
+            agentPIDKeysByPanelId[previousPanelId]?.remove(key)
+            if agentPIDKeysByPanelId[previousPanelId]?.isEmpty == true {
+                agentPIDKeysByPanelId.removeValue(forKey: previousPanelId)
+            }
+            agentPIDPanelIdsByKey.removeValue(forKey: key)
+        }
+    }
+
+    func recordAgentPIDOwnership(key: String, panelId: UUID) {
+        if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
+            preserveDisplacedBareKeyRuntime(key: key, displacedPanelId: previousPanelId)
+            removeAgentPIDOwnership(key: key)
+        }
+        if isStructuredAgentHookPIDKey(key) {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
+                $0 != key && isStructuredAgentHookPIDKey($0)
+            } ?? []
+            for staleKey in stalePanelKeys {
+                // A stale key for the SAME agent type is a key-shape change
+                // (bare key returning to a pane that holds a synthesized
+                // displacement key): keep the pane's status entry. A different
+                // agent type is a real replacement: clear its status too.
+                let sameAgent = agentStatusKey(forAgentPIDKey: staleKey) == statusKey
+                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !sameAgent, refreshPorts: false)
+            }
+        }
+        agentPIDPanelIdsByKey[key] = panelId
+        agentPIDKeysByPanelId[panelId, default: []].insert(key)
+    }
+
+    /// Claude-style dedicated hooks share ONE bare PID key per agent type
+    /// across every pane of a workspace, so a report from pane B displaces
+    /// pane A's ownership even though A still hosts its own live agent.
+    /// Re-key A's record to a synthesized panel-scoped key instead of dropping
+    /// its presence: the pid and start-time identity move with it, so the
+    /// liveness sweep still owns cleanup, and A keeps its sidebar row.
+    private func preserveDisplacedBareKeyRuntime(key: String, displacedPanelId: UUID) {
+        guard isStructuredAgentHookPIDKey(key), !key.contains(".") else { return }
+        guard panels[displacedPanelId] != nil, let pid = agentPIDs[key] else { return }
+        let synthesizedKey = Self.synthesizedDisplacedPIDKey(statusKey: key, panelId: displacedPanelId)
+        agentPIDs[synthesizedKey] = pid
+        agentPIDProcessIdentitiesByKey[synthesizedKey] = agentPIDProcessIdentitiesByKey[key]
+        agentPIDPanelIdsByKey[synthesizedKey] = displacedPanelId
+        agentPIDKeysByPanelId[displacedPanelId, default: []].insert(synthesizedKey)
+    }
+
+    static func synthesizedDisplacedPIDKey(statusKey: String, panelId: UUID) -> String {
+        "\(statusKey).pane-\(panelId.uuidString)"
+    }
+
+    @discardableResult
+    func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+        guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
+        let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
+            // A stale key for the SAME agent type is a key-shape change (bare
+            // key returning to a pane holding a synthesized displacement key):
+            // keep the pane's status entry. A different agent type is a real
+            // replacement: clear its status too.
+            let sameAgent = agentStatusKey(forAgentPIDKey: staleKey) == agentStatusKey(forAgentPIDKey: retainedKey)
+            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !sameAgent, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        return didChange
+    }
+}

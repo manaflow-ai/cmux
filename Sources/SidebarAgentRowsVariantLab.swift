@@ -149,13 +149,21 @@ private struct AgentRowsVariantLabView: View {
 
 /// The `globalSection` variant: one Agents list at the bottom of the sidebar,
 /// grouped by workspace. Reads live workspace state directly; acceptable only
-/// because it renders exclusively while this debug variant is selected.
+/// because it renders exclusively while this debug variant is selected. Owns
+/// its TabManager observation so the host (the sidebar footer) does not
+/// re-render on TabManager changes; when another variant is selected the
+/// re-evaluated body is a single enum comparison.
 struct SidebarGlobalAgentsSection: View {
-    let tabManager: TabManager
     let fontScale: CGFloat
-    let onFocus: (UUID, UUID) -> Void
 
+    @EnvironmentObject private var tabManager: TabManager
     @ObservedObject private var store = SidebarAgentRowsVariantStore.shared
+
+    private func focus(workspaceId: UUID, panelId: UUID) {
+        guard let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        tabManager.selectedTabId = workspaceId
+        tab.focusPanel(panelId)
+    }
 
     var body: some View {
         if store.variant == .globalSection {
@@ -183,7 +191,7 @@ struct SidebarGlobalAgentsSection: View {
                                 row: row,
                                 fontScale: fontScale,
                                 layout: .nameFirst,
-                                onFocusPanel: { panelId in onFocus(group.workspaceId, panelId) }
+                                onFocusPanel: { panelId in focus(workspaceId: group.workspaceId, panelId: panelId) }
                             )
                             .padding(.horizontal, 8)
                         }
