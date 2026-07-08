@@ -102,6 +102,33 @@ import Testing
         #expect(commands.last == "workspace_loading manual on --tab=\(workspaceId)")
     }
 
+    @Test func workspaceLoadingRejectsMalformedFlagsBeforeSocketFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("loading-bad")
+        let malformedArguments = [
+            ["workspace", "loading", "on", "--workspce", "workspace:1"],
+            ["workspace", "loading", "off", "--workspace"],
+            ["workspace", "loading", "on", "--id"],
+            ["workspace", "loading", "on", "extra"],
+        ]
+
+        for arguments in malformedArguments {
+            let result = runCLI(
+                cliPath: cliPath,
+                socketPath: socketPath,
+                arguments: arguments
+            )
+            let output = result.stdout + result.stderr
+
+            #expect(!result.timedOut, Comment(rawValue: output))
+            #expect(result.status != 0, Comment(rawValue: output))
+            #expect(
+                output.contains("Usage: cmux workspace loading"),
+                Comment(rawValue: "Expected usage for \(arguments), got: \(output)")
+            )
+        }
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundleMarker.self)
     }
