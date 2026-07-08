@@ -56,8 +56,8 @@ public struct GhosttyConfig {
     public var theme: String?
     /// The configured `working-directory`, or `nil` when unset.
     public var workingDirectory: String?
-    /// The scrollback limit. Ghostty measures this in bytes, not lines.
-    public var scrollbackLimit: Int = 10_000_000
+    /// The scrollback limit in bytes, defaulting to cmux's macOS managed default.
+    public var scrollbackLimit: Int = GhosttyScrollbackLimitDefault.bytes
     /// The opacity (0...1) applied to unfocused split panes.
     public var unfocusedSplitOpacity: Double = 0.7
     /// The fill color for the unfocused-split overlay, or `nil` to use the
