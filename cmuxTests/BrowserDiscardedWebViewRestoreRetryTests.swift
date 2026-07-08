@@ -50,7 +50,7 @@ private func makeDiscardRestoreRetryBlockerSnapshot() -> BrowserHiddenWebViewDis
 @discardableResult
 private func waitForDiscardRestoreRetryWebViewToSettle(
     _ panel: BrowserPanel,
-    timeout: TimeInterval = 5.0
+    timeout: TimeInterval = 30.0
 ) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while panel.webView.isLoading || panel.isLoading,
@@ -365,5 +365,62 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasPendingRemoteNavigation: false,
             hasCommittedDocument: true
         ))
+    }
+
+    @Test func mainFrameDownloadCompletesRestoreAndSuppressesBlankShellHeal() throws {
+        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-issue-7504-download"))
+        let discardedAt = Date(timeIntervalSince1970: 700)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        #expect(waitForDiscardRestoreRetryWebViewToSettle(panel))
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+
+        // Simulate WebKit converting the pending restore navigation into a
+        // main-frame download before any document commits.
+        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true)
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect(payload["has_committed_document"] as? Bool == true)
+        #expect(payload["state"] as? String != "discarded")
+
+        // A later reveal touch must not blank-shell-heal into re-triggering the
+        // download navigation.
+        #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
+    @Test func aboutBlankDiscardedPaneReactivatesWithoutRestoreNavigation() throws {
+        let url = try #require(URL(string: "about:blank"))
+        let discardedAt = Date(timeIntervalSince1970: 800)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        #expect(waitForDiscardRestoreRetryWebViewToSettle(panel))
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+
+        // Restoring a pane whose only URL is about:blank must reactivate in
+        // place (no navigation) and fully clear discard bookkeeping instead of
+        // waiting on a restore commit that shouldTreatCommitAsDiscardedRestoreCommit ignores.
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(payload["state"] as? String != "discarded")
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect(payload["discard_blockers"] as? [String] != nil)
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
     }
 }

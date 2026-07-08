@@ -2991,7 +2991,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
-    private var navigationDelegate: BrowserNavigationDelegate?
+    var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     var downloadDelegate: BrowserDownloadDelegate?
     private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -3365,12 +3365,23 @@ final class BrowserPanel: Panel, ObservableObject {
             refreshWebViewLifecycleState()
         }
 
+        let restoreURL = restoredHistoryCurrentURL ?? currentURL
+        guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
+            // No restorable document: the replacement web view already shows the
+            // blank shell, and an about:blank restore commit is ignored by
+            // shouldTreatCommitAsDiscardedRestoreCommit, so navigating would
+            // leave the manager pending forever. Reactivate in place instead so
+            // the pane does not stay marked discarded.
+            if reactivateDiscardedWebViewWithoutNavigation(reason: "\(reason).no_restore_url") {
+                refreshNavigationAvailability()
+                refreshWebViewLifecycleState()
+                return true
+            }
+            return false
+        }
+
         if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, performRestore: {
             shouldRenderWebView = true
-            guard let restoreURL = restoredHistoryCurrentURL ?? currentURL else {
-                refreshNavigationAvailability()
-                return
-            }
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
                 recordTypedNavigation: false,
@@ -3888,6 +3899,11 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard isMainFrame else { return }
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                // A main-frame download is a terminal outcome for this web view:
+                // no document will commit, so treat it as committed to keep
+                // blank-shell healing and stall retries from restarting the
+                // download on the next reveal.
+                self.hasCommittedDocumentSinceWebViewReplacement = true
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
         }
