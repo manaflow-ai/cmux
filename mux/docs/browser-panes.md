@@ -4,14 +4,14 @@ Browser panes are local Chrome/Chromium targets controlled with the Chrome DevTo
 
 ## Requirements
 
-Browser panes need a local CDP endpoint or a launchable Chrome/Chromium-family binary. The TUI can reuse an external endpoint, discover one on configured local ports, or launch Chrome itself in `--headless=new` mode.
+Browser panes need a local CDP endpoint or a launchable Chrome/Chromium-family binary. The TUI can reuse an external endpoint, discover one on configured local ports, or launch Chrome itself. Launched Chrome is headful by default; set `browser.mode` to `"headless"` to hide the window.
 
 Endpoint selection order:
 
 1. `CMUX_MUX_CDP_URL`
 2. `browser.cdp_url` in `mux.json`
 3. Discovery on `browser.discover_ports` when `browser.discover` is true
-4. A launched Chrome using `browser.chrome_binary` or binary discovery in `mux-cdp`
+4. A launched Chrome using `browser.chrome_binary` or platform binary discovery
 
 Binary discovery checks configured paths, known macOS and Linux Chrome-family paths, then `PATH` names such as `google-chrome`, `chromium`, `brave-browser`, and `microsoft-edge`.
 
@@ -39,16 +39,22 @@ Printable character keys and paste use CDP insert-text. Enter, Backspace, Tab, E
 
 Left click, drag, release, and wheel events inside browser content are forwarded as CDP mouse input. Wheel deltas are scaled by the detected cell height.
 
+Browser input, navigation, activation, and resize reconfiguration are accepted into a per-surface worker queue. Socket responses mean accepted, not completed; later CDP failures are reported through browser status events and status messages. Two consecutive CDP call timeouts mark only that surface failed with `browser is not responding`.
+
 ## Profiles and Lifecycle
 
 Browser panes share one browser runtime per mux session. Closing a browser tab closes only its target. Mux shutdown kills Chrome only when cmux launched it.
 
 Launched Chrome uses a persistent cmux profile unless `browser.ephemeral` is true. `browser.user_data_dir` overrides the persistent profile path. When ephemeral mode is true, Chrome uses a temporary profile that is deleted on shutdown and ignores `browser.user_data_dir`.
 
-The default launched profile is `~/Library/Application Support/cmux-mux/chrome-profile` on macOS. On non-macOS targets it is `$XDG_DATA_HOME/cmux-mux/chrome-profile` when `XDG_DATA_HOME` is set, then `~/.local/share/cmux-mux/chrome-profile`.
+The default launched profile is scoped by session under `~/Library/Application Support/cmux-mux/chrome-profile/<session>` on macOS. On non-macOS targets it is scoped by session under `$XDG_DATA_HOME/cmux-mux/chrome-profile/<session>` when `XDG_DATA_HOME` is set, then `~/.local/share/cmux-mux/chrome-profile/<session>`.
+
+Chrome 136 and newer reject CDP remote debugging on the OS-default profile directory, and a running normal Chrome owns its profile `SingletonLock`. Use the mux profile, point `browser.user_data_dir` at a copy or dedicated profile directory after quitting normal Chrome, or attach to a Chrome you launched with `--remote-debugging-port`.
+
+To attach to an existing runtime, set `browser.cdp_url`, `CMUX_MUX_CDP_URL`, or enable discovery on a local port. Agent Browser can be attached by running `agent-browser get cdp-url` and using the returned `ws://` URL. Only `ws://` and `http://` endpoints are supported in this build; `wss://` is not supported.
 
 ## Limitations
 
-Browser panes are local-only as of protocol v6. `attach-surface` returns an error for browser surfaces, attach clients do not receive browser frame streams, and a remote TUI shows a placeholder for browser panes.
+Attach clients can stream browser panes as of protocol v6. Older protocol servers show a placeholder for browser panes.
 
-Headful external Chrome can throttle screencast frames when the window or tab is hidden or occluded. Chrome 136 and newer do not allow `--remote-debugging-port` with the default user data directory, so reusable everyday Chrome profiles may not expose CDP.
+Headful external Chrome can throttle screencast frames when the window or tab is hidden or occluded. Mux nudges stalled external targets once before interaction with `Target.activateTarget`.

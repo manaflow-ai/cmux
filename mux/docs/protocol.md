@@ -60,6 +60,15 @@ focus-pane
 select-tab
 select-screen
 select-workspace
+browser-mouse
+browser-wheel
+browser-key
+browser-insert-text
+browser-navigate
+browser-back
+browser-forward
+browser-reload
+browser-activate
 subscribe
 attach-surface
 scroll-surface
@@ -101,9 +110,11 @@ Subscribed event lines are:
 
 `surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes.
 
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work and return `ok:true` after acceptance. Completion or failure is observed later via browser state and status events. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+
 ## Attach Surface
 
-`attach-surface` streams a PTY surface. Browser surfaces return `browser panes are not supported over attach yet`.
+`attach-surface` streams a PTY or browser surface.
 
 ```json
 {"id":30,"cmd":"attach-surface","surface":4}
@@ -124,6 +135,8 @@ Then it sends ordered stream frames:
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
 
+For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, and the latest PNG frame if one exists. Later updates send `browser-state` and `frame` events. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly.
+
 When the stream ends, it sends:
 
 ```json
@@ -140,4 +153,4 @@ When several attach clients render the same surface at different sizes, sizing f
 
 ## Browser Limitations
 
-Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` or `"launched"`. PTY and VT commands against browser surfaces return errors. `attach-surface` does not stream browser pixels as of protocol v6, and the remote TUI shows a placeholder for browser panes.
+Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` or `"launched"` once live, plus additive `browser_status`, `browser_error`, and `browser_frames_stalled` fields. PTY and VT commands against browser surfaces return errors.

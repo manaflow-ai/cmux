@@ -339,7 +339,8 @@ impl Mux {
         let opts = self.surface_options.lock().unwrap().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let surface = browser::new_surface(id, url.clone(), size, cell_pixels, &opts);
+        let surface =
+            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
         self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
         surface
@@ -921,21 +922,10 @@ impl Mux {
         let opts = self.surface_options.lock().unwrap().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let surface = browser::new_surface(id, url.clone(), size, cell_pixels, &opts);
+        let surface =
+            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         let active_at = self.next_active_at();
-        let attached = {
-            let mut state = self.state.lock().unwrap();
-            let Some(pane) = state.panes.get_mut(&pane_id) else {
-                return false;
-            };
-            pane.tabs.push(surface.id);
-            pane.active_tab = pane.tabs.len() - 1;
-            pane.active_at = active_at;
-            state.surfaces.insert(surface.id, surface.clone());
-            true
-        };
-        if !attached {
-            surface.kill();
+        if !self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
             return false;
         }
         self.emit(MuxEvent::TreeChanged);
@@ -945,6 +935,31 @@ impl Mux {
             Some(runtime),
         );
         true
+    }
+
+    fn attach_browser_surface_to_pane_or_kill(
+        &self,
+        pane_id: PaneId,
+        surface: &Arc<Surface>,
+        active_at: u64,
+    ) -> bool {
+        let attached = {
+            let mut state = self.state.lock().unwrap();
+            match state.panes.get_mut(&pane_id) {
+                Some(pane) => {
+                    pane.tabs.push(surface.id);
+                    pane.active_tab = pane.tabs.len() - 1;
+                    pane.active_at = active_at;
+                    state.surfaces.insert(surface.id, surface.clone());
+                    true
+                }
+                None => false,
+            }
+        };
+        if !attached {
+            surface.kill();
+        }
+        attached
     }
 
     /// Working directory of a pane's active surface, if reported.
@@ -1894,6 +1909,27 @@ mod tests {
         assert!(mux.list_agents(None, None).is_empty());
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
+    }
+
+    #[test]
+    fn failed_browser_surface_attach_kills_worker() {
+        let mux = test_mux();
+        let opts = mux.surface_options.lock().unwrap().clone();
+        let surface = browser::new_surface(
+            999,
+            "https://example.test".to_string(),
+            (10, 5),
+            (8, 16),
+            &opts,
+            Arc::downgrade(&mux),
+        );
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+
+        assert!(!mux.attach_browser_surface_to_pane_or_kill(123_456, &surface, 1));
+        assert!(browser.is_dead());
+        done.recv_timeout(std::time::Duration::from_secs(1))
+            .expect("browser worker exited after failed attach");
     }
 
     #[test]

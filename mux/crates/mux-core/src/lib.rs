@@ -36,6 +36,7 @@ pub use surface::{
 };
 
 pub use ghostty_vt::Rgb;
+pub use mux_cdp::BrowserMode;
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

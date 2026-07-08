@@ -30,6 +30,7 @@
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+//!     "mode": "headful",
 //!     "cdp_url": "http://127.0.0.1:9222",
 //!     "discover": false,
 //!     "discover_ports": [9222],
@@ -62,7 +63,7 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mux_core::platform;
-use mux_core::SurfaceOptions;
+use mux_core::{BrowserMode, SurfaceOptions};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -139,6 +140,7 @@ struct RawSidebar {
 #[serde(deny_unknown_fields)]
 struct RawBrowser {
     chrome_binary: Option<String>,
+    mode: Option<ConfigBrowserMode>,
     cdp_url: Option<String>,
     discover: Option<bool>,
     discover_ports: Option<Vec<u16>>,
@@ -146,6 +148,22 @@ struct RawBrowser {
     ephemeral: Option<bool>,
     max_capture_megapixels: Option<f64>,
     capture_scale: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ConfigBrowserMode {
+    Headful,
+    Headless,
+}
+
+impl From<ConfigBrowserMode> for BrowserMode {
+    fn from(mode: ConfigBrowserMode) -> Self {
+        match mode {
+            ConfigBrowserMode::Headful => BrowserMode::Headful,
+            ConfigBrowserMode::Headless => BrowserMode::Headless,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -270,6 +288,7 @@ impl Default for Sidebar {
 #[derive(Debug, Clone)]
 pub struct Browser {
     pub chrome_binary: Option<String>,
+    pub mode: BrowserMode,
     pub cdp_url: Option<String>,
     pub discover: bool,
     pub discover_ports: Vec<u16>,
@@ -283,6 +302,7 @@ impl Default for Browser {
     fn default() -> Self {
         Browser {
             chrome_binary: None,
+            mode: BrowserMode::Headful,
             cdp_url: None,
             discover: false,
             discover_ports: vec![9222],
@@ -694,6 +714,9 @@ pub fn load() -> Config {
         config.sidebar.max_width = w;
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
+    if let Some(mode) = raw.browser.mode {
+        config.browser.mode = mode.into();
+    }
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
     if let Some(discover) = raw.browser.discover {
         config.browser.discover = discover;
@@ -732,6 +755,7 @@ pub fn load() -> Config {
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
     options.chrome_binary = config.browser.chrome_binary.clone();
+    options.browser_mode = config.browser.mode;
     options.cdp_url = config.browser.cdp_url.clone();
     options.browser_discover = config.browser.discover;
     options.browser_discover_ports = config.browser.discover_ports.clone();
@@ -921,6 +945,22 @@ mod tests {
         );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
+    }
+
+    #[test]
+    fn browser_mode_defaults_headful_parses_headless_and_rejects_invalid_values() {
+        let raw: RawConfig = serde_json::from_str(r##"{}"##).unwrap();
+        assert!(raw.browser.mode.is_none());
+        assert_eq!(Browser::default().mode, BrowserMode::Headful);
+
+        let raw: RawConfig =
+            serde_json::from_str(r##"{"browser": {"mode": "headless"}}"##).unwrap();
+        assert_eq!(raw.browser.mode.map(BrowserMode::from), Some(BrowserMode::Headless));
+
+        let err = serde_json::from_str::<RawConfig>(r##"{"browser": {"mode": "stealth"}}"##)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown variant `stealth`"), "{err}");
     }
 
     #[test]

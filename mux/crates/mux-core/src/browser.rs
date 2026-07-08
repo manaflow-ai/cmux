@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, Receiver, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -114,12 +114,69 @@ struct BrowserState {
     live_since: Option<Instant>,
     last_frame_at: Option<Instant>,
     stall_nudged: bool,
+    not_responding_reported: bool,
+}
+
+enum BrowserCommand {
+    WakeLatest,
+    Mouse {
+        event_type: String,
+        x: f64,
+        y: f64,
+        button: Option<String>,
+        click_count: Option<u32>,
+    },
+    Wheel {
+        x: f64,
+        y: f64,
+        delta_y: f64,
+    },
+    Key {
+        event_type: String,
+        key: String,
+        code: String,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<String>,
+    },
+    InsertText(String),
+    Navigate(String),
+    Back,
+    Forward,
+    Reload,
+    Activate,
+    Reconfigure {
+        width: u32,
+        height: u32,
+    },
+}
+
+impl BrowserCommand {
+    fn is_input(&self) -> bool {
+        matches!(
+            self,
+            BrowserCommand::Mouse { .. }
+                | BrowserCommand::Wheel { .. }
+                | BrowserCommand::Key { .. }
+                | BrowserCommand::InsertText(_)
+        )
+    }
+
+    fn is_mouse_move(&self) -> bool {
+        matches!(self, BrowserCommand::Mouse { event_type, .. } if event_type == "mouseMoved")
+    }
+}
+
+#[derive(Default)]
+struct BrowserWorkerErrorState {
+    consecutive_timeouts: u8,
 }
 
 pub struct BrowserRuntime {
     client: CdpClient,
     chrome: Option<Chrome>,
     source: BrowserSource,
+    stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
 }
@@ -138,6 +195,11 @@ pub struct BrowserSurface {
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
+    command_tx: Mutex<Option<SyncSender<BrowserCommand>>>,
+    latest_reconfigure: Arc<Mutex<Option<BrowserCommand>>>,
+    latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
+    #[cfg(test)]
+    worker_done: Mutex<Option<Receiver<()>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -148,17 +210,33 @@ struct BrowserCaptureOptions {
 
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
+const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
+const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
         let (web_socket_url, chrome, source) = runtime_endpoint(opts)?;
+        Self::connect_to_endpoint(&web_socket_url, chrome, source)
+    }
+
+    fn connect_to_endpoint(
+        web_socket_url: &str,
+        chrome: Option<Chrome>,
+        source: BrowserSource,
+    ) -> anyhow::Result<Arc<Self>> {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
-        let client = CdpClient::connect(&web_socket_url, event_tx)?;
+        let client = CdpClient::connect(web_socket_url, event_tx)?;
         client.set_discover_targets(true)?;
+        let stealth_user_agent = if source == BrowserSource::Launched {
+            client.browser_version().ok().and_then(|ua| clean_headless_user_agent(&ua))
+        } else {
+            None
+        };
         let runtime = Arc::new(BrowserRuntime {
             client,
             chrome,
             source,
+            stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
         });
@@ -220,6 +298,9 @@ impl BrowserRuntime {
         if browser.is_dead() {
             anyhow::bail!("browser surface was closed before it started");
         }
+        if let Some(user_agent) = self.stealth_user_agent.as_deref() {
+            let _ = self.client.set_user_agent(session_id, user_agent);
+        }
         self.client.page_enable(session_id)?;
         let (pixel_w, pixel_h) = browser.pixel_size();
         self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
@@ -248,10 +329,10 @@ impl BrowserRuntime {
         routes.by_target.remove(target_id);
     }
 
-    fn close_surface(&self, target_id: &str, session_id: &str) {
+    fn close_surface_detached(&self, target_id: &str, session_id: &str) {
         self.unregister(target_id, session_id);
         if !self.is_closed() {
-            let _ = self.client.close_target(target_id);
+            let _ = self.client.close_target_detached(target_id);
         }
     }
 
@@ -274,6 +355,7 @@ pub(crate) fn new_surface(
     size: (u16, u16),
     cell_pixels: (u16, u16),
     opts: &SurfaceOptions,
+    mux: Weak<Mux>,
 ) -> Arc<Surface> {
     let normalized_url = normalize_url(&url);
     let (cols, rows) = (size.0.max(1), size.1.max(1));
@@ -283,7 +365,16 @@ pub(crate) fn new_surface(
     let capture_options = BrowserCaptureOptions::from_options(opts);
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-    Arc::new(Surface::Browser(BrowserSurface {
+    let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
+    let latest_reconfigure = Arc::new(Mutex::new(None));
+    let latest_nav = Arc::new(Mutex::new(None));
+    #[cfg(test)]
+    let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
+    #[cfg(test)]
+    let worker_done_tx = Some(worker_done_tx);
+    #[cfg(not(test))]
+    let worker_done_tx = None;
+    let surface = Arc::new(Surface::Browser(BrowserSurface {
         meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
@@ -302,12 +393,27 @@ pub(crate) fn new_surface(
             live_since: None,
             last_frame_at: None,
             stall_nudged: false,
+            not_responding_reported: false,
         }),
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
         cell_pixels: Mutex::new((cell_w, cell_h)),
         capture_options,
-    }))
+        command_tx: Mutex::new(Some(command_tx)),
+        latest_reconfigure: latest_reconfigure.clone(),
+        latest_nav: latest_nav.clone(),
+        #[cfg(test)]
+        worker_done: Mutex::new(Some(worker_done_rx)),
+    }));
+    start_browser_worker(
+        surface.clone(),
+        command_rx,
+        latest_reconfigure,
+        latest_nav,
+        mux,
+        worker_done_tx,
+    );
+    surface
 }
 
 impl BrowserCaptureOptions {
@@ -384,11 +490,16 @@ fn runtime_endpoint(
     };
     let chrome = Chrome::launch_with(ChromeLaunchOptions {
         binary: chrome_binary,
+        mode: opts.browser_mode,
         user_data_dir,
         ephemeral: opts.browser_ephemeral,
     })?;
     let web_socket_url = chrome.web_socket_url().to_string();
     Ok((web_socket_url, Some(chrome), BrowserSource::Launched))
+}
+
+fn clean_headless_user_agent(user_agent: &str) -> Option<String> {
+    user_agent.contains("HeadlessChrome").then(|| user_agent.replace("HeadlessChrome", "Chrome"))
 }
 
 fn resolve_chrome_binary(explicit: Option<&str>) -> anyhow::Result<PathBuf> {
@@ -576,6 +687,178 @@ fn start_surface_thread(
     Ok(())
 }
 
+fn start_browser_worker(
+    surface: Arc<Surface>,
+    rx: Receiver<BrowserCommand>,
+    latest_reconfigure: Arc<Mutex<Option<BrowserCommand>>>,
+    latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
+    mux: Weak<Mux>,
+    done_tx: Option<Sender<()>>,
+) {
+    let id = surface.id;
+    let _ =
+        std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
+            let mut failures = BrowserWorkerErrorState::default();
+            while let Ok(first) = rx.recv() {
+                let mut batch = vec![first];
+                while let Ok(next) = rx.try_recv() {
+                    batch.push(next);
+                }
+                coalesce_worker_mouse_moves(&mut batch);
+                for command in batch {
+                    if matches!(command, BrowserCommand::WakeLatest) {
+                        for command in take_latest_worker_commands(&latest_reconfigure, &latest_nav)
+                        {
+                            run_browser_worker_command(&surface, command, &mux, id, &mut failures);
+                        }
+                    } else {
+                        run_browser_worker_command(&surface, command, &mux, id, &mut failures);
+                    }
+                }
+                for command in take_latest_worker_commands(&latest_reconfigure, &latest_nav) {
+                    run_browser_worker_command(&surface, command, &mux, id, &mut failures);
+                }
+            }
+            if let Some(done_tx) = done_tx {
+                let _ = done_tx.send(());
+            }
+        });
+}
+
+fn take_latest_worker_commands(
+    latest_reconfigure: &Arc<Mutex<Option<BrowserCommand>>>,
+    latest_nav: &Arc<Mutex<Option<BrowserCommand>>>,
+) -> Vec<BrowserCommand> {
+    let reconfigure = latest_reconfigure.lock().unwrap().take();
+    let nav = latest_nav.lock().unwrap().take();
+    reconfigure.into_iter().chain(nav).collect()
+}
+
+fn coalesce_worker_mouse_moves(batch: &mut Vec<BrowserCommand>) {
+    let mut index = 0;
+    while index + 1 < batch.len() {
+        if batch[index].is_mouse_move() && batch[index + 1].is_mouse_move() {
+            batch.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+}
+
+fn run_browser_worker_command(
+    surface: &Surface,
+    command: BrowserCommand,
+    mux: &Weak<Mux>,
+    id: SurfaceId,
+    failures: &mut BrowserWorkerErrorState,
+) {
+    let is_input = command.is_input();
+    let result = {
+        let Some(browser) = surface.as_browser() else {
+            return;
+        };
+        match command {
+            BrowserCommand::WakeLatest => Ok(()),
+            BrowserCommand::Mouse { event_type, x, y, button, click_count } => {
+                browser.mouse_event_blocking(&event_type, x, y, button.as_deref(), click_count)
+            }
+            BrowserCommand::Wheel { x, y, delta_y } => browser.wheel_blocking(x, y, delta_y),
+            BrowserCommand::Key {
+                event_type,
+                key,
+                code,
+                windows_virtual_key_code,
+                modifiers,
+                text,
+            } => browser.key_event_blocking(
+                &event_type,
+                &key,
+                &code,
+                windows_virtual_key_code,
+                modifiers,
+                text.as_deref(),
+            ),
+            BrowserCommand::InsertText(text) => browser.insert_text_blocking(&text),
+            BrowserCommand::Navigate(url) => browser.navigate_blocking(&url),
+            BrowserCommand::Back => browser.back_blocking(),
+            BrowserCommand::Forward => browser.forward_blocking(),
+            BrowserCommand::Reload => browser.reload_blocking(),
+            BrowserCommand::Activate => browser.activate_blocking(),
+            BrowserCommand::Reconfigure { width, height } => {
+                browser.reconfigure_blocking(width, height)
+            }
+        }
+    };
+    record_browser_worker_result(surface, mux, id, is_input, result, failures);
+}
+
+fn record_browser_worker_result(
+    surface: &Surface,
+    mux: &Weak<Mux>,
+    id: SurfaceId,
+    is_input: bool,
+    result: anyhow::Result<()>,
+    failures: &mut BrowserWorkerErrorState,
+) {
+    match result {
+        Ok(()) => {
+            failures.consecutive_timeouts = 0;
+            if !is_input {
+                emit_browser_dirty(mux, id);
+            }
+        }
+        Err(err) => {
+            let message = err.to_string();
+            let timeout = is_cdp_timeout_error(&message);
+            if timeout {
+                failures.consecutive_timeouts = failures.consecutive_timeouts.saturating_add(1);
+                if failures.consecutive_timeouts >= 2 {
+                    let should_report = surface
+                        .as_browser()
+                        .is_some_and(BrowserSurface::claim_not_responding_report);
+                    if should_report {
+                        if let Some(browser) = surface.as_browser() {
+                            browser.mark_failed(BROWSER_NOT_RESPONDING_MESSAGE.to_string());
+                        }
+                        emit_browser_failure(mux, id, BROWSER_NOT_RESPONDING_MESSAGE.to_string());
+                    }
+                }
+            } else {
+                failures.consecutive_timeouts = 0;
+            }
+            if !(is_input || timeout && failures.consecutive_timeouts >= 2) {
+                emit_browser_status(mux, message);
+                emit_browser_dirty(mux, id);
+            }
+        }
+    }
+}
+
+fn is_cdp_timeout_error(message: &str) -> bool {
+    message.contains("CDP call ") && message.contains(" timed out")
+}
+
+fn emit_browser_status(mux: &Weak<Mux>, message: String) {
+    if let Some(mux) = mux.upgrade() {
+        mux.emit(MuxEvent::Status(message));
+    }
+}
+
+fn emit_browser_dirty(mux: &Weak<Mux>, id: SurfaceId) {
+    if let Some(mux) = mux.upgrade() {
+        mux.emit(MuxEvent::TitleChanged(id));
+        mux.emit(MuxEvent::SurfaceOutput(id));
+    }
+}
+
+fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: String) {
+    if let Some(mux) = mux.upgrade() {
+        mux.emit(MuxEvent::Status(message));
+        mux.emit(MuxEvent::TitleChanged(id));
+        mux.emit(MuxEvent::SurfaceOutput(id));
+    }
+}
+
 impl BrowserSurface {
     pub fn latest_frame(&self) -> Option<BrowserFrame> {
         let state = self.state.lock().unwrap();
@@ -622,18 +905,29 @@ impl BrowserSurface {
         self.dirty.swap(false, Ordering::AcqRel)
     }
 
+    #[cfg(test)]
+    pub(crate) fn take_worker_done_for_test(&self) -> Receiver<()> {
+        self.worker_done.lock().unwrap().take().expect("worker done receiver already taken")
+    }
+
     pub fn kill(&self) {
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
         self.close_taps();
         if let Some(session) = self.session.lock().unwrap().take() {
-            session.runtime.close_surface(&session.target_id, &session.session_id);
+            session.runtime.close_surface_detached(&session.target_id, &session.session_id);
         }
+        self.close_command_sender();
     }
 
     pub fn resize(&self, cols: u16, rows: u16) {
-        if let Err(e) = self.try_resize(cols, rows) {
+        let Some((width, height)) = self.update_resize_state(cols, rows) else {
+            return;
+        };
+        if let Err(e) =
+            self.enqueue_latest_reconfigure(BrowserCommand::Reconfigure { width, height })
+        {
             eprintln!("cmux-mux: browser resize failed for surface {}: {e}", self.meta.id);
         }
     }
@@ -651,7 +945,7 @@ impl BrowserSurface {
         self.resize(cols, rows);
     }
 
-    fn try_resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
+    fn update_resize_state(&self, cols: u16, rows: u16) -> Option<(u32, u32)> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
@@ -675,12 +969,16 @@ impl BrowserSurface {
             (unchanged, capture_pixels.0, capture_pixels.1)
         };
         if unchanged {
-            return Ok(());
+            return None;
         }
+        Some((capture_w, capture_h))
+    }
+
+    fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<()> {
         let Some(session) = self.live_session()? else { return Ok(()) };
-        session.runtime.client.set_device_metrics(&session.session_id, capture_w, capture_h)?;
+        session.runtime.client.set_device_metrics(&session.session_id, width, height)?;
         let _ = session.runtime.client.stop_screencast(&session.session_id);
-        session.runtime.client.start_screencast(&session.session_id, capture_w, capture_h)?;
+        session.runtime.client.start_screencast(&session.session_id, width, height)?;
         Ok(())
     }
 
@@ -698,11 +996,33 @@ impl BrowserSurface {
     fn store_frame(&self, mut frame: BrowserFrame) {
         let mut state = self.state.lock().unwrap();
         // Screencast frames keep streaming the previous page after a
-        // failed navigation; they must not clear the Failed status. A
-        // successful navigate/reload clears it (set_url_title,
-        // clear_error), same as mark_live.
-        if !matches!(state.status, BrowserStatus::Failed(_)) {
+        // failed navigation; they must not mask that failure. A fresh
+        // frame does prove Chrome recovered from the worker's
+        // not-responding state, so clear only that class here.
+        let clears_not_responding = matches!(
+            state.status,
+            BrowserStatus::Failed(ref error) if error == BROWSER_NOT_RESPONDING_MESSAGE
+        );
+        if !matches!(state.status, BrowserStatus::Failed(_)) || clears_not_responding {
             state.status = BrowserStatus::Live;
+            if clears_not_responding {
+                state.not_responding_reported = false;
+                // `mark_failed` overwrote the title with "browser failed: ..."
+                // and broadcast the failure to attach clients. Recovering only
+                // in-memory would leave remote TUIs stuck on the failed
+                // status/title even as fresh frames arrive. Restore a non-failed
+                // title from the retained URL (the next CDP title event refines
+                // it) and broadcast the recovered state to attach clients the
+                // same way the failure was broadcast.
+                //
+                // Do NOT set `self.dirty` here: the caller that delivers this
+                // frame emits `SurfaceOutput` via `if !dirty.swap(true)`, which
+                // is what redraws the local TUI. Pre-setting `dirty` would
+                // consume that transition and suppress the local recovery
+                // redraw, leaving the local status line stuck on the failure.
+                state.title = state.url.clone();
+                Self::mark_state_dirty_locked(&mut state);
+            }
         }
         frame.seq = state.next_frame_seq;
         state.next_frame_seq = state.next_frame_seq.saturating_add(1);
@@ -727,6 +1047,7 @@ impl BrowserSurface {
         self.dead.store(true, Ordering::Release);
         self.close_taps();
         let _ = self.session.lock().unwrap().take();
+        self.close_command_sender();
     }
 
     fn mark_live(&self, session: BrowserSession) -> anyhow::Result<()> {
@@ -867,7 +1188,114 @@ impl BrowserSurface {
         }
     }
 
+    // Bounded, in-order delivery for disposable pointer/key input. Input events
+    // are high-frequency and individually expendable, so under backpressure the
+    // worker queue drops the newest event rather than blocking or replacing an
+    // unrelated queued one. Callers are intentionally told `ok` even on drop:
+    // losing one mouse-move or keystroke frame is not a reported failure.
+    fn enqueue_bounded(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        let tx = self.command_sender()?;
+        match tx.try_send(command) {
+            Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
+            Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
+        }
+    }
+
+    // Bounded, in-order delivery for discrete control actions
+    // (back/forward/reload/activate). These stay in FIFO order so a `Back` can
+    // never be swallowed by a later `Forward` (unlike the latest-wins nav slot),
+    // but unlike disposable input they must not be silently dropped: losing a
+    // control action the caller asked for is a user-visible action that
+    // vanished. When the queue is full (a wedged/unresponsive worker) report
+    // backpressure as an error instead of a false `ok` so the caller learns the
+    // command was rejected. `try_send` never blocks, so this preserves the
+    // non-blocking contract. URL navigation uses the latest-wins slot instead
+    // (see `enqueue_latest_nav`), where only the final destination matters.
+    fn enqueue_control(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        let tx = self.command_sender()?;
+        match tx.try_send(command) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                anyhow::bail!("browser command queue is full; browser may be unresponsive")
+            }
+            Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
+        }
+    }
+
+    fn enqueue_latest_reconfigure(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        *self.latest_reconfigure.lock().unwrap() = Some(command);
+        self.wake_worker()
+    }
+
+    fn enqueue_latest_nav(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        self.enqueue_latest_nav_ignoring_dead(command)
+    }
+
+    fn enqueue_latest_nav_ignoring_dead(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        *self.latest_nav.lock().unwrap() = Some(command);
+        self.wake_worker()
+    }
+
+    fn wake_worker(&self) -> anyhow::Result<()> {
+        let tx = self.command_sender()?;
+        match tx.try_send(BrowserCommand::WakeLatest) {
+            Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
+            Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
+        }
+    }
+
+    fn command_sender(&self) -> anyhow::Result<SyncSender<BrowserCommand>> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("browser command worker is closed"))
+    }
+
+    fn close_command_sender(&self) {
+        let _ = self.command_tx.lock().unwrap().take();
+    }
+
+    fn claim_not_responding_report(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.not_responding_reported {
+            false
+        } else {
+            state.not_responding_reported = true;
+            true
+        }
+    }
+
     pub fn mouse_event(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+    ) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::Mouse {
+            event_type: event_type.to_string(),
+            x,
+            y,
+            button: button.map(ToOwned::to_owned),
+            click_count,
+        })
+    }
+
+    fn mouse_event_blocking(
         &self,
         event_type: &str,
         x: f64,
@@ -891,6 +1319,10 @@ impl BrowserSurface {
     }
 
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::Wheel { x, y, delta_y })
+    }
+
+    fn wheel_blocking(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
         let (x, y) = self.scale_input_point(x, y);
@@ -899,6 +1331,25 @@ impl BrowserSurface {
     }
 
     pub fn key_event(
+        &self,
+        event_type: &str,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::Key {
+            event_type: event_type.to_string(),
+            key: key.to_string(),
+            code: code.to_string(),
+            windows_virtual_key_code,
+            modifiers,
+            text: text.map(ToOwned::to_owned),
+        })
+    }
+
+    fn key_event_blocking(
         &self,
         event_type: &str,
         key: &str,
@@ -916,12 +1367,20 @@ impl BrowserSurface {
     }
 
     pub fn insert_text(&self, text: &str) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::InsertText(text.to_string()))
+    }
+
+    fn insert_text_blocking(&self, text: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
         session.runtime.client.insert_text(&session.session_id, text)
     }
 
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
+        self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
+    }
+
+    fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
         if let Some(error) = session.runtime.client.navigate(&session.session_id, &normalized)? {
@@ -934,14 +1393,22 @@ impl BrowserSurface {
     }
 
     pub fn back(&self) -> anyhow::Result<()> {
-        self.navigate_history(-1)
+        self.enqueue_control(BrowserCommand::Back)
     }
 
     pub fn forward(&self) -> anyhow::Result<()> {
-        self.navigate_history(1)
+        self.enqueue_control(BrowserCommand::Forward)
     }
 
-    fn navigate_history(&self, delta: isize) -> anyhow::Result<()> {
+    fn back_blocking(&self) -> anyhow::Result<()> {
+        self.navigate_history_blocking(-1)
+    }
+
+    fn forward_blocking(&self) -> anyhow::Result<()> {
+        self.navigate_history_blocking(1)
+    }
+
+    fn navigate_history_blocking(&self, delta: isize) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let history = session.runtime.client.navigation_history(&session.session_id)?;
         let next = history.current_index as isize + delta;
@@ -958,6 +1425,10 @@ impl BrowserSurface {
     }
 
     pub fn reload(&self) -> anyhow::Result<()> {
+        self.enqueue_control(BrowserCommand::Reload)
+    }
+
+    fn reload_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         session.runtime.client.reload(&session.session_id)?;
         self.clear_error();
@@ -965,6 +1436,10 @@ impl BrowserSurface {
     }
 
     pub fn activate(&self) -> anyhow::Result<()> {
+        self.enqueue_control(BrowserCommand::Activate)
+    }
+
+    fn activate_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         session.runtime.client.activate_target(&session.target_id, &session.session_id)
     }
@@ -1142,14 +1617,17 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
-        BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus,
+        take_latest_worker_commands, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
+        BrowserSource, BrowserStatus,
     };
-    use crate::SurfaceOptions;
+    use crate::{Mux, Surface, SurfaceOptions};
+    use serde_json::{json, Value};
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use std::sync::mpsc;
+    use std::sync::{mpsc, Arc, Mutex, Weak};
     use std::thread;
     use std::time::{Duration, Instant};
+    use tungstenite::{accept, Message};
 
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
@@ -1232,10 +1710,28 @@ mod tests {
         runtime_endpoint(opts).map_err(|err| last_err.unwrap_or(err))
     }
 
+    fn test_surface() -> Arc<Surface> {
+        let opts = SurfaceOptions::default();
+        new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+    }
+
+    fn read_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>) -> Value {
+        loop {
+            match ws.read().unwrap() {
+                Message::Text(text) => return serde_json::from_str(&text).unwrap(),
+                Message::Binary(bytes) => return serde_json::from_slice(&bytes).unwrap(),
+                _ => {}
+            }
+        }
+    }
+
+    fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
+        ws.send(Message::Text(value.to_string())).unwrap();
+    }
+
     #[test]
     fn frames_do_not_clear_failed_status() {
-        let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         assert_eq!(browser.status(), BrowserStatus::Live);
@@ -1273,6 +1769,403 @@ mod tests {
     }
 
     #[test]
+    fn launched_runtime_cleans_headless_user_agent_once_and_replays_per_surface() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (seen_tx, seen_rx) = mpsc::channel();
+
+        let server = thread::Builder::new()
+            .name("browser-stealth-ua-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let mut start_count = 0;
+                loop {
+                    let request = read_ws_json(&mut ws);
+                    let id = request["id"].clone();
+                    let method = request["method"].as_str().unwrap().to_string();
+                    seen_tx.send(request.clone()).unwrap();
+                    match method.as_str() {
+                        "Target.setDiscoverTargets" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        }
+                        "Browser.getVersion" => {
+                            write_ws_json(
+                                &mut ws,
+                                json!({
+                                    "id": id,
+                                    "result": {
+                                        "userAgent": "Mozilla/5.0 HeadlessChrome/136.0 HeadlessChrome/136.0 Safari/537.36"
+                                    }
+                                }),
+                            );
+                        }
+                        "Emulation.setUserAgentOverride" => {
+                            assert_eq!(
+                                request["params"]["userAgent"],
+                                "Mozilla/5.0 Chrome/136.0 Chrome/136.0 Safari/537.36"
+                            );
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        }
+                        "Page.enable"
+                        | "Emulation.setDeviceMetricsOverride"
+                        | "Page.startScreencast" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                            if method == "Page.startScreencast" {
+                                start_count += 1;
+                                if start_count == 2 {
+                                    break;
+                                }
+                            }
+                        }
+                        method => panic!("unexpected CDP method {method}"),
+                    }
+                }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::Launched,
+        )
+        .unwrap();
+        let opts = SurfaceOptions::default();
+        let first =
+            new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+        runtime
+            .setup_attached_surface(&first, "target-1", "session-1", "https://one.test")
+            .unwrap();
+        let second =
+            new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+        runtime
+            .setup_attached_surface(&second, "target-2", "session-2", "https://two.test")
+            .unwrap();
+
+        server.join().unwrap();
+        let methods = seen_rx
+            .try_iter()
+            .map(|value| value["method"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods.iter().filter(|method| method.as_str() == "Browser.getVersion").count(),
+            1
+        );
+        assert_eq!(
+            methods
+                .iter()
+                .filter(|method| method.as_str() == "Emulation.setUserAgentOverride")
+                .count(),
+            2
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn launched_runtime_continues_when_browser_version_fails() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (seen_tx, seen_rx) = mpsc::channel();
+
+        let server = thread::Builder::new()
+            .name("browser-stealth-version-failure-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                loop {
+                    let request = read_ws_json(&mut ws);
+                    let id = request["id"].clone();
+                    let method = request["method"].as_str().unwrap().to_string();
+                    seen_tx.send(request.clone()).unwrap();
+                    match method.as_str() {
+                        "Target.setDiscoverTargets" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        }
+                        "Browser.getVersion" => {
+                            write_ws_json(
+                                &mut ws,
+                                json!({"id": id, "error": {"code": -32000, "message": "unavailable"}}),
+                            );
+                        }
+                        "Page.enable"
+                        | "Emulation.setDeviceMetricsOverride"
+                        | "Page.startScreencast" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                            if method == "Page.startScreencast" {
+                                break;
+                            }
+                        }
+                        "Emulation.setUserAgentOverride" => {
+                            panic!("user agent override should be skipped after getVersion failure")
+                        }
+                        method => panic!("unexpected CDP method {method}"),
+                    }
+                }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::Launched,
+        )
+        .unwrap();
+        let surface = test_surface();
+        runtime
+            .setup_attached_surface(&surface, "target-1", "session-1", "https://example.test")
+            .unwrap();
+
+        server.join().unwrap();
+        let methods = seen_rx
+            .try_iter()
+            .map(|value| value["method"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(methods.iter().any(|method| method == "Browser.getVersion"));
+        assert!(!methods.iter().any(|method| method == "Emulation.setUserAgentOverride"));
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn external_runtime_does_not_query_or_override_user_agent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = thread::Builder::new()
+            .name("browser-external-stealth-negative-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                loop {
+                    let request = read_ws_json(&mut ws);
+                    let id = request["id"].clone();
+                    let method = request["method"].as_str().unwrap().to_string();
+                    match method.as_str() {
+                        "Target.setDiscoverTargets" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        }
+                        "Page.enable"
+                        | "Emulation.setDeviceMetricsOverride"
+                        | "Page.startScreencast" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                            if method == "Page.startScreencast" {
+                                break;
+                            }
+                        }
+                        "Browser.getVersion" | "Emulation.setUserAgentOverride" => {
+                            panic!(
+                                "external runtimes must not receive launched-runtime stealth calls"
+                            )
+                        }
+                        method => panic!("unexpected CDP method {method}"),
+                    }
+                }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        runtime
+            .setup_attached_surface(&surface, "target-1", "session-1", "https://example.test")
+            .unwrap();
+
+        server.join().unwrap();
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn latest_reconfigure_and_nav_slots_do_not_clobber_each_other() {
+        let latest_reconfigure =
+            Arc::new(Mutex::new(Some(BrowserCommand::Reconfigure { width: 111, height: 222 })));
+        let latest_nav =
+            Arc::new(Mutex::new(Some(BrowserCommand::Navigate("https://next.test".to_string()))));
+
+        let commands = take_latest_worker_commands(&latest_reconfigure, &latest_nav);
+        assert_eq!(commands.len(), 2);
+        match &commands[0] {
+            BrowserCommand::Reconfigure { width, height } => {
+                assert_eq!((*width, *height), (111, 222));
+            }
+            _ => panic!("reconfigure must drain before nav"),
+        }
+        match &commands[1] {
+            BrowserCommand::Navigate(url) => assert_eq!(url, "https://next.test"),
+            _ => panic!("nav command was lost"),
+        }
+        assert!(latest_reconfigure.lock().unwrap().is_none());
+        assert!(latest_nav.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn kill_drops_sender_and_worker_exits() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+
+        browser.kill();
+        assert!(browser.navigate("after-close.test").is_err());
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after kill");
+    }
+
+    #[test]
+    fn timeout_failed_status_notice_is_emitted_once_per_stall_episode() {
+        let surface = test_surface();
+        let mux = Mux::new("timeout-latch-test", SurfaceOptions::default());
+        let events = mux.subscribe();
+        let weak = Arc::downgrade(&mux);
+        let mut failures = super::BrowserWorkerErrorState::default();
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            crate::MuxEvent::Status(message) if message == "CDP call Page.navigate timed out"
+        ));
+        while events.try_recv().is_ok() {}
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            crate::MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+        ));
+        while events.try_recv().is_ok() {}
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
+    fn frame_clearing_not_responding_rearms_timeout_notice() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let mux = Mux::new("timeout-frame-reset-test", SurfaceOptions::default());
+        let events = mux.subscribe();
+        let weak = Arc::downgrade(&mux);
+        let mut failures = super::BrowserWorkerErrorState::default();
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        while events.try_recv().is_ok() {}
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            crate::MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+        ));
+        assert_eq!(
+            browser.status(),
+            BrowserStatus::Failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string())
+        );
+        while events.try_recv().is_ok() {}
+
+        browser.store_frame(test_frame(1));
+        assert_eq!(browser.status(), BrowserStatus::Live);
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            crate::MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+        ));
+        assert_eq!(
+            browser.status(),
+            BrowserStatus::Failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string())
+        );
+    }
+
+    // Regression: when a fresh frame clears the worker's not-responding
+    // failure, the recovery must be broadcast to attach clients (remote TUIs),
+    // not just flipped in memory. Before the fix `store_frame` set status back
+    // to Live but left the "browser failed: ..." title `mark_failed` had
+    // written and never marked the state dirty, so attached clients stayed
+    // stuck on the failed status/title even as frames streamed in.
+    #[test]
+    fn recovery_from_not_responding_broadcasts_live_state_to_attach_clients() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        // Give the surface a known URL so the recovered title is derived from it.
+        browser.set_url_title("https://recovered.test".to_string(), "recovered".to_string());
+        // Attach before the failure so the tap observes both the failure and the recovery.
+        let (_snapshot, stream) = browser.attach_frames();
+
+        let failed_title = format!("browser failed: {}", super::BROWSER_NOT_RESPONDING_MESSAGE);
+        browser.mark_failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string());
+        let failed = stream.slot.lock().unwrap().state.clone().expect("failure was broadcast");
+        assert_eq!(
+            failed.status,
+            BrowserStatus::Failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string())
+        );
+        assert_eq!(failed.title, failed_title);
+        // Simulate the event thread drawing the failure and consuming the dirty
+        // flag, so the recovery below starts from a clean flag like it would in
+        // production.
+        assert!(browser.take_dirty(), "mark_failed must mark the surface dirty");
+
+        // A fresh frame proves Chrome recovered.
+        browser.store_frame(test_frame(1));
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        // The event thread that delivers this frame emits the local TUI redraw
+        // via `if !dirty.swap(true)`. store_frame must leave that transition
+        // available (dirty still clear) instead of pre-consuming it, or the
+        // local status line stays stuck on the failure.
+        assert!(
+            !browser.take_dirty(),
+            "recovery must not pre-consume the dirty transition the event thread emits on"
+        );
+        let recovered =
+            stream.slot.lock().unwrap().state.clone().expect("recovery must be broadcast too");
+        assert_eq!(recovered.status, BrowserStatus::Live);
+        assert_ne!(
+            recovered.title, failed_title,
+            "recovered attach state still shows the stale failure title"
+        );
+        assert_eq!(recovered.title, "https://recovered.test");
+    }
+
+    #[test]
     fn browser_discovery_is_explicit_opt_in() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1287,6 +2180,15 @@ mod tests {
             browser_discover_ports: vec![port],
             ..Default::default()
         };
+        let explicit_opts = SurfaceOptions {
+            cdp_url: Some("ws://127.0.0.1:9/devtools/browser/explicit".to_string()),
+            ..opts.clone()
+        };
+        let (url, chrome, source) = runtime_endpoint(&explicit_opts).unwrap();
+        assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/explicit");
+        assert!(chrome.is_none());
+        assert_eq!(source, BrowserSource::External);
+
         let err = match runtime_endpoint(&opts) {
             Ok((url, _, source)) => {
                 panic!("default config should launch, not discover; got {source:?} {url}")
@@ -1311,7 +2213,8 @@ mod tests {
     #[test]
     fn input_mapping_uses_latest_frame_viewport() {
         let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts);
+        let surface =
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
         let browser = surface.as_browser().expect("browser surface");
         {
             let state = browser.state.lock().unwrap();
@@ -1330,7 +2233,8 @@ mod tests {
     #[test]
     fn input_mapping_falls_back_to_capture_pixels_before_first_frame() {
         let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts);
+        let surface =
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
         let browser = surface.as_browser().expect("browser surface");
 
         assert_eq!(browser.scale_input_point(2380.0, 1274.0), (966.5, 517.5));
@@ -1340,8 +2244,7 @@ mod tests {
 
     #[test]
     fn input_mapping_clamps_to_page_viewport() {
-        let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
 
@@ -1350,8 +2253,7 @@ mod tests {
 
     #[test]
     fn frames_stalled_requires_live_surface_over_threshold() {
-        let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let now = Instant::now();
         {
@@ -1375,8 +2277,7 @@ mod tests {
 
     #[test]
     fn same_size_resize_does_not_reset_stall_state() {
-        let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let now = Instant::now();
         {
@@ -1405,8 +2306,7 @@ mod tests {
 
     #[test]
     fn attach_frames_are_latest_wins_and_close_detaches() {
-        let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let (_state, stream) = browser.attach_frames();
 
@@ -1430,8 +2330,7 @@ mod tests {
 
     #[test]
     fn launched_surfaces_never_report_frame_stalls() {
-        let opts = SurfaceOptions::default();
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let now = Instant::now();
         {
@@ -1448,6 +2347,38 @@ mod tests {
             state.source = Some(BrowserSource::External);
         }
         assert!(browser.frames_stalled_at(now));
+    }
+
+    #[test]
+    fn worker_double_timeout_marks_browser_not_responding_without_waiting() {
+        let surface = test_surface();
+        let mut failures = super::BrowserWorkerErrorState::default();
+
+        super::record_browser_worker_result(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            true,
+            Err(anyhow::anyhow!("CDP call Input.dispatchMouseEvent timed out")),
+            &mut failures,
+        );
+        assert_ne!(
+            surface.as_browser().unwrap().status(),
+            BrowserStatus::Failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string())
+        );
+
+        super::record_browser_worker_result(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            true,
+            Err(anyhow::anyhow!("CDP call Input.dispatchMouseEvent timed out")),
+            &mut failures,
+        );
+        assert_eq!(
+            surface.as_browser().unwrap().status(),
+            BrowserStatus::Failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string())
+        );
     }
 
     #[test]

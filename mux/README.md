@@ -36,6 +36,14 @@ The default session is `main`. Default sockets live at `$TMPDIR/cmux-mux-<uid>/<
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_MUX_TERM` can override the process default in the surface layer.
 
+## Browser Realism
+
+By default, browser panes launch your real Google Chrome or another Chrome-family binary in `browser.mode: "headful"` with a visible window and a persistent per-session profile. Log into Google or other sites once in that visible window; cookies and logins persist across sessions. Set `browser.mode: "headless"` to hide the launched Chrome window. Both modes keep the anti-throttle flags, `--disable-blink-features=AutomationControlled`, the persistent `--user-data-dir`, and `about:blank` startup.
+
+Chrome 136 and newer reject CDP remote debugging on the OS-default profile directory, and a running normal Chrome owns its profile `SingletonLock`. Use the mux profile, set `browser.user_data_dir` to a copy or a dedicated directory after quitting normal Chrome, or attach to a Chrome you started with `--remote-debugging-port`.
+
+To attach instead of launching, set `browser.cdp_url`, `CMUX_MUX_CDP_URL`, or enable discovery. Agent Browser works the same way: run `agent-browser get cdp-url` and use the returned `ws://` URL. This build supports `ws://` and `http://` CDP endpoints; `wss://` is not supported.
+
 ## Development
 
 ```bash

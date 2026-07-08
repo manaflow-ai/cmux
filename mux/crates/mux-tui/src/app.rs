@@ -660,7 +660,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         cell_pixels,
         pointer_shape: false,
         last_browser_hover: None,
-        browser_input: BrowserInputDispatcher::spawn()?,
+        browser_input: BrowserInputDispatcher::spawn(tx.clone())?,
         drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
@@ -1242,13 +1242,7 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 let url = mux_core::normalize_url(input);
-                match self.session.surface(state.surface) {
-                    Some(handle) => {
-                        self.status_message =
-                            handle.browser_navigate(&url).err().map(|e| e.to_string());
-                    }
-                    None => self.status_message = Some("unknown browser surface".to_string()),
-                }
+                self.enqueue_browser_command(state.surface, BrowserInputKind::Navigate(url));
             }
             InputEvent::Changed | InputEvent::None => {}
         }
@@ -1364,18 +1358,15 @@ impl App {
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
             Action::BrowserBack => {
-                let result = self.browser_back();
-                self.set_status_from_browser_result(result);
+                self.enqueue_active_browser_command(BrowserInputKind::Back);
                 return Ok(RenderAction::Draw);
             }
             Action::BrowserForward => {
-                let result = self.browser_forward();
-                self.set_status_from_browser_result(result);
+                self.enqueue_active_browser_command(BrowserInputKind::Forward);
                 return Ok(RenderAction::Draw);
             }
             Action::BrowserReload => {
-                let result = self.browser_reload();
-                self.set_status_from_browser_result(result);
+                self.enqueue_active_browser_command(BrowserInputKind::Reload);
                 return Ok(RenderAction::Draw);
             }
             Action::BrowserEditUrl => {
@@ -1393,10 +1384,6 @@ impl App {
         }
         self.status_message = None;
         Ok(RenderAction::Draw)
-    }
-
-    fn set_status_from_browser_result(&mut self, result: anyhow::Result<()>) {
-        self.status_message = result.err().map(|err| err.to_string());
     }
 
     fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
@@ -1449,28 +1436,6 @@ impl App {
         Ok(())
     }
 
-    fn active_browser_handle(&self) -> anyhow::Result<SurfaceHandle> {
-        let Some(surface) = self.active_surface_handle() else {
-            anyhow::bail!("no active surface");
-        };
-        if surface.kind() != SurfaceKind::Browser {
-            anyhow::bail!("active surface is not a browser");
-        }
-        Ok(surface)
-    }
-
-    fn browser_back(&mut self) -> anyhow::Result<()> {
-        self.active_browser_handle()?.browser_back()
-    }
-
-    fn browser_forward(&mut self) -> anyhow::Result<()> {
-        self.active_browser_handle()?.browser_forward()
-    }
-
-    fn browser_reload(&mut self) -> anyhow::Result<()> {
-        self.active_browser_handle()?.browser_reload()
-    }
-
     fn focus_omnibar(&mut self, pane: PaneId) {
         let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
             return;
@@ -1507,7 +1472,7 @@ impl App {
             Some(OmnibarState { pane, surface, input: TextInput::new(buffer), select_all });
     }
 
-    fn browser_handle_for_pane(&self, pane: PaneId) -> anyhow::Result<SurfaceHandle> {
+    fn browser_surface_for_pane(&self, pane: PaneId) -> anyhow::Result<(SurfaceId, SurfaceHandle)> {
         let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
             anyhow::bail!("pane has no active surface");
         };
@@ -1517,7 +1482,58 @@ impl App {
         if surface.kind() != SurfaceKind::Browser {
             anyhow::bail!("active surface is not a browser");
         }
-        Ok(surface)
+        Ok((surface_id, surface))
+    }
+
+    /// Dispatch a discrete browser control command (navigate/back/forward/
+    /// reload/activate). Unlike disposable input, a full dispatcher queue
+    /// (worker wedged in a blocking browser call) must not drop the command
+    /// silently: surface backpressure through the status line so the user
+    /// knows the action did not take effect.
+    fn dispatch_browser_control(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        kind: BrowserInputKind,
+    ) {
+        if self.browser_input.enqueue(BrowserInputEvent { surface_id, surface, kind }) {
+            self.status_message = None;
+        } else {
+            self.status_message = Some("browser is busy; command dropped".to_string());
+        }
+    }
+
+    fn enqueue_active_browser_command(&mut self, kind: BrowserInputKind) {
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else {
+            self.status_message = Some("no active surface".to_string());
+            return;
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            self.status_message = Some("active surface is not a browser".to_string());
+            return;
+        }
+        self.dispatch_browser_control(surface_id, surface, kind);
+    }
+
+    fn enqueue_browser_command_for_pane(&mut self, pane: PaneId, kind: BrowserInputKind) {
+        match self.browser_surface_for_pane(pane) {
+            Ok((surface_id, surface)) => {
+                self.dispatch_browser_control(surface_id, surface, kind);
+            }
+            Err(err) => self.status_message = Some(err.to_string()),
+        }
+    }
+
+    fn enqueue_browser_command(&mut self, surface_id: SurfaceId, kind: BrowserInputKind) {
+        let Some(surface) = self.session.surface(surface_id) else {
+            self.status_message = Some("unknown browser surface".to_string());
+            return;
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            self.status_message = Some("active surface is not a browser".to_string());
+            return;
+        }
+        self.dispatch_browser_control(surface_id, surface, kind);
     }
 
     fn browser_copy_url(&mut self, pane: PaneId) {
@@ -1566,26 +1582,18 @@ impl App {
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::BrowserBack(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_back());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Back);
             }
             MenuAction::BrowserForward(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_forward());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Forward);
             }
             MenuAction::BrowserReload(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_reload());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Reload);
             }
             MenuAction::BrowserEditUrl(id) => self.focus_omnibar(id),
             MenuAction::BrowserCopyUrl(id) => self.browser_copy_url(id),
             MenuAction::BrowserActivate(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_activate());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Activate);
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::CopyTabId(id) => {
@@ -1676,7 +1684,7 @@ impl App {
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
             {
-                self.browser_input.enqueue(BrowserInputEvent {
+                let _ = self.browser_input.enqueue(BrowserInputEvent {
                     surface_id,
                     surface,
                     kind: BrowserInputKind::InsertText(c.to_string()),
@@ -1695,13 +1703,13 @@ impl App {
                 modifiers,
                 text,
             };
-        self.browser_input.enqueue(BrowserInputEvent {
+        let _ = self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface: surface.clone(),
             kind: key_event("keyDown", text),
         });
         if key.kind == KeyEventKind::Press {
-            self.browser_input.enqueue(BrowserInputEvent {
+            let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: key_event("keyUp", None),
@@ -1712,7 +1720,7 @@ impl App {
     fn paste(&mut self, text: &str) {
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if surface.kind() == SurfaceKind::Browser {
-            self.browser_input.enqueue(BrowserInputEvent {
+            let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: BrowserInputKind::InsertText(text.to_string()),
@@ -2023,21 +2031,13 @@ impl App {
             }
             match hit {
                 OmnibarHit::Back => {
-                    let result =
-                        self.browser_handle_for_pane(pane).and_then(|handle| handle.browser_back());
-                    self.set_status_from_browser_result(result);
+                    self.enqueue_browser_command_for_pane(pane, BrowserInputKind::Back);
                 }
                 OmnibarHit::Forward => {
-                    let result = self
-                        .browser_handle_for_pane(pane)
-                        .and_then(|handle| handle.browser_forward());
-                    self.set_status_from_browser_result(result);
+                    self.enqueue_browser_command_for_pane(pane, BrowserInputKind::Forward);
                 }
                 OmnibarHit::Reload => {
-                    let result = self
-                        .browser_handle_for_pane(pane)
-                        .and_then(|handle| handle.browser_reload());
-                    self.set_status_from_browser_result(result);
+                    self.enqueue_browser_command_for_pane(pane, BrowserInputKind::Reload);
                 }
                 OmnibarHit::Edit => self.focus_omnibar(pane),
             }
@@ -2538,7 +2538,7 @@ impl App {
             if area.content.contains(x, y) {
                 let (px, py) = self.browser_point(area.content, x, y);
                 let delta = if down { 3.0 } else { -3.0 } * f64::from(self.cell_pixels.1);
-                self.browser_input.enqueue(BrowserInputEvent {
+                let _ = self.browser_input.enqueue(BrowserInputEvent {
                     surface_id,
                     surface,
                     kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta },
@@ -2597,7 +2597,7 @@ impl App {
     ) {
         let Some(surface) = self.session.surface(surface_id) else { return };
         let (px, py) = self.browser_point(content, x, y);
-        self.browser_input.enqueue(BrowserInputEvent {
+        let _ = self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface,
             kind: BrowserInputKind::Mouse {
@@ -2817,7 +2817,7 @@ mod tests {
             cell_pixels: (8, 16),
             pointer_shape: false,
             last_browser_hover: None,
-            browser_input: BrowserInputDispatcher::spawn().unwrap(),
+            browser_input: BrowserInputDispatcher::spawn(std::sync::mpsc::channel().0).unwrap(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
