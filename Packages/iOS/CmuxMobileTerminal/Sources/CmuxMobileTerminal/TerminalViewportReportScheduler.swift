@@ -72,6 +72,19 @@ public final class TerminalViewportReportScheduler {
     ///     still the newest submitted one, so applying it cannot regress the
     ///     grid; `nil` effective grids are delivered too (the caller re-arms
     ///     the report retry).
+    ///   - onReportSuperseded: Diagnostics hook fired synchronously inside
+    ///     ``submit(_:)`` when a newer report replaces an UNSENT pending one.
+    ///     Runs on the main actor before the superseding report is stored; do
+    ///     only cheap observation work here, never re-entrant `submit` calls.
+    ///   - onReportCancelled: Diagnostics hook fired synchronously inside
+    ///     ``submit(_:)`` immediately before an in-flight send is cancelled
+    ///     because a newer report superseded it. This is the single ownership
+    ///     point for counting cancellations; the send's own
+    ///     `CancellationError` unwind must not count the same event again.
+    ///     Not fired by ``cancel()`` (owner teardown is not a supersession).
+    ///   - onStaleEcho: Diagnostics hook fired synchronously inside the drain
+    ///     loop when a completed send's echo is discarded because a newer
+    ///     report was submitted while it was in flight.
     public init(
         send: @escaping @MainActor (Report) async -> EffectiveGrid?,
         apply: @escaping @MainActor (Report, EffectiveGrid?) -> Void,

@@ -313,7 +313,10 @@ final class MobileTerminalSyncDiagnostics {
         ))
         var props: [String: AnalyticsValue] = ["reason": .string(reason.analyticsValue)]
         if let pendingBytes { props["pending_byte_count"] = .int(pendingBytes) }
-        analytics.capture("ios_terminal_input_dropped", props)
+        // Rate-limited: the non-UTF8 raw-input path stays connected after the
+        // drop, so a burst of invalid packets must not fire one analytics
+        // event each. The bounded ring row above still records every drop.
+        captureRateLimited("ios_terminal_input_dropped", props)
     }
 
     private func emit(
