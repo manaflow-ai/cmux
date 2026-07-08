@@ -195,10 +195,27 @@ async function startServer(): Promise<AppServer> {
     proc.stdin.write(JSON.stringify(msg) + "\n");
     proc.stdin.flush();
   };
+  // No codex RPC is long-lived (turn completion arrives as a notification),
+  // so a dropped response must not leave callers awaiting forever; claude and
+  // pi requests are bounded the same way.
+  const REQUEST_TIMEOUT_MS = 30_000;
   const request = (method: string, params?: unknown) =>
     new Promise<any>((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`codex ${method} timed out`));
+      }, REQUEST_TIMEOUT_MS);
+      pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
       write({ jsonrpc: "2.0", id, method, params: params ?? {} });
     });
   const srv: AppServer = { proc, request, write, sessionsByThread: new Map() };
