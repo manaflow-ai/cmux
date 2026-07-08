@@ -82,7 +82,12 @@
       },
       "free": {
         "name": "Free",
-        "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features."
+        "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features.",
+        "upsellTitle": "Upgrade when you need cloud agents or team billing.",
+        "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
+        "testflightTitle": "Get the cmux iOS app",
+        "testflightBody": "The iOS beta is available through TestFlight for active Pro users and Team members.",
+        "testflightCta": "Join the iOS beta"
       },
       "pro": {
         "name": "cmux Pro",
