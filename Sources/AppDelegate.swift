@@ -3615,10 +3615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> CGRect {
         let fitCore = MainWindowVisibleFrameFitCore()
         if targetDisplay.visibleFrame.intersects(frame) {
-            if fitCore.fittedFrame(for: frame, displays: availableDisplays, minimumWidth: minWidth, minimumHeight: minHeight) == nil {
-                return frame
-            }
-            return fitCore.fittedFrame(for: frame, displays: [targetDisplay], minimumWidth: minWidth, minimumHeight: minHeight) ?? frame
+            return fitCore.fittedFrame(for: frame, displays: availableDisplays, minimumWidth: minWidth, minimumHeight: minHeight) ?? frame
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {

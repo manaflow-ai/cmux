@@ -287,4 +287,27 @@ struct MainWindowVisibleFrameFitCoreTests {
 
         #expect(restored == savedFrame.cgRect)
     }
+
+    @Test func restoreFitsCutOffFrameToCurrentDisplayWithGreatestOverlap() throws {
+        let savedFrame = SessionRectSnapshot(x: 1_500, y: -60, width: 900, height: 600)
+        let staleBuiltInDisplay = SessionDisplaySnapshot(
+            displayID: Self.builtInDisplay.displayID,
+            stableID: Self.builtInDisplay.stableID,
+            frame: SessionRectSnapshot(x: -40, y: 0, width: 1_512, height: 982),
+            visibleFrame: SessionRectSnapshot(x: -40, y: 0, width: 1_512, height: 900)
+        )
+
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: staleBuiltInDisplay,
+            availableDisplays: [Self.builtInDisplay, Self.rightDisplay],
+            fallbackDisplay: Self.builtInDisplay
+        ))
+
+        #expect(Self.rightDisplay.visibleFrame.contains(restored))
+        #expect(restored.minX == Self.rightDisplay.visibleFrame.minX)
+        #expect(restored.minY == Self.rightDisplay.visibleFrame.minY)
+        #expect(restored.width == CGFloat(savedFrame.width))
+        #expect(restored.height == CGFloat(savedFrame.height))
+    }
 }
