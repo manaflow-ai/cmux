@@ -93,17 +93,20 @@ keyboard handler both call the same `setOption` path:
 | shortcut | action |
 |----------|--------|
 | `Shift+Tab` | cycle mode-like option |
-| `Ctrl+P` | cycle model |
+| `Ctrl+Shift+M` | cycle model |
 | `Ctrl+Shift+P` | open model select |
-| `Ctrl+T` | cycle thinking/effort |
-| `Ctrl+F` | toggle fast mode |
-| `Ctrl+Shift+M` | toggle plan mode |
+| `Ctrl+Shift+T` | cycle thinking/effort |
+| `Ctrl+Shift+F` | toggle fast mode |
+| `Ctrl+Shift+L` | toggle plan mode |
 | `Esc` | interrupt running turn, else close popup/overlay |
 | `Ctrl+/` or `?` on an empty input | shortcut help overlay |
 | `ArrowDown` / `Ctrl+N` | next item while a `/`, `$`, or `@` popup is open |
 | `ArrowUp` / `Ctrl+P` | previous item while a `/`, `$`, or `@` popup is open |
 | `Enter` / `Tab` | accept the selected popup item |
 | `Ctrl+J` | insert newline by default; set `agentChat.keys.ctrlJ` to `"menu"` in `~/.config/cmux/cmux.json` to make it next-item while a popup is open |
+
+When focus is in a text input and no popup is open, plain `Ctrl+<letter>`
+combinations are left to the native macOS text editor bindings.
 
 Typing `@` at a token start opens the same popup UI for file references. The
 server lists git-tracked/untracked files for the cwd when possible and falls

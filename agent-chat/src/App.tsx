@@ -15,7 +15,7 @@ import {
   type SessionState,
 } from "./session";
 import { renderMd } from "./md";
-import { KEYMAP, MENU_KEYMAP, actionForKey, menuActionForKey, type KeyAction } from "./keymap";
+import { KEYMAP, MENU_KEYMAP, keyDispatchFor, menuActionForKey, type KeyAction } from "./keymap";
 import { activityIndicatorState, activityTailKey } from "./activity";
 
 // One WebSocket-backed session state, created once in App and shared.
@@ -1007,10 +1007,6 @@ function isCtrlJ(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
   return e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "j";
 }
 
-function isCtrlK(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
-  return e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";
-}
-
 function insertNewlineAtCaret(text: string, setText: (v: string) => void, ref: RefObject<HTMLTextAreaElement | null>) {
   const el = ref.current;
   const start = el?.selectionStart ?? text.length;
@@ -1186,11 +1182,10 @@ function useKeymap({
 }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const menuAction = menuActionForKey(e);
-      if (popupOpen && menuAction) return;
-      const action = actionForKey(e);
-      if (!action) return;
-      if (popupOpen && action !== "interrupt") return;
+      const dispatch = keyDispatchFor(e, { editable: isEditableTarget(e.target), popupOpen });
+      if (!dispatch) return;
+      if (dispatch.kind === "menu") return;
+      const action = dispatch.action;
       if (action === "help" && e.key === "?" && inputRef.current && inputRef.current.value.trim()) return;
       if (action === "interrupt") {
         if (helpOpen) {
@@ -1584,7 +1579,6 @@ function Composer() {
             onKeyDown={(e) => {
               if (commandMenu.onKeyDown(e)) return;
               if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(prompt, setPrompt, taRef); return; }
-              if (isCtrlK(e)) { e.preventDefault(); return; }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
             }}
             onFocus={clearError}
@@ -1810,7 +1804,6 @@ function Chat() {
               onKeyDown={(e) => {
                 if (commandMenu.onKeyDown(e)) return;
                 if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(text, setText, taRef); return; }
-                if (isCtrlK(e)) { e.preventDefault(); return; }
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
               }}
             />
