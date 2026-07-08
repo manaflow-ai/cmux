@@ -147,7 +147,7 @@ extension ControlCommandCoordinator {
             ])
         case .split(let orientation, let ratio, let first, let second):
             return .object([
-                "direction": .string(orientation),
+                "direction": .string(orientation.rawValue),
                 "split": .double(ratio),
                 "children": .array([
                     systemTreeLayoutPayload(first),

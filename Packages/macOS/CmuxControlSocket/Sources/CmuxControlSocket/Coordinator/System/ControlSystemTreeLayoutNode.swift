@@ -19,14 +19,25 @@ public import Foundation
 /// no dependency on the pane engine; the app maps `ExternalTreeNode` into this
 /// at capture time.
 public indirect enum ControlSystemTreeLayoutNode: Sendable, Equatable {
+    /// The axis a `.split` divides along. The wire contract promises exactly
+    /// these two names (emitted as the `direction` field); the `rawValue`s are
+    /// the wire strings. A source orientation matching neither is rejected at
+    /// the conversion boundary (the node — and, because every ancestor `.split`
+    /// requires both children, the whole workspace layout — converts to `nil`),
+    /// the same fail-closed path as an unparseable pane id.
+    public enum SplitOrientation: String, Sendable, Equatable, CaseIterable {
+        case horizontal
+        case vertical
+    }
+
     /// A leaf: one pane, identified by the pane `UUID` also present in the
     /// workspace's flat `panes` array.
     case pane(paneID: UUID)
 
-    /// A split of exactly two children along `orientation`
-    /// ("horizontal" | "vertical") at `ratio` (the divider position, 0…1).
+    /// A split of exactly two children along `orientation` at `ratio` (the
+    /// divider position, 0…1).
     case split(
-        orientation: String,
+        orientation: SplitOrientation,
         ratio: Double,
         first: ControlSystemTreeLayoutNode,
         second: ControlSystemTreeLayoutNode

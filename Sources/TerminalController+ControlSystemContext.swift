@@ -205,10 +205,14 @@ extension TerminalController: ControlSystemContext {
     }
 
     /// Map Bonsplit's `ExternalTreeNode` (from `treeSnapshot()`) into the
-    /// wire-facing `ControlSystemTreeLayoutNode`. Returns `nil` only if a pane
+    /// wire-facing `ControlSystemTreeLayoutNode`. Returns `nil` when any pane
     /// leaf carries an unparseable id (not expected: `ExternalPaneNode.id` is a
-    /// `UUID.uuidString`), which drops just that subtree rather than the whole
-    /// layout.
+    /// `UUID.uuidString`) or any split carries an orientation outside the wire
+    /// contract's `horizontal`/`vertical` (also not expected). This is
+    /// fail-closed: because a `.split` requires BOTH converted children, a
+    /// single nil leaf propagates up through every ancestor split and nils the
+    /// ENTIRE workspace layout — the consumer sees `layout: null` and falls
+    /// back to the flat `panes` array rather than acting on a partial tree.
     private func systemTreeLayoutNode(from node: ExternalTreeNode) -> ControlSystemTreeLayoutNode? {
         switch node {
         case .pane(let paneNode):
@@ -216,11 +220,12 @@ extension TerminalController: ControlSystemContext {
             return .pane(paneID: paneID)
         case .split(let splitNode):
             guard
+                let orientation = ControlSystemTreeLayoutNode.SplitOrientation(rawValue: splitNode.orientation),
                 let first = systemTreeLayoutNode(from: splitNode.first),
                 let second = systemTreeLayoutNode(from: splitNode.second)
             else { return nil }
             return .split(
-                orientation: splitNode.orientation,
+                orientation: orientation,
                 ratio: splitNode.dividerPosition,
                 first: first,
                 second: second

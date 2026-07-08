@@ -74,6 +74,25 @@ def _workspace_from_tree(tree_json: str, title: str) -> dict | None:
     return None
 
 
+def _wait_for_workspaces(cli_path: str, titles: list[str], timeout: float = 10.0) -> None:
+    """Poll `tree` until each title materializes.
+
+    `workspace create` returns before the workspace is queryable in the tree,
+    so a fixed sleep is racy under CI load. Poll until every title appears (or
+    the timeout lapses — the per-workspace assertions below then surface the
+    missing one).
+    """
+    deadline = time.monotonic() + timeout
+    pending = list(titles)
+    while pending and time.monotonic() < deadline:
+        code, out, _ = run(cli_path, "--json", "tree")
+        if code == 0:
+            pending = [t for t in pending if _workspace_from_tree(out, t) is None]
+            if not pending:
+                return
+        time.sleep(0.1)
+
+
 def _pane_refs(node: dict) -> list[str]:
     """In-order pane refs of a layout subtree."""
     if "pane" in node:
@@ -129,7 +148,10 @@ def main() -> int:
     try:
         single_ref = create(single_title)
         nested_ref = create(nested_title, "--layout", nested_layout)
-        time.sleep(1.0)
+        _wait_for_workspaces(
+            cli,
+            [t for t, r in ((single_title, single_ref), (nested_title, nested_ref)) if r],
+        )
 
         # --- single pane: layout is a bare pane leaf ---
         if single_ref:
