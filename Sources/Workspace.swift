@@ -6754,11 +6754,21 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
-            inheritedWorkingDirectory,
             sourcePanelId.flatMap { panelDirectories[$0] },
+            inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory),
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+    }
+
+    private func inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: UUID?, inheritedWorkingDirectory: String?) -> String? {
+        guard let inherited = Self.normalizedTerminalWorkingDirectory(inheritedWorkingDirectory),
+              let sourcePanelId,
+              restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] == nil,
+              restoredAgentResumeStatesByPanelId[sourcePanelId] != .autoResumeCommandRunning,
+              !isRemoteTerminalSurface(sourcePanelId),
+              terminalPanel(for: sourcePanelId)?.surface.surface != nil else { return nil }
+        return inherited
     }
 
     /// The foreground-process cwd read consulted by
@@ -6770,25 +6780,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).
     ///
-    /// While the resumed agent holds the pane's foreground the shell never
-    /// reaches a prompt, so the pane's tracked cwd cannot self-correct: the
-    /// one-shot restore guard (#6617) swallows only the first spurious
-    /// post-restore report, and any later stray report parks the tracked value
-    /// on the surface default (home) for the rest of the run. While that state
-    /// lasts, trust the tracked value only while it still equals the restored
-    /// session directory; otherwise prefer the live foreground process's
-    /// actual cwd (a resumed agent knows where it really is — e.g. Claude
-    /// restores its own cwd on resume), then the recorded session directory.
+    /// While the resumed agent owns the foreground, the shell never reaches a
+    /// prompt, so tracked cwd can be stranded on a spurious default/home report.
+    /// Trust it only while it still equals the restored session directory;
+    /// otherwise prefer the live foreground process cwd, then the recorded
+    /// session directory.
     /// Local panes only: a remote pane's tracked cwd is a remote path that no
     /// local process inspection or existence check can validate.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
         guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
-        // No recorded session directory means the resume launcher targets no
-        // directory of its own (e.g. a registration with a `.ignore` cwd
-        // policy, whose resume command never cds) — the tracked cwd is
-        // genuine, so there is nothing to rescue and the live foreground
-        // process must not be consulted either.
+        // No recorded session directory means the resume launcher targets no directory of its own.
         guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         ) else { return nil }
@@ -7162,16 +7164,10 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        let ghosttyInheritedWorkingDirectory = terminalPanel(for: panelId)?.surface.surface == nil || isRemoteTerminalSurface(panelId) || restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning ? nil : Self.normalizedTerminalWorkingDirectory(inheritedConfig?.workingDirectory)
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-            inheritedWorkingDirectory: ghosttyInheritedWorkingDirectory
+            inheritedWorkingDirectory: inheritedConfig?.workingDirectory
         )
-#if DEBUG
-        cmuxDebugLog(
-            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) requested=\(Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? "nil") inherited=\(ghosttyInheritedWorkingDirectory ?? "nil") resolved=\(splitWorkingDirectory ?? "nil")"
-        )
-#endif
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
@@ -7421,7 +7417,6 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -7441,6 +7436,10 @@ final class Workspace: Identifiable, ObservableObject {
             base: startupEnvironmentWithRemoteSession,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
+        let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
+            ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+        let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && startupCommand == nil
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: shouldInheritWorkingDirectoryFallback ? fallbackSourcePanelId : nil, inPane: paneId)
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
@@ -7449,12 +7448,11 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-        let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
-            ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
-        let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
+        let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory,
-                sourcePanelId: fallbackSourcePanelId
+                sourcePanelId: fallbackSourcePanelId,
+                inheritedWorkingDirectory: inheritedConfig?.workingDirectory
             )
             : workingDirectory
 
