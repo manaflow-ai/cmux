@@ -67,7 +67,7 @@ extension VerticalTabsSidebar {
             cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
             #endif
             dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload.provider(for: anchorId)
+            return SidebarTabDragPayload(tabId: anchorId).provider()
         }
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,

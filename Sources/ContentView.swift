@@ -765,6 +765,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+        let activeRemoteTerminalSessionCount: Int
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -780,7 +781,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<Snapshot, Never> in
+            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
                 guard let workspace else {
                     return Just(
                         Snapshot(
@@ -789,38 +790,53 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
+                            remoteDaemonStatus: nil,
+                            activeRemoteTerminalSessionCount: 0
                         )
                     )
+                    .map { ($0, UInt64(0)) }
                     .eraseToAnyPublisher()
                 }
+                let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
                 return workspace.$currentDirectory
                     .combineLatest(
                         workspace.$remoteConfiguration,
                         workspace.$remoteConnectionState,
                         workspace.$remoteConnectionDetail
                     )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(
+                        workspace.$remoteDaemonStatus,
+                        workspace.$activeRemoteTerminalSessionCount
+                    )
+                    .map { values in
+                        let (
+                            previousValues,
+                            remoteDaemonStatus,
+                            activeRemoteTerminalSessionCount
+                        ) = values
                         let (
                             currentDirectory,
                             remoteConfiguration,
                             remoteConnectionState,
                             remoteConnectionDetail
-                        ) = values
+                        ) = previousValues
                         return Snapshot(
                             workspaceId: workspace.id,
-                            currentDirectory: currentDirectory,
+                            currentDirectory: workspace.isRemoteWorkspace
+                                ? workspace.presentedCurrentDirectory
+                                : currentDirectory,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
+                            remoteDaemonStatus: remoteDaemonStatus,
+                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
+                    .combineLatest(directoryChangeRevision)
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates()
+            .removeDuplicates { lhs, rhs in lhs.0 == rhs.0 && lhs.1 == rhs.1 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
@@ -848,7 +864,7 @@ struct ContentView: View {
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
@@ -1985,7 +2001,7 @@ struct ContentView: View {
     /// Used to reserve space in the title row so the title flows to the right of
     /// the controls, which are themselves mounted once in the band overlay.
     private var fullscreenControlsWidth: CGFloat {
-        let style = TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue)
         return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
     }
 
@@ -2308,7 +2324,7 @@ struct ContentView: View {
 
         fileExplorerStore.showHiddenFiles = true
 
-        if tab.isRemoteWorkspace {
+        if tab.usesRemoteDirectoryProvenance {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             guard shouldSyncFileExplorerStore else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
@@ -2341,7 +2357,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
-                    rootPath: tab.currentDirectory,
+                    rootPath: tab.trustedRemoteCurrentDirectory,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -2376,16 +2392,14 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
-        // Use focused panel's directory if available
         if let focusedPanelId = tab.focusedPanelId,
-           let panelDir = tab.panelDirectories[focusedPanelId] {
-            let trimmed = panelDir.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
+           !tab.isRemoteTerminalSurface(focusedPanelId),
+           let panelDir = tab.reportedPanelDirectory(panelId: focusedPanelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !panelDir.isEmpty {
+            return panelDir
         }
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+        if tab.usesRemoteDirectoryProvenance { return nil }
+        return tab.presentedCurrentDirectory
     }
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
@@ -2616,7 +2630,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
-            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID, workspaceId == tabManager.selectedTabId, !tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspaceId) else { return }
+            guard tabManager.shouldRefreshTitleChrome(for: notification) else { return }
             updateTitlebarText()
         })
 
@@ -2814,6 +2828,12 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openCommandPaletteCommands()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
+            if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
+                presentSavedLayoutSavePrompt()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
@@ -5460,8 +5480,8 @@ struct ContentView: View {
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
         // Keep workspace rows coarse and stable for predictable workspace switching queries.
-        let directories = [workspace.currentDirectory]
-        let branches = [workspace.gitBranch?.branch].compactMap { $0 }
+        let directories = [workspace.presentedCurrentDirectory].compactMap { $0 }
+        let branches = [workspace.presentedGitBranch?.branch].compactMap { $0 }
         let ports = workspace.listeningPorts
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
@@ -5474,8 +5494,8 @@ struct ContentView: View {
         for workspace: Workspace,
         panelId: UUID
     ) -> CommandPaletteSwitcherSearchMetadata {
-        let directories = [workspace.panelDirectories[panelId]].compactMap { $0 }
-        let branches = [workspace.panelGitBranches[panelId]?.branch].compactMap { $0 }
+        let directories = [workspace.reportedPanelDirectory(panelId: panelId)].compactMap { $0 }
+        let branches = [workspace.reportedPanelGitBranch(panelId: panelId)?.branch].compactMap { $0 }
         let ports = workspace.surfaceListeningPorts[panelId] ?? []
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
@@ -5503,6 +5523,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .cloudVMLoading:
+            return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5525,6 +5547,8 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .cloudVMLoading:
+            return ["cloud", "vm", "loading"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -6123,6 +6147,7 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
+            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(
                 CommandPaletteContextKeys.authWorking,
                 auth.coordinator.isLoading || auth.coordinator.isRestoringSession || auth.browserSignIn.isSigningIn
@@ -6301,6 +6326,7 @@ struct ContentView: View {
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
+        contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -6577,7 +6603,7 @@ struct ContentView: View {
                 keywords: Self.commandPaletteMobileConnectKeywords
             )
         )
-        contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.makeDefaultTerminal",
@@ -6831,6 +6857,7 @@ struct ContentView: View {
             workspaceSubtitle: workspaceSubtitle,
             panelSubtitle: panelSubtitle
         )
+        appendSavedLayoutCommandContributions(to: &contributions, workspaceSubtitle: workspaceSubtitle)
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7382,6 +7409,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleFullWidthTab",
+                title: constant(String(localized: "command.toggleFullWidthTab.title", defaultValue: "Toggle Full Width Tab")),
+                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
+                keywords: ["full", "width", "tab", "title", "header", "solo"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.hasFocusedPanel) &&
+                    context.bool(CommandPaletteContextKeys.panelHasPane)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,
@@ -7653,6 +7692,8 @@ struct ContentView: View {
         }
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
+        registerCloudCommandHandlers(&registry)
+        registerSavedLayoutCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -7701,6 +7742,7 @@ struct ContentView: View {
             MobilePairingWindowController.shared.show()
         }
         registerAuthCommandHandlers(&registry)
+        registerProCommandHandlers(&registry)
         registry.register(commandId: "palette.makeDefaultTerminal") {
             DefaultTerminalUserAction.setAsDefault(debugSource: "palette.makeDefaultTerminal")
         }
@@ -8061,6 +8103,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.toggleFullWidthTab") {
+            if !tabManager.toggleFocusedFullWidthTab() {
                 NSSound.beep()
             }
         }
@@ -8604,6 +8651,7 @@ struct ContentView: View {
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
+             "palette.layout.saveCurrent",
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.
@@ -9444,10 +9492,16 @@ struct ContentView: View {
     private func focusedTerminalDirectoryURL() -> URL? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let rawDirectory: String = {
-            if let focusedPanelId = workspace.focusedPanelId,
-               let directory = workspace.panelDirectories[focusedPanelId] {
-                return directory
+            if let focusedPanelId = workspace.focusedPanelId {
+                guard workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId) else { return "" }
+                if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
+                    return directory
+                }
+                if let requestedDirectory = workspace.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory {
+                    return requestedDirectory
+                }
             }
+            guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
         let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10050,7 +10104,11 @@ struct VerticalTabsSidebar: View {
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            customSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
         let snapshot = CustomSidebarContextSnapshot(
@@ -10063,72 +10121,6 @@ struct VerticalTabsSidebar: View {
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
-    /// Projects one workspace's live state into the interpreter input snapshot.
-    /// The SwiftValue assembly and optional-field omission rules live in
-    /// `CustomSidebarDataContextBuilder`; keep the projected fields in sync with
-    /// the data keys documented in `docs/custom-sidebars.md`.
-    private func customSidebarWorkspaceSnapshot(_ workspace: Workspace, index: Int, selectedId: UUID?) -> CustomSidebarWorkspaceSnapshot {
-        let focusedPanelId = workspace.focusedPanelId
-        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
-        let progress = workspace.progress.map {
-            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
-        }
-        let remote = workspace.remoteDisplayTarget.map { target in
-            CustomSidebarWorkspaceSnapshot.Remote(
-                target: target,
-                stateRawValue: workspace.remoteConnectionState.rawValue,
-                isConnected: workspace.remoteConnectionState == .connected
-            )
-        }
-        return CustomSidebarWorkspaceSnapshot(
-            id: workspace.id,
-            title: workspace.customTitle ?? workspace.title,
-            isSelected: workspace.id == selectedId,
-            isPinned: workspace.isPinned,
-            index: index,
-            directory: workspace.currentDirectory,
-            listeningPorts: workspace.listeningPorts,
-            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
-            surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
-            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
-            customDescription: workspace.customDescription,
-            customColor: workspace.customColor,
-            gitBranch: firstBranch?.branch,
-            gitIsDirty: firstBranch?.isDirty ?? false,
-            pullRequestValues: workspace.customSidebarPullRequestValues(),
-            progress: progress,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt,
-            remote: remote
-        )
-    }
-
-    /// Projects a workspace's surfaces (terminal/browser/etc. tabs) into the
-    /// interpreter input snapshots, enriched with per-surface directory, pin,
-    /// git, and ports where available.
-    private func customSidebarSurfaceSnapshots(_ workspace: Workspace, focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
-        var surfaces: [CustomSidebarSurfaceSnapshot] = []
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                let git = workspace.panelGitBranches[panelId]
-                surfaces.append(
-                    CustomSidebarSurfaceSnapshot(
-                        panelId: panelId,
-                        title: tab.title,
-                        isFocused: panelId == focusedPanelId,
-                        isPinned: workspace.pinnedPanelIds.contains(panelId),
-                        directory: workspace.panelDirectories[panelId],
-                        gitBranch: git?.branch,
-                        gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
-                    )
-                )
-            }
-        }
-        return surfaces
-    }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10401,7 +10393,9 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
-        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
+        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter {
+            $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace
+        }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
         let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy {
@@ -10991,7 +10985,7 @@ struct VerticalTabsSidebar: View {
                 isFocused: liveWorkspace.focusedPanelId == panelId,
                 isPinned: liveWorkspace.isPanelPinned(panelId),
                 unreadCount: liveWorkspace.manualUnreadPanelIds.contains(panelId) ? 1 : 0,
-                workingDirectory: liveWorkspace.panelDirectories[panelId]
+                workingDirectory: liveWorkspace.reportedPanelDirectory(panelId: panelId)
             )
         }
     }
@@ -11014,6 +11008,8 @@ struct VerticalTabsSidebar: View {
         case .project:
             return .project
         case .extensionBrowser:
+            return .unknown
+        case .cloudVMLoading:
             return .unknown
         }
     }
@@ -11229,7 +11225,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
-        workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        workspace.presentedCurrentDirectory?.nilIfEmpty
     }
 
     private func extensionBrowserStackSidebar(
@@ -11397,7 +11393,7 @@ struct VerticalTabsSidebar: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag {
             dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
+            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
         }
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
@@ -11475,7 +11471,7 @@ struct VerticalTabsSidebar: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag {
             dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
+            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
         }
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
@@ -12270,16 +12266,17 @@ struct VerticalTabsSidebar: View {
             : [tab.id]
         let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
             ? renderContext.selectedRemoteContextMenuWorkspaceIds
-            : (tab.isRemoteWorkspace ? [tab.id] : [])
+            : (tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace ? [tab.id] : [])
         let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
             : (
                 tab.isRemoteWorkspace &&
+                    !tab.isManagedCloudVMWorkspace &&
                     (tab.remoteConnectionState == .connecting || tab.remoteConnectionState == .reconnecting)
             )
         let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
-            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+            : (tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace && tab.remoteConnectionState == .disconnected)
         let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
             workspaceIds: contextMenuWorkspaceIds,
             anchorWorkspaceId: tab.id
@@ -12334,7 +12331,7 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
             #endif
             dragState.beginDragging(tabId: tabId)
-            return SidebarTabDragPayload.provider(for: tabId)
+            return SidebarTabDragPayload(tabId: tabId).provider()
         }
         let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID? = { tabId in
             guard let app = AppDelegate.shared else { return nil }
@@ -12655,6 +12652,7 @@ private struct SidebarFooterButtons: View {
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            SidebarProBadge()
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
             if extensionsExperimentalEnabled {
@@ -13296,6 +13294,9 @@ struct TabItemView: View, Equatable {
     @State private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State private var isEditing = false
+    @State private var renameDraft = ""
+    @State private var renameBaselineHadUserCustomTitle = false
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
@@ -13716,14 +13717,42 @@ struct TabItemView: View, Equatable {
                         .accessibilityLabel(cameraInUseTooltip)
                 }
 
-                Text(displayedTitle)
-                    .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(titleLineLimit)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
+                if isEditing {
+                    SidebarInlineRenameField(
+                        initialText: renameDraft,
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        accessibilityLabel: String(
+                            localized: "sidebar.workspace.rename.field.accessibilityLabel",
+                            defaultValue: "Rename workspace"
+                        ),
+                        placeholder: String(
+                            localized: "commandPalette.rename.workspacePlaceholder",
+                            defaultValue: "Workspace name"
+                        ),
+                        onCommit: { newName in
+                            if let title = SidebarInlineRenameCommit().titleToCommit(
+                                draft: newName,
+                                baseline: renameDraft,
+                                baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle
+                            ) {
+                                tabManager.setCustomTitle(tabId: tab.id, title: title)
+                            }
+                            isEditing = false
+                        },
+                        onCancel: { isEditing = false }
+                    )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+                } else {
+                    Text(displayedTitle)
+                        .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
+                        .foregroundColor(activePrimaryTextColor)
+                        .lineLimit(titleLineLimit)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
+                }
 
                 // The close button is a sibling that always reserves its width
                 // when the workspace is closable, so the title wraps/truncates
@@ -14016,9 +14045,7 @@ struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .contentShape(Rectangle())
-        .onHover { hovering in
-            rowInteractionState.setPointerHovering(hovering)
-        }
+        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
             MiddleClickCapture {
@@ -14060,9 +14087,6 @@ struct TabItemView: View, Equatable {
         .onAppear {
             updateObservedActiveState(tabManager.selectedTabId == tab.id)
             refreshWorkspaceSnapshot(force: true)
-        }
-        .onDisappear {
-            rowInteractionState.setPointerHovering(false)
         }
         .onReceive(
             tabManager.selectedTabIdPublisher
@@ -14117,7 +14141,7 @@ struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag(onDragStart)
+        .sidebarRowDragGate(isEditing: isEditing, onDragStart)
         .internalOnlyTabDrag()
         .modifier(SidebarBonsplitWorkspaceRowDropModifier(
             isEnabled: isBonsplitWorkspaceDropActive,
@@ -14128,18 +14152,24 @@ struct TabItemView: View, Equatable {
             selectedTabIds: $selectedTabIds
         ))
         .onTapGesture {
-            updateSelection()
+            if !isEditing { updateSelection() }
         }
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                guard !isEditing else { return }
+                beginInlineRename()
+            }
+        )
         .safeHelp(workspaceSnapshot.title)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityTitle))
-        .accessibilityHint(Text(accessibilityHintText))
-        .accessibilityAction(named: Text(moveUpActionText)) {
-            moveBy(-1)
-        }
-        .accessibilityAction(named: Text(moveDownActionText)) {
-            moveBy(1)
-        }
+        .modifier(SidebarRowAccessibilityModifier(
+            isEditing: isEditing,
+            label: accessibilityTitle,
+            hint: accessibilityHintText,
+            moveUpLabel: moveUpActionText,
+            moveDownLabel: moveDownActionText,
+            onMoveUp: { moveBy(-1) },
+            onMoveDown: { moveBy(1) }
+        ))
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
@@ -14154,6 +14184,13 @@ struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+    }
+
+    private func beginInlineRename() {
+        updateSelection()
+        renameDraft = workspaceSnapshot.title
+        renameBaselineHadUserCustomTitle = tab.effectiveCustomTitleSource == .user
+        isEditing = true
     }
 
     private func updateObservedActiveState(_ isActive: Bool) {
@@ -14784,8 +14821,8 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
-                || tab.remoteConnectionState == .disconnected,
+            showsRemoteReconnectAffordance: !tab.isManagedCloudVMWorkspace
+                && (tab.remoteConnectionState == .suspended || tab.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
@@ -15596,32 +15633,6 @@ private struct SidebarMetadataMarkdownBlockRow: View {
             maxDisplayedCharacters: maxDisplayedCharacters
         )
     }
-}
-
-/// Immutable, equatable snapshot of the group list a row's "Move to Group"
-/// submenu can offer. Computed once per parent body eval and passed into
-/// each TabItemView so the row's `==` covers group changes (renames, adds,
-/// deletes) — the row's snapshot-boundary rule forbids reading
-/// `tabManager.workspaceGroups` from inside the contextMenu builder.
-enum SidebarTabDragPayload {
-    static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-    static let dropContentTypes: [UTType] = [dropContentType]
-    static let prefix = "cmux.sidebar-tab."
-
-    static func provider(for tabId: UUID) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let payload = "\(prefix)\(tabId.uuidString)"
-        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
-            let data = payload.data(using: .utf8)
-            Task { @MainActor in
-                completion(data, nil)
-            }
-            return nil
-        }
-        return provider
-    }
-
 }
 
 enum BonsplitTabDragPayload {
