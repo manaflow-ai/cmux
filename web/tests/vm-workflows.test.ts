@@ -379,6 +379,33 @@ describe("VM Effect workflows", () => {
     expect(revokedLeaseIds).toEqual(["lease-expired-identity"]);
   });
 
+  test("fails closed when team-scoped VM access omits team membership context", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000118",
+      userId: "user-workflow-team-context",
+      billingTeamId: "team-workflow-team-context",
+      providerVmId: "provider-vm-team-context",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-team-context",
+        billingTeamId: "team-workflow-team-context",
+        providerVmId: "provider-vm-team-context",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+  });
+
   test("exec failure without gateway getStatus propagates the original error", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000104",
@@ -1659,6 +1686,7 @@ describe("VM Effect workflows", () => {
       openSshEndpoint({
         userId: "user-workflow-resume-ssh",
         billingTeamId: "team-workflow-resume-ssh",
+        teamIds: ["team-workflow-resume-ssh"],
         providerVmId: "provider-vm-resume-ssh",
       }).pipe(
         Effect.provide(providerLayer(provider)),
@@ -1841,6 +1869,7 @@ describe("VM Effect workflows", () => {
         openAttachEndpoint({
           userId: "user-workflow-resume-limit",
           billingTeamId: "team-workflow-resume-limit",
+          teamIds: ["team-workflow-resume-limit"],
           providerVmId: "provider-vm-resume-paused",
         }).pipe(
           Effect.flip,
@@ -1910,6 +1939,7 @@ describe("VM Effect workflows", () => {
       openAttachEndpoint({
         userId: "user-workflow-resume-fail",
         billingTeamId: "team-workflow-resume-fail",
+        teamIds: ["team-workflow-resume-fail"],
         providerVmId: "provider-vm-resume-fail",
       }).pipe(
         Effect.flip,
@@ -2688,6 +2718,7 @@ describe("VM Effect workflows", () => {
       destroyVm({
         userId: "user-workflow-reuse-slot",
         billingTeamId: "team-workflow-reuse-slot",
+        teamIds: ["team-workflow-reuse-slot"],
         providerVmId: "provider-vm-reuse-old",
       }).pipe(
         Effect.provide(layer),
@@ -3339,6 +3370,7 @@ describe("VM Effect workflows", () => {
       openAttachEndpoint({
         userId: "user-workflow-teammate",
         billingTeamId: "team-workflow-shared",
+        teamIds: ["team-workflow-shared"],
         providerVmId: "provider-vm-shared-team",
       }).pipe(Effect.provide(layer)),
     );
