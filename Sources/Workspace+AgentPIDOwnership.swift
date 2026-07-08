@@ -24,16 +24,18 @@ extension Workspace {
         }
         if isStructuredAgentHookPIDKey(key) {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
+            let synthesizedKey = Self.synthesizedDisplacedPIDKey(statusKey: statusKey, panelId: panelId)
             let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
                 $0 != key && isStructuredAgentHookPIDKey($0)
             } ?? []
             for staleKey in stalePanelKeys {
-                // A stale key for the SAME agent type is a key-shape change
-                // (bare key returning to a pane that holds a synthesized
-                // displacement key): keep the pane's status entry. A different
-                // agent type is a real replacement: clear its status too.
-                let sameAgent = agentStatusKey(forAgentPIDKey: staleKey) == statusKey
-                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !sameAgent, refreshPorts: false)
+                // Keep the pane's status entry ONLY for the key-shape change
+                // (the bare key returning to a pane holding this pane's own
+                // synthesized displacement key). Anything else, including a
+                // NEW session of the same agent type under a different
+                // suffixed key, is a real replacement: clear its status too.
+                let keepEntry = staleKey == synthesizedKey
+                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !keepEntry, refreshPorts: false)
             }
         }
         agentPIDPanelIdsByKey[key] = panelId
@@ -92,15 +94,17 @@ extension Workspace {
     func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
         let retainedStatusKey = agentStatusKey(forAgentPIDKey: retainedKey)
+        let synthesizedKey = Self.synthesizedDisplacedPIDKey(statusKey: retainedStatusKey, panelId: panelId)
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
-            // A stale key for the SAME agent type is a key-shape change (bare
-            // key returning to a pane holding a synthesized displacement key):
-            // keep the pane's status entry. A different agent type is a real
+            // Keep the pane's status entry ONLY for the key-shape change (the
+            // bare key returning to a pane holding this pane's own synthesized
+            // displacement key). Anything else, including a NEW session of the
+            // same agent type under a different suffixed key, is a real
             // replacement: clear its status too.
-            let sameAgent = agentStatusKey(forAgentPIDKey: staleKey) == retainedStatusKey
-            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !sameAgent, refreshPorts: false) {
+            let keepEntry = staleKey == synthesizedKey
+            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !keepEntry, refreshPorts: false) {
                 didChange = true
             }
         }
