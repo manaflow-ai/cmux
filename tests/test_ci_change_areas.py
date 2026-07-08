@@ -55,6 +55,17 @@ def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
 
 
+def test_mux_only_skips_macos() -> None:
+    # cmux-mux is a standalone Rust project with its own `mux` workflow; its
+    # changes must not require the macOS app-host tests.
+    assert_areas(
+        ["mux/crates/mux-core/src/browser.rs", "mux/README.md", "mux/docs/protocol.md"],
+        macos=False,
+        web=False,
+        go=False,
+    )
+
+
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, go=False, agent_session_web=False)
 
