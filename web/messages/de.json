@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "Für ein selbst gehostetes oder air-gapped Deployment wende dich an <link>founders@manaflow.com</link>."
     },
     "extensionsMarketplace": {
+      "metaTitle": "Erweiterungs-Marktplatz",
       "metaDescription": "Wie der kuratierte cmux-Marktplatz Einreichungen prüft und unterstützte Erweiterungen listet.",
+      "title": "Erweiterungs-Marktplatz",
       "intro": "Der Marktplatz ist eine kuratierte Registry unterstützter Dock-TUI-Erweiterungen; nur genehmigte Repositories erscheinen.",
+      "discoveryTitle": "Entdeckung",
       "discoveryIntro": "Die Website liest eine Registry-Datei. Ein Repository erscheint erst nach einem gemergten Eintrag:",
       "submitTitle": "Erweiterung einreichen",
       "submitIntro": "Führe CLI submit aus einer cmux-Installation aus, um das Repository zu validieren und ein GitHub-Issue zu öffnen:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "Wir prüfen Manifest, Befehle, Lizenz und relevanten Code.",
       "approvalDogfood": "Wir testen die Panes ausreichend, um das Verhalten zu bestätigen.",
       "approvalMerge": "Ein Maintainer merged einen PR, der das Repository zur Registry hinzufügt.",
+      "installTitle": "Install-Buttons",
+      "installIntro": "Der „In cmux installieren“-Button der Galerie ist ein einfacher cmux-Deeplink, der nur den Repository-Namen enthält:",
+      "installConsent": "Die cmux-App öffnet den Link, ruft das Repository ab, validiert das Manifest, pinnt die Installation auf einen Commit und zeigt den Zustimmungsdialog in der App an, bevor irgendetwas ausgeführt wird.",
+      "takedownsTitle": "Entfernungen",
       "takedownsIntro": "Entfernung ist ebenfalls ein Registry-PR und entfernt den Eintrag beim nächsten Deploy."
     }
   },

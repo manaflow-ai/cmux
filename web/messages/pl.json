@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@manaflow.com</link>."
     },
     "extensionsMarketplace": {
+      "metaTitle": "Marketplace rozszerzeń",
       "metaDescription": "Jak kuratorowany marketplace cmux sprawdza zgłoszenia i listuje wspierane rozszerzenia.",
+      "title": "Marketplace rozszerzeń",
       "intro": "Marketplace jest kuratorowanym rejestrem wspieranych rozszerzeń Dock TUI; pokazuje tylko zatwierdzone repozytoria.",
+      "discoveryTitle": "Odkrywanie",
       "discoveryIntro": "Strona czyta plik rejestru. Repozytorium pojawia się po scaleniu jego wpisu:",
       "submitTitle": "Prześlij rozszerzenie",
       "submitIntro": "Uruchom CLI submit z cmux, aby zwalidować repozytorium i otworzyć issue GitHub:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "Sprawdzamy manifest, polecenia, licencję i kod.",
       "approvalDogfood": "Testujemy panele, by potwierdzić opisane działanie.",
       "approvalMerge": "Maintainer scala PR dodający repozytorium do rejestru.",
+      "installTitle": "Przyciski instalacji",
+      "installIntro": "Przycisk „Zainstaluj w cmux” w galerii to zwykły głęboki link cmux zawierający tylko nazwę repozytorium:",
+      "installConsent": "Aplikacja cmux otwiera link, pobiera repozytorium, weryfikuje manifest, przypina instalację do commita i pokazuje ekran zgody w aplikacji, zanim cokolwiek uruchomi.",
+      "takedownsTitle": "Usunięcia",
       "takedownsIntro": "Usunięcie także jest PR rejestru i usuwa wpis przy następnym wdrożeniu."
     }
   },

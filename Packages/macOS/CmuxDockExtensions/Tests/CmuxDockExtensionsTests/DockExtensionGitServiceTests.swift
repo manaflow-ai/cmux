@@ -112,6 +112,15 @@ struct DockExtensionGitServiceTests {
         #expect(DockExtensionGitService.pickRevision(from: "", ref: nil) == nil)
     }
 
+    @Test func refusesSuffixMatchForRequestedRef() {
+        // `ls-remote v1` also suffix-matches refs like refs/heads/user/v1;
+        // pinning one of those instead of failing would install a commit the
+        // user never asked for.
+        let sha1 = String(repeating: "1", count: 40)
+        let output = "\(sha1)\trefs/heads/user/v1"
+        #expect(DockExtensionGitService.pickRevision(from: output, ref: "v1") == nil)
+    }
+
     @Test func recognizesFullShas() {
         #expect(DockExtensionGitService.isFullSha(String(repeating: "a", count: 40)))
         #expect(DockExtensionGitService.isFullSha(String(repeating: "A", count: 40)))

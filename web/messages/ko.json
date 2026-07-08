@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@manaflow.com</link>으로 문의하세요."
     },
     "extensionsMarketplace": {
+      "metaTitle": "확장 프로그램 마켓플레이스",
       "metaDescription": "선별된 cmux marketplace가 제출을 검토하고 지원 확장을 나열하는 방식입니다.",
+      "title": "확장 프로그램 마켓플레이스",
       "intro": "marketplace는 지원되는 Dock TUI 확장의 registry이며 승인된 저장소만 표시됩니다.",
+      "discoveryTitle": "발견",
       "discoveryIntro": "웹사이트는 registry 파일을 읽습니다. 저장소는 항목이 병합된 뒤에만 표시됩니다:",
       "submitTitle": "확장 제출",
       "submitIntro": "cmux에서 CLI submit을 실행해 저장소를 검증하고 GitHub 이슈를 엽니다:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "manifest, 명령, 라이선스, 관련 코드를 검토합니다.",
       "approvalDogfood": "panes를 시험해 설명된 동작을 확인합니다.",
       "approvalMerge": "maintainer가 registry에 추가하는 PR을 병합합니다.",
+      "installTitle": "설치 버튼",
+      "installIntro": "갤러리의 'cmux에 설치' 버튼은 저장소 이름만 포함하는 일반 cmux 딥 링크입니다:",
+      "installConsent": "cmux 앱은 링크를 열고 저장소를 가져와 매니페스트를 검증하고 설치를 커밋에 고정한 뒤, 무언가를 실행하기 전에 앱 내 동의 화면을 표시합니다.",
+      "takedownsTitle": "게시 중단",
       "takedownsIntro": "삭제도 registry PR이며 다음 배포 때 갤러리에서 제거됩니다."
     }
   },

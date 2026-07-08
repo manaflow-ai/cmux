@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "សម្រាប់ការដាក់ពង្រាយផ្ទាល់ខ្លួន ឬដែលផ្តាច់ចេញពីបណ្តាញ សូមទាក់ទង <link>founders@manaflow.com</link>។"
     },
     "extensionsMarketplace": {
+      "metaTitle": "ទីផ្សារផ្នែកបន្ថែម",
       "metaDescription": "របៀប marketplace cmux ពិនិត្យការផ្ញើ និងបង្ហាញផ្នែកបន្ថែមដែលគាំទ្រ។",
+      "title": "ទីផ្សារផ្នែកបន្ថែម",
       "intro": "marketplace គឺជា registry ដែលបានជ្រើសរើសសម្រាប់ Dock TUI ដែលគាំទ្រ; បង្ហាញតែ repository ដែលអនុម័ត។",
+      "discoveryTitle": "ការរកឃើញ",
       "discoveryIntro": "គេហទំព័រអាន registry file។ repository បង្ហាញបន្ទាប់ពី merge ធាតុរបស់វា:",
       "submitTitle": "ផ្ញើផ្នែកបន្ថែម",
       "submitIntro": "រត់ CLI submit ពី cmux ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "យើងពិនិត្យ manifest, commands, license និង code ពាក់ព័ន្ធ។",
       "approvalDogfood": "យើងសាកល្បង panes ដើម្បីបញ្ជាក់អាកប្បកិរិយា។",
       "approvalMerge": "maintainer merge PR បន្ថែម repository ទៅ registry។",
+      "installTitle": "ប៊ូតុងដំឡើង",
+      "installIntro": "ប៊ូតុង \"ដំឡើងក្នុង cmux\" នៅក្នុងវិចិត្រសាលគឺជាតំណភ្ជាប់ជ្រៅ cmux ធម្មតាដែលមានតែឈ្មោះឃ្លាំងកូដប៉ុណ្ណោះ៖",
+      "installConsent": "កម្មវិធី cmux បើកតំណភ្ជាប់ ទាញយកឃ្លាំងកូដ ផ្ទៀងផ្ទាត់ manifest ភ្ជាប់ការដំឡើងទៅ commit មួយ ហើយបង្ហាញអេក្រង់យល់ព្រមក្នុងកម្មវិធីមុនពេលដំណើរការអ្វីមួយ។",
+      "takedownsTitle": "ការដកចេញ",
       "takedownsIntro": "ការដកចេញក៏ជា registry PR ហើយនឹងលុបពីវិចិត្រសាលពេល deploy បន្ទាប់។"
     }
   },

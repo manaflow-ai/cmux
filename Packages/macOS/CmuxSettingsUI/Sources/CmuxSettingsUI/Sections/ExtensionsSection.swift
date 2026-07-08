@@ -91,7 +91,7 @@ public struct ExtensionsSection: View {
         } else {
             ForEach(state.rows) { row in
                 SettingsCardDivider()
-                extensionRow(row, state: state)
+                extensionRow(row, actions: state.actions)
             }
         }
         if let message = state.lastErrorMessage, !message.isEmpty {
@@ -139,7 +139,7 @@ public struct ExtensionsSection: View {
             String(localized: "settings.extensions.marketplace", defaultValue: "Marketplace"),
             subtitle: String(
                 localized: "settings.extensions.marketplace.subtitle",
-                defaultValue: "Community extensions: public GitHub repositories tagged cmux-extension."
+                defaultValue: "Curated extensions supported by cmux. Submit yours with cmux extension submit."
             )
         ) {
             Button(String(localized: "settings.extensions.marketplace.button", defaultValue: "Browse…")) {
@@ -151,7 +151,9 @@ public struct ExtensionsSection: View {
     }
 
     @ViewBuilder
-    private func extensionRow(_ row: ExtensionsSettingsState.Row, state: ExtensionsSettingsState) -> some View {
+    // Rows receive an immutable snapshot plus the closure bundle only (the
+    // snapshot-boundary rule): no live store reference below the ForEach.
+    private func extensionRow(_ row: ExtensionsSettingsState.Row, actions: ExtensionsSettingsState.Actions) -> some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:extensions:installed:\(row.id)",
@@ -159,26 +161,26 @@ public struct ExtensionsSection: View {
             subtitle: rowSubtitle(row)
         ) {
             HStack(spacing: 8) {
-                openControl(row, state: state)
+                openControl(row, actions: actions)
                 Toggle("", isOn: Binding(
                     get: { row.enabled },
-                    set: { state.actions.setEnabled(row.id, $0) }
+                    set: { actions.setEnabled(row.id, $0) }
                 ))
                 .labelsHidden()
                 .controlSize(.small)
                 .disabled(row.isBusy)
                 .accessibilityIdentifier("SettingsExtensionEnabledToggle-\(row.id)")
-                rowMenu(row, state: state)
+                rowMenu(row, actions: actions)
             }
         }
     }
 
     @ViewBuilder
-    private func openControl(_ row: ExtensionsSettingsState.Row, state: ExtensionsSettingsState) -> some View {
+    private func openControl(_ row: ExtensionsSettingsState.Row, actions: ExtensionsSettingsState.Actions) -> some View {
         let openTitle = String(localized: "settings.extensions.open", defaultValue: "Open")
         if row.panes.count == 1, let pane = row.panes.first {
             Button {
-                state.actions.openPane(pane.id)
+                actions.openPane(pane.id)
             } label: {
                 Label(openTitle, systemImage: row.iconSystemName)
             }
@@ -187,7 +189,7 @@ public struct ExtensionsSection: View {
         } else if row.panes.count > 1 {
             Menu {
                 ForEach(row.panes) { pane in
-                    Button(pane.title) { state.actions.openPane(pane.id) }
+                    Button(pane.title) { actions.openPane(pane.id) }
                 }
             } label: {
                 Label(openTitle, systemImage: row.iconSystemName)
@@ -199,11 +201,11 @@ public struct ExtensionsSection: View {
     }
 
     @ViewBuilder
-    private func rowMenu(_ row: ExtensionsSettingsState.Row, state: ExtensionsSettingsState) -> some View {
+    private func rowMenu(_ row: ExtensionsSettingsState.Row, actions: ExtensionsSettingsState.Actions) -> some View {
         Menu {
             if !row.isLinked {
                 Button(String(localized: "settings.extensions.update", defaultValue: "Check for Update…")) {
-                    state.actions.update(row.id)
+                    actions.update(row.id)
                 }
             }
             if let repoURL = row.repoURL {

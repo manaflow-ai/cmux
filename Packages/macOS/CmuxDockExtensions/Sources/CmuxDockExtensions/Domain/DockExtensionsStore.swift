@@ -187,6 +187,8 @@ public final class DockExtensionsStore {
         }
         defer { busyExtensionIds.remove(id) }
 
+        let previousRecord = installedExtension(id: id)?.record
+        let destination = directories.checkoutDirectory(id: id)
         do {
             let buildRoot = Self.applySubdirectory(preview.source.subdirectory, to: staging)
             try await buildRunner.runBuildSteps(
@@ -194,7 +196,6 @@ public final class DockExtensionsStore {
                 in: buildRoot,
                 logsDirectory: directories.logsDirectory(id: id)
             )
-            let destination = directories.checkoutDirectory(id: id)
             try await Task.detached {
                 try Self.moveIntoPlace(staging: staging, destination: destination)
             }.value
@@ -210,10 +211,23 @@ public final class DockExtensionsStore {
             pinnedSha: preview.resolvedSha,
             ref: preview.ref,
             installedAt: Date(),
-            enabled: true,
+            // An update must not silently re-enable an extension the user
+            // disabled in Settings; re-consent covers the code, not the toggle.
+            enabled: previousRecord?.enabled ?? true,
             consentFingerprint: preview.consentFingerprint
         )
-        try await repository.upsert(record)
+        do {
+            try await repository.upsert(record)
+        } catch {
+            // A fresh install that failed to record must not leave an
+            // untracked checkout behind. On an update the previous record
+            // still points at this directory, so keep the files (the
+            // projection reports needsReconsent until a retry succeeds).
+            if previousRecord == nil {
+                try? FileManager.default.removeItem(at: destination)
+            }
+            throw error
+        }
         await reload()
         host?.activateDockForExtensions()
     }
@@ -269,8 +283,13 @@ public final class DockExtensionsStore {
             try loader.load(fromDirectory: url)
         }.value
         try validateForInstall(manifest)
-        if let existing = installedExtension(id: manifest.id), !existing.isLinked {
-            throw DockExtensionError.duplicateId(manifest.id)
+        // Exact-id re-link of a linked extension refreshes it; anything else
+        // sharing the id (including a case-only difference — ids name on-disk
+        // directories on case-insensitive APFS) is a collision.
+        if let existing = installed.first(where: {
+            $0.id.caseInsensitiveCompare(manifest.id) == .orderedSame
+        }), existing.id != manifest.id || !existing.isLinked {
+            throw DockExtensionError.duplicateId(existing.id)
         }
         let record = DockExtensionInstallRecord(
             id: manifest.id,
@@ -384,6 +403,14 @@ public final class DockExtensionsStore {
         for id: String,
         source: DockExtensionSource
     ) throws -> DockExtensionInstallPreview.Kind {
+        // Ids name on-disk directories and APFS is case-insensitive by
+        // default, so "MyExt" and "myext" would share one checkout and
+        // overwrite each other. Refuse case-colliding ids outright.
+        if let collision = installed.first(where: {
+            $0.id != id && $0.id.caseInsensitiveCompare(id) == .orderedSame
+        }) {
+            throw DockExtensionError.duplicateId(collision.id)
+        }
         guard let existing = installedExtension(id: id) else { return .install }
         guard existing.record.source == source else {
             throw DockExtensionError.duplicateId(id)
@@ -456,89 +483,5 @@ public final class DockExtensionsStore {
     /// (main-actor read for the cleanup task's post-listing snapshot).
     private func stagingPathsActiveNow() -> Set<String> {
         activeStagingPaths
-    }
-
-    private nonisolated static func moveIntoPlace(staging: URL, destination: URL) throws {
-        let fileManager = FileManager.default
-        do {
-            try fileManager.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if fileManager.fileExists(atPath: destination.path) {
-                _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
-            } else {
-                try fileManager.moveItem(at: staging, to: destination)
-            }
-        } catch {
-            throw DockExtensionError.stagingFailed(detail: error.localizedDescription)
-        }
-    }
-
-    private nonisolated static func project(
-        records: [DockExtensionInstallRecord],
-        directories: DockExtensionDirectories,
-        loader: DockExtensionManifestLoader
-    ) -> [InstalledDockExtension] {
-        records.map { record in
-            let root = rootDirectory(for: record, directories: directories)
-            do {
-                let manifest = try loader.load(fromDirectory: root)
-                let status: InstalledDockExtension.Status
-                if manifest.id != record.id {
-                    status = .needsReconsent
-                } else if record.source.isLocal {
-                    // Linked development extensions are trusted live; edits to
-                    // the manifest are the whole point of linking.
-                    status = .ok
-                } else {
-                    let fingerprint = manifest.consentFingerprint(pinnedSha: record.pinnedSha)
-                    status = fingerprint == record.consentFingerprint ? .ok : .needsReconsent
-                }
-                return InstalledDockExtension(
-                    record: record,
-                    manifest: manifest,
-                    rootDirectory: root,
-                    status: status
-                )
-            } catch {
-                let message = (error as? DockExtensionError)?.errorDescription ?? error.localizedDescription
-                return InstalledDockExtension(
-                    record: record,
-                    manifest: nil,
-                    rootDirectory: root,
-                    status: .manifestUnavailable(message)
-                )
-            }
-        }
-    }
-
-    private nonisolated static func rootDirectory(
-        for record: DockExtensionInstallRecord,
-        directories: DockExtensionDirectories
-    ) -> URL {
-        switch record.source {
-        case .local(let path):
-            return URL(fileURLWithPath: path, isDirectory: true)
-        case .github:
-            // A malformed lockfile id (other tooling writes this file) must
-            // never resolve to a path outside the managed checkouts directory;
-            // route it to a never-existing child so the projection reports the
-            // record as unavailable instead of reading a traversal target.
-            guard DockExtensionManifest.isValidExtensionId(record.id) else {
-                return directories
-                    .checkoutDirectory(id: "invalid")
-                    .appendingPathComponent("invalid-record-id", isDirectory: true)
-            }
-            return applySubdirectory(
-                record.source.subdirectory,
-                to: directories.checkoutDirectory(id: record.id)
-            )
-        }
-    }
-
-    private nonisolated static func applySubdirectory(_ subdirectory: String?, to base: URL) -> URL {
-        guard let subdirectory else { return base }
-        return base.appendingPathComponent(subdirectory, isDirectory: true)
     }
 }

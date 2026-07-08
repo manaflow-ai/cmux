@@ -38,6 +38,11 @@ public enum DockExtensionSource: Equatable, Hashable, Sendable, CustomStringConv
         guard isValidOwner(owner), isValidRepository(repository) else { return nil }
 
         let subdirectoryComponents = Array(components.dropFirst(2))
+        // Browser URLs paste as `owner/repo/tree/<ref>/<subdir>`; "tree" is
+        // GitHub's UI path segment, not a repo directory. Reject it instead of
+        // silently treating `tree/<ref>/…` as the manifest subdirectory (the
+        // ref belongs in `--ref`).
+        guard subdirectoryComponents.first != "tree" else { return nil }
         guard subdirectoryComponents.allSatisfy({ isValidSubdirectoryComponent($0) }) else { return nil }
         let subdirectory = subdirectoryComponents.isEmpty ? nil : subdirectoryComponents.joined(separator: "/")
         return .github(owner: owner, repository: repository, subdirectory: subdirectory)

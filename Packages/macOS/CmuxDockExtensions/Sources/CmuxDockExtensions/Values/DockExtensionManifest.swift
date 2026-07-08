@@ -101,7 +101,10 @@ public struct DockExtensionManifest: Equatable, Sendable {
 
     /// The build steps that apply to the running platform, in manifest order.
     public var buildStepsForCurrentPlatform: [DockExtensionBuildStep] {
-        build.filter { Self.appliesToCurrentPlatform($0.platforms) }
+        // Mirror panesForCurrentPlatform: the manifest-wide platform gate
+        // applies before per-step filters.
+        guard appliesToCurrentPlatform else { return [] }
+        return build.filter { Self.appliesToCurrentPlatform($0.platforms) }
     }
 
     /// The pane with the given local id, if declared.

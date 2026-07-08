@@ -37,7 +37,21 @@ extension DockExtensionManifest {
         }
         let canonical = lines.joined(separator: "\n")
         let digest = SHA256.hash(data: Data(canonical.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return Self.lowercaseHex(digest)
+    }
+
+    /// Lookup-table hex encoding (no per-byte `String(format:)` allocations;
+    /// see the String(format:) hex-encoding regression class from
+    /// https://github.com/manaflow-ai/cmux/pull/5347).
+    private static func lowercaseHex(_ digest: SHA256.Digest) -> String {
+        let table: [UInt8] = Array("0123456789abcdef".utf8)
+        var utf8 = [UInt8]()
+        utf8.reserveCapacity(SHA256.byteCount * 2)
+        for byte in digest {
+            utf8.append(table[Int(byte >> 4)])
+            utf8.append(table[Int(byte & 0x0F)])
+        }
+        return String(decoding: utf8, as: UTF8.self)
     }
 
     /// Joins an argv with a separator no argument can contain unescaped, so

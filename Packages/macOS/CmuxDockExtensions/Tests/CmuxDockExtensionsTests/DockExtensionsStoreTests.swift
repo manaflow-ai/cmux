@@ -209,6 +209,56 @@ struct DockExtensionsStoreTests {
         }
     }
 
+    @Test func updateKeepsDisabledToggleOff() async throws {
+        let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        let makePreview: () throws -> DockExtensionInstallPreview = {
+            // Staged outside stagingRoot: these previews never register with
+            // activeStagingPaths, so the background stale-staging sweep after
+            // the first install must not be able to delete the second one.
+            let staging = harness.home
+                .appendingPathComponent("staging-\(UUID().uuidString)", isDirectory: true)
+            try writeManifest(helloManifest, to: staging)
+            let manifest = try DockExtensionManifestLoader().load(fromDirectory: staging)
+            return DockExtensionInstallPreview(
+                source: .github(owner: "o", repository: "r", subdirectory: nil),
+                resolvedSha: String(repeating: "d", count: 40),
+                ref: nil,
+                manifest: manifest,
+                stagingDirectory: staging,
+                warnings: [],
+                kind: .install
+            )
+        }
+        try await harness.store.install(makePreview())
+        try await harness.store.setEnabled(id: "hello", enabled: false)
+
+        // Re-consenting to an update covers the code, not the enabled toggle:
+        // the extension must stay disabled after the update installs.
+        try await harness.store.install(makePreview())
+        let updated = try #require(harness.store.installedExtension(id: "hello"))
+        #expect(updated.record.enabled == false)
+    }
+
+    @Test func caseCollidingIdIsRefused() async throws {
+        let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        let devDirectory = harness.home.appendingPathComponent("dev-ext", isDirectory: true)
+        try writeManifest(helloManifest, to: devDirectory)
+        try await harness.store.link(directoryPath: devDirectory.path)
+
+        // "Hello" vs "hello": one on-disk directory on case-insensitive APFS.
+        let colliding = helloManifest.replacingOccurrences(
+            of: "\"id\": \"hello\"",
+            with: "\"id\": \"Hello\""
+        )
+        let otherDirectory = harness.home.appendingPathComponent("other-ext", isDirectory: true)
+        try writeManifest(colliding, to: otherDirectory)
+        await #expect(throws: DockExtensionError.duplicateId("hello")) {
+            try await harness.store.link(directoryPath: otherDirectory.path)
+        }
+    }
+
     @Test func minCmuxVersionGateUsesHostVersion() async throws {
         let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.home) }

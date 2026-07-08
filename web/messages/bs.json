@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@manaflow.com</link>."
     },
     "extensionsMarketplace": {
+      "metaTitle": "Marketplace ekstenzija",
       "metaDescription": "Kako kurirani cmux marketplace pregledava prijave i prikazuje podržane ekstenzije.",
+      "title": "Marketplace ekstenzija",
       "intro": "Marketplace je kurirani registar podržanih Dock TUI ekstenzija; prikazuju se samo odobreni repozitoriji.",
+      "discoveryTitle": "Otkrivanje",
       "discoveryIntro": "Stranica čita registry fajl. Repozitorij se pojavljuje tek nakon mergea unosa:",
       "submitTitle": "Pošalji ekstenziju",
       "submitIntro": "Pokrenite CLI submit iz bilo koje cmux instalacije da validira repozitorij i otvori GitHub issue:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "Pregledamo manifest, naredbe, licencu i relevantni kod.",
       "approvalDogfood": "Isprobamo paneove da potvrdimo opisano ponašanje.",
       "approvalMerge": "Maintainer spaja PR koji dodaje repozitorij u registry.",
+      "installTitle": "Dugmad za instalaciju",
+      "installIntro": "Dugme \"Instaliraj u cmux\" u galeriji je običan cmux deep link koji sadrži samo naziv repozitorija:",
+      "installConsent": "cmux aplikacija otvara link, preuzima repozitorij, validira manifest, fiksira instalaciju na commit i prikazuje ekran za saglasnost u aplikaciji prije nego što se bilo šta pokrene.",
+      "takedownsTitle": "Uklanjanja",
       "takedownsIntro": "Uklanjanje je također registry PR i briše unos iz galerije pri sljedećem deployu."
     }
   },

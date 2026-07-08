@@ -173,7 +173,7 @@ cmux extension unlink hello-tui`}</CodeBlock>
       <ol>
         <li>{t("publishingStepManifest")}</li>
         <li>{t("publishingStepPublic")}</li>
-        <li>{t("publishingStepTopic")}</li>
+        <li>{t("publishingStepSubmit")}</li>
       </ol>
 
       <DocsHeading level={2} id="trust-and-security">{t("trustTitle")}</DocsHeading>

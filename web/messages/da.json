@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@manaflow.com</link>."
     },
     "extensionsMarketplace": {
+      "metaTitle": "Udvidelsesmarkedsplads",
       "metaDescription": "Hvordan den kuraterede cmux marketplace gennemgår indsendelser og viser understøttede udvidelser.",
+      "title": "Udvidelsesmarkedsplads",
       "intro": "Marketplace er et kurateret registry over understøttede Dock TUI-udvidelser; kun godkendte repositories vises.",
+      "discoveryTitle": "Opdagelse",
       "discoveryIntro": "Webstedet læser en registry-fil. Et repository vises først, når en post merges:",
       "submitTitle": "Indsend en udvidelse",
       "submitIntro": "Kør CLI submit fra en cmux-installation for at validere repositoryet og åbne en GitHub-issue:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "Vi gennemgår manifest, kommandoer, licens og relevant kode.",
       "approvalDogfood": "Vi tester panes nok til at bekræfte adfærden.",
       "approvalMerge": "En maintainer merger en PR, der føjer repositoryet til registry.",
+      "installTitle": "Installationsknapper",
+      "installIntro": "Galleriets \"Installer i cmux\"-knap er et almindeligt cmux-dyblink, der kun indeholder repository-navnet:",
+      "installConsent": "cmux-appen åbner linket, henter repositoryet, validerer manifestet, fastgør installationen til en commit og viser samtykkeskærmen i appen, før noget køres.",
+      "takedownsTitle": "Fjernelser",
       "takedownsIntro": "Fjernelse er også en registry-PR og fjerner posten fra galleriet ved næste deploy."
     }
   },

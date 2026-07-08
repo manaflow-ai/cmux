@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "สำหรับการดีพลอยแบบโฮสต์เองหรือแบบแยกจากเครือข่าย โปรดติดต่อ <link>founders@manaflow.com</link>"
     },
     "extensionsMarketplace": {
+      "metaTitle": "มาร์เก็ตเพลสส่วนขยาย",
       "metaDescription": "วิธีที่ marketplace cmux แบบคัดสรรตรวจสอบการส่งและแสดงส่วนขยายที่รองรับ",
+      "title": "มาร์เก็ตเพลสส่วนขยาย",
       "intro": "marketplace เป็น registry ที่คัดสรรของ Dock TUI ที่รองรับ และแสดงเฉพาะ repository ที่อนุมัติแล้ว",
+      "discoveryTitle": "การค้นพบ",
       "discoveryIntro": "เว็บไซต์อ่านไฟล์ registry และ repository จะแสดงหลังจาก merge รายการของมัน:",
       "submitTitle": "ส่งส่วนขยาย",
       "submitIntro": "รัน CLI submit จาก cmux เพื่อตรวจสอบ repository และเปิด GitHub issue:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "เราตรวจสอบ manifest, commands, license และ code ที่เกี่ยวข้อง",
       "approvalDogfood": "เราทดสอบ panes เพื่อยืนยันพฤติกรรมที่อธิบายไว้",
       "approvalMerge": "maintainer merge PR ที่เพิ่ม repository ลง registry",
+      "installTitle": "ปุ่มติดตั้ง",
+      "installIntro": "ปุ่ม \"ติดตั้งใน cmux\" ในแกลเลอรีคือลิงก์ระดับลึกของ cmux ธรรมดาที่มีเพียงชื่อรีโพซิทอรีเท่านั้น:",
+      "installConsent": "แอป cmux จะเปิดลิงก์ ดึงรีโพซิทอรี ตรวจสอบไฟล์กำกับ ปักหมุดการติดตั้งไว้ที่คอมมิต และแสดงหน้าจอขอความยินยอมในแอปก่อนที่จะเรียกใช้สิ่งใด",
+      "takedownsTitle": "การถอดออก",
       "takedownsIntro": "การลบก็เป็น registry PR และจะเอาออกจากแกลเลอรีเมื่อ deploy ถัดไป"
     }
   },

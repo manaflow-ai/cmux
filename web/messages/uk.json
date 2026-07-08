@@ -1647,8 +1647,11 @@
       "enterpriseDesc": "Для самостійного або ізольованого розгортання зв'яжіться з <link>founders@manaflow.com</link>."
     },
     "extensionsMarketplace": {
+      "metaTitle": "Маркетплейс розширень",
       "metaDescription": "Як курований marketplace cmux перевіряє надсилання й показує підтримувані розширення.",
+      "title": "Маркетплейс розширень",
       "intro": "Marketplace — це курований registry підтримуваних Dock TUI-розширень; видно лише схвалені репозиторії.",
+      "discoveryTitle": "Виявлення",
       "discoveryIntro": "Сайт читає файл registry. Репозиторій з’являється після merge його запису:",
       "submitTitle": "Надіслати розширення",
       "submitIntro": "Запустіть CLI submit із cmux, щоб перевірити репозиторій і відкрити GitHub issue:",
@@ -1659,6 +1662,10 @@
       "approvalReview": "Ми перевіряємо manifest, команди, ліцензію та код.",
       "approvalDogfood": "Ми тестуємо panes, щоб підтвердити поведінку.",
       "approvalMerge": "Maintainer зливає PR, що додає репозиторій до registry.",
+      "installTitle": "Кнопки встановлення",
+      "installIntro": "Кнопка «Встановити в cmux» у галереї — це звичайне глибоке посилання cmux, що містить лише назву репозиторію:",
+      "installConsent": "Застосунок cmux відкриває посилання, отримує репозиторій, перевіряє маніфест, закріплює встановлення за комітом і показує екран згоди в застосунку, перш ніж щось виконувати.",
+      "takedownsTitle": "Вилучення",
       "takedownsIntro": "Видалення також є registry PR і прибирає запис під час наступного deploy."
     }
   },

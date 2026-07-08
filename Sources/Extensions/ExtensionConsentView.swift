@@ -169,7 +169,12 @@ struct ExtensionConsentView: View {
             line += " @ \(sha.prefix(7))"
         }
         if case .update(let previousSha?) = preview.kind {
-            line += "  (\(String(localized: "extensions.consent.updateFrom", defaultValue: "currently")) \(previousSha.prefix(7)))"
+            // One localized fragment: translations control the whole
+            // parenthetical, including punctuation and word order.
+            line += "  " + String(
+                localized: "extensions.consent.updateFrom",
+                defaultValue: "(currently \(String(previousSha.prefix(7))))"
+            )
         }
         return line
     }

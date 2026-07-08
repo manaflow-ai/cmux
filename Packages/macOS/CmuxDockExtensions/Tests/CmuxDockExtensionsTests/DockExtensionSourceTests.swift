@@ -40,6 +40,18 @@ struct DockExtensionSourceTests {
         }
     }
 
+    @Test func rejectsTreeURLSuffixes() {
+        // Pasted browser URLs: /tree/<ref>/<subdir> is GitHub UI path, not a
+        // repo directory — the ref belongs in --ref.
+        for input in [
+            "https://github.com/o/r/tree/main/examples/tui",
+            "github.com/o/r/tree/main",
+            "o/r/tree/v1.0/pkg",
+        ] {
+            #expect(DockExtensionSource.parseGitHub(input) == nil, "should reject \(input)")
+        }
+    }
+
     @Test func derivedURLs() {
         let source = DockExtensionSource.github(owner: "o", repository: "r", subdirectory: "sub")
         #expect(source.cloneURLString == "https://github.com/o/r.git")

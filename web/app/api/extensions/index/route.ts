@@ -139,6 +139,9 @@ function fetchGithubRepository(
       try: () => fetch(githubRepositoryUrl(repo), {
         headers: githubHeaders(),
         next: { revalidate },
+        // Fail fast instead of tying up the route until the platform timeout;
+        // the per-repo catchAll above records and skips the failed entry.
+        signal: AbortSignal.timeout(10_000),
       }),
       catch: (cause) =>
         new ExtensionsIndexUpstreamError({
@@ -188,6 +191,8 @@ function githubRepositoryUrl(repo: string): string {
 function githubHeaders(): HeadersInit {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
+    // GitHub rejects REST calls without a User-Agent (403).
+    "User-Agent": "cmux-extensions-index (https://github.com/manaflow-ai/cmux)",
   };
   if (env.GITHUB_TOKEN) {
     headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;

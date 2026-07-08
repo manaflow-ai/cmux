@@ -104,7 +104,10 @@ public actor DockExtensionGitService {
     }
 
     /// Picks the best `ls-remote` line for `ref`: branch, then peeled tag,
-    /// then tag, then exact refname, then first line.
+    /// then tag, then exact refname. Returns `nil` when the requested ref
+    /// matches none of those — `ls-remote` patterns also suffix-match (e.g.
+    /// `v1` matches `refs/heads/user/v1`), and pinning a ref the user did not
+    /// ask for must fail instead.
     static func pickRevision(from output: String, ref: String?) -> String? {
         let entries: [(sha: String, refName: String)] = output
             .split(separator: "\n")
@@ -129,7 +132,7 @@ public actor DockExtensionGitService {
                 return match.sha
             }
         }
-        return entries.first?.sha
+        return nil
     }
 
     private func runGit(

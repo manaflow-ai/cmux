@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "如需自托管或气隙隔离部署，请联系 <link>founders@manaflow.com</link>。"
     },
     "extensionsMarketplace": {
+      "metaTitle": "扩展市场",
       "metaDescription": "精选 cmux marketplace 如何审核提交并列出受支持扩展。",
+      "title": "扩展市场",
       "intro": "marketplace 是受支持 Dock TUI 扩展的 registry；只显示已批准仓库。",
+      "discoveryTitle": "发现",
       "discoveryIntro": "网站读取 registry 文件。仓库在其条目被合并后才会显示：",
       "submitTitle": "提交扩展",
       "submitIntro": "从 cmux 运行 CLI submit 以验证仓库并打开 GitHub issue：",
@@ -1578,6 +1581,10 @@
       "approvalReview": "我们审核 manifest、命令、许可证和相关代码。",
       "approvalDogfood": "我们试用 panes 以确认行为符合描述。",
       "approvalMerge": "maintainer 合并把仓库加入 registry 的 PR。",
+      "installTitle": "安装按钮",
+      "installIntro": "图库中的“在 cmux 中安装”按钮是一个仅包含仓库名称的普通 cmux 深层链接：",
+      "installConsent": "cmux 应用会打开链接、获取仓库、验证清单、将安装固定到某个提交，并在运行任何内容之前显示应用内同意界面。",
+      "takedownsTitle": "下架",
       "takedownsIntro": "移除也通过 registry PR 完成，并在下次部署时从图库删除。"
     }
   },

@@ -4,14 +4,14 @@ export const githubRepositorySchema = z.object({
   full_name: z.string().min(1),
   owner: z.object({
     login: z.string().min(1),
-    avatar_url: z.string().url(),
+    avatar_url: z.url(),
   }).passthrough(),
   description: z.string().nullable(),
   stargazers_count: z.number().int().nonnegative(),
   language: z.string().nullable(),
-  pushed_at: z.string().datetime(),
-  created_at: z.string().datetime(),
-  html_url: z.string().url(),
+  pushed_at: z.iso.datetime(),
+  created_at: z.iso.datetime(),
+  html_url: z.url(),
   fork: z.boolean(),
   archived: z.boolean(),
 }).passthrough();
@@ -30,19 +30,19 @@ export const extensionsRegistrySchema = z.object({
 export const extensionDtoSchema = z.object({
   fullName: z.string().min(1),
   owner: z.string().min(1),
-  ownerAvatarUrl: z.string().url(),
+  ownerAvatarUrl: z.url(),
   description: z.string().nullable(),
   stars: z.number().int().nonnegative(),
   language: z.string().nullable(),
-  pushedAt: z.string().datetime(),
-  createdAt: z.string().datetime(),
-  url: z.string().url(),
+  pushedAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  url: z.url(),
   supported: z.boolean(),
 }).strict();
 
 export const extensionsIndexResponseSchema = z.object({
   extensions: z.array(extensionDtoSchema),
-  fetchedAt: z.string().datetime(),
+  fetchedAt: z.iso.datetime(),
 }).strict();
 
 export type GitHubRepository = z.infer<typeof githubRepositorySchema>;

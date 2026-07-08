@@ -1566,8 +1566,11 @@
       "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@manaflow.com</link>."
     },
     "extensionsMarketplace": {
+      "metaTitle": "Marketplace de extensiones",
       "metaDescription": "Cómo el marketplace curado de cmux revisa envíos y lista extensiones compatibles.",
+      "title": "Marketplace de extensiones",
       "intro": "El marketplace es un registro curado de extensiones Dock TUI compatibles; solo aparecen repositorios aprobados.",
+      "discoveryTitle": "Descubrimiento",
       "discoveryIntro": "El sitio lee un archivo de registro. Un repositorio aparece solo después de fusionar su entrada:",
       "submitTitle": "Enviar una extensión",
       "submitIntro": "Ejecuta CLI submit desde cualquier cmux para validar el repositorio y abrir un issue de GitHub:",
@@ -1578,6 +1581,10 @@
       "approvalReview": "Revisamos manifiesto, comandos, licencia y código relevante.",
       "approvalDogfood": "Probamos los paneles para confirmar el comportamiento descrito.",
       "approvalMerge": "Un maintainer fusiona un PR que agrega el repositorio al registro.",
+      "installTitle": "Botones de instalación",
+      "installIntro": "El botón «Instalar en cmux» de la galería es un enlace profundo de cmux que solo contiene el nombre del repositorio:",
+      "installConsent": "La aplicación cmux abre el enlace, obtiene el repositorio, valida el manifiesto, fija la instalación a un commit y muestra la pantalla de consentimiento en la aplicación antes de ejecutar nada.",
+      "takedownsTitle": "Retiradas",
       "takedownsIntro": "La eliminación también es un PR del registro y quita la entrada en el siguiente deploy."
     }
   },
