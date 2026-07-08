@@ -17420,18 +17420,35 @@ struct CMUXCLI {
             }
         }
 
-        var forwardedArgs: [String] = []
-        var resolvedExplicitWorkspace = false
-        var targetWorkspaceId: String?
-        var index = 0
-        var parsingOptions = true
         let rawWindow = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         let windowHandle = try normalizeWindowHandle(rawWindow, client: client)
+        let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
 
         if validatePIDOption {
             try validatePIDOptions(commandArgs)
         }
 
+        let targetWorkspaceId: String?
+        if let explicitWorkspaceArg {
+            targetWorkspaceId = try resolveWorkspaceId(explicitWorkspaceArg, client: client, windowHandle: windowHandle)
+        } else if let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
+            targetWorkspaceId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: windowHandle)
+        } else if let windowHandle {
+            targetWorkspaceId = try requireCurrentWorkspaceId(
+                windowHandle: windowHandle,
+                client: client,
+                command: socketCommand
+            )
+        } else if resolvePanelOption,
+                  hasOption("--panel", in: commandArgs) {
+            targetWorkspaceId = try resolveWorkspaceId(nil, client: client, windowHandle: windowHandle)
+        } else {
+            targetWorkspaceId = nil
+        }
+
+        var forwardedArgs: [String] = []
+        var index = 0
+        var parsingOptions = true
         while index < commandArgs.count {
             let arg = commandArgs[index]
             if parsingOptions, arg == "--" {
@@ -17441,19 +17458,10 @@ struct CMUXCLI {
                 continue
             }
             if parsingOptions, arg == "--workspace", index + 1 < commandArgs.count {
-                let workspaceId = try resolveWorkspaceId(commandArgs[index + 1], client: client, windowHandle: windowHandle)
-                forwardedArgs.append("--tab=\(workspaceId)")
-                resolvedExplicitWorkspace = true
-                targetWorkspaceId = workspaceId
                 index += 2
                 continue
             }
             if parsingOptions, arg.hasPrefix("--workspace=") {
-                let rawWorkspace = String(arg.dropFirst("--workspace=".count))
-                let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client, windowHandle: windowHandle)
-                forwardedArgs.append("--tab=\(workspaceId)")
-                resolvedExplicitWorkspace = true
-                targetWorkspaceId = workspaceId
                 index += 1
                 continue
             }
@@ -17469,25 +17477,8 @@ struct CMUXCLI {
             index += 1
         }
 
-        if !resolvedExplicitWorkspace,
-           let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
-            let workspaceId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: windowHandle)
-            insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
-            targetWorkspaceId = workspaceId
-        } else if !resolvedExplicitWorkspace,
-                  let windowHandle {
-            let workspaceId = try requireCurrentWorkspaceId(
-                windowHandle: windowHandle,
-                client: client,
-                command: socketCommand
-            )
-            insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
-            targetWorkspaceId = workspaceId
-        } else if resolvePanelOption,
-                  hasOption("--panel", in: commandArgs) {
-            let workspaceId = try resolveWorkspaceId(nil, client: client, windowHandle: windowHandle)
-            insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
-            targetWorkspaceId = workspaceId
+        if let targetWorkspaceId {
+            insertArgumentBeforeSeparator("--tab=\(targetWorkspaceId)", into: &forwardedArgs)
         }
 
         if resolvePanelOption,
