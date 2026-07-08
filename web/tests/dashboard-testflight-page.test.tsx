@@ -2,19 +2,19 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
-import { createTestflightUser } from "./helpers/testflight-user";
+import {
+  createTestflightUser,
+  testflightUserEligibility,
+} from "./helpers/testflight-user";
 
 let stackConfigured = true;
-let currentUser: ReturnType<typeof createPageTestflightUser> | null = null;
+let currentUser: ReturnType<typeof createTestflightUser> | null = null;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
-const eligibilityByUser = new WeakMap<object, boolean>();
 
 const getUser = mock(async () => currentUser);
 const isTestflightEligible = mock(async (user: unknown) =>
-  user && typeof user === "object"
-    ? eligibilityByUser.get(user) ?? true
-    : true,
+  testflightUserEligibility(user) ?? false,
 );
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
@@ -90,7 +90,7 @@ const { default: DashboardTestflightPage } = await import("../app/[locale]/dashb
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
-    currentUser = createPageTestflightUser();
+    currentUser = createTestflightUser();
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
@@ -100,7 +100,7 @@ describe("dashboard TestFlight page", () => {
   });
 
   test("renders not eligible state with pricing link", async () => {
-    currentUser = createPageTestflightUser({ eligible: false });
+    currentUser = createTestflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 
@@ -156,14 +156,6 @@ async function renderTestflightPage(searchParams: Record<string, string> = {}) {
     searchParams: Promise.resolve(searchParams),
   });
   return renderToStaticMarkup(element);
-}
-
-function createPageTestflightUser({
-  eligible = true,
-}: { eligible?: boolean } = {}) {
-  const user = createTestflightUser({ eligible });
-  eligibilityByUser.set(user, eligible);
-  return user;
 }
 
 function translator(namespace?: string) {

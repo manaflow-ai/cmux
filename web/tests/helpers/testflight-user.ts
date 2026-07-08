@@ -1,9 +1,11 @@
 import { mock } from "bun:test";
 
+const testflightEligibilityKey = Symbol.for("cmux.tests.testflightEligibility");
+
 export function createTestflightUser({
   eligible = true,
 }: { eligible?: boolean } = {}) {
-  return {
+  const user = {
     id: "user-pro",
     isAnonymous: false,
     primaryEmail: "Pro@Example.com",
@@ -18,7 +20,7 @@ export function createTestflightUser({
                 quantity: 1,
                 subscription: {
                   cancelAtPeriodEnd: false,
-                  currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
+                  currentPeriodEnd: null,
                 },
               },
             ]
@@ -28,4 +30,15 @@ export function createTestflightUser({
     ),
     update: mock(async () => undefined),
   };
+  Object.defineProperty(user, testflightEligibilityKey, {
+    value: eligible,
+    enumerable: false,
+  });
+  return user;
+}
+
+export function testflightUserEligibility(user: unknown): boolean | undefined {
+  if (!user || typeof user !== "object") return undefined;
+  const value = (user as Record<symbol, unknown>)[testflightEligibilityKey];
+  return typeof value === "boolean" ? value : undefined;
 }
