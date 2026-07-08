@@ -62,12 +62,32 @@ describe("billing team resolution", () => {
     })).resolves.toMatchObject({ id: "team-override" });
   });
 
-  test("picks the first team id deterministically when multiple teams are paid", async () => {
+  test("prefers a real cmuxPlan subscription over a cmuxVmPlan override even with a larger id", async () => {
     await expect(resolveBillingTeam({
       selectedTeam: null,
       listTeams: async () => [
         { id: "team-z", clientReadOnlyMetadata: { cmuxPlan: "team" } },
         { id: "team-a", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+      ],
+    })).resolves.toMatchObject({ id: "team-z" });
+  });
+
+  test("picks the first team id deterministically when multiple teams have real subscriptions", async () => {
+    await expect(resolveBillingTeam({
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-z", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+        { id: "team-a", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+      ],
+    })).resolves.toMatchObject({ id: "team-a" });
+  });
+
+  test("falls back to a cmuxVmPlan override team deterministically when no team has a real subscription", async () => {
+    await expect(resolveBillingTeam({
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-z", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+        { id: "team-a", clientReadOnlyMetadata: { cmuxVmPlan: "enterprise" } },
       ],
     })).resolves.toMatchObject({ id: "team-a" });
   });

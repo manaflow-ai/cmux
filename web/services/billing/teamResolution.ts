@@ -30,7 +30,17 @@ export function resolveBillingTeamFromTeams(
 
   const paidTeams = teams
     .filter((team) => hasActiveBillingPlan(team.clientReadOnlyMetadata))
-    .toSorted((left, right) => compareBillingTeamId(left.id, right.id));
+    .toSorted((left, right) => {
+      // Every billing surface (dashboard, portal, subscription, plan, TestFlight)
+      // reads the real Stripe subscription by team id and never honors the
+      // operator-set cmuxVmPlan override. So a team paid only through a
+      // cmuxVmPlan override must not shadow a team holding a real cmuxPlan
+      // subscription, or the real subscription is masked as free.
+      const leftReal = hasRealSubscriptionPlan(left.clientReadOnlyMetadata);
+      const rightReal = hasRealSubscriptionPlan(right.clientReadOnlyMetadata);
+      if (leftReal !== rightReal) return leftReal ? -1 : 1;
+      return compareBillingTeamId(left.id, right.id);
+    });
   return paidTeams[0] ?? null;
 }
 
@@ -58,6 +68,15 @@ export function billingPlanIdFromMetadata(metadata: unknown): string | null {
 
 function hasActiveBillingPlan(metadata: unknown): boolean {
   const planId = billingPlanIdFromMetadata(metadata);
+  return !!planId && planId !== "free";
+}
+
+// A real Stripe subscription is reflected only by cmuxPlan (written from active
+// subscription state); cmuxVmPlan is a manual override decoupled from billing.
+function hasRealSubscriptionPlan(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object") return false;
+  const value = (metadata as { cmuxPlan?: unknown }).cmuxPlan;
+  const planId = typeof value === "string" && value.trim() ? value.trim() : null;
   return !!planId && planId !== "free";
 }
 
