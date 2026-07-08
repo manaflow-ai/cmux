@@ -8449,6 +8449,23 @@
           }
         }
       }
+    },
+    "mobile.diff.fileListTruncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File list truncated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル一覧は途中で切られています"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

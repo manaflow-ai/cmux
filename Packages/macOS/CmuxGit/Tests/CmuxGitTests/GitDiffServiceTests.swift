@@ -118,6 +118,28 @@ import Testing
         #expect(bounded == unbounded)
     }
 
+    @Test func changedFilesListIsBoundedAndMarkedTruncated() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        for index in 0..<500 {
+            try Data("x\n".utf8)
+                .write(to: repo.appendingPathComponent("untracked-\(1000 + index).txt"))
+        }
+
+        let service = GitDiffService()
+        let unbounded = service.changedFiles(repoRoot: repo.path)
+        #expect(unbounded.files.count == 500)
+        #expect(!unbounded.truncated)
+
+        let bounded = service.changedFiles(repoRoot: repo.path, maxOutputBytes: 2048)
+        #expect(bounded.truncated)
+        #expect(!bounded.files.isEmpty)
+        #expect(bounded.files.count < 500)
+        // The byte cap must only ever drop whole records: every surviving
+        // path is complete, never a prefix cut mid-filename.
+        #expect(bounded.files.allSatisfy { $0.path.hasSuffix(".txt") })
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-tests-\(UUID().uuidString)")

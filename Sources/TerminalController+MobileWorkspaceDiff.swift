@@ -10,6 +10,10 @@ extension TerminalController {
     /// `mobileWorkspaceDiffByteCap` bytes and reports truncation. Keeps a huge
     /// diff from accumulating unbounded memory before response capping.
     nonisolated static let mobileWorkspaceDiffReadCap = mobileWorkspaceDiffByteCap + 4096
+    /// Upper bound on changed-file rows returned to the phone; larger change
+    /// sets are cut off and reported as truncated so the response stays a
+    /// mobile-sized payload.
+    nonisolated static let mobileWorkspaceDiffMaxFiles = 4000
 
     func v2MobileWorkspaceDiffStatus(params: [String: Any]) async -> V2CallResult {
         switch mobileWorkspaceDiffSnapshot(params: params) {
@@ -108,7 +112,13 @@ extension TerminalController {
         guard let repoRoot = service.repositoryRoot(for: directory) else {
             return .repositoryNotFound
         }
-        return .ok(repoRoot: repoRoot, files: service.changedFiles(repoRoot: repoRoot))
+        let changed = service.changedFiles(repoRoot: repoRoot, maxOutputBytes: mobileWorkspaceDiffByteCap)
+        let files = Array(changed.files.prefix(mobileWorkspaceDiffMaxFiles))
+        return .ok(
+            repoRoot: repoRoot,
+            files: files,
+            truncated: changed.truncated || files.count < changed.files.count
+        )
     }
 
     private nonisolated static func mobileWorkspaceDiffFileResultSync(directory: String, path: String) -> MobileWorkspaceDiffFileResult {
@@ -143,7 +153,7 @@ extension TerminalController {
         switch result {
         case .repositoryNotFound:
             return .err(code: "not_found", message: "Git repository not found", data: nil)
-        case .ok(let repoRoot, let summaries):
+        case .ok(let repoRoot, let summaries, let truncated):
             let files = summaries.map { summary in
                 [
                     "path": summary.path,
@@ -156,6 +166,7 @@ extension TerminalController {
             return .ok([
                 "repo_root": repoRoot,
                 "files": files,
+                "truncated": truncated,
             ])
         }
     }
@@ -191,7 +202,7 @@ private enum MobileWorkspaceDiffSnapshotResult {
 
 private enum MobileWorkspaceDiffStatusResult: Sendable {
     case repositoryNotFound
-    case ok(repoRoot: String, files: [GitDiffSummary])
+    case ok(repoRoot: String, files: [GitDiffSummary], truncated: Bool)
 }
 
 private enum MobileWorkspaceDiffFileResult: Sendable {

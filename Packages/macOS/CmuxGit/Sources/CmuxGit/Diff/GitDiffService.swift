@@ -33,22 +33,49 @@ public struct GitDiffService: Sendable {
 
     /// Lists changed files relative to `HEAD`, including untracked files.
     ///
-    /// - Parameter repoRoot: Repository root.
-    /// - Returns: Changed-file summaries in path order.
-    public func changedFiles(repoRoot: String) -> [GitDiffSummary] {
+    /// - Parameters:
+    ///   - repoRoot: Repository root.
+    ///   - maxOutputBytes: Per-listing bound on git output. When a listing
+    ///     reaches the bound its subprocess is terminated, the trailing
+    ///     partial record is dropped, and the result is marked truncated, so
+    ///     a workspace with an enormous change set (for example a large
+    ///     unignored generated tree) cannot make one status call accumulate
+    ///     unbounded memory.
+    /// - Returns: Changed-file summaries in path order, with a truncation marker.
+    public func changedFiles(repoRoot: String, maxOutputBytes: Int? = nil) -> GitChangedFiles {
         let numstat = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--numstat", "-z", "--no-color", "--find-renames"]
-        ).successOutput
+            arguments: ["diff", "HEAD", "--numstat", "-z", "--no-color", "--find-renames"],
+            maxOutputBytes: maxOutputBytes
+        )
         let nameStatus = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--name-status", "-z", "--no-color", "--find-renames"]
-        ).successOutput
+            arguments: ["diff", "HEAD", "--name-status", "-z", "--no-color", "--find-renames"],
+            maxOutputBytes: maxOutputBytes
+        )
         let untracked = runGit(
             in: repoRoot,
-            arguments: ["ls-files", "--others", "--exclude-standard", "-z"]
-        ).successOutput
-        return parseChangedFiles(numstatOutput: numstat, nameStatusOutput: nameStatus, untrackedOutput: untracked)
+            arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
+            maxOutputBytes: maxOutputBytes
+        )
+        let files = parseChangedFiles(
+            numstatOutput: completeRecords(numstat),
+            nameStatusOutput: completeRecords(nameStatus),
+            untrackedOutput: completeRecords(untracked)
+        )
+        return GitChangedFiles(
+            files: files,
+            truncated: numstat.capped || nameStatus.capped || untracked.capped
+        )
+    }
+
+    /// Drops the trailing partial NUL-separated record a byte cap can leave
+    /// behind, so capped listings only contribute complete records.
+    private func completeRecords(_ result: GitProcessResult) -> String? {
+        guard let output = result.successOutput else { return nil }
+        guard result.capped else { return output }
+        guard let lastNul = output.lastIndex(of: "\0") else { return "" }
+        return String(output[...lastNul])
     }
 
     /// Reads a unified diff for one repository-relative file path.
@@ -168,7 +195,10 @@ public struct GitDiffService: Sendable {
             if read.capped {
                 // We terminated git ourselves after the output bound; its exit
                 // status reflects our signal, not a git failure.
-                return GitProcessResult(output: Self.decodeUTF8DroppingPartialTail(read.data))
+                return GitProcessResult(
+                    output: Self.decodeUTF8DroppingPartialTail(read.data),
+                    capped: true
+                )
             }
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
                 return GitProcessResult(output: nil)
@@ -226,6 +256,13 @@ public struct GitDiffService: Sendable {
 
 private struct GitProcessResult {
     let output: String?
+    /// Whether the output was cut off at the caller's byte bound.
+    let capped: Bool
+
+    init(output: String?, capped: Bool = false) {
+        self.output = output
+        self.capped = capped
+    }
 
     var successOutput: String? {
         output

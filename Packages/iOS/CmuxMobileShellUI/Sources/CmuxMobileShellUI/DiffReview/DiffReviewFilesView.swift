@@ -11,6 +11,7 @@ struct DiffReviewFilesView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isFilePresented = false
+    @State private var isListTruncated = false
 
     var body: some View {
         List {
@@ -28,6 +29,15 @@ struct DiffReviewFilesView: View {
                     }
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
+            }
+            if isListTruncated {
+                Label(
+                    L10n.string("mobile.diff.fileListTruncated", defaultValue: "File list truncated"),
+                    systemImage: "scissors"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .listRowBackground(Color.clear)
             }
             if let errorMessage {
                 Text(errorMessage)
@@ -62,6 +72,7 @@ struct DiffReviewFilesView: View {
         do {
             let response = try await fetchStatus()
             session.setFiles(response.files)
+            isListTruncated = response.truncated
         } catch {
             errorMessage = error.localizedDescription
         }

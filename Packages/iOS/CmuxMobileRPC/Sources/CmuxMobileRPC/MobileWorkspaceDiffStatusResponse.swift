@@ -42,10 +42,14 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
     public let repoRoot: String
     /// Changed files in display order.
     public let files: [File]
+    /// Whether the Mac cut the list off at its output bounds (huge change
+    /// sets); absent from older Mac builds.
+    public let truncated: Bool
 
     private enum CodingKeys: String, CodingKey {
         case repoRoot = "repo_root"
         case files
+        case truncated
     }
 
     /// Decodes a diff-status response.
@@ -54,6 +58,7 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         repoRoot = try container.decodeIfPresent(String.self, forKey: .repoRoot) ?? ""
         files = try container.decodeIfPresent([File].self, forKey: .files) ?? []
+        truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
     }
 
     /// Decode a diff-status response from raw JSON data.
