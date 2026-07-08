@@ -15,8 +15,6 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../../Shared/CmuxAgentChat"),
-        .package(path: "../CmuxAgentChatUI"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../CmuxMobileBrowser"),
         .package(path: "../CmuxMobileCamera"),
@@ -35,8 +33,6 @@ let package = Package(
             name: "CmuxMobileShellUI",
             dependencies: [
                 "CMUXMobileCore",
-                "CmuxAgentChat",
-                "CmuxAgentChatUI",
                 "CmuxAuthRuntime",
                 "CmuxMobileBrowser",
                 "CmuxMobileCamera",
@@ -61,7 +57,6 @@ let package = Package(
                 "CMUXMobileCore",
                 "CmuxMobilePairedMac",
                 "CmuxMobileShellUI",
-                "CmuxAgentChat",
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
                 "CmuxMobileWorkspace",

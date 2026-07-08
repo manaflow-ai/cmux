@@ -11,9 +11,6 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
-         location = "group:CmuxAgentChat">
-      </FileRef>
-      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
@@ -34,9 +31,6 @@
       name = "Packages (iOS)">
       <FileRef
          location = "container:ios/cmuxPackage">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxAgentChatUI">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileAnalytics">

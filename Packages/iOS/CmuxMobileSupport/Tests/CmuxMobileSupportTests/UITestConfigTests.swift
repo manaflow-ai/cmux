@@ -127,38 +127,4 @@ import Testing
             from: ["CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "0"]
         ) == false)
     }
-
-    @Test func agentChatPreviewFlagIsDebugOnly() {
-        let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
-        let config = UITestEnvironmentConfig(environment: env)
-        #if DEBUG
-        #expect(config.agentChatPreviewEnabled == true)
-        #else
-        #expect(config.agentChatPreviewEnabled == false)
-        #endif
-    }
-
-    @Test func agentChatPreviewFlagRequiresOne() {
-        #expect(UITestEnvironmentConfig(environment: [:]).agentChatPreviewEnabled == false)
-        #expect(UITestEnvironmentConfig(
-            environment: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]
-        ).agentChatPreviewEnabled == false)
-    }
-
-    @Test func agentChatInlinePreviewFlagIsDebugOnly() {
-        let env = ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1"]
-        let config = UITestEnvironmentConfig(environment: env)
-        #if DEBUG
-        #expect(config.agentChatInlinePreviewEnabled == true)
-        #else
-        #expect(config.agentChatInlinePreviewEnabled == false)
-        #endif
-    }
-
-    @Test func agentChatInlinePreviewFlagRequiresOne() {
-        #expect(UITestEnvironmentConfig(environment: [:]).agentChatInlinePreviewEnabled == false)
-        #expect(UITestEnvironmentConfig(
-            environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
-        ).agentChatInlinePreviewEnabled == false)
-    }
 }

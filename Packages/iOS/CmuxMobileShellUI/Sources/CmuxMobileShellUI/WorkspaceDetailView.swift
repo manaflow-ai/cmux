@@ -1,5 +1,3 @@
-import CmuxAgentChat
-import CmuxAgentChatUI
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -51,24 +49,6 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
-    /// Chat-mode toggle for inline agent chat in place of the terminal.
-    @State var isChatMode = false
-    /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
-    /// out from under the user mid-read. Cleared when chat mode turns off.
-    @State var pinnedChatSessionID: String?
-    @State var chatSessions: [ChatSessionDescriptor] = []
-    @State var chatSessionsWorkspaceID: String?
-    /// Last terminal id whose cached snapshot said it had a chat session.
-    @State var cachedChatToggleTerminalID: String?
-    @State var ignoredChatSessionRefreshKey: String?
-    @State var ignoredChatSessionRefreshID: UUID?
-    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
-    /// Per-session chat stores kept warm while the workspace detail is visible.
-    @State var chatConversationStores: [String: ChatConversationStore] = [:]
-    /// Per-session composer drafts, surviving toggles back to the terminal.
-    @State var chatDrafts: [String: String] = [:]
-    /// App lifecycle phase used to re-pull chat sessions on foreground.
-    @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
@@ -83,10 +63,7 @@ struct WorkspaceDetailView: View {
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
-                refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
             }
             .closeWorkspaceConfirmation(
@@ -139,27 +116,26 @@ struct WorkspaceDetailView: View {
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
+            hasChatToggle: false,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
         }
     }
+
+    @ViewBuilder
+    private var toolbarTrailingCluster: some View {
+        HStack(spacing: 8) {
+            terminalPickerToolbarButton
+                .frame(width: 44, height: 44)
+        }
+        .frame(width: 44, height: 44, alignment: .trailing)
+    }
+
     @ViewBuilder
     private var toolbarTitleLabel: some View {
-        if isChatMode,
-           let session = chosenChatSession,
-           let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
-            )
-        } else if let browser = activeBrowser {
+        if let browser = activeBrowser {
             Text(browser.title ?? workspace.name)
                 .font(.headline)
                 .lineLimit(1)
@@ -174,10 +150,7 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var detailSurfaceContent: some View {
         #if os(iOS)
-        if isChatMode, let session = chosenChatSession {
-            chatContent(session)
-                .transition(.opacity)
-        } else if let browser = activeBrowser {
+        if let browser = activeBrowser {
             browserContent(browser)
         } else {
             detailContent()
@@ -425,9 +398,9 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
-            // Only while the terminal pane is showing: browser and chat modes
-            // do not mount a terminal surface for text capture.
-            if activeBrowser == nil && !isChatMode {
+            // Only while the terminal pane is showing: browser mode does not
+            // mount a terminal surface for text capture.
+            if activeBrowser == nil {
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),

@@ -61,10 +61,6 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
     }
 
-    func controlMobileChatSessionsDump() -> ControlCallResult {
-        bridgeMobileResult(v2ChatSessionsDump())
-    }
-
     /// Reconstructs the legacy `[String: Any]` params from the coordinator's
     /// typed params. This is the exact inverse of the dispatcher's
     /// `request.params.mapValues { $0.foundationObject }`, so the legacy body
