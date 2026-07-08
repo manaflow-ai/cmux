@@ -10199,11 +10199,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         originalTextView.string = "preserve this"
 
         var draftChangeCount = 0
-        let token = observeValue(initial: false, {
-            terminalPanel.sessionTextBoxDraftSnapshot()
-        }) { _ in
-            draftChangeCount += 1
-        }
+        let token = observeTrackedValue(initial: false, { terminalPanel.sessionTextBoxDraftSnapshot() }) { _ in draftChangeCount += 1 }
         defer { token.cancel() }
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)

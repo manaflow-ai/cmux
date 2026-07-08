@@ -176,8 +176,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 // the pure batch-reorder planning live in CmuxWorkspaces.
 
 @MainActor
-@Observable
-class TabManager {
+@Observable class TabManager {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
@@ -231,10 +230,8 @@ class TabManager {
     private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
-    @ObservationIgnored lazy var mountedBackgroundWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> =
-        observedValuesPublisher { [weak self] in self?.mountedBackgroundWorkspaceLoadIds ?? [] }
-    @ObservationIgnored lazy var debugPinnedWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> =
-        observedValuesPublisher { [weak self] in self?.debugPinnedWorkspaceLoadIds ?? [] }
+    @ObservationIgnored lazy var mountedBackgroundWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> = observedValuesPublisher { [weak self] in self?.mountedBackgroundWorkspaceLoadIds ?? [] }
+    @ObservationIgnored lazy var debugPinnedWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> = observedValuesPublisher { [weak self] in self?.debugPinnedWorkspaceLoadIds ?? [] }
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).

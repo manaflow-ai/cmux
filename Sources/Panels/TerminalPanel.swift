@@ -35,8 +35,7 @@ enum AgentHibernationResumePreparation: Equatable {
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
-@Observable
-final class TerminalPanel: Panel {
+@Observable final class TerminalPanel: Panel {
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
@@ -177,14 +176,11 @@ final class TerminalPanel: Panel {
         self.workspaceId = workspaceId
         self.surface = surface
 
-        searchStateObservationToken = observeValue { [weak surface] in
+        searchStateObservationToken = observeTrackedValue { [weak surface] in
             surface?.searchState.map(ObjectIdentifier.init)
         } onChange: { [weak self, weak surface] _ in
-            guard let surface else { return }
-            let state = surface.searchState
-            if self?.searchState !== state {
-                self?.searchState = state
-            }
+            guard let self, let surface else { return }
+            if self.searchState !== surface.searchState { self.searchState = surface.searchState }
         }
     }
 
@@ -662,7 +658,6 @@ final class TerminalPanel: Panel {
     func close() {
         isClosingPanel = true
         searchStateObservationToken?.cancel()
-        searchStateObservationToken = nil
         discardTextBoxContentForClose()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views

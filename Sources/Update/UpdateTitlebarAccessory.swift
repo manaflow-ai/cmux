@@ -1,4 +1,3 @@
-import Observation
 import AppKit
 import Bonsplit
 import Combine
@@ -156,8 +155,7 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
     1
 }
 
-@Observable
-final class TitlebarControlsViewModel {
+@Observable final class TitlebarControlsViewModel {
     weak var notificationsAnchorView: NSView?
 }
 
@@ -191,8 +189,7 @@ final class NotificationsAnchorRegistry {
     }
 }
 
-@MainActor
-func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
+@MainActor func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
     var current: NSView? = view
     while let candidate = current {
         if candidate.isHidden || candidate.alphaValue <= 0 {
@@ -203,8 +200,7 @@ func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
     return true
 }
 
-@MainActor
-func preferredNotificationsPopoverAnchor(buttonAnchor: NSView?, fallbackAnchor: NSView?) -> NSView? {
+@MainActor func preferredNotificationsPopoverAnchor(buttonAnchor: NSView?, fallbackAnchor: NSView?) -> NSView? {
     let fallbackWindow = fallbackAnchor?.window
     guard let buttonAnchor,
           let buttonWindow = buttonAnchor.window,
@@ -237,15 +233,12 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let windowNumber = "windowNumber"
 }
 
-@MainActor
-@Observable
-final class NotificationsPopoverVisibilityState {
+@MainActor @Observable final class NotificationsPopoverVisibilityState {
     static let shared = NotificationsPopoverVisibilityState()
 
     private(set) var isShown = false
     private(set) var shownWindowNumbers: Set<Int> = []
-    @ObservationIgnored lazy var shownWindowNumbersPublisher: AnyPublisher<Set<Int>, Never> =
-        observedValuesPublisher { [weak self] in self?.shownWindowNumbers ?? [] }
+    @ObservationIgnored lazy var shownWindowNumbersPublisher: AnyPublisher<Set<Int>, Never> = observedValuesPublisher { [weak self] in self?.shownWindowNumbers ?? [] }
     private var shownPopoverIDs: Set<ObjectIdentifier> = []
     private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
     private var sourceLessShown = false

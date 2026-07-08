@@ -1,4 +1,3 @@
-import Observation
 import CmuxFoundation
 import AppKit
 import Bonsplit
@@ -875,8 +874,7 @@ private enum SessionTranscriptPreviewLayout {
     }
 }
 
-@Observable
-private final class SessionTranscriptPopoverSizeModel {
+@Observable private final class SessionTranscriptPopoverSizeModel {
     var size: CGSize
 
     init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {

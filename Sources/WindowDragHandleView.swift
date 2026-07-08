@@ -1,7 +1,5 @@
-import Observation
 import AppKit
 import Bonsplit
-import Combine
 import CmuxTestSupport
 import SwiftUI
 
@@ -877,32 +875,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         case .showNotifications:
             return false
         }
-    }
-}
-
-@MainActor
-@Observable
-final class MinimalModeSidebarChromeHoverState {
-    static let shared = MinimalModeSidebarChromeHoverState()
-
-    private(set) var hoveredWindowNumber: Int?
-    @ObservationIgnored lazy var hoveredWindowNumberPublisher: AnyPublisher<Int?, Never> =
-        observedValuesPublisher { [weak self] in self?.hoveredWindowNumber }
-
-    private init() {}
-
-    func setHovering(_ isHovering: Bool, windowNumber: Int) {
-        if isHovering {
-            guard hoveredWindowNumber != windowNumber else { return }
-            hoveredWindowNumber = windowNumber
-        } else if hoveredWindowNumber == windowNumber {
-            hoveredWindowNumber = nil
-        }
-    }
-
-    func clear() {
-        guard hoveredWindowNumber != nil else { return }
-        hoveredWindowNumber = nil
     }
 }
 

@@ -79,6 +79,8 @@ final class WindowDecorationsController {
             matching: [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDown, .leftMouseDragged]
         ) { [weak self] event in
             guard let self else { return event }
+            // AppKit delivers local event-monitor callbacks on the main thread.
+            return MainActor.assumeIsolated {
             guard let target = self.minimalModeSidebarChromeEventTarget(for: event) else {
                 #if DEBUG
                 self.recordMinimalModeSidebarChromeMonitorForUITest(
@@ -138,6 +140,7 @@ final class WindowDecorationsController {
                 MinimalModeSidebarChromeHoverState.shared.clear()
             }
             return event
+            }
         }
     }
 

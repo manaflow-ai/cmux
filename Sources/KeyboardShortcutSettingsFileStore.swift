@@ -7,9 +7,7 @@ import os
 
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
-@MainActor
-@Observable
-final class KeyboardShortcutSettingsObserver {
+@MainActor @Observable final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
     private(set) var revision: UInt64 = 0

@@ -352,8 +352,7 @@ private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
 }
 
 @MainActor
-@Observable
-final class BrowserProfileStore {
+@Observable final class BrowserProfileStore {
     static let shared = BrowserProfileStore()
 
     private(set) var profiles: [BrowserProfileDefinition] = []
@@ -1252,8 +1251,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
 }
 
 @MainActor
-@Observable
-final class BrowserHistoryStore {
+@Observable final class BrowserHistoryStore {
     static let shared = BrowserHistoryStore()
 
     /// Persisted history record. Owned by `CmuxBrowser`; this alias keeps
@@ -2615,8 +2613,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
 /// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
 @MainActor
-@Observable
-final class BrowserSearchState {
+@Observable final class BrowserSearchState {
     var needle: String {
         didSet {
             guard needle != oldValue else { return }
@@ -2626,8 +2623,7 @@ final class BrowserSearchState {
     var selected: UInt?
     var total: UInt?
 
-    @ObservationIgnored
-    var onNeedleChanged: (@MainActor (String) -> Void)?
+    @ObservationIgnored var onNeedleChanged: (@MainActor (String) -> Void)?
 
     init(needle: String = "") {
         self.needle = needle
@@ -2644,8 +2640,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-@Observable
-final class BrowserPanel: Panel {
+@Observable final class BrowserPanel: Panel {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -2781,8 +2776,7 @@ final class BrowserPanel: Panel {
     /// through ``BrowserOmnibarPageFocusAdapter``, which reaches back to this
     /// panel's current `webView` weakly so the panel and repository do not retain
     /// each other.
-    @ObservationIgnored
-    private lazy var omnibarPageFocusRepository = BrowserOmnibarPageFocusRepository(
+    @ObservationIgnored private lazy var omnibarPageFocusRepository = BrowserOmnibarPageFocusRepository(
         evaluator: BrowserOmnibarPageFocusAdapter(panel: self),
         logSink: Self.omnibarPageFocusLogSink
     )
@@ -2960,41 +2954,13 @@ final class BrowserPanel: Panel {
         }
     }
     private(set) var isElementFullscreenActive: Bool = false
-    private var searchNeedleTask: Task<Void, Never>?
-
-    private func scheduleFindSearch(_ needle: String) {
-        searchNeedleTask?.cancel()
-        searchNeedleTask = nil
-        guard !needle.isEmpty, needle.count < 3 else {
-            fireFindSearch(needle)
-            return
-        }
-
-        searchNeedleTask = Task { @MainActor [weak self] in
-            do {
-                // Intentional bounded debounce for short browser-find needles; cancelled on every edit/close.
-                try await Task.sleep(for: .milliseconds(300))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self?.fireFindSearch(needle)
-        }
-    }
-
-    private func fireFindSearch(_ needle: String) {
-#if DEBUG
-        cmuxDebugLog("browser.find.needle.updated panel=\(id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
-#endif
-        executeFindSearch(needle)
-    }
+    var searchNeedleTask: Task<Void, Never>?
 
     /// Find-in-page search execution: generates the find scripts, evaluates them against the
     /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
     /// `BrowserFindMatchCount`. The panel owns the find bar visibility, focus, and `searchState`;
     /// this service owns only the script generation and result parsing.
-    @ObservationIgnored
-    private lazy var findService = BrowserFindService(
+    @ObservationIgnored private lazy var findService = BrowserFindService(
         evaluator: BrowserFindWebViewEvaluator(panel: self)
     )
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
@@ -7644,7 +7610,7 @@ extension BrowserPanel {
         postBrowserSearchFocusNotification(reason: "restoreAfterNavigation", generation: searchFocusRequestGeneration, selectAll: false)
     }
 
-    private func executeFindSearch(_ needle: String) {
+    func executeFindSearch(_ needle: String) {
         guard !needle.isEmpty else {
             executeFindClear()
             searchState?.selected = nil

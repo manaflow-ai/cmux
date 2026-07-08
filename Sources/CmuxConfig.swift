@@ -1722,9 +1722,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     }
 }
 
-@MainActor
-@Observable
-final class CmuxConfigStore {
+@MainActor @Observable final class CmuxConfigStore {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
     ]

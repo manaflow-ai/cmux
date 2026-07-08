@@ -1,4 +1,3 @@
-import Observation
 import CmuxFoundation
 import AppKit
 import AVKit
@@ -977,8 +976,7 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-@Observable
-final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
+@Observable final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview

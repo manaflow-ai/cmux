@@ -198,7 +198,7 @@ final class RightSidebarToolPanel: Panel {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationToken?.cancel()
         workspaceDirectoryRevisionCancellable?.cancel()
-        workspaceObservationToken = observeValue { [weak workspace] in
+        workspaceObservationToken = observeTrackedValue { [weak workspace] in
             guard let workspace else { return WorkspaceRootObservationState.empty }
             return WorkspaceRootObservationState(
                 currentDirectory: workspace.currentDirectory,

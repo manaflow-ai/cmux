@@ -184,7 +184,7 @@ extension Workspace {
             .combineLatest(sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
-                guard let self else { return nil }
+                guard self != nil else { return nil }
                 let (groupedFields, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
                 let panels = groupedFields.1

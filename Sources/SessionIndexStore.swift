@@ -184,12 +184,10 @@ enum SectionIcon: Equatable {
 }
 
 /// Owns the "which section is currently being dragged" bit, separate from
-/// `SessionIndexStore`. Isolating this means drag start/end does not emit
-/// whole-object invalidation on the data store, so rows and gaps don't re-render
-/// every time a drag begins or clears.
+/// `SessionIndexStore`. Isolating this keeps drag start/end from invalidating
+/// the data store, so rows and gaps don't re-render per drag begin/clear.
 @MainActor
-@Observable
-final class SessionDragCoordinator {
+@Observable final class SessionDragCoordinator {
     var draggedKey: SectionKey? = nil
 }
 
@@ -204,8 +202,7 @@ struct DirectorySnapshot: Sendable {
 }
 
 @MainActor
-@Observable
-final class SessionIndexStore {
+@Observable final class SessionIndexStore {
     private(set) var entries: [SessionEntry] = [] {
         didSet {
             guard entries != oldValue else { return }

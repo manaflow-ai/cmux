@@ -757,8 +757,7 @@ private func installFileDropOverlayWhenReady(
 }
 
 @MainActor
-@Observable
-private final class SelectedWorkspaceDirectoryObserver {
+@Observable private final class SelectedWorkspaceDirectoryObserver {
     private struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
@@ -769,13 +768,9 @@ private final class SelectedWorkspaceDirectoryObserver {
         let activeRemoteTerminalSessionCount: Int
 
         static let empty = Snapshot(
-            workspaceId: nil,
-            currentDirectory: nil,
-            remoteConfiguration: nil,
-            remoteConnectionState: nil,
-            remoteConnectionDetail: nil,
-            remoteDaemonStatus: nil,
-            activeRemoteTerminalSessionCount: 0
+            workspaceId: nil, currentDirectory: nil, remoteConfiguration: nil,
+            remoteConnectionState: nil, remoteConnectionDetail: nil,
+            remoteDaemonStatus: nil, activeRemoteTerminalSessionCount: 0
         )
     }
 
@@ -1641,7 +1636,8 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
-        VerticalTabsSidebar(
+        @Bindable var sidebarSelectionState = sidebarSelectionState
+        return VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             windowId: windowId,
@@ -1654,10 +1650,7 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
-            selection: Binding(
-                get: { sidebarSelectionState.selection },
-                set: { sidebarSelectionState.selection = $0 }
-            ),
+            selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         .frame(width: sidebarWidth)
@@ -1734,6 +1727,7 @@ struct ContentView: View {
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
+        @Bindable var sidebarSelectionState = sidebarSelectionState
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
@@ -1782,10 +1776,7 @@ struct ContentView: View {
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
-            NotificationsPage(selection: Binding(
-                get: { sidebarSelectionState.selection },
-                set: { sidebarSelectionState.selection = $0 }
-            ))
+            NotificationsPage(selection: $sidebarSelectionState.selection)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
@@ -9909,8 +9900,7 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 }
 
 @MainActor
-@Observable
-private final class SidebarTabItemSettingsStore {
+@Observable private final class SidebarTabItemSettingsStore {
     private(set) var snapshot: SidebarTabItemSettingsSnapshot
 
     private let defaults: UserDefaults
@@ -12450,8 +12440,7 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 }
 
 @MainActor
-@Observable
-private final class SidebarDragFailsafeMonitor {
+@Observable private final class SidebarDragFailsafeMonitor {
     private static let escapeKeyCode: UInt16 = 53
     // One-shot timer bridges synchronous AppKit event monitors to a cancellable drag-teardown deadline.
     private var pendingClearTimer: DispatchSourceTimer?

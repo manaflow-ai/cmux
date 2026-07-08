@@ -175,8 +175,7 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
 }
 
 @MainActor
-@Observable
-final class TerminalNotificationStore {
+@Observable final class TerminalNotificationStore {
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -393,9 +392,8 @@ final class TerminalNotificationStore {
     /// high-frequency notification churn that does not change a workspace's
     /// badge count or latest-message text never republishes to the sidebar.
     /// This is the boundary that keeps the workspace list off the store's hot
-    /// publish path (issue #2586 class of sidebar re-render spins). Owned (not
-    /// old Combine-backed observed state) so its updates stay independent of the store's own
-    /// whole-object invalidation.
+    /// publish path (issue #2586 class of sidebar re-render spins). Owned
+    /// separately so its updates stay independent of the store's invalidation.
     let sidebarUnread = SidebarUnreadModel()
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
@@ -2148,8 +2146,7 @@ struct SidebarSurfaceUnreadKey: Hashable {
 /// spins). The query methods mirror the equivalent `TerminalNotificationStore`
 /// reads exactly so callers can switch source without behavior change.
 @MainActor
-@Observable
-final class SidebarUnreadModel {
+@Observable final class SidebarUnreadModel {
     private(set) var totalUnreadCount: Int = 0
     private(set) var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
     private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []

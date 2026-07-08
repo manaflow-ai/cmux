@@ -116,10 +116,9 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 
 // MARK: - Store Tests
 
-/// The store's Observation-tracked state is driven by unstructured `Task { ... }`
-/// calls that hop to `@MainActor`; its AppKit bridge emits a separate
-/// `storeDidChange` signal. Pinning the test class to `@MainActor` keeps reads
-/// on the same actor as the mutations, so snapshots stay consistent.
+/// The store's Observation-tracked state is driven by unstructured `Task { ... }` calls
+/// that hop to `@MainActor`; its AppKit bridge emits a separate `storeDidChange` signal.
+/// Pinning the test class to `@MainActor` keeps reads on the mutation actor.
 @MainActor
 @Suite(.serialized)
 struct FileExplorerStoreTests {

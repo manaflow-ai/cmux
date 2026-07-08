@@ -1,4 +1,3 @@
-import Observation
 import AppKit
 import CmuxFoundation
 import CmuxSettings

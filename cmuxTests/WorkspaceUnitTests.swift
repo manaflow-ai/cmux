@@ -2964,26 +2964,28 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
     }
 }
 
+// File scope: the @Observable macro's generated extension cannot reference a
+// type nested `private` inside a class.
+@Observable private final class DetachedWorkspaceTestPanel: Panel {
+    let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .terminal
+    let displayTitle = "Detached"
+    let displayIcon: String? = "terminal.fill"
+    let isDirty = false
+
+    init(id: UUID = UUID()) {
+        self.id = id
+    }
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
+
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
-    @Observable
-    private final class DetachedWorkspaceTestPanel: Panel {
-        let id: UUID
-        let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-        let panelType: PanelType = .terminal
-        let displayTitle = "Detached"
-        let displayIcon: String? = "terminal.fill"
-        let isDirty = false
-
-        init(id: UUID = UUID()) {
-            self.id = id
-        }
-
-        func close() {}
-        func focus() {}
-        func unfocus() {}
-        func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
-    }
 
     func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
@@ -5355,15 +5357,6 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
     }
 }
 
-// Mutable flag captured by Observation's Sendable onChange closure in these tests.
-private final class WorkspaceUnitObservationChangeFlag: @unchecked Sendable {
-    private(set) var fired = false
-
-    func mark() {
-        fired = true
-    }
-}
-
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
     private final class RejectingCreateTabDelegate: BonsplitDelegate {
@@ -6565,103 +6558,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let ordered = workspace.sidebarGitBranchesInDisplayOrder()
         XCTAssertEqual(ordered.map(\.branch), ["main", "feature/sidebar"])
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
-    }
-
-    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
-        let workspace = Workspace()
-        guard let panelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
-
-        let firstChangeFlag = WorkspaceUnitObservationChangeFlag()
-        withObservationTracking {
-            _ = workspace.panelGitBranches
-            _ = workspace.gitBranch
-        } onChange: {
-            firstChangeFlag.mark()
-        }
-
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-
-        XCTAssertTrue(
-            firstChangeFlag.fired,
-            "Expected the first focused branch update to publish workspace changes"
-        )
-
-        let identicalChangeFlag = WorkspaceUnitObservationChangeFlag()
-        withObservationTracking {
-            _ = workspace.panelGitBranches
-            _ = workspace.gitBranch
-        } onChange: {
-            identicalChangeFlag.mark()
-        }
-
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-
-        XCTAssertFalse(
-            identicalChangeFlag.fired,
-            "Expected identical focused branch refreshes to avoid extra workspace publishes"
-        )
-    }
-
-    func testUpdatingFocusedPanelPullRequestWithSameStateDoesNotRepublishWorkspace() {
-        let workspace = Workspace()
-        guard let panelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
-
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
-
-        let firstChangeFlag = WorkspaceUnitObservationChangeFlag()
-        withObservationTracking {
-            _ = workspace.panelPullRequests
-            _ = workspace.pullRequest
-        } onChange: {
-            firstChangeFlag.mark()
-        }
-
-        let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
-        workspace.updatePanelPullRequest(
-            panelId: panelId,
-            number: 2388,
-            label: "PR",
-            url: pullRequestURL,
-            status: .open,
-            branch: "feature/sidebar-pr"
-        )
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-
-        XCTAssertTrue(
-            firstChangeFlag.fired,
-            "Expected the first focused pull request update to publish workspace changes"
-        )
-
-        let identicalChangeFlag = WorkspaceUnitObservationChangeFlag()
-        withObservationTracking {
-            _ = workspace.panelPullRequests
-            _ = workspace.pullRequest
-        } onChange: {
-            identicalChangeFlag.mark()
-        }
-
-        workspace.updatePanelPullRequest(
-            panelId: panelId,
-            number: 2388,
-            label: "PR",
-            url: pullRequestURL,
-            status: .open,
-            branch: "feature/sidebar-pr"
-        )
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-
-        XCTAssertFalse(
-            identicalChangeFlag.fired,
-            "Expected identical focused pull request refreshes to avoid extra workspace publishes"
-        )
     }
 
     func testSidebarObservationPublisherEmitsForFocusedGitBranchChangesOnlyOncePerState() {

@@ -3828,12 +3828,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         panel.syncDeveloperToolsPreferenceFromInspector()
         waitForDeveloperToolsTransitions()
 
-        let changeFlag = BrowserObservationChangeFlag()
-        withObservationTracking {
-            _ = panel.isDeveloperToolsVisible()
-        } onChange: {
-            changeFlag.mark()
-        }
+        let changeFlag = ObservationChangeFlag()
+        withObservationTracking { _ = panel.isDeveloperToolsVisible() } onChange: { changeFlag.mark() }
 
         panel.syncDeveloperToolsPreferenceFromInspector()
 
@@ -5571,13 +5567,5 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
                 nextResponderIsOtherTextField: false
             )
         )
-    }
-}
-
-private final class BrowserObservationChangeFlag: @unchecked Sendable {
-    private(set) var fired = false
-
-    func mark() {
-        fired = true
     }
 }
