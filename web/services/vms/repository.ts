@@ -191,7 +191,7 @@ export type VmRepositoryShape = {
     readonly scrollbackBytes?: number;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<CloudVmSessionRow, VmDatabaseError>;
-  readonly activeIdentityLeases: (vmId: string) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
+  readonly activeIdentityLeases: (vmId: string, limit?: number) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
@@ -1306,10 +1306,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       return session;
     }),
 
-  activeIdentityLeases: (vmId) =>
+  activeIdentityLeases: (vmId, limit) =>
     dbEffect("activeIdentityLeases", async () => {
       const db = cloudDb();
-      return await db
+      const query = db
         .select()
         .from(cloudVmLeases)
         .where(
@@ -1320,6 +1320,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           ),
         )
         .orderBy(desc(cloudVmLeases.createdAt));
+      return typeof limit === "number" && limit > 0
+        ? await query.limit(limit)
+        : await query;
     }),
 
   markLeasesRevoked: (ids) =>
