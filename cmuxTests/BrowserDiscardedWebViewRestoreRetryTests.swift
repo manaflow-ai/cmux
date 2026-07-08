@@ -305,6 +305,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
             hasRecoverableWebContentTermination: false,
+            userStoppedLoad: false,
             intentURL: intentURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -316,6 +317,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: true,
             isNavigationBlockedPendingConsent: false,
             hasRecoverableWebContentTermination: false,
+            userStoppedLoad: false,
             intentURL: intentURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -327,6 +329,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
             hasRecoverableWebContentTermination: false,
+            userStoppedLoad: false,
             intentURL: aboutBlankURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -338,6 +341,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
             hasRecoverableWebContentTermination: false,
+            userStoppedLoad: false,
             intentURL: intentURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -349,6 +353,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
             hasRecoverableWebContentTermination: false,
+            userStoppedLoad: false,
             intentURL: nil
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -360,6 +365,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: true,
             hasRecoverableWebContentTermination: false,
+            userStoppedLoad: false,
             intentURL: intentURL
         ))
         // A crashed WebContent process must wait for the user's explicit
@@ -373,6 +379,21 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
             hasRecoverableWebContentTermination: true,
+            userStoppedLoad: false,
+            intentURL: intentURL
+        ))
+        // A load the user explicitly stopped before first commit must stay
+        // stopped; a reveal never heals over the Stop.
+        #expect(!BrowserPanel.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: false,
+            userStoppedLoad: true,
             intentURL: intentURL
         ))
 

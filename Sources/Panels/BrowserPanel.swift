@@ -2797,6 +2797,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
     let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
     var hasCommittedDocumentSinceWebViewReplacement = false
+    var userStoppedLoadSinceWebViewReplacement = false
     weak var pendingDiscardRestoreNavigation: WKNavigation?
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
@@ -3318,7 +3319,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        hasCommittedDocumentSinceWebViewReplacement = false
+        hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         webView = replacement
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         currentURL = restoreURL
@@ -3404,6 +3405,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement,
             isNavigationBlockedPendingConsent: isNavigationBlockedPendingConsent,
             hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            userStoppedLoad: userStoppedLoadSinceWebViewReplacement,
             intentURL: intentURL
         ) else {
             return false
@@ -4658,7 +4660,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        hasCommittedDocumentSinceWebViewReplacement = false
+        hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         currentURL = restoreURL
@@ -5167,7 +5169,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        hasCommittedDocumentSinceWebViewReplacement = false
+        hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         shouldRenderWebView = wasRenderable
@@ -5810,6 +5812,7 @@ final class BrowserPanel: Panel, ObservableObject {
             historyStore.recordTypedNavigation(url: originalURL)
         }
         noteDiscardedWebViewRestoreNavigationStarted()
+        userStoppedLoadSinceWebViewReplacement = false
         let startedNavigation = browserLoadRequest(effectiveRequest, in: webView)
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
@@ -6164,7 +6167,7 @@ extension BrowserPanel {
             websiteDataStore: websiteDataStore
         )
         webViewInstanceID = UUID()
-        hasCommittedDocumentSinceWebViewReplacement = false
+        hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         webView = replacement
         shouldRenderWebView = false
         refreshWebViewLifecycleState()
@@ -6454,6 +6457,8 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
+        userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }

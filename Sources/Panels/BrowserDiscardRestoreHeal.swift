@@ -95,6 +95,7 @@ extension BrowserPanel {
         hasCommittedDocument: Bool,
         isNavigationBlockedPendingConsent: Bool,
         hasRecoverableWebContentTermination: Bool,
+        userStoppedLoad: Bool,
         intentURL: URL?
     ) -> Bool {
         guard shouldRenderWebView else { return false }
@@ -107,6 +108,9 @@ extension BrowserPanel {
         // A crashed WebContent process waits for the user's explicit Reload;
         // auto-healing here would bypass that gate and can re-enter the crash.
         guard !hasRecoverableWebContentTermination else { return false }
+        // A load the user explicitly stopped before first commit must stay
+        // stopped; healing on reveal would silently undo the Stop.
+        guard !userStoppedLoad else { return false }
         guard let intentURL else { return false }
         return !isAboutBlankURL(intentURL)
     }
