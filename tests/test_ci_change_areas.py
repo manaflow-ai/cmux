@@ -55,6 +55,17 @@ def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
 
 
+def test_mux_only_skips_macos() -> None:
+    # cmux-mux is a standalone Rust project with its own `mux` workflow; its
+    # changes must not require the macOS app-host tests.
+    assert_areas(
+        ["mux/crates/mux-core/src/browser.rs", "mux/README.md", "mux/docs/protocol.md"],
+        macos=False,
+        web=False,
+        go=False,
+    )
+
+
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, go=False, agent_session_web=False)
 
@@ -491,28 +502,30 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
 
 
 def test_macos_jobs_wait_for_linux_preflight() -> None:
+    # The staged macOS jobs must gate on their direct needs explicitly.
+    # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit
+    # success() gate, which GitHub evaluates over the transitive needs chain:
+    # routed linux jobs that legitimately skip (web/go/agent-session paths)
+    # then mark every macOS job skipped even though linux-preflight succeeded.
     for job_name in [
         "app-host-unit-tests",
         "swift-package-tests",
         "tests-build-and-lag",
+        "release-build",
     ]:
         block = workflow_job_block(job_name)
         assert "      - changes" in block
         assert "      - linux-preflight" in block
-        assert (
-            "if: ${{ always() && needs.changes.outputs.macos == 'true' "
-            "&& needs.linux-preflight.result == 'success' }}"
-        ) in block
-
-    release_block = workflow_job_block("release-build")
-    assert "      - changes" in release_block
-    assert "      - linux-preflight" in release_block
-    assert "      - swift-package-tests" in release_block
-    assert (
-        "if: ${{ always() && needs.changes.outputs.macos == 'true' "
-        "&& needs.linux-preflight.result == 'success' "
-        "&& needs.swift-package-tests.result == 'success' }}"
-    ) in release_block
+        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" not in block
+        expected_needs = ["changes", "linux-preflight"]
+        if job_name == "release-build":
+            expected_needs.append("swift-package-tests")
+        expected_if = (
+            "if: ${{ !cancelled() && "
+            + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
+            + " && needs.changes.outputs.macos == 'true' }}"
+        )
+        assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
