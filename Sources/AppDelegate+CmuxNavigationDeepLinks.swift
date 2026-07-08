@@ -138,12 +138,7 @@ extension AppDelegate {
     func liveStableIdentitySet() -> Set<UUID> {
         var identities: Set<UUID> = []
         for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                identities.insert(workspace.stableId)
-                for panel in workspace.panels.values {
-                    identities.insert(panel.stableSurfaceId)
-                }
-            }
+            identities.formUnion(context.tabManager.liveStableIdentitySet())
         }
         return identities
     }

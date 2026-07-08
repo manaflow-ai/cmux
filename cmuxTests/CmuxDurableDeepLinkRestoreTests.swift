@@ -176,6 +176,56 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(resolution == .surface(workspaceId: workspace.id, panelId: panelId))
     }
 
+    @Test func closedPanelRestoreWithLiveIdentityMintsFreshStableSurfaceId() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let pane = try #require(workspace.paneId(forPanelId: panelId))
+        let liveStableSurfaceId = try #require(workspace.panels[panelId]).stableSurfaceId
+        var snapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
+        )
+        snapshot.customTitle = "Restored closed duplicate"
+        let entry = ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: pane.id,
+            tabIndex: 0,
+            snapshot: snapshot
+        )
+
+        #expect(manager.restoreClosedPanel(entry))
+
+        let restoredPanelId = try #require(
+            workspace.panelCustomTitles.first(where: { $0.value == "Restored closed duplicate" })?.key
+        )
+        let restoredPanel = try #require(workspace.panels[restoredPanelId])
+        #expect(restoredPanel.stableSurfaceId != liveStableSurfaceId)
+    }
+
+    @Test func closedWorkspaceRestoreWithLiveIdentityMintsFreshStableIds() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let liveStableWorkspaceId = workspace.stableId
+        let liveStableSurfaceId = try #require(workspace.panels[panelId]).stableSurfaceId
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        snapshot.customTitle = "Restored workspace duplicate"
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: workspace.id,
+            windowId: nil,
+            workspaceIndex: 1,
+            snapshot: snapshot
+        )
+
+        #expect(manager.restoreClosedWorkspace(entry))
+
+        let restoredWorkspace = try #require(
+            manager.tabs.first(where: { $0.customTitle == "Restored workspace duplicate" })
+        )
+        #expect(restoredWorkspace.stableId != liveStableWorkspaceId)
+        #expect(!restoredWorkspace.panels.values.contains { $0.stableSurfaceId == liveStableSurfaceId })
+    }
+
     @Test func legacySnapshotWithoutStableIdsRestoresWithFreshOnes() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

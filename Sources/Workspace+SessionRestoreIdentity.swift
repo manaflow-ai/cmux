@@ -9,4 +9,13 @@ extension Workspace {
             panel.adoptStableSurfaceId(stableSurfaceId)
         }
     }
+
+    func restoreClosedPanel(
+        _ entry: ClosedPanelHistoryEntry,
+        excludingStableIdentities: Set<UUID>
+    ) -> UUID? {
+        sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
+        defer { sessionRestoreIdentityExclusions.endRestore() }
+        return restoreClosedPanel(entry)
+    }
 }

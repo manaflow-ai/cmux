@@ -4124,7 +4124,7 @@ class TabManager: ObservableObject {
 
         let preRestoreFocus = currentFocusHistoryEntry
         let panelId = withFocusHistoryRecordingSuppressed {
-            workspace.restoreClosedPanel(entry)
+            workspace.restoreClosedPanel(entry, excludingStableIdentities: liveStableIdentitySet())
         }
 
         guard let panelId else { return false }
@@ -4149,7 +4149,7 @@ class TabManager: ObservableObject {
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
+        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
