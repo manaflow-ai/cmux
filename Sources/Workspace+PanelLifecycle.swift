@@ -5,6 +5,23 @@ import Darwin
 import Foundation
 import CmuxSidebar
 
+/// Immutable per-pane agent status row consumed by the sidebar (a value
+/// snapshot only, per the sidebar list snapshot-boundary rule).
+struct SidebarAgentStatusRow: Equatable, Identifiable {
+    let panelId: UUID
+    let statusKey: String
+    let value: String?
+    let icon: String?
+    let color: String?
+    let url: URL?
+    let lifecycle: AgentHibernationLifecycleState?
+    let paneLabel: String?
+    let priority: Int
+    let timestamp: Date
+
+    var id: String { "\(panelId.uuidString)|\(statusKey)" }
+}
+
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
@@ -35,6 +52,45 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    var statusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] {
+        get { sidebarAgentRuntimeObservation.statusEntriesByPanelId }
+        set { sidebarAgentRuntimeObservation.setStatusEntriesByPanelId(newValue) }
+    }
+
+    /// Records the panel-scoped copy of a structured agent status report, so
+    /// each agent pane keeps its own row even when several agents of the same
+    /// type share the workspace (the workspace-level `statusEntries` slot is
+    /// last-write-wins per agent type).
+    func recordPanelStatusEntry(_ entry: SidebarStatusEntry, panelId: UUID) {
+        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else { return }
+        statusEntriesByPanelId[panelId, default: [:]][entry.key] = entry
+    }
+
+    @discardableResult
+    func clearPanelStatusEntry(statusKey: String, panelId: UUID) -> Bool {
+        guard var entries = statusEntriesByPanelId[panelId],
+              entries.removeValue(forKey: statusKey) != nil else {
+            return false
+        }
+        if entries.isEmpty {
+            statusEntriesByPanelId.removeValue(forKey: panelId)
+        } else {
+            statusEntriesByPanelId[panelId] = entries
+        }
+        return true
+    }
+
+    @discardableResult
+    func clearPanelStatusEntries(statusKey: String) -> Bool {
+        var didChange = false
+        for panelId in statusEntriesByPanelId.keys where statusEntriesByPanelId[panelId]?[statusKey] != nil {
+            if clearPanelStatusEntry(statusKey: statusKey, panelId: panelId) {
+                didChange = true
+            }
+        }
+        return didChange
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -47,9 +103,13 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = statusEntriesByPanelId[panelId]?[statusKey] ?? statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
+        }
+        for (statusKey, statusEntry) in statusEntriesByPanelId[panelId] ?? [:]
+        where statusEntriesForPanel[statusKey] == nil {
+            statusEntriesForPanel[statusKey] = statusEntry
         }
         guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
         return DetachedAgentRuntimeState(
@@ -184,6 +244,7 @@ extension Workspace {
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        statusEntriesByPanelId.removeAll()
         if hadAgentPIDs, refreshPorts {
             refreshTrackedAgentPorts()
         }
@@ -286,6 +347,87 @@ extension Workspace {
         return visibleStatusKeys
     }
 
+    /// One sidebar row per live agent pane, so several agents in one workspace
+    /// never collapse into a single last-write-wins pill. A panel-scoped report
+    /// wins; the workspace-level entry is only trusted when a single pane owns
+    /// that status key; otherwise the per-panel lifecycle drives the row.
+    func sidebarAgentStatusRows() -> [SidebarAgentStatusRow] {
+        var statusKeysByPanel: [UUID: Set<String>] = [:]
+        for (key, panelId) in agentPIDPanelIdsByKey where panels[panelId] != nil {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey) else { continue }
+            statusKeysByPanel[panelId, default: []].insert(statusKey)
+        }
+        for (panelId, entries) in statusEntriesByPanelId where panels[panelId] != nil {
+            for statusKey in entries.keys where Self.structuredAgentHookStatusKeys.contains(statusKey) {
+                statusKeysByPanel[panelId, default: []].insert(statusKey)
+            }
+        }
+
+        var chosenByPanel: [(panelId: UUID, statusKey: String, entry: SidebarStatusEntry?)] = []
+        for (panelId, statusKeys) in statusKeysByPanel {
+            let candidates = statusKeys.map { ($0, statusEntriesByPanelId[panelId]?[$0]) }
+            let chosen = candidates.max { lhs, rhs in
+                switch (lhs.1, rhs.1) {
+                case let (lhsEntry?, rhsEntry?):
+                    return isSidebarStatusEntryLessCurrent(lhsEntry, than: rhsEntry)
+                case (nil, .some):
+                    return true
+                case (.some, nil):
+                    return false
+                case (nil, nil):
+                    return lhs.0 > rhs.0
+                }
+            }
+            if let chosen {
+                chosenByPanel.append((panelId: panelId, statusKey: chosen.0, entry: chosen.1))
+            }
+        }
+
+        var panelCountByStatusKey: [String: Int] = [:]
+        for item in chosenByPanel {
+            panelCountByStatusKey[item.statusKey, default: 0] += 1
+        }
+
+        let includePaneLabels = chosenByPanel.count > 1
+        let rows = chosenByPanel.map { item -> SidebarAgentStatusRow in
+            let workspaceEntry = statusEntries[item.statusKey]
+            let soleOwner = panelCountByStatusKey[item.statusKey] == 1
+            let entry = item.entry ?? (soleOwner ? workspaceEntry : nil)
+            return SidebarAgentStatusRow(
+                panelId: item.panelId,
+                statusKey: item.statusKey,
+                value: entry?.value,
+                icon: entry?.icon ?? workspaceEntry?.icon,
+                color: entry?.color ?? workspaceEntry?.color,
+                url: entry?.url,
+                lifecycle: agentLifecycleStatesByPanelId[item.panelId]?[item.statusKey],
+                paneLabel: includePaneLabels ? agentStatusRowPaneLabel(panelId: item.panelId) : nil,
+                priority: entry?.priority ?? workspaceEntry?.priority ?? 0,
+                timestamp: entry?.timestamp ?? workspaceEntry?.timestamp ?? .distantPast
+            )
+        }
+        return rows.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.id < rhs.id
+        }
+    }
+
+    private func agentStatusRowPaneLabel(panelId: UUID) -> String? {
+        let candidates = [
+            panelCustomTitles[panelId],
+            panelDirectoryDisplayLabels[panelId],
+            panelTitles[panelId],
+        ]
+        for candidate in candidates {
+            if let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
     private func isSidebarStatusEntryLessCurrent(
         _ lhs: SidebarStatusEntry,
         than rhs: SidebarStatusEntry
@@ -332,6 +474,9 @@ extension Workspace {
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
             }
+            if let statusKeyToClear, clearPanelStatusEntry(statusKey: statusKeyToClear, panelId: lifecyclePanelId) {
+                didChange = true
+            }
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
@@ -370,6 +515,7 @@ extension Workspace {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
+            recordPanelStatusEntry(statusEntry, panelId: runtimeState.panelId)
         }
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
@@ -454,6 +600,7 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        statusEntriesByPanelId.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)

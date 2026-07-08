@@ -33,6 +33,22 @@ extension TerminalController: ControlSidebarContext {
             if let panelId = panelID, !tab.panels.keys.contains(panelId) {
                 return
             }
+            let entry = SidebarStatusEntry(
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: url,
+                priority: priority,
+                format: appFormat,
+                timestamp: Date()
+            )
+            // The panel-scoped copy is written unconditionally: the workspace
+            // slot is last-write-wins per key, so "no change" there can still
+            // be a change for this panel's own row.
+            if let panelId = panelID {
+                tab.recordPanelStatusEntry(entry, panelId: panelId)
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -49,16 +65,7 @@ extension TerminalController: ControlSidebarContext {
                 }
                 return
             }
-            tab.statusEntries[key] = SidebarStatusEntry(
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: url,
-                priority: priority,
-                format: appFormat,
-                timestamp: Date()
-            )
+            tab.statusEntries[key] = entry
             if let pid {
                 tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
             }
@@ -68,6 +75,7 @@ extension TerminalController: ControlSidebarContext {
     nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {
         controlSidebarScheduleMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
+            _ = tab.clearPanelStatusEntries(statusKey: key)
             tab.clearAgentPID(key: key)
         }
     }
