@@ -118,12 +118,12 @@ struct CmuxDurableDeepLinkRestoreTests {
         let workspace = try #require(manager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newTerminalSurface(inPane: pane, focus: true))
-        let terminalSurfaceId = try #require(workspace.surfaceIdFromPanelId(panel.id)?.uuid)
+        _ = try #require(workspace.surfaceIdFromPanelId(panel.id))
 
         let link = try #require(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
                 workspace: workspace,
-                surfaceId: terminalSurfaceId
+                panelId: panel.id
             )
         )
 
