@@ -120,7 +120,7 @@ public struct MobileBrowserPane: View {
 
     @ViewBuilder
     private var securityIndicator: some View {
-        switch BrowserSecurityIndicator.state(for: state.currentURL) {
+        switch BrowserSecurityIndicator(url: state.currentURL) {
         case .secure:
             Image(systemName: "lock.fill")
                 .font(.caption)

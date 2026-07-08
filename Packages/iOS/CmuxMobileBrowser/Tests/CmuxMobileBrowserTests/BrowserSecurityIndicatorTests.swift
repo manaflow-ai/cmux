@@ -6,17 +6,17 @@ import Testing
 /// Pure URL classification for the address-bar security indicator.
 @Suite struct BrowserSecurityIndicatorTests {
     @Test func nilURLShowsNoIndicator() {
-        #expect(BrowserSecurityIndicator.state(for: nil) == .none)
+        #expect(BrowserSecurityIndicator(url: nil) == .none)
     }
 
     @Test func httpsURLIsSecure() {
         let url = URL(string: "https://example.com")!
-        #expect(BrowserSecurityIndicator.state(for: url) == .secure)
+        #expect(BrowserSecurityIndicator(url: url) == .secure)
     }
 
     @Test func publicHTTPURLIsInsecure() {
         let url = URL(string: "http://example.com")!
-        #expect(BrowserSecurityIndicator.state(for: url) == .insecure)
+        #expect(BrowserSecurityIndicator(url: url) == .insecure)
     }
 
     @Test(arguments: [
@@ -29,7 +29,7 @@ import Testing
     ])
     func localAndPrivateHTTPURLsShowNoIndicator(rawURL: String) throws {
         let url = try #require(URL(string: rawURL))
-        #expect(BrowserSecurityIndicator.state(for: url) == .none)
+        #expect(BrowserSecurityIndicator(url: url) == .none)
     }
 
     @Test(arguments: [
@@ -38,6 +38,6 @@ import Testing
     ])
     func nonWebURLsShowNoIndicator(rawURL: String) throws {
         let url = try #require(URL(string: rawURL))
-        #expect(BrowserSecurityIndicator.state(for: url) == .none)
+        #expect(BrowserSecurityIndicator(url: url) == .none)
     }
 }
