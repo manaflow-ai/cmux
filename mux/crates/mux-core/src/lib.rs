@@ -24,7 +24,10 @@ pub use layout::{
     SplitEdge, SplitResize,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
-pub use mux::{Mux, MuxEvent};
+pub use mux::{
+    AgentRecord, AgentSource, AgentState, Mux, MuxEvent, NotificationEvent, NotificationLevel,
+    RunPlacement, SurfaceNotification,
+};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,

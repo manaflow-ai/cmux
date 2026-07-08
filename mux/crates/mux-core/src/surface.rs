@@ -119,6 +119,7 @@ pub struct SurfaceMeta {
     pub id: SurfaceId,
     /// User-assigned tab name (rename tab); shared by every surface kind.
     pub(crate) name: Mutex<Option<String>>,
+    pub(crate) selection: Mutex<Option<String>>,
 }
 
 /// A pane tab runtime.
@@ -238,7 +239,7 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
         }
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None) },
+            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
@@ -336,7 +337,7 @@ impl Surface {
         }
 
         Ok(Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None) },
+            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(TestMasterPty {
@@ -420,6 +421,14 @@ impl Surface {
 
     pub fn name(&self) -> Option<String> {
         self.name.lock().unwrap().clone()
+    }
+
+    pub fn set_selection_text(&self, text: Option<String>) {
+        *self.selection.lock().unwrap() = text;
+    }
+
+    pub fn selection_text(&self) -> Option<String> {
+        self.selection.lock().unwrap().clone()
     }
 
     /// Snapshot the terminal into `rs` (holds the terminal lock only for

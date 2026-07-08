@@ -79,7 +79,8 @@ CLI VERBS
   close-workspace, rename-pane, rename-surface, rename-screen,
   rename-workspace, resize-surface, focus-pane, select-tab,
   select-screen, select-workspace, move-tab, move-workspace,
-  scroll-surface, subscribe, attach-surface
+  scroll-surface, subscribe, attach-surface, wait-for, run,
+  send-key, copy, ids, notify, list-agents, report-agent
 ";
 
 struct Args {

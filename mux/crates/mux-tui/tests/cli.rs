@@ -87,6 +87,42 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let screen = wait_for_screen(&server, surface, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
 
+    let ids_json = cli(&server, &["--json", "ids", "--kind", "surface"]);
+    assert_success(&ids_json);
+    let ids: serde_json::Value = serde_json::from_slice(&ids_json.stdout).unwrap();
+    assert!(ids["ids"].as_array().unwrap().iter().any(|item| item["id"].as_u64() == Some(surface)));
+
+    let copied = cli(&server, &["copy", "--surface", &surface.to_string(), "--mode", "screen"]);
+    assert_success(&copied);
+    assert!(String::from_utf8_lossy(&copied.stdout).contains(&marker));
+
+    let notify = cli(&server, &["notify", "--title", "Build", "--body", "ok"]);
+    assert_success(&notify);
+    assert!(String::from_utf8_lossy(&notify.stdout).trim().parse::<u64>().unwrap() > 0);
+
+    let report = cli(
+        &server,
+        &[
+            "report-agent",
+            "--surface",
+            &surface.to_string(),
+            "--state",
+            "working",
+            "--source",
+            "socket",
+            "--session",
+            "cli",
+        ],
+    );
+    assert_success(&report);
+    let agents = cli(&server, &["--json", "list-agents", "--surface", &surface.to_string()]);
+    assert_success(&agents);
+    let agents: serde_json::Value = serde_json::from_slice(&agents.stdout).unwrap();
+    assert_eq!(agents["agents"][0]["state"].as_str(), Some("working"));
+
+    let send_key = cli(&server, &["send-key", "--surface", &surface.to_string(), "enter"]);
+    assert_success(&send_key);
+
     let select_bare = cli(&server, &["select-tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
 
