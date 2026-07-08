@@ -1081,6 +1081,7 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
+        let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1136,7 +1137,8 @@ struct RestorableAgentSessionIndex: Sendable {
                         kind: kind,
                         registration: registration,
                         fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
+                        lookup: claudeTranscriptLookup,
+                        codexCwdLookup: codexCwdLookup
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration
@@ -1537,7 +1539,8 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind,
         registration: CmuxVaultAgentRegistration?,
         fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
+        lookup: ClaudeTranscriptLookupCache,
+        codexCwdLookup: CodexSessionCwdLookupCache
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
@@ -1555,7 +1558,7 @@ struct RestorableAgentSessionIndex: Sendable {
         case .cwdInFile:
             // Resume is addressed by id and the cwd lives inside the record, so the runtime cwd is
             // fine — keeping it preserves the directory the agent was working in.
-            return recordedCwd ?? launchCwd
+            return recordedCwd ?? launchCwd ?? codexCwdLookup.workingDirectory(kind: kind, sessionId: record.sessionId, launchCommand: record.launchCommand)
         case .byDirectory:
             if kind == .claude,
                let verified = claudeVerifiedRestorableWorkingDirectory(
@@ -2146,7 +2149,8 @@ struct RestorableAgentSessionIndex: Sendable {
             kind: kind,
             liveExecutable: liveExecutable,
             recordedExecutable: recordedExecutable,
-            arguments: process.arguments
+            arguments: process.arguments,
+            environment: process.environment
         ) else {
             return nil
         }
@@ -2157,9 +2161,17 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind,
         liveExecutable: String,
         recordedExecutable: String,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]
     ) -> Bool {
         if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
+            return true
+        }
+        if CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
+            kind: kind,
+            executableCandidates: [liveExecutable],
+            environment: environment
+        ) {
             return true
         }
 
