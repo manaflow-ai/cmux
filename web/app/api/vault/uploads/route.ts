@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../db/schema";
@@ -107,9 +107,9 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
   const db = cloudDb();
   const now = new Date();
 
-  await gcExpiredGrants(db, now);
-
   const reservedResults = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+    await gcExpiredGrants(lockedDb, userId, now);
+
     // Per-user storage quota covers committed snapshots plus unexpired upload
     // grants, so minting URLs and never committing still consumes quota (the
     // presigned ContentLength is signed, bounding each upload to its declared
@@ -337,43 +337,46 @@ async function presignReservedUploads(
  * bounded batch per request (same pattern as the CLI auth start GC). If the
  * object deletion fails, the row is kept so a later pass retries.
  */
-async function gcExpiredGrants(db: ReturnType<typeof cloudDb>, now: Date): Promise<void> {
+async function gcExpiredGrants(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  now: Date,
+): Promise<void> {
   const expired = await db
     .select({
       id: vaultUploadGrants.id,
       objectKey: vaultUploadGrants.objectKey,
       uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+      expiresAt: vaultUploadGrants.expiresAt,
     })
     .from(vaultUploadGrants)
-    .where(lt(vaultUploadGrants.expiresAt, now))
+    .where(and(
+      eq(vaultUploadGrants.userId, userId),
+      lt(vaultUploadGrants.expiresAt, now),
+    ))
     .limit(GRANT_GC_BATCH);
   if (expired.length === 0) return;
 
-  const committedRows = await db
-    .select({ objectKey: vaultSnapshots.objectKey })
-    .from(vaultSnapshots)
-    .where(
-      inArray(
-        vaultSnapshots.objectKey,
-        expired.map((grant) => grant.objectKey),
-      ),
-    );
-  const committedKeys = new Set(committedRows.map((row) => row.objectKey));
-
   for (const grant of expired) {
     const legacyFinalKeyGrant = grant.uploadObjectKey === grant.objectKey;
-    const committed = committedKeys.has(grant.objectKey);
     try {
-      if (legacyFinalKeyGrant) {
-        if (!committed) await deleteObject(grant.objectKey);
-      } else {
-        await deleteObject(grant.uploadObjectKey);
-        if (!committed) await deleteObject(grant.objectKey);
-      }
+      if (!legacyFinalKeyGrant) await deleteObject(grant.uploadObjectKey);
+      const [committed] = await db
+        .select({ objectKey: vaultSnapshots.objectKey })
+        .from(vaultSnapshots)
+        .where(eq(vaultSnapshots.objectKey, grant.objectKey))
+        .limit(1);
+      if (!committed) await deleteObject(grant.objectKey);
     } catch {
       continue;
     }
-    await db.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
+    await db.delete(vaultUploadGrants).where(and(
+      eq(vaultUploadGrants.id, grant.id),
+      eq(vaultUploadGrants.userId, userId),
+      eq(vaultUploadGrants.objectKey, grant.objectKey),
+      eq(vaultUploadGrants.uploadObjectKey, grant.uploadObjectKey),
+      eq(vaultUploadGrants.expiresAt, grant.expiresAt),
+    ));
   }
 }
 

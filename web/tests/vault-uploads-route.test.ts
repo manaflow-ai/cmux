@@ -12,6 +12,7 @@ const storageModule = await import("../services/vault/storage");
 const realBuildObjectKey = storageModule.buildObjectKey;
 let presignFailure: Error | null = null;
 let beforeNextPresignFailure: (() => Promise<void>) | null = null;
+let beforeNextDelete: ((key: string) => Promise<void>) | null = null;
 const presignPut = mock(async (...args: unknown[]) => {
   const [key, contentLength] = args as [string, number];
   if (beforeNextPresignFailure) {
@@ -23,7 +24,13 @@ const presignPut = mock(async (...args: unknown[]) => {
   if (presignFailure) throw presignFailure;
   return `https://storage.test/${encodeURIComponent(key)}?contentLength=${contentLength}`;
 });
-const deleteObject = mock(async () => undefined);
+const deleteObject = mock(async (...args: unknown[]) => {
+  const [key] = args as [string];
+  if (!beforeNextDelete) return;
+  const run = beforeNextDelete;
+  beforeNextDelete = null;
+  await run(key);
+});
 const getUser = mock(async () => stackUser());
 
 mock.module("../services/vault/storage", () => ({
@@ -60,6 +67,7 @@ beforeEach(async () => {
   process.env.CMUX_VAULT_MAX_USER_BYTES = "1000000";
   presignFailure = null;
   beforeNextPresignFailure = null;
+  beforeNextDelete = null;
   presignPut.mockClear();
   deleteObject.mockClear();
   getUser.mockClear();
@@ -317,6 +325,61 @@ describe("Vault uploads route", () => {
     expect(response.status).toBe(200);
     expect(deleteObject).toHaveBeenCalledWith(uploadObjectKey);
     expect(deleteObject).toHaveBeenCalledWith(objectKey);
+    const grants = await db
+      .select({ id: vaultUploadGrants.id })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(grants).toHaveLength(0);
+  });
+
+  dbTest("does not delete an expired grant final object after it becomes committed", async () => {
+    const db = cloudDb();
+    const expiredSha = "d".repeat(64);
+    const objectKey = realBuildObjectKey(userId, "codex", "session-gc-race", expiredSha);
+    const uploadObjectKey = `${objectKey}.staged`;
+    await db.insert(vaultUploadGrants).values({
+      userId,
+      objectKey,
+      uploadObjectKey,
+      compressedSizeBytes: 456,
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+    beforeNextDelete = async (key) => {
+      expect(key).toBe(uploadObjectKey);
+      const uploadedAt = new Date("2030-01-01T00:00:00.000Z");
+      const [session] = await db
+        .insert(vaultSessions)
+        .values({
+          userId,
+          agent: "codex",
+          agentSessionId: "session-gc-race",
+          relPath: "sessions/session-gc-race.jsonl.zst",
+          cwd: "/workspace",
+          latestSha256: expiredSha,
+          latestObjectKey: objectKey,
+          sizeBytes: 999,
+          compressedSizeBytes: 456,
+          firstUploadedAt: uploadedAt,
+          lastUploadedAt: uploadedAt,
+          metadata: {},
+        })
+        .returning({ id: vaultSessions.id });
+      await db.insert(vaultSnapshots).values({
+        sessionId: session!.id,
+        sha256: expiredSha,
+        objectKey,
+        sizeBytes: 999,
+        compressedSizeBytes: 456,
+        uploadedAt,
+      });
+    };
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledWith(uploadObjectKey);
+    expect(deleteObject).not.toHaveBeenCalledWith(objectKey);
     const grants = await db
       .select({ id: vaultUploadGrants.id })
       .from(vaultUploadGrants)
