@@ -1714,6 +1714,8 @@
     "supportedLabel": "Unterstützt",
     "submitTitle": "Erweiterung zur Prüfung einreichen",
     "submitBody": "Führe submit aus, um dein Repository zu validieren und ein vorausgefülltes GitHub-Issue zu öffnen; genehmigt wird es, wenn ein Maintainer einen awesome-cmux-Registry-PR merged.",
+    "emptyRegistryTitle": "Noch keine Erweiterungen",
+    "emptyRegistryDescription": "Reiche unten eine Erweiterung ein, um die kuratierte Galerie zu starten.",
     "submitIssueAction": "Einreichungs-Issue öffnen",
     "templateAction": "Erweiterungsvorlage"
   },

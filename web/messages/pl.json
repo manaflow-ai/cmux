@@ -1714,6 +1714,8 @@
     "supportedLabel": "Wspierane",
     "submitTitle": "Prześlij rozszerzenie do przeglądu",
     "submitBody": "Uruchom submit, aby zwalidować repozytorium i otworzyć wstępnie wypełnione issue GitHub; akceptacja następuje po scaleniu PR rejestru awesome-cmux.",
+    "emptyRegistryTitle": "Nie ma jeszcze rozszerzeń",
+    "emptyRegistryDescription": "Prześlij rozszerzenie poniżej, aby rozpocząć kuratorowaną galerię.",
     "submitIssueAction": "Otwórz issue zgłoszenia",
     "templateAction": "Szablon rozszerzenia"
   },

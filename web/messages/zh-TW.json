@@ -1714,6 +1714,8 @@
     "supportedLabel": "已支援",
     "submitTitle": "提交擴充功能以供審核",
     "submitBody": "執行 submit 驗證 repository 並開啟預填 GitHub issue；maintainer 合併 awesome-cmux registry PR 後即核准。",
+    "emptyRegistryTitle": "還沒有擴充功能",
+    "emptyRegistryDescription": "在下方提交一個擴充功能，開啟這個精選圖庫。",
     "submitIssueAction": "開啟提交 issue",
     "templateAction": "擴充功能範本"
   },

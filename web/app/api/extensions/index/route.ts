@@ -10,6 +10,7 @@ import {
   extensionsIndexResponseSchema,
   githubRepositorySchema,
   mapGithubRepositoriesToExtensions,
+  type ExtensionDto,
   type ExtensionsIndexResponse,
   type GitHubRepository,
 } from "./mapping";
@@ -82,39 +83,36 @@ function loadExtensionsIndex(span: Span): Effect.Effect<ExtensionsIndexResponse,
       registry.extensions,
       (entry) =>
         fetchGithubRepository(entry.repo, span).pipe(
-          Effect.map((repository) => ({ repository, skipped: false as const })),
+          Effect.map((repository) => ({
+            extension: mapGithubRepositoriesToExtensions([repository])[0] ?? null,
+            fallbackMetadata: false as const,
+          })),
           Effect.catchAll((error) =>
             Effect.sync(() => {
               recordSpanError(span, error);
-              return { repository: null, skipped: true as const };
+              return {
+                extension: mapRegistryEntryToExtension(entry),
+                fallbackMetadata: true as const,
+              };
             }),
           ),
         ),
       { concurrency: 8 },
     );
 
-    const repositories = fetched
-      .map((entry) => entry.repository)
-      .filter((repository): repository is GitHubRepository => repository !== null);
-    const skippedCount = fetched.filter((entry) => entry.skipped).length;
+    const extensions = fetched
+      .map((entry) => entry.extension)
+      .filter((extension): extension is ExtensionDto => extension !== null);
+    const fallbackMetadataCount = fetched.filter((entry) => entry.fallbackMetadata).length;
 
     yield* Effect.sync(() =>
-      setSpanAttributes(span, { "cmux.extensions.skipped": skippedCount }),
+      setSpanAttributes(span, { "cmux.extensions.fallback_metadata": fallbackMetadataCount }),
     );
-
-    if (registry.extensions.length > 0 && repositories.length === 0) {
-      return yield* Effect.fail(
-        new ExtensionsIndexUpstreamError({
-          error: "github_extensions_unavailable",
-        }),
-      );
-    }
 
     return yield* Effect.try({
       try: () =>
         extensionsIndexResponseSchema.parse({
-          extensions: mapGithubRepositoriesToExtensions(repositories)
-            .sort((left, right) => right.stars - left.stars || left.fullName.localeCompare(right.fullName)),
+          extensions: extensions.sort(compareExtensions),
           fetchedAt: new Date().toISOString(),
         }),
       catch: (cause) =>
@@ -124,6 +122,27 @@ function loadExtensionsIndex(span: Span): Effect.Effect<ExtensionsIndexResponse,
         }),
     });
   });
+}
+
+function mapRegistryEntryToExtension(
+  entry: ExtensionsRegistry["extensions"][number],
+): ExtensionDto {
+  const [owner = entry.repo] = entry.repo.split("/");
+  return {
+    fullName: entry.repo,
+    owner,
+    description: null,
+    stars: null,
+    language: null,
+    pushedAt: null,
+    createdAt: null,
+    url: githubHtmlUrl(entry.repo),
+    supported: true,
+  };
+}
+
+function compareExtensions(left: ExtensionDto, right: ExtensionDto): number {
+  return (right.stars ?? -1) - (left.stars ?? -1) || left.fullName.localeCompare(right.fullName);
 }
 
 export function loadExtensionsRegistry(
@@ -277,6 +296,11 @@ function fetchGithubRepository(
 function githubRepositoryUrl(repo: string): string {
   const [owner, name] = repo.split("/");
   return `https://api.github.com/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}`;
+}
+
+function githubHtmlUrl(repo: string): string {
+  const [owner, name] = repo.split("/");
+  return `https://github.com/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}`;
 }
 
 function githubHeaders(): HeadersInit {

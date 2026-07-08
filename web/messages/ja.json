@@ -2763,6 +2763,8 @@
     },
     "emptyTitle": "一致する拡張機能がありません",
     "emptyDescription": "別の検索語を試すか、入力欄を空にしてください。",
+    "emptyRegistryTitle": "拡張機能はまだありません",
+    "emptyRegistryDescription": "下の送信セクションから拡張機能を申請して、キュレーション済みギャラリーを始められます。",
     "noDescription": "説明はありません。",
     "unknownLanguage": "不明",
     "updatedLabel": "{time}に更新",

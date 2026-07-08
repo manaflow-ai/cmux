@@ -1714,6 +1714,8 @@
     "supportedLabel": "Compatible",
     "submitTitle": "Enviar una extensión para revisión",
     "submitBody": "Ejecuta submit para validar tu repositorio y abrir un issue de GitHub prellenado; se aprueba cuando un maintainer fusiona un PR del registro awesome-cmux.",
+    "emptyRegistryTitle": "Aún no hay extensiones",
+    "emptyRegistryDescription": "Envía una extensión abajo para iniciar la galería curada.",
     "submitIssueAction": "Abrir issue de envío",
     "templateAction": "Plantilla de extensión"
   },

@@ -1714,6 +1714,8 @@
     "supportedLabel": "បានគាំទ្រ",
     "submitTitle": "ផ្ញើផ្នែកបន្ថែមសម្រាប់ពិនិត្យ",
     "submitBody": "រត់ submit ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue ដែលបំពេញរួច; អនុម័តពេល maintainer merge awesome-cmux registry PR។",
+    "emptyRegistryTitle": "មិនទាន់មាន extension ទេ",
+    "emptyRegistryDescription": "ដាក់ស្នើ extension ខាងក្រោម ដើម្បីចាប់ផ្តើមវិចិត្រសាលដែលបានជ្រើសរើស។",
     "submitIssueAction": "បើក issue ផ្ញើ",
     "templateAction": "គំរូផ្នែកបន្ថែម"
   },

@@ -1714,6 +1714,8 @@
     "supportedLabel": "Pris en charge",
     "submitTitle": "Soumettre une extension pour examen",
     "submitBody": "Lancez submit pour valider votre dépôt et ouvrir une issue GitHub préremplie; l’approbation arrive quand un maintainer fusionne une PR du registre awesome-cmux.",
+    "emptyRegistryTitle": "Pas encore d’extensions",
+    "emptyRegistryDescription": "Soumettez une extension ci-dessous pour lancer la galerie sélectionnée.",
     "submitIssueAction": "Ouvrir l’issue de soumission",
     "templateAction": "Modèle d’extension"
   },

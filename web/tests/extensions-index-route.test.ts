@@ -15,6 +15,18 @@ const originalFetch = globalThis.fetch;
 const registry = extensionsRegistrySchema.parse(registryJson);
 const { GET, awesomeCmuxRegistryUrl } = await import("../app/api/extensions/index/route");
 
+type ExtensionResponseItem = {
+  fullName: string;
+  owner: string;
+  ownerAvatarUrl?: string | null;
+  description?: string | null;
+  stars?: number | null;
+  language?: string | null;
+  pushedAt?: string | null;
+  url: string;
+  supported?: boolean;
+};
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
@@ -156,7 +168,7 @@ describe("extensions index route", () => {
     expect(fetchCalls.every((input) => !String(input).includes("/search/repositories"))).toBe(true);
   });
 
-  test("skips a registry entry when its repository fetch fails", async () => {
+  test("keeps a minimal registry entry when its repository fetch fails", async () => {
     const failedRepo = registry.extensions[0]?.repo;
     const returnedRepos = registry.extensions.slice(1).map((entry, index) => ({
       repo: entry.repo,
@@ -189,17 +201,94 @@ describe("extensions index route", () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.extensions).toHaveLength(returnedRepos.length);
-    expect(body.extensions.map((extension: { fullName: string }) => extension.fullName)).toEqual(
-      [...returnedRepos]
+    const extensions = body.extensions as ExtensionResponseItem[];
+    expect(extensions).toHaveLength(registry.extensions.length);
+    expect(extensions.map((extension) => extension.fullName)).toEqual([
+      ...returnedRepos
         .sort((left, right) => right.stars - left.stars || left.repo.localeCompare(right.repo))
         .map((entry) => entry.repo),
-    );
-    expect(body.extensions.every((extension: { supported?: boolean }) => extension.supported === true)).toBe(true);
+      failedRepo,
+    ]);
+    expect(extensions.every((extension) => extension.supported === true)).toBe(true);
+    const fallback = extensions.find((extension) => extension.fullName === failedRepo);
+    expect(fallback).toMatchObject({
+      fullName: failedRepo,
+      owner: failedRepo?.split("/")[0],
+      description: null,
+      stars: null,
+      language: null,
+      pushedAt: null,
+      url: `https://github.com/${failedRepo}`,
+    });
+    expect(fallback && "ownerAvatarUrl" in fallback).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length + 1);
   });
 
-  test("returns a 502 JSON error when every registry repository fetch fails", async () => {
+  test("returns minimal metadata entries when every repository fetch fails", async () => {
+    const fetchMock = mock(async (...args: unknown[]) => {
+      const input = args[0] as RequestInfo | URL;
+      const url = String(input);
+      if (url === awesomeCmuxRegistryUrl) {
+        return Response.json(registry);
+      }
+      return new Response(JSON.stringify({ message: "rate limited" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const response = await GET(new Request("https://cmux.test/api/extensions/index"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const extensions = body.extensions as ExtensionResponseItem[];
+    expect(extensions).toHaveLength(registry.extensions.length);
+    expect(extensions.map((extension) => extension.fullName)).toEqual(
+      registry.extensions.map((entry) => entry.repo),
+    );
+    for (const extension of extensions) {
+      expect(extension).toMatchObject({
+        owner: extension.fullName.split("/")[0],
+        description: null,
+        stars: null,
+        language: null,
+        pushedAt: null,
+        url: `https://github.com/${extension.fullName}`,
+        supported: true,
+      });
+      expect("ownerAvatarUrl" in extension).toBe(false);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length + 1);
+  });
+
+  test("returns a 200 JSON response for an empty registry", async () => {
+    const fetchMock = mock(async (...args: unknown[]) => {
+      const input = args[0] as RequestInfo | URL;
+      const url = String(input);
+      if (url === awesomeCmuxRegistryUrl) {
+        return Response.json({ extensions: [] });
+      }
+      return new Response(JSON.stringify({ message: "unexpected url" }), { status: 500 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const response = await GET(new Request("https://cmux.test/api/extensions/index"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.extensions).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns a 502 JSON error when the remote and bundled registries are invalid", async () => {
+    const mutableSchema = extensionsRegistrySchema as typeof extensionsRegistrySchema & {
+      parse: (input: unknown) => unknown;
+    };
+    const originalParse = mutableSchema.parse;
+    mutableSchema.parse = () => {
+      throw new Error("invalid bundled registry");
+    };
     const fetchMock = mock(async () =>
       new Response(JSON.stringify({ message: "unavailable" }), {
         status: 503,
@@ -208,11 +297,15 @@ describe("extensions index route", () => {
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const response = await GET(new Request("https://cmux.test/api/extensions/index"));
+    try {
+      const response = await GET(new Request("https://cmux.test/api/extensions/index"));
 
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: "github_extensions_unavailable" });
-    expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length + 1);
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "extensions_registry_invalid" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      mutableSchema.parse = originalParse;
+    }
   });
 });
 

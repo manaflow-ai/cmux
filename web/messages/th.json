@@ -1714,6 +1714,8 @@
     "supportedLabel": "รองรับแล้ว",
     "submitTitle": "ส่งส่วนขยายเพื่อให้ตรวจสอบ",
     "submitBody": "รัน submit เพื่อตรวจสอบ repository และเปิด GitHub issue ที่กรอกไว้ล่วงหน้า การอนุมัติเกิดขึ้นเมื่อ maintainer merge awesome-cmux registry PR",
+    "emptyRegistryTitle": "ยังไม่มีส่วนขยาย",
+    "emptyRegistryDescription": "ส่งส่วนขยายด้านล่างเพื่อเริ่มแกลเลอรีที่คัดสรร",
     "submitIssueAction": "เปิด issue สำหรับส่ง",
     "templateAction": "เทมเพลตส่วนขยาย"
   },

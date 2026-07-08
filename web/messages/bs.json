@@ -1714,6 +1714,8 @@
     "supportedLabel": "Podržano",
     "submitTitle": "Pošaljite ekstenziju na pregled",
     "submitBody": "Pokrenite submit da validirate repozitorij i otvorite unaprijed popunjen GitHub issue; odobrenje nastaje kada maintainer spoji awesome-cmux registry PR.",
+    "emptyRegistryTitle": "Još nema ekstenzija",
+    "emptyRegistryDescription": "Pošaljite ekstenziju ispod da pokrenete kuriranu galeriju.",
     "submitIssueAction": "Otvori issue za slanje",
     "templateAction": "Predložak ekstenzije"
   },

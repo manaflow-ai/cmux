@@ -1714,6 +1714,8 @@
     "supportedLabel": "Supportata",
     "submitTitle": "Invia un’estensione per revisione",
     "submitBody": "Esegui submit per validare il repository e aprire una issue GitHub precompilata; l’approvazione avviene quando un maintainer unisce una PR del registro awesome-cmux.",
+    "emptyRegistryTitle": "Ancora nessuna estensione",
+    "emptyRegistryDescription": "Invia un’estensione qui sotto per avviare la galleria curata.",
     "submitIssueAction": "Apri issue di invio",
     "templateAction": "Template estensione"
   },

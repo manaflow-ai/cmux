@@ -1797,6 +1797,8 @@
     "supportedLabel": "Підтримується",
     "submitTitle": "Надіслати розширення на перевірку",
     "submitBody": "Запустіть submit, щоб перевірити репозиторій і відкрити попередньо заповнену GitHub issue; схвалення відбувається після merge awesome-cmux registry PR.",
+    "emptyRegistryTitle": "Розширень поки немає",
+    "emptyRegistryDescription": "Надішліть розширення нижче, щоб започаткувати куровану галерею.",
     "submitIssueAction": "Відкрити issue надсилання",
     "templateAction": "Шаблон розширення"
   },

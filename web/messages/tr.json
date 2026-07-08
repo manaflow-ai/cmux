@@ -1714,6 +1714,8 @@
     "supportedLabel": "Destekleniyor",
     "submitTitle": "İnceleme için uzantı gönder",
     "submitBody": "submit komutuyla repository’yi doğrulayıp önceden doldurulmuş GitHub issue açın; onay, awesome-cmux registry PR’ı merge edilince gerçekleşir.",
+    "emptyRegistryTitle": "Henüz uzantı yok",
+    "emptyRegistryDescription": "Seçilmiş galeriyi başlatmak için aşağıdan bir uzantı gönderin.",
     "submitIssueAction": "Gönderim issue’sunu aç",
     "templateAction": "Uzantı şablonu"
   },

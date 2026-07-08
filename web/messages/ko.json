@@ -1714,6 +1714,8 @@
     "supportedLabel": "지원됨",
     "submitTitle": "검토할 확장 제출",
     "submitBody": "submit 명령으로 저장소를 검증하고 미리 채워진 GitHub 이슈를 여세요. maintainer가 awesome-cmux registry PR을 병합하면 승인됩니다.",
+    "emptyRegistryTitle": "아직 확장이 없습니다",
+    "emptyRegistryDescription": "아래에서 확장을 제출해 큐레이션 갤러리를 시작하세요.",
     "submitIssueAction": "제출 이슈 열기",
     "templateAction": "확장 템플릿"
   },

@@ -1714,6 +1714,8 @@
     "supportedLabel": "Støttet",
     "submitTitle": "Send inn en utvidelse for gjennomgang",
     "submitBody": "Kjør submit for å validere repoet og åpne en forhåndsutfylt GitHub-issue; godkjenning skjer når en maintainer merger en awesome-cmux registry-PR.",
+    "emptyRegistryTitle": "Ingen utvidelser ennå",
+    "emptyRegistryDescription": "Send inn en utvidelse nedenfor for å starte det kuraterte galleriet.",
     "submitIssueAction": "Åpne innsending-issue",
     "templateAction": "Utvidelsesmal"
   },

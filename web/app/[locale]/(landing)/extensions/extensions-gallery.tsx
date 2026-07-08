@@ -8,12 +8,12 @@ import { Link } from "../../../../i18n/navigation";
 type ExtensionItem = {
   fullName: string;
   owner: string;
-  ownerAvatarUrl: string;
-  description: string | null;
-  stars: number;
-  language: string | null;
-  pushedAt: string;
-  createdAt: string;
+  ownerAvatarUrl?: string | null;
+  description?: string | null;
+  stars?: number | null;
+  language?: string | null;
+  pushedAt?: string | null;
+  createdAt?: string | null;
   url: string;
   supported: boolean;
 };
@@ -45,17 +45,28 @@ function matchesQuery(extension: ExtensionItem, query: string): boolean {
     .includes(query);
 }
 
-function compareDates(left: string, right: string): number {
-  return new Date(right).getTime() - new Date(left).getTime();
+function compareOptionalDates(left?: string | null, right?: string | null): number {
+  const leftTime = left ? new Date(left).getTime() : Number.NaN;
+  const rightTime = right ? new Date(right).getTime() : Number.NaN;
+  const leftValid = Number.isFinite(leftTime);
+  const rightValid = Number.isFinite(rightTime);
+
+  if (leftValid && rightValid) return rightTime - leftTime;
+  if (leftValid) return -1;
+  if (rightValid) return 1;
+  return 0;
 }
 
-function languageColor(language: string | null): string {
-  if (!language) return "#8a8f98";
+function languageColor(language: string): string {
   let hash = 0;
   for (const char of language) {
     hash = (hash * 31 + char.charCodeAt(0)) % 360;
   }
   return `hsl(${hash} 55% 45%)`;
+}
+
+function hasStars(extension: ExtensionItem): extension is ExtensionItem & { stars: number } {
+  return extension.stars !== null && extension.stars !== undefined;
 }
 
 function installHref(fullName: string): string {
@@ -179,18 +190,19 @@ export function ExtensionsGallery() {
 
     return filtered.sort((left, right) => {
       if (sortMode === "updated") {
-        const delta = compareDates(left.pushedAt, right.pushedAt);
+        const delta = compareOptionalDates(left.pushedAt, right.pushedAt);
         return delta || collator.compare(left.fullName, right.fullName);
       }
       if (sortMode === "newest") {
-        const delta = compareDates(left.createdAt, right.createdAt);
+        const delta = compareOptionalDates(left.createdAt, right.createdAt);
         return delta || collator.compare(left.fullName, right.fullName);
       }
       if (sortMode === "name") {
         return collator.compare(left.fullName, right.fullName);
       }
 
-      return right.stars - left.stars || collator.compare(left.fullName, right.fullName);
+      return (right.stars ?? -1) - (left.stars ?? -1) ||
+        collator.compare(left.fullName, right.fullName);
     });
   }, [collator, extensions, normalizedQuery, sortMode]);
 
@@ -283,7 +295,14 @@ export function ExtensionsGallery() {
         </div>
       ) : null}
 
-      {status === "ready" && sortedExtensions.length === 0 ? (
+      {status === "ready" && extensions.length === 0 ? (
+        <div className="rounded-lg border border-border px-4 py-10 text-center">
+          <div className="text-sm font-medium">{t("emptyRegistryTitle")}</div>
+          <p className="mt-2 text-sm text-muted">{t("emptyRegistryDescription")}</p>
+        </div>
+      ) : null}
+
+      {status === "ready" && extensions.length > 0 && sortedExtensions.length === 0 ? (
         <div className="rounded-lg border border-border px-4 py-10 text-center">
           <div className="text-sm font-medium">{t("emptyTitle")}</div>
           <p className="mt-2 text-sm text-muted">{t("emptyDescription")}</p>
@@ -298,13 +317,15 @@ export function ExtensionsGallery() {
               className="flex h-full flex-col rounded-lg border border-border p-4"
             >
               <div className="flex min-w-0 items-start gap-3">
-                <Image
-                  src={extension.ownerAvatarUrl}
-                  alt=""
-                  width={32}
-                  height={32}
-                  className="mt-0.5 rounded-md"
-                />
+                {extension.ownerAvatarUrl ? (
+                  <Image
+                    src={extension.ownerAvatarUrl}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="mt-0.5 rounded-md"
+                  />
+                ) : null}
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="break-words text-[15px] font-semibold leading-6">
@@ -323,28 +344,40 @@ export function ExtensionsGallery() {
                 </div>
               </div>
 
-              <p className="mt-3 flex-1 text-sm leading-6 text-muted">
-                {extension.description ?? t("noDescription")}
-              </p>
+              {extension.description ? (
+                <p className="mt-3 flex-1 text-sm leading-6 text-muted">
+                  {extension.description}
+                </p>
+              ) : (
+                <div className="flex-1" />
+              )}
 
-              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                <span>
-                  {"★ "}
-                  {numberFormatter.format(extension.stars)}
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: languageColor(extension.language) }}
-                  />
-                  {extension.language ?? t("unknownLanguage")}
-                </span>
-                <span>
-                  {t("updatedLabel", {
-                    time: relativeTime(extension.pushedAt, relativeFormatter),
-                  })}
-                </span>
-              </div>
+              {hasStars(extension) || extension.language || extension.pushedAt ? (
+                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                  {hasStars(extension) ? (
+                    <span>
+                      {"★ "}
+                      {numberFormatter.format(extension.stars)}
+                    </span>
+                  ) : null}
+                  {extension.language ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: languageColor(extension.language) }}
+                      />
+                      {extension.language}
+                    </span>
+                  ) : null}
+                  {extension.pushedAt ? (
+                    <span>
+                      {t("updatedLabel", {
+                        time: relativeTime(extension.pushedAt, relativeFormatter),
+                      })}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="mt-5 rounded-md bg-code-bg px-3 py-2 text-[12px] leading-5">
                 <code className="break-all">{installCommand(extension.fullName)}</code>

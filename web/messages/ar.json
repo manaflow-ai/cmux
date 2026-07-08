@@ -1714,6 +1714,8 @@
     "supportedLabel": "مدعومة",
     "submitTitle": "إرسال إضافة للمراجعة",
     "submitBody": "شغّل أمر الإرسال للتحقق من مستودعك وفتح تذكرة GitHub معبأة مسبقًا؛ تتم الموافقة عندما يدمج مشرف PR لسجل awesome-cmux.",
+    "emptyRegistryTitle": "لا توجد إضافات بعد",
+    "emptyRegistryDescription": "أرسل إضافة من القسم أدناه لبدء المعرض المنسق.",
     "submitIssueAction": "فتح تذكرة إرسال",
     "templateAction": "قالب الإضافة"
   },

@@ -2854,6 +2854,8 @@
     },
     "emptyTitle": "No extensions found",
     "emptyDescription": "Try a different search term or clear the field.",
+    "emptyRegistryTitle": "No extensions yet",
+    "emptyRegistryDescription": "Submit an extension below to start the curated gallery.",
     "noDescription": "No description provided.",
     "unknownLanguage": "Unknown",
     "updatedLabel": "Updated {time}",

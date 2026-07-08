@@ -30,12 +30,12 @@ export const extensionsRegistrySchema = z.object({
 export const extensionDtoSchema = z.object({
   fullName: z.string().min(1),
   owner: z.string().min(1),
-  ownerAvatarUrl: z.url(),
-  description: z.string().nullable(),
-  stars: z.number().int().nonnegative(),
-  language: z.string().nullable(),
-  pushedAt: z.iso.datetime(),
-  createdAt: z.iso.datetime(),
+  ownerAvatarUrl: z.url().nullable().optional(),
+  description: z.string().nullable().optional(),
+  stars: z.number().int().nonnegative().nullable().optional(),
+  language: z.string().nullable().optional(),
+  pushedAt: z.iso.datetime().nullable().optional(),
+  createdAt: z.iso.datetime().nullable().optional(),
   url: z.url(),
   supported: z.boolean(),
 }).strict();

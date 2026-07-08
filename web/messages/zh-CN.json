@@ -1714,6 +1714,8 @@
     "supportedLabel": "已支持",
     "submitTitle": "提交扩展以供审核",
     "submitBody": "运行 submit 验证仓库并打开预填的 GitHub issue；maintainer 合并 awesome-cmux registry PR 后即批准。",
+    "emptyRegistryTitle": "还没有扩展",
+    "emptyRegistryDescription": "在下方提交一个扩展，开启这个精选图库。",
     "submitIssueAction": "打开提交 issue",
     "templateAction": "扩展模板"
   },
