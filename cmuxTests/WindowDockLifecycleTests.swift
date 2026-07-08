@@ -88,8 +88,8 @@ struct WindowDockLifecycleTests {
 
     @Test("Each window gets its own independent Dock store")
     @MainActor
-    func windowDocksAreIndependentPerWindow() throws {
-        try withIsolatedAppDelegate { appDelegate in
+    func windowDocksAreIndependentPerWindow() {
+        withIsolatedAppDelegate { appDelegate in
             let firstManager = TabManager(autoWelcomeIfNeeded: false)
             let secondManager = TabManager(autoWelcomeIfNeeded: false)
             let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
@@ -250,9 +250,9 @@ struct WindowDockLifecycleTests {
         }
     }
 
-    @Test("Moving a window's last main panel into its own Dock is rejected")
+    @Test("External drop can move a window's last main panel into its own Dock")
     @MainActor
-    func lastPanelMoveIntoOwnWindowDockIsRejected() throws {
+    func externalDropMovesLastMainPanelIntoOwnWindowDock() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
@@ -266,21 +266,58 @@ struct WindowDockLifecycleTests {
         #expect(workspace.panels.count == 1)
         let panelId = try #require(workspace.panels.keys.first)
         let bonsplitTabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+        let sourcePane = try #require(workspace.paneId(forPanelId: panelId))
         let dock = appDelegate.windowDock(forWindowId: windowId)
         let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
 
-        // Accepting the move would empty the window's only workspace, close the
-        // window, and tear down the destination Dock with the moved surface in
-        // it — so the move is rejected and the surface stays put.
-        let moved = appDelegate.moveSurfaceIntoDock(
-            sourceTabId: bonsplitTabId.uuid,
-            destinationDock: dock,
+        // Mirrors Bonsplit's external drop callback after a Dock pane has
+        // already accepted hover for a tab dragged from the main split area.
+        let moved = dock.bonsplitController.onExternalTabDrop?(.init(
+            tabId: bonsplitTabId,
+            sourcePaneId: sourcePane,
             destination: .insert(targetPane: dockPane, targetIndex: nil)
-        )
-        #expect(!moved)
-        #expect(workspace.panels[panelId] != nil)
-        #expect(!dock.containsPanel(panelId))
+        )) ?? false
+
+        #expect(moved)
+        #expect(workspace.panels[panelId] == nil)
+        #expect(dock.containsPanel(panelId))
+        #expect(workspace.panels.count == 1)
+        let replacementPanelId = try #require(workspace.panels.keys.first)
+        #expect(replacementPanelId != panelId)
+        #expect(workspace.surfaceIdFromPanelId(replacementPanelId) != nil)
         #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
+    }
+
+    @Test("External drop keeps remote tmux mirror panes out of Dock")
+    @MainActor
+    func externalDropIntoOwnWindowDockRejectsRemoteTmuxMirrorPanel() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        workspace.isRemoteTmuxMirror = true
+        let panelId = try #require(workspace.panels.keys.first)
+        let bonsplitTabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+        let sourcePane = try #require(workspace.paneId(forPanelId: panelId))
+        let dock = appDelegate.windowDock(forWindowId: windowId)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        let moved = dock.bonsplitController.onExternalTabDrop?(.init(
+            tabId: bonsplitTabId,
+            sourcePaneId: sourcePane,
+            destination: .insert(targetPane: dockPane, targetIndex: nil)
+        )) ?? false
+
+        #expect(!moved)
+        #expect(!dock.containsPanel(panelId))
+        #expect(workspace.panels[panelId] != nil)
+        #expect(workspace.isRemoteTmuxMirror)
+        #expect(workspace.panels.count == 1)
     }
 
     @Test("Docks in two windows render simultaneously without render-host gating")

@@ -542,6 +542,11 @@ private final class CloudVMMouseDownMenuItemView: NSView {
     init(title: String, action: @escaping () -> Void) {
         self.action = action
         super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 28))
+        // NSMenu sizes to its widest item (e.g. "Checkpoint Cloud VM", the
+        // Advanced submenu row); let this custom view stretch to that width so
+        // its highlight spans the full menu like a native item instead of
+        // stopping at the fixed 260pt frame.
+        autoresizingMask = [.width]
         wantsLayer = true
         titleLabel.stringValue = title
         titleLabel.font = .menuFont(ofSize: 0)

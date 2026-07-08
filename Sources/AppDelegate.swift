@@ -20,6 +20,7 @@ import SwiftUI
 import Bonsplit
 import CMUXAgentLaunch
 import CoreServices
+import CoreGraphics
 import UserNotifications
 import Sentry
 import WebKit
@@ -1415,7 +1416,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
-    private var isApplyingSessionRestore = false
+    static let screenChangeReconcileNotification = Notification.Name("com.cmuxterm.app.screenChangeReconcile")
+    static let displayReconfigurationNotification = Notification.Name("com.cmuxterm.app.displayReconfiguration")
+    static let screenChangeReconcileRetryLimit = 3
+    var isApplyingSessionRestore = false
+    var windowConfigFrames: [UUID: SessionConfigFrameRing] = [:]
+    var lastAppliedConfigurationSignature: String?
+    var didObserveUnknownDisplayConfiguration = false
+    var screenChangeReconcileRetryBudget = 0
+    var isScreenChangeCaptureSuppressed = false
+    var screenChangeCaptureSuppressionSignature: String?
+    var screenChangeCaptureSuppressionSignatureGeneration: Int?
+    var displayReconfigurationGeneration = 0
+    var didRegisterDisplayReconfigurationCallback = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
@@ -1606,11 +1619,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Replaces the legacy `didInstallLifecycleSnapshotObservers` install-once
     /// latch; created once in `installLifecycleSnapshotObserversIfNeeded()`.
     private var lifecycleSnapshotConsumeTask: Task<Void, Never>?
-    /// Coalesced display-reconfiguration correction for non-movable cmux main
-    /// windows whose titlebar can be stranded off-screen when AppKit skips its
-    /// normal constrain pass.
-    private var mainWindowFrameReconcileTask: Task<Void, Never>?
     private var screenParametersObserver: NSObjectProtocol?
+    private var displayReconfigurationObserver: NSObjectProtocol?
+    private var screenChangeReconcileObserver: NSObjectProtocol?
     /// Owns the control-socket listener lifecycle policy (configuration
     /// resolution, start/ensure/restart sequencing, the sudden-termination
     /// latch); the live listener and tab-manager resolution stay here behind the
@@ -2370,6 +2381,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `ApplicationTerminateReplyCoordinator` and reached through the
         // `ApplicationTerminationHost` seam this delegate conforms to.
         terminateReply.performTeardown()
+        unregisterDisplayReconfigurationCallbackIfNeeded()
+        if let displayReconfigurationObserver {
+            NotificationCenter.default.removeObserver(displayReconfigurationObserver)
+            self.displayReconfigurationObserver = nil
+        }
+        if let screenChangeReconcileObserver {
+            NotificationCenter.default.removeObserver(screenChangeReconcileObserver)
+            self.screenChangeReconcileObserver = nil
+        }
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -2444,6 +2464,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
+        // Seed so the first display change after launch can restore geometry.
+        lastAppliedConfigurationSignature = currentDisplayConfigurationSignature()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
@@ -2643,7 +2665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// so a shared constant rather than per-call instantiation.
     private nonisolated static let displayGeometryReader = DisplayGeometryReader()
 
-    private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
+    func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
         Self.displayGeometryReader.currentDisplayGeometries()
     }
 
@@ -2727,6 +2749,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        if isScreenChangeCaptureSuppressed {
+            scheduleScreenChangeReconcileWhenIdle()
+        }
         if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -2792,6 +2817,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+        // Seed the in-memory per-config ring from the restored snapshot so the
+        // window can return to remembered frames on later configuration switches.
+        if let configFrames = snapshot.configFrames {
+            windowConfigFrames[context.windowId] = SessionConfigFrameRing(entries: configFrames)
+        }
         if let originalWindowId = snapshot.windowId,
            originalWindowId != context.windowId {
             closedItemHistory.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
@@ -2818,8 +2848,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func resolvedWindowFrame(from snapshot: SessionWindowSnapshot?) -> NSRect? {
         let displays = currentDisplayGeometries()
         return Self.resolvedWindowFrame(
-            from: snapshot?.frame,
-            display: snapshot?.display,
+            from: snapshot,
+            currentSignature: displays.available
+                .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored()),
             availableDisplays: displays.available,
             fallbackDisplay: displays.fallback
         )
@@ -2873,7 +2904,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fallbackFrame: SessionRectSnapshot?,
         fallbackDisplaySnapshot: SessionDisplaySnapshot?,
         availableDisplays: [SessionDisplayGeometry],
-        fallbackDisplay: SessionDisplayGeometry?
+        fallbackDisplay: SessionDisplayGeometry?,
+        isMirrored: Bool = false
     ) -> CGRect? {
         sessionWindowFrameResolver.resolvedStartupPrimaryWindowFrame(
             primaryFrame: primarySnapshot?.frame?.cgRect,
@@ -2899,12 +2931,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func displaySnapshot(for window: NSWindow?) -> SessionDisplaySnapshot? {
+    func displaySnapshot(for window: NSWindow?) -> SessionDisplaySnapshot? {
         guard let geometry = Self.displayGeometryReader.screenGeometry(for: window) else {
             return nil
         }
         return SessionDisplaySnapshot(
             displayID: geometry.displayID,
+            stableID: geometry.stableID,
             frame: SessionRectSnapshot(geometry.frame),
             visibleFrame: SessionRectSnapshot(geometry.visibleFrame)
         )
@@ -2930,46 +2963,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.handleSessionLifecycleEvent(event)
             }
         }
+        registerDisplayReconfigurationCallbackIfNeeded()
+        displayReconfigurationObserver = NotificationCenter.default.addObserver(
+            forName: Self.displayReconfigurationNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                let isBeginning = (notification.userInfo?["isBeginning"] as? Bool) ?? false
+                self?.handleDisplayReconfiguration(isBeginning: isBeginning)
+            }
+        }
+        screenChangeReconcileObserver = NotificationCenter.default.addObserver(
+            forName: Self.screenChangeReconcileNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reconcileMainWindowFramesAfterScreenChange()
+            }
+        }
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.scheduleMainWindowFrameReconcile()
-            }
-        }
-    }
-
-    /// Coalesces bursts of `didChangeScreenParametersNotification` into one
-    /// reconcile pass after `NSScreen` has settled.
-    private func scheduleMainWindowFrameReconcile() {
-        mainWindowFrameReconcileTask?.cancel()
-        mainWindowFrameReconcileTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled, let self else { return }
-            self.mainWindowFrameReconcileTask = nil
-            self.reconcileMainWindowFramesAfterScreenChange()
-        }
-    }
-
-    /// Re-clamps every main window whose titlebar is no longer reachable onto a
-    /// currently-connected display. A no-op for windows that already fit.
-    private func reconcileMainWindowFramesAfterScreenChange() {
-        guard !isApplyingSessionRestore, !isTerminatingApp else { return }
-        let displays = currentDisplayGeometries()
-        guard !displays.available.isEmpty else { return }
-        for window in mainWindowsForVisibilityController() {
-            guard !window.styleMask.contains(.fullScreen) else { continue }
-            let currentFrame = window.frame
-            guard let corrected = Self.reconciledFrameAfterScreenChange(
-                frame: currentFrame,
-                availableDisplays: displays.available
-            ) else { continue }
+                guard let self else { return }
 #if DEBUG
-            cmuxDebugLog("window.reconcile from={\(currentFrame)} to={\(corrected)}")
+                let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
+                cmuxDebugLog(
+                    "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
+                )
 #endif
-            window.setFrame(corrected, display: true)
+                self.handleScreenParametersDidChange()
+            }
         }
     }
 
@@ -3486,6 +3514,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 
         let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            captureWindowConfigFrame(window, reason: "sessionSnapshot")
+        }
         let snapshotSidebarState = sidebarState(for: context)
         return SessionWindowSnapshot(
             windowId: context.windowId,
@@ -3496,7 +3527,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 isVisible: snapshotSidebarState.isVisible,
                 selection: SessionSidebarSelection(selection: sidebarSelectionState(for: context).selection),
                 width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(snapshotSidebarState.persistedWidth))
-            )
+            ),
+            configFrames: windowConfigFrames[context.windowId]?.entries
         )
     }
 
@@ -3514,8 +3546,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let selectedWorkspace = windowSnapshot.tabManager.selectedWorkspaceIndex.map(String.init) ?? "nil"
             cmuxDebugLog(
                 "session.save.window idx=\(index) " +
-                    "frame={\(windowSnapshot.frame?.debugLogDescription ?? "nil")} " +
-                    "display={\(windowSnapshot.display?.debugLogDescription ?? "nil")} " +
+                    "frame={\(sessionRectLogDescription(windowSnapshot.frame))} " +
+                    "display={\(sessionDisplayLogDescription(windowSnapshot.display))} " +
                     "workspaces=\(workspaceCount) selected=\(selectedWorkspace)"
             )
         }
@@ -6276,6 +6308,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
             )
+            if let configFrames = sessionWindowSnapshot.configFrames {
+                windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
+            }
             if let originalWindowId = sessionWindowSnapshot.windowId,
                originalWindowId != windowId {
                 closedItemHistory.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
@@ -10962,6 +10997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistWindowGeometryOnClose(from window: NSWindow) {
         // Keep geometry available as a fallback for the next window placement.
         if !isTerminatingApp {
+            captureWindowConfigFrame(window, reason: "windowClose")
             persistWindowGeometry(from: window)
         }
     }
@@ -10975,6 +11011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Publishes the `window.closed` cmux lifecycle event for `windowId` with the
     /// `appkit_close` origin. The ``WindowLifecycleHosting`` teardown witness.
     func publishMainWindowClosed(windowId: UUID) {
+        windowConfigFrames.removeValue(forKey: windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: windowId, origin: "appkit_close")
     }
 

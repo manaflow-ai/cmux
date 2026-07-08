@@ -38,6 +38,7 @@ public struct DisplayGeometryReader: Sendable {
         let available = NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
+                stableID: screen.cmuxStableDisplayKey,
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame
             )
@@ -45,6 +46,7 @@ public struct DisplayGeometryReader: Sendable {
         let fallback = (NSScreen.main ?? NSScreen.screens.first).map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
+                stableID: screen.cmuxStableDisplayKey,
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame
             )
@@ -66,6 +68,7 @@ public struct DisplayGeometryReader: Sendable {
         guard let screen else { return nil }
         return SessionDisplayGeometry(
             displayID: screen.cmuxDisplayID,
+            stableID: screen.cmuxStableDisplayKey,
             frame: screen.frame,
             visibleFrame: screen.visibleFrame
         )

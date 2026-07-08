@@ -37,6 +37,13 @@ extension AppDelegate {
         return nil
     }
 
+    /// Whether a live surface can leave its current owner and be driven from
+    /// `destinationDock`.
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+        guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
+        return canMoveSurfaceIntoDock(source)
+    }
+
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
     /// focus in `workspace`'s window. Lets the workspace's imperative terminal
     /// portal active-state reconcile honor the same focus-exclusivity gate the
@@ -97,33 +104,11 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-
-        // Reject moving a workspace's LAST main panel into its OWN Dock. It would
-        // empty the workspace's main area, and every alternative is unsafe: closing
-        // the now-empty workspace tears down that same Dock and destroys the just-
-        // moved surface, while seeding a replacement terminal issues a remote
-        // `tmux new-window` for a remote tmux mirror. The surface stays put — move
-        // it after adding another main terminal, or into a different/window Dock.
-        if case .workspace(_, let workspace, _, _) = source,
-           workspace.panels.count == 1,
-           destinationDock.scope == .workspace,
-           destinationDock.workspaceId == workspace.id {
-            return false
-        }
-
-        // Same class of self-destruction for a window Dock: moving the LAST main
-        // panel of a window's ONLY workspace into that same window's Dock would
-        // close the emptied window (`cleanupEmptySourceWorkspaceAfterSurfaceMove`),
-        // and window close tears down its Dock — destroying the just-moved
-        // surface. A window with more workspaces is fine: only the emptied
-        // workspace closes and the Dock lives on.
-        if case .workspace(let sourceWindowId, let workspace, _, let manager) = source,
-           workspace.panels.count == 1,
-           manager.tabs.count == 1,
-           destinationDock.scope == .global,
-           destinationDock.workspaceId == sourceWindowId {
-            return false
-        }
+        guard canMoveSurfaceIntoDock(source) else { return false }
+        let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
+            source,
+            destinationDock: destinationDock
+        )
 
         let target = resolveDockDropDestination(destination)
         guard destinationDock.containsPane(target.pane.id) else { return false }
@@ -169,12 +154,10 @@ extension AppDelegate {
             window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         )
 
-        // A move into the source workspace's own Dock that would empty it was
-        // already rejected above, so any now-empty source workspace here moved its
-        // surface into a DIFFERENT container (another workspace's Dock or a window
-        // Dock) and should be cleaned up as usual (the surface survives at the
-        // destination).
-        cleanupEmptyContainerAfterMove(source)
+        cleanupEmptyContainerAfterMove(
+            source,
+            preserveSourceWorkspace: shouldPreserveSourceWorkspace
+        )
         return true
     }
 
@@ -282,6 +265,34 @@ extension AppDelegate {
         }
     }
 
+    private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
+        if case .workspace(_, let workspace, _, _) = source,
+           workspace.isRemoteTmuxMirror {
+            // Remote tmux mirror panes are manually driven by the mirror
+            // workspace. Dock has no mirror-owned I/O routing yet, so moving one
+            // would leave the Dock panel detached from its remote owner.
+            return false
+        }
+        return true
+    }
+
+    private func shouldPreserveSourceWorkspaceAfterDockMove(
+        _ source: ContainerSurfaceLocation,
+        destinationDock: DockSplitStore
+    ) -> Bool {
+        guard case .workspace(let sourceWindowId, let workspace, _, let manager) = source,
+              workspace.panels.count == 1 else {
+            return false
+        }
+
+        switch destinationDock.scope {
+        case .workspace:
+            return destinationDock.workspaceId == workspace.id
+        case .global:
+            return destinationDock.workspaceId == sourceWindowId && manager.tabs.count == 1
+        }
+    }
+
     private func detachSurfaceFromContainer(
         _ source: ContainerSurfaceLocation
     ) -> Workspace.DetachedSurfaceTransfer? {
@@ -312,18 +323,32 @@ extension AppDelegate {
         }
     }
 
-    private func cleanupEmptyContainerAfterMove(_ source: ContainerSurfaceLocation) {
+    private func cleanupEmptyContainerAfterMove(
+        _ source: ContainerSurfaceLocation,
+        preserveSourceWorkspace: Bool = false
+    ) {
         switch source {
         case .workspace(let windowId, let workspace, _, let manager):
-            cleanupEmptySourceWorkspaceAfterSurfaceMove(
-                sourceWorkspace: workspace,
-                sourceManager: manager,
-                sourceWindowId: windowId
-            )
+            if preserveSourceWorkspace {
+                preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: workspace)
+            } else {
+                cleanupEmptySourceWorkspaceAfterSurfaceMove(
+                    sourceWorkspace: workspace,
+                    sourceManager: manager,
+                    sourceWindowId: windowId
+                )
+            }
         case .dock:
             // The Dock auto-closes emptied panes (autoCloseEmptyPanes) and keeps
             // an empty root pane, so there is nothing to tear down.
             break
         }
+    }
+
+    private func preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: Workspace) {
+        guard sourceWorkspace.panels.isEmpty else { return }
+        sourceWorkspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
+        _ = sourceWorkspace.createReplacementTerminalPanel()
+        sourceWorkspace.scheduleTerminalGeometryReconcile()
     }
 }

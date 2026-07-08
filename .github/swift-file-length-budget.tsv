@@ -2,9 +2,9 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 35600	CLI/cmux.swift
-12911	Sources/AppDelegate.swift
+12948	Sources/AppDelegate.swift
 12345	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10911	Sources/Workspace.swift
+10916	Sources/Workspace.swift
 10467	Sources/GhosttyTerminalView.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8993	Sources/ContentView.swift
@@ -39,7 +39,7 @@
 2102	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1877	cmuxTests/NotificationAndMenuBarTests.swift
 1817	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1765	Sources/TerminalWindowPortal.swift
+1766	Sources/TerminalWindowPortal.swift
 1755	Sources/TerminalNotificationStore.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1707	Sources/Panels/CmuxWebView.swift
@@ -169,12 +169,12 @@
 621	cmuxTests/FinderFileDropRegressionTests.swift
 619	Sources/PortScanner.swift
 614	Sources/TaskManagerSnapshotDecoder.swift
+609	Sources/Update/TitlebarCloudVMButton.swift
 608	Sources/SleepyFaceView.swift
 608	cmuxUITests/FeedSidebarUITests.swift
 607	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 606	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
-604	Sources/Update/TitlebarCloudVMButton.swift
 603	Sources/WorkspaceContentView.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 598	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
@@ -250,13 +250,13 @@
 528	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
+527	Sources/BrowserPaneDropTargetView.swift
 527	cmuxTests/BrowserHTTPBasicAuthPromptTests.swift
 526	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamStore.swift
-526	Sources/TerminalPaneDropTargetView.swift
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/DeepLink/CmuxSSHURLRequest.swift
-523	Sources/BrowserPaneDropTargetView.swift
+522	Sources/TerminalPaneDropTargetView.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlSurfaceContext.swift

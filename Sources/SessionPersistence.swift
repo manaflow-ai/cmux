@@ -34,6 +34,8 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
+    static let maxScrollbackLinesPerTerminal: Int = 4000
+    static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
@@ -60,6 +62,58 @@ enum SessionPersistencePolicy {
         }
         if let value = defaults.string(forKey: sidebarMinimumWidthKey) {
             return Double(value)
+        }
+        return nil
+    }
+
+    static func truncatedScrollback(_ text: String?) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        if text.count <= maxScrollbackCharactersPerTerminal {
+            return text
+        }
+        let initialStart = text.index(text.endIndex, offsetBy: -maxScrollbackCharactersPerTerminal)
+        let safeStart = ansiSafeTruncationStart(in: text, initialStart: initialStart)
+        return String(text[safeStart...])
+    }
+
+    private static func ansiSafeTruncationStart(in text: String, initialStart: String.Index) -> String.Index {
+        guard initialStart > text.startIndex else { return initialStart }
+        let escape = "\u{001B}"
+
+        guard let lastEscape = text[..<initialStart].lastIndex(of: Character(escape)) else {
+            return initialStart
+        }
+        let csiMarker = text.index(after: lastEscape)
+        guard csiMarker < text.endIndex, text[csiMarker] == "[" else {
+            return initialStart
+        }
+
+        if csiFinalByteIndex(in: text, from: csiMarker, upperBound: initialStart) != nil {
+            return initialStart
+        }
+
+        guard let final = csiFinalByteIndex(in: text, from: csiMarker, upperBound: text.endIndex) else {
+            return initialStart
+        }
+        let next = text.index(after: final)
+        return next < text.endIndex ? next : text.endIndex
+    }
+
+    private static func csiFinalByteIndex(
+        in text: String,
+        from csiMarker: String.Index,
+        upperBound: String.Index
+    ) -> String.Index? {
+        var index = text.index(after: csiMarker)
+        while index < upperBound {
+            guard let scalar = text[index].unicodeScalars.first?.value else {
+                index = text.index(after: index)
+                continue
+            }
+            if scalar >= 0x40, scalar <= 0x7E {
+                return index
+            }
+            index = text.index(after: index)
         }
         return nil
     }
@@ -266,6 +320,9 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    /// Per-display-configuration remembered frames (LRU ring). Optional and
+    /// additive so older persisted snapshots decode unchanged.
+    var configFrames: [SessionConfigFrameEntry]? = nil
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

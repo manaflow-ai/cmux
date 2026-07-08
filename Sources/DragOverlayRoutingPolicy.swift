@@ -375,12 +375,24 @@ enum DragOverlayRoutingPolicy {
 
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
-        guard WindowInputRoutingContext.allowsTerminalPortalDragRouting(eventType: eventType) else { return false }
-        return shouldPassThroughPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        ) || hasFileURL(pasteboardTypes)
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        guard routingContext.allowsTerminalPortalDragRouting else { return false }
+        switch routingContext.eventKind {
+        case .pointerDrag:
+            return shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: eventType
+            ) || hasFileURL(pasteboardTypes)
+        case .pointerUp:
+            guard hasActiveDropDrag else { return false }
+            return hasBonsplitTabTransfer(pasteboardTypes)
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarTabReorder(pasteboardTypes)
+        case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
+            return false
+        }
     }
 }
