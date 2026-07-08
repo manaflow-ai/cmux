@@ -1119,6 +1119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var screenChangeCaptureSuppressionSignature: String?
     var screenChangeCaptureSuppressionSignatureGeneration: Int?
     var displayReconfigurationGeneration = 0
+    var pendingDisplayReconfigurationCallbacks = 0
     var didRegisterDisplayReconfigurationCallback = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state.

@@ -362,6 +362,7 @@ struct AppDelegateDisplayConfigRestoreTests {
             appDelegate.screenChangeCaptureSuppressionSignature = nil
             appDelegate.screenChangeCaptureSuppressionSignatureGeneration = nil
             appDelegate.screenChangeReconcileRetryBudget = 0
+            appDelegate.pendingDisplayReconfigurationCallbacks = 0
         }
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
         #expect(appDelegate.isScreenChangeCaptureSuppressed)
@@ -377,14 +378,17 @@ struct AppDelegateDisplayConfigRestoreTests {
             appDelegate.screenChangeCaptureSuppressionSignature = nil
             appDelegate.screenChangeCaptureSuppressionSignatureGeneration = nil
             appDelegate.screenChangeReconcileRetryBudget = 0
+            appDelegate.pendingDisplayReconfigurationCallbacks = 0
         }
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
         appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
         appDelegate.screenChangeCaptureSuppressionSignature = "uuid:A"
         appDelegate.screenChangeCaptureSuppressionSignatureGeneration = appDelegate.displayReconfigurationGeneration
-        #expect(appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
+        #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
         appDelegate.handleDisplayReconfiguration(isBeginning: false)
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
         appDelegate.screenChangeCaptureSuppressionSignatureGeneration = appDelegate.displayReconfigurationGeneration
         appDelegate.screenChangeCaptureSuppressionSignature = "uuid:A"
         #expect(appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
@@ -408,16 +412,12 @@ struct AppDelegateDisplayConfigRestoreTests {
             appDelegate.isApplyingSessionRestore = false
             closeCreatedWindow(appDelegate, windowId: restoredWindowId)
         }
-
         let restored = appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false)
-
         #expect(restored)
         #expect(!appDelegate.isApplyingSessionRestore)
         #expect(appDelegate.isScreenChangeCaptureSuppressed)
     }
-
     // MARK: LRU ring behavior
-
     @Test
     func ringUpsertReplacesSameSignatureAndKeepsLatest() {
         let sig = "uuid:A@0,0,1512x982"
