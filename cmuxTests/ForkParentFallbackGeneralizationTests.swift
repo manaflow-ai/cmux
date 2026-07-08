@@ -144,6 +144,49 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(entry.sessionIDSource == .forkParentFallback)
     }
 
+    @Test func customRegistryForkTemplateWithNonForkMarkerDemotesParent() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let registration = customBranchFromRegistration()
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/brancher", "--thread", fixture.parentCodexId, "--branch-from"],
+            launchKind: "brancher",
+            processName: "brancher",
+            processPath: "/usr/local/bin/brancher"
+        )
+
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
+    }
+
+    @Test func customRegistryForkTemplateWithoutConstantMarkerStaysExplicit() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let registration = CmuxVaultAgentRegistration(
+            id: "brancher",
+            name: "Brancher",
+            detect: CmuxVaultAgentDetectRule(processName: "brancher"),
+            sessionIdSource: .argvOption("--thread"),
+            resumeCommand: "{{executable}} --thread {{sessionId}}",
+            forkCommand: "{{executable}} --thread {{sessionId}}"
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/brancher", "--thread", fixture.parentCodexId],
+            launchKind: "brancher",
+            processName: "brancher",
+            processPath: "/usr/local/bin/brancher"
+        )
+
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .explicit)
+    }
+
     @Test func customRegistryPaneHookIdentityWinsAfterForkMintsOwnSession() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
@@ -360,6 +403,17 @@ struct ForkParentFallbackGeneralizationTests {
             sessionIdSource: .argvOption("--thread"),
             resumeCommand: "{{executable}} --thread {{sessionId}}",
             forkCommand: "{{executable}} --thread {{sessionId}} --fork"
+        )
+    }
+
+    private func customBranchFromRegistration() -> CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "brancher",
+            name: "Brancher",
+            detect: CmuxVaultAgentDetectRule(processName: "brancher"),
+            sessionIdSource: .argvOption("--thread"),
+            resumeCommand: "{{executable}} --thread {{sessionId}}",
+            forkCommand: "{{executable}} --thread {{sessionId}} --branch-from"
         )
     }
 
