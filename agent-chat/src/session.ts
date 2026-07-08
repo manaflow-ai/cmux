@@ -13,6 +13,7 @@ export type AgentEvent =
   | { kind: "tool-start"; toolId: string; name: string; detail?: string }
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
+  | { kind: "files-changed"; files: ChangedFile[] }
   | { kind: "error"; message: string };
 
 export type OptionKind = "select" | "toggle";
@@ -33,6 +34,7 @@ export interface CommandEntry { name: string; description?: string; source?: str
 export interface CommandGroup { trigger: CommandTrigger; commands: CommandEntry[]; }
 export interface ProviderCapabilities { options: SessionOption[]; triggers: CommandTrigger[]; }
 export interface SessionActions { fork?: boolean; }
+export interface ChangedFile { path: string; adds: number; dels: number; status: string; }
 
 export type Block =
   | { kind: "user"; text: string }
@@ -41,7 +43,8 @@ export type Block =
   | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string }
-  | { kind: "footer"; text: string };
+  | { kind: "footer"; text: string }
+  | { kind: "files"; files: ChangedFile[] };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
 export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
@@ -59,6 +62,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   const last = blocks[blocks.length - 1];
   switch (evt.kind) {
     case "user":
+      if (last?.kind === "user" && last.text === evt.text) return blocks;
       return [...closeStreaming(blocks), { kind: "user", text: evt.text }];
     case "delta":
       if (last && last.kind === "assistant" && last.open) {
@@ -87,6 +91,8 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       const closed = closeStreaming(blocks);
       return [...closed, { kind: "footer", text: evt.stats ?? "" }];
     }
+    case "files-changed":
+      return [...closeStreaming(blocks), { kind: "files", files: evt.files }];
     case "error":
       return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
     case "status":
@@ -115,6 +121,7 @@ export interface SessionState {
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
   cwdChecks: Record<string, { ok: boolean; message?: string }>;
+  fileDiffs: Record<string, string>;
   lastError: string;
   forkPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
@@ -126,6 +133,7 @@ export interface SessionState {
   requestProviderOptions(provider: string, cwd: string): void;
   requestProviderCommands(provider: string, cwd: string): void;
   requestFiles(cwd: string, query?: string): void;
+  requestFileDiff(sessionId: string, path: string): void;
   checkCwd(cwd: string): void;
   clearError(): void;
 }
@@ -149,10 +157,20 @@ export function useSession(): SessionState {
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
   const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
+  const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
+  const pendingStartRef = useRef<{
+    requestId: string;
+    key: string;
+    provider: string;
+    cwd: string;
+    prompt: string;
+    options?: Record<string, OptionValue>;
+    failed?: boolean;
+  } | null>(null);
 
   const sendRaw = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -188,8 +206,13 @@ export function useSession(): SessionState {
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", "/s/" + msg.session.id);
             document.title = msg.session.title || "cmux agent";
-            setSession(msg.session);
-            setBlocks([]);
+            if (msg.requestId && pendingStartRef.current?.requestId === msg.requestId) {
+              pendingStartRef.current = null;
+              setSession({ ...msg.session, status: "running" });
+            } else {
+              setSession(msg.session);
+              setBlocks([]);
+            }
             setOptions([]);
             setActions({});
             setCommands([]);
@@ -245,8 +268,33 @@ export function useSession(): SessionState {
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
             break;
+          case "file-diff":
+            if (msg.sessionId === sessionIdRef.current) {
+              setFileDiffs((m) => ({ ...m, [String(msg.path)]: String(msg.diff ?? "") }));
+            }
+            break;
           case "error":
-            if (msg.op === "start") setLastError(String(msg.message ?? ""));
+            if (msg.op === "start") {
+              const message = String(msg.message ?? "");
+              const pending = pendingStartRef.current;
+              if (pending && (!msg.requestId || msg.requestId === pending.requestId)) {
+                pendingStartRef.current = { ...pending, failed: true };
+                const providerLabel = providers.find((p) => p.id === pending.provider)?.label ?? pending.provider;
+                setSession((s) => s ? { ...s, status: "exited" } : {
+                  id: `pending-${pending.requestId}`,
+                  provider: pending.provider,
+                  cwd: pending.cwd,
+                  title: pending.prompt.length > 64 ? pending.prompt.slice(0, 64) + "…" : pending.prompt,
+                  status: "exited",
+                });
+                setBlocks((bs) => [...closeStreaming(bs), {
+                  kind: "error",
+                  text: `Couldn't start ${providerLabel}: ${message}\n\nType a revised prompt below and press Enter to retry.`,
+                }]);
+              } else {
+                setLastError(message);
+              }
+            }
             if (msg.op === "fork") setForkPending(false);
             break;
         }
@@ -258,7 +306,29 @@ export function useSession(): SessionState {
   }, [sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
-    return sendRaw({ op: "start", ...opts });
+    const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
+    const current = pendingStartRef.current;
+    if (current && !current.failed && current.key === key) return false;
+    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    if (!sendRaw({ op: "start", requestId, ...opts })) return false;
+    pendingStartRef.current = { requestId, key, ...opts };
+    sessionIdRef.current = null;
+    history.replaceState(null, "", "/");
+    document.title = opts.prompt.length > 64 ? opts.prompt.slice(0, 64) + "…" : opts.prompt;
+    setLastError("");
+    setSession({
+      id: `pending-${requestId}`,
+      provider: opts.provider,
+      cwd: opts.cwd,
+      title: opts.prompt.length > 64 ? opts.prompt.slice(0, 64) + "…" : opts.prompt,
+      status: "running",
+    });
+    setBlocks([{ kind: "user", text: opts.prompt }]);
+    setOptions([]);
+    setActions({});
+    setCommands([]);
+    setPhase("chat");
+    return true;
   }, [sendRaw]);
   const compose = useCallback(() => {
     history.replaceState(null, "", "/");
@@ -272,12 +342,17 @@ export function useSession(): SessionState {
     setPhase("composer");
   }, []);
   const reply = useCallback((text: string) => {
+    const pending = pendingStartRef.current;
+    if (!sessionIdRef.current && pending?.failed) {
+      start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
+      return;
+    }
     if (sessionIdRef.current) {
       if (sendRaw({ op: "send", sessionId: sessionIdRef.current, prompt: text })) {
         setSession((s) => (s ? { ...s, status: "running" } : s));
       }
     }
-  }, [sendRaw]);
+  }, [sendRaw, start]);
   const stop = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
   }, [sendRaw]);
@@ -297,6 +372,9 @@ export function useSession(): SessionState {
   }, [sendRaw]);
   const requestFiles = useCallback((cwd: string, query?: string) => {
     sendRaw({ op: "list-files", cwd, query });
+  }, [sendRaw]);
+  const requestFileDiff = useCallback((sessionId: string, path: string) => {
+    sendRaw({ op: "get-file-diff", sessionId, path });
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {
     sendRaw({ op: "check-cwd", cwd });
@@ -320,6 +398,7 @@ export function useSession(): SessionState {
     providerCommands,
     filesByCwd,
     cwdChecks,
+    fileDiffs,
     lastError,
     forkPending,
     start,
@@ -331,6 +410,7 @@ export function useSession(): SessionState {
     requestProviderOptions,
     requestProviderCommands,
     requestFiles,
+    requestFileDiff,
     checkCwd,
     clearError,
   };

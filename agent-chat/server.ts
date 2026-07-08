@@ -3,6 +3,7 @@ import type {
   AgentEvent,
   CommandEntry,
   CommandTrigger,
+  ChangedFile,
   OptionValue,
   ProviderCapabilities,
   ProviderDef,
@@ -14,11 +15,11 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { resolveGhosttyTheme } from "./theme";
+import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
 import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
 
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 
@@ -92,6 +93,7 @@ const commandCatalog = new Map<string, {
 }>();
 const fileCatalog = new Map<string, { files: string[]; fetchedAt: number; refreshing?: Promise<string[]> }>();
 const keyConfig = await readKeyConfig();
+const uiConfig = await readUiConfig();
 
 function sessionSummary(s: Session) {
   return {
@@ -162,6 +164,7 @@ function createSession(
       sess.events.push(evt);
       const payload = JSON.stringify({ kind: "event", sessionId: id, evt });
       for (const ws of sess.sockets) ws.send(payload);
+      if (evt.kind === "done") emitFilesChanged(sess).catch(() => {});
     },
     setStatus(status: SessionStatus) {
       if (sess.status === status) return;
@@ -356,6 +359,37 @@ async function readKeyConfig(): Promise<{ ctrlJ: "newline" | "menu" }> {
   }
 }
 
+interface UiConfig {
+  fonts: {
+    sansFamily?: string;
+    baseSize?: number;
+    monoFamily?: string;
+    codeSize?: number;
+    codeLineHeight?: number;
+  };
+}
+
+async function readUiConfig(): Promise<UiConfig> {
+  try {
+    const text = await Bun.file(resolve(homedir(), ".config/cmux/cmux.json")).text();
+    const parsed = JSON.parse(text);
+    const fonts = parsed?.agentChat?.fonts ?? {};
+    const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+    const str = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
+    return {
+      fonts: {
+        sansFamily: str(fonts.sansFamily ?? fonts.bodyFamily ?? fonts.family),
+        baseSize: num(fonts.baseSize ?? fonts.bodySize),
+        monoFamily: str(fonts.monoFamily ?? fonts.codeFamily),
+        codeSize: num(fonts.codeSize ?? fonts.monoSize),
+        codeLineHeight: num(fonts.codeLineHeight),
+      },
+    };
+  } catch {
+    return { fonts: {} };
+  }
+}
+
 async function cachedFiles(cwd: string): Promise<string[]> {
   const key = resolve(cwd || DEFAULT_CWD);
   const entry = fileCatalog.get(key);
@@ -408,6 +442,74 @@ async function gitFiles(cwd: string): Promise<string[]> {
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
   if (code !== 0) throw new Error("not a git repo");
   return out.split(/\r?\n/);
+}
+
+async function gitOutput(cwd: string, args: string[], maxBytes = 120_000): Promise<string> {
+  const proc = Bun.spawn(["git", "-C", cwd, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env },
+  });
+  const out = await new Response(proc.stdout).text();
+  const code = await proc.exited;
+  if (code !== 0) throw new Error("git command failed");
+  return out.length > maxBytes ? out.slice(0, maxBytes) + "\n[truncated]" : out;
+}
+
+async function isGitRepo(cwd: string): Promise<boolean> {
+  try {
+    return (await gitOutput(cwd, ["rev-parse", "--is-inside-work-tree"], 1_000)).trim() === "true";
+  } catch {
+    return false;
+  }
+}
+
+function statusPath(line: string): { path: string; status: string } | null {
+  if (line.length < 4) return null;
+  const code = line.slice(0, 2);
+  const raw = line.slice(3).replace(/^"|"$/g, "");
+  const arrow = raw.lastIndexOf(" -> ");
+  const path = (arrow >= 0 ? raw.slice(arrow + 4) : raw).trim();
+  if (!path) return null;
+  const status = code.includes("?") ? "added" : code.includes("D") ? "deleted" : code.includes("R") ? "renamed" : "modified";
+  return { path, status };
+}
+
+async function changedFiles(cwd: string): Promise<ChangedFile[]> {
+  if (!(await isGitRepo(cwd))) return [];
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000).catch(() => "");
+  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000).catch(() => "");
+  const stats = new Map<string, { adds: number; dels: number }>();
+  for (const line of numstat.split(/\r?\n/)) {
+    const [adds, dels, ...rest] = line.split("\t");
+    const path = rest.join("\t").trim();
+    if (!path) continue;
+    stats.set(path, { adds: Number(adds) || 0, dels: Number(dels) || 0 });
+  }
+  const files: ChangedFile[] = [];
+  for (const line of status.split(/\r?\n/)) {
+    const parsed = statusPath(line);
+    if (!parsed) continue;
+    const stat = stats.get(parsed.path) ?? { adds: 0, dels: 0 };
+    files.push({ path: parsed.path, adds: stat.adds, dels: stat.dels, status: parsed.status });
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function emitFilesChanged(sess: Session) {
+  const files = await changedFiles(sess.cwd);
+  if (!files.length) return;
+  const key = JSON.stringify(files);
+  if (sess.internal.lastFilesChangedKey === key) return;
+  sess.internal.lastFilesChangedKey = key;
+  sess.emit({ kind: "files-changed", files });
+}
+
+async function fileDiff(cwd: string, path: string): Promise<string> {
+  if (!(await isGitRepo(cwd))) throw new Error("not a git repository");
+  if (path.includes("\0") || path.startsWith("../") || path === "..") throw new Error("invalid path");
+  const diff = await gitOutput(cwd, ["diff", "--no-ext-diff", "HEAD", "--", path], 80_000).catch(() => "");
+  return diff.split(/\r?\n/).slice(0, 400).join("\n");
 }
 
 async function walkFiles(root: string): Promise<string[]> {
@@ -476,6 +578,37 @@ const providerIconInfo = new Map(PROVIDERS.map((p) => {
   return [p.id, { ...(iconUrl ? { iconUrl } : {}), ...(iconDarkUrl ? { iconDarkUrl } : {}) }];
 }));
 
+const ANSI_NAMES = [
+  "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+  "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white",
+];
+const DEFAULT_SANS = `-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+const DEFAULT_MONO = `"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace`;
+
+function cssFontFamily(value: string | undefined | null, fallback: string): string {
+  if (!value) return fallback;
+  if (value.includes(",") || /^["']/.test(value)) return `${value}, ${fallback}`;
+  return `${JSON.stringify(value)}, ${fallback}`;
+}
+
+function fontVars(theme: GhosttyTheme): string {
+  const fonts = uiConfig.fonts;
+  const baseSize = fonts.baseSize ?? 14;
+  const codeSize = fonts.codeSize ?? theme.fontSize ?? 12.5;
+  const codeLineHeight = fonts.codeLineHeight ?? 1.5;
+  const sans = cssFontFamily(fonts.sansFamily, DEFAULT_SANS);
+  const mono = cssFontFamily(fonts.monoFamily ?? theme.fontFamily, DEFAULT_MONO);
+  return `--font-sans: ${sans}; --font-mono: ${mono}; --font-size-base: ${baseSize}px; ` +
+    `--font-size-code: ${codeSize}px; --font-line-code: ${codeLineHeight}; `;
+}
+
+function paletteVars(theme: GhosttyTheme): string {
+  return theme.palette
+    .map((color, i) => `--ansi-${i}: ${color}; --ansi-${ANSI_NAMES[i]}: ${color};`)
+    .join(" ") +
+    ` --selection-background: ${theme.selectionBackground ?? theme.palette[4]}; --cursor-color: ${theme.cursorColor ?? theme.foreground}; `;
+}
+
 // Inject the resolved Ghostty theme as CSS variables at serve time so the
 // page paints with the terminal's colors on first frame. `?transparent=1` is
 // appended by openers that created the browser surface with
@@ -488,10 +621,10 @@ function renderPage(url: URL): string {
   const opacity = transparent ? (Number.isNaN(override) ? theme.opacity : override) : 1;
   const n = parseInt(theme.background.slice(1), 16);
   const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
-  const accent = theme.isLight ? "#3b5bdb" : "#7aa2f7";
-  const green = theme.isLight ? "#2b8a3e" : "#6fbf82";
-  const red = theme.isLight ? "#c92a2a" : "#e06c75";
-  const amber = theme.isLight ? "#e8590c" : "#d8a657";
+  const accent = theme.palette[12];
+  const green = theme.palette[2];
+  const red = theme.palette[1];
+  const amber = theme.palette[3];
   // In opaque mode html paints the same solid bg as body, so nothing behind
   // the webview (a terminal surface) can composite through the transparent
   // document root. In transparent mode html stays clear on purpose so
@@ -499,9 +632,10 @@ function renderPage(url: URL): string {
   const bgHtml = transparent ? "transparent" : theme.background;
   const css = `:root { --bg: ${theme.background}; --fg: ${theme.foreground}; ` +
     `--bg-body: rgba(${rgb}, ${opacity}); --bg-html: ${bgHtml}; --accent: ${accent}; ` +
-    `--green: ${green}; --red: ${red}; --amber: ${amber}; }`;
+    `--green: ${green}; --red: ${red}; --amber: ${amber}; ${paletteVars(theme)} ${fontVars(theme)} }`;
   // Shell: theme vars first (so the first paint is the terminal bg), the
   // static stylesheet, a mount point, and the bundled React app (Base UI).
+  const script = url.pathname === "/gallery" ? "/gallery.js" : "/app.js";
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -511,27 +645,100 @@ function renderPage(url: URL): string {
 <style>${css}</style>
 </head><body>
 <div id="root"></div>
-<script type="module" src="/app.js"></script>
+<script type="module" src="${script}"></script>
 </body></html>`;
 }
 
-// Bundle the React + Base UI frontend with Bun. Built once at startup and
-// cached; rebuilt on each request only when CMUX_AGENT_UI_CACHE != "1" (dev).
-let bundleCache: string | null = null;
-async function buildBundle(): Promise<string> {
-  if (bundleCache && process.env.CMUX_AGENT_UI_CACHE === "1") return bundleCache;
+interface StaticAsset {
+  route: string;
+  bytes: ArrayBuffer;
+  gzip: ArrayBuffer;
+  type: string;
+}
+
+// Bundle the frontend entries with Bun. Built once at startup and cached;
+// rebuilt on request only when CMUX_AGENT_UI_CACHE != "1" (dev).
+let assetCache: Map<string, StaticAsset> | null = null;
+let cssAssetCache: StaticAsset | null = null;
+
+function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function makeAsset(route: string, bytes: ArrayBuffer, type: string): StaticAsset {
+  return { route, bytes, gzip: arrayBufferOf(Bun.gzipSync(bytes)), type };
+}
+
+function formatBytes(n: number): string {
+  if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  if (n > 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+function bundleSizeLine(assets: Map<string, StaticAsset>): string {
+  const app = assets.get("/app.js");
+  const gallery = assets.get("/gallery.js");
+  const part = (name: string, asset?: StaticAsset) => asset
+    ? `${name} ${formatBytes(asset.bytes.byteLength)} raw / ${formatBytes(asset.gzip.byteLength)} gzip`
+    : `${name} missing`;
+  return `bundle ready: ${part("app.js", app)}; ${part("gallery.js", gallery)}`;
+}
+
+async function buildBundles(): Promise<Map<string, StaticAsset>> {
+  if (assetCache && process.env.CMUX_AGENT_UI_CACHE === "1") return assetCache;
   const out = await Bun.build({
-    entrypoints: [`${ROOT}/src/main.tsx`],
+    entrypoints: [`${ROOT}/src/main.tsx`, `${ROOT}/src/gallery-main.tsx`],
     target: "browser",
     minify: true,
+    splitting: true,
+    outdir: `/tmp/cmux-agent-ui-${process.pid}`,
     define: { "process.env.NODE_ENV": '"production"' },
   });
   if (!out.success) {
     const msg = out.logs.map((l) => String(l)).join("\n");
     throw new Error("bundle failed:\n" + msg);
   }
-  bundleCache = await out.outputs[0].text();
-  return bundleCache;
+  const assets = new Map<string, StaticAsset>();
+  for (const output of out.outputs) {
+    const base = pathBasename(output.path);
+    const route = base === "main.js" ? "/app.js" : base === "gallery-main.js" ? "/gallery.js" : `/${base}`;
+    const bytes = await output.arrayBuffer();
+    assets.set(route, makeAsset(route, bytes, "application/javascript; charset=utf-8"));
+  }
+  assetCache = assets;
+  console.log(bundleSizeLine(assets));
+  return assets;
+}
+
+async function cssAsset(): Promise<StaticAsset> {
+  if (cssAssetCache && process.env.CMUX_AGENT_UI_CACHE === "1") return cssAssetCache;
+  const bytes = await Bun.file(`${ROOT}/public/app.css`).arrayBuffer();
+  cssAssetCache = makeAsset("/app.css", bytes, "text/css; charset=utf-8");
+  return cssAssetCache;
+}
+
+function acceptsGzip(req: Request): boolean {
+  return /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "");
+}
+
+function assetResponse(req: Request, asset: StaticAsset): Response {
+  if (acceptsGzip(req)) {
+    return new Response(asset.gzip, {
+      headers: {
+        "content-type": asset.type,
+        "content-encoding": "gzip",
+        "vary": "Accept-Encoding",
+        "cache-control": "no-cache",
+      },
+    });
+  }
+  return new Response(asset.bytes, {
+    headers: {
+      "content-type": asset.type,
+      "vary": "Accept-Encoding",
+      "cache-control": "no-cache",
+    },
+  });
 }
 
 const server = Bun.serve<WsData>({
@@ -545,11 +752,11 @@ const server = Bun.serve<WsData>({
     }
     if (url.pathname === "/healthz") return new Response("ok");
     if (url.pathname.startsWith("/icons/")) return iconResponse(url);
-    if (url.pathname === "/app.js") {
+    if (url.pathname === "/app.js" || url.pathname === "/gallery.js" || /^\/chunk-[\w-]+\.js$/.test(url.pathname)) {
       try {
-        return new Response(await buildBundle(), {
-          headers: { "content-type": "application/javascript; charset=utf-8" },
-        });
+        const asset = (await buildBundles()).get(url.pathname);
+        if (!asset) return new Response("not found", { status: 404 });
+        return assetResponse(req, asset);
       } catch (err) {
         return new Response(`console.error(${JSON.stringify(String(err))})`, {
           status: 500,
@@ -558,9 +765,7 @@ const server = Bun.serve<WsData>({
       }
     }
     if (url.pathname === "/app.css") {
-      return new Response(Bun.file(`${ROOT}/public/app.css`), {
-        headers: { "content-type": "text/css; charset=utf-8" },
-      });
+      return assetResponse(req, await cssAsset());
     }
     if (url.pathname === "/api/theme") return Response.json(resolveGhosttyTheme());
     // REST for the CLI: create a session (optionally with a first prompt) and
@@ -634,6 +839,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     case "start": {
       const prompt = String(msg.prompt ?? "").trim();
       if (!prompt) return;
+      const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
       const provider = String(msg.provider);
@@ -642,11 +848,11 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
         const sess = createSession(provider, cwd, autoApprove, title, options);
         subscribe(ws, sess);
-        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess) }));
+        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId }));
         refreshSession(sess);
         sendPrompt(sess, prompt);
       }).catch((err) => {
-        sendWsError(ws, "start", err);
+        ws.send(JSON.stringify({ kind: "error", op: "start", requestId, message: String(err) }));
       });
       break;
     }
@@ -741,6 +947,15 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         .catch((err) => sendWsError(ws, "list-files", err));
       break;
     }
+    case "get-file-diff": {
+      const sess = sessions.get(String(msg.sessionId));
+      const path = String(msg.path ?? "");
+      if (!sess || !path) return;
+      Promise.resolve(fileDiff(sess.cwd, path))
+        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path, diff })))
+        .catch((err) => sendWsError(ws, "get-file-diff", err));
+      break;
+    }
     case "delete": {
       const sess = sessions.get(String(msg.sessionId));
       if (!sess) return;
@@ -766,8 +981,8 @@ process.on("SIGINT", () => {
 
 // Warm the bundle so the first page load doesn't pay the build cost, and so a
 // build error surfaces at startup rather than as a blank page.
-buildBundle().then(
-  () => console.log("bundle ready"),
+buildBundles().then(
+  () => {},
   (err) => console.error(String(err)),
 );
 
