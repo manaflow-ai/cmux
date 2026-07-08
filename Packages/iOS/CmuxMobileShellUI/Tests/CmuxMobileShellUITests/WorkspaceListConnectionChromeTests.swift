@@ -20,6 +20,7 @@ import Testing
     }
 
     @Test(arguments: [
+        MobileMacConnectionStatus.connected,
         MobileMacConnectionStatus.reconnecting,
         MobileMacConnectionStatus.unavailable,
     ])
