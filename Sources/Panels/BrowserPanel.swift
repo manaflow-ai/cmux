@@ -3367,11 +3367,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let restoreURL = restoredHistoryCurrentURL ?? currentURL
         guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
-            // No restorable document: the replacement web view already shows the
-            // blank shell, and an about:blank restore commit is ignored by
-            // shouldTreatCommitAsDiscardedRestoreCommit, so navigating would
-            // leave the manager pending forever. Reactivate in place instead so
-            // the pane does not stay marked discarded.
+            // No restorable document (nil or about:blank): navigating would wait
+            // on a commit that shouldTreatCommitAsDiscardedRestoreCommit ignores,
+            // so reactivate in place instead of leaving the manager discarded.
             if reactivateDiscardedWebViewWithoutNavigation(reason: "\(reason).no_restore_url") {
                 refreshNavigationAvailability()
                 refreshWebViewLifecycleState()
@@ -3899,20 +3897,13 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard isMainFrame else { return }
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                // A main-frame download is a terminal outcome for this web view:
-                // no document will commit, so treat it as committed to keep
-                // blank-shell healing and stall retries from restarting the
-                // download on the next reveal.
+                // A main-frame download is a terminal outcome with no document
+                // commit; treat it as committed so blank-shell healing and stall
+                // retries never restart the download on the next reveal.
                 self.hasCommittedDocumentSinceWebViewReplacement = true
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
         }
-    }
-
-    private func shouldTreatCommitAsDiscardedRestoreCommit(from webView: WKWebView) -> Bool {
-        guard navigationDelegate?.activeErrorPageDisplayURL == nil else { return false }
-        guard let committedURL = webView.url else { return false }
-        return !Self.isAboutBlankURL(committedURL)
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
@@ -4262,6 +4253,9 @@ final class BrowserPanel: Panel, ObservableObject {
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
+                // The pool only vends finished loads; seed the committed flag so
+                // blank-shell healing never reloads the adopted page on reveal.
+                hasCommittedDocumentSinceWebViewReplacement = true
                 refreshBackgroundAppearance()
             } else {
                 navigate(to: url)

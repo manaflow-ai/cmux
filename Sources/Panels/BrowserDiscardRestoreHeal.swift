@@ -1,6 +1,13 @@
 import Foundation
+import WebKit
 
 extension BrowserPanel {
+    func shouldTreatCommitAsDiscardedRestoreCommit(from webView: WKWebView) -> Bool {
+        guard navigationDelegate?.activeErrorPageDisplayURL == nil else { return false }
+        guard let committedURL = webView.url else { return false }
+        return !Self.isAboutBlankURL(committedURL)
+    }
+
     nonisolated static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
         guard let date else { return NSNull() }
         let formatter = ISO8601DateFormatter()
