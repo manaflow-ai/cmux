@@ -7161,26 +7161,15 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        let ghosttyInheritedWd = inheritedConfig?
-            .workingDirectory?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let ghosttyInheritedNonEmpty: String? = {
-            guard let ghosttyInheritedWd, !ghosttyInheritedWd.isEmpty else { return nil }
-            return ghosttyInheritedWd
-        }()
-
-        // Prefer libghostty's inherited working directory (same source as standalone Ghostty
-        // when splitting). cmux's explicit TerminalSurface `workingDirectory` wins over
-        // configTemplate in TerminalSurface.createSurface; a stale sidebar cache or workspace
-        // `currentDirectory` must not clobber the live cwd Ghostty already tracks on the source
-        // surface when shell integration events lag or do not run.
-        let splitWorkingDirectory = ghosttyInheritedNonEmpty ?? resolvedTerminalStartupWorkingDirectory(
-            requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
-        )
+        // Explicit caller cwd is intent; Ghostty inherited cwd only outranks cached Workspace fallback.
+        let requestedWorkingDirectory = Self.normalizedTerminalWorkingDirectory(workingDirectory)
+        let ghosttyInheritedWorkingDirectory = Self.normalizedTerminalWorkingDirectory(inheritedConfig?.workingDirectory)
+        let splitWorkingDirectory = requestedWorkingDirectory
+            ?? ghosttyInheritedWorkingDirectory
+            ?? resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory: nil, sourcePanelId: panelId)
 #if DEBUG
         cmuxDebugLog(
-            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) inherited=\(ghosttyInheritedNonEmpty ?? "nil") resolved=\(splitWorkingDirectory ?? "nil")"
+            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) requested=\(requestedWorkingDirectory ?? "nil") inherited=\(ghosttyInheritedWorkingDirectory ?? "nil") resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
 
