@@ -56,22 +56,30 @@ public struct GitDiffService: Sendable {
     /// - Parameters:
     ///   - repoRoot: Repository root.
     ///   - path: Repository-relative path.
+    ///   - maxOutputBytes: Upper bound on diff bytes read from git. When the
+    ///     output reaches this bound the git process is terminated and the
+    ///     bounded prefix (trimmed to a UTF-8 boundary) is returned, so a huge
+    ///     diff never accumulates unbounded memory. Callers that cap responses
+    ///     should pass their cap plus a small margin so the returned text still
+    ///     exceeds the cap and their truncation detection fires.
     /// - Returns: Raw one-file unified diff, or `nil` when git fails.
-    public func fileDiff(repoRoot: String, path: String) -> GitFileDiff? {
+    public func fileDiff(repoRoot: String, path: String, maxOutputBytes: Int? = nil) -> GitFileDiff? {
         let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedPath.isEmpty else { return nil }
         if isUntracked(repoRoot: repoRoot, path: normalizedPath) {
             let result = runGit(
                 in: repoRoot,
-                arguments: ["diff", "--no-index", "--no-color", "/dev/null", normalizedPath],
-                acceptedTerminationStatuses: [0, 1]
+                arguments: ["diff", "--no-index", "--no-color", "--", "/dev/null", normalizedPath],
+                acceptedTerminationStatuses: [0, 1],
+                maxOutputBytes: maxOutputBytes
             )
             guard let output = result.successOutput else { return nil }
             return GitFileDiff(path: normalizedPath, unifiedDiff: output)
         }
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", normalizedPath]
+            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", normalizedPath],
+            maxOutputBytes: maxOutputBytes
         )
         guard let output = result.successOutput else { return nil }
         return GitFileDiff(path: normalizedPath, unifiedDiff: output)
@@ -136,7 +144,8 @@ public struct GitDiffService: Sendable {
     private func runGit(
         in directory: String,
         arguments: [String],
-        acceptedTerminationStatuses: Set<Int32> = [0]
+        acceptedTerminationStatuses: Set<Int32> = [0],
+        maxOutputBytes: Int? = nil
     ) -> GitProcessResult {
         let process = Process()
         process.executableURL = gitExecutableURL
@@ -148,15 +157,62 @@ public struct GitDiffService: Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+            let read = Self.readOutput(
+                pipe.fileHandleForReading,
+                maxOutputBytes: maxOutputBytes,
+                process: process
+            )
             process.waitUntilExit()
+            if read.capped {
+                // We terminated git ourselves after the output bound; its exit
+                // status reflects our signal, not a git failure.
+                return GitProcessResult(output: Self.decodeUTF8DroppingPartialTail(read.data))
+            }
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
                 return GitProcessResult(output: nil)
             }
-            return GitProcessResult(output: String(data: data, encoding: .utf8))
+            return GitProcessResult(output: String(data: read.data, encoding: .utf8))
         } catch {
             return GitProcessResult(output: nil)
         }
+    }
+
+    /// Drains process stdout, stopping (and terminating the process) once
+    /// `maxOutputBytes` is reached so a huge diff never accumulates unbounded
+    /// memory before response-level capping.
+    private static func readOutput(
+        _ handle: FileHandle,
+        maxOutputBytes: Int?,
+        process: Process
+    ) -> (data: Data, capped: Bool) {
+        guard let maxOutputBytes else {
+            return (handle.readDataToEndOfFileOrEmpty(), false)
+        }
+        var data = Data()
+        while true {
+            guard let chunk = try? handle.read(upToCount: 65536), !chunk.isEmpty else {
+                return (data, false)
+            }
+            data.append(chunk)
+            if data.count >= maxOutputBytes {
+                process.terminate()
+                try? handle.close()
+                return (Data(data.prefix(maxOutputBytes)), true)
+            }
+        }
+    }
+
+    /// Decodes capped output, dropping at most one trailing partial UTF-8
+    /// scalar introduced by the byte-bounded cut.
+    private static func decodeUTF8DroppingPartialTail(_ data: Data) -> String? {
+        if let text = String(data: data, encoding: .utf8) { return text }
+        var trimmed = data
+        for _ in 0..<3 {
+            guard !trimmed.isEmpty else { break }
+            trimmed.removeLast()
+            if let text = String(data: trimmed, encoding: .utf8) { return text }
+        }
+        return nil
     }
 
     private func nonLockingGitEnvironment() -> [String: String] {

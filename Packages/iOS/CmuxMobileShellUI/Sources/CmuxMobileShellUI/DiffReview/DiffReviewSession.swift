@@ -16,6 +16,10 @@ final class DiffReviewSession {
     private(set) var bookmark: Bookmark?
     private(set) var navigationGeneration: Int
     private var hunkCountsByPath: [String: Int]
+    /// Set when backward navigation crossed into a file whose hunk count is not
+    /// loaded yet; `recordHunkCount` then lands on that file's LAST hunk instead
+    /// of leaving the index at zero.
+    private var pendingSeekToLastHunk = false
 
     init(files: [MobileWorkspaceDiffStatusResponse.File] = []) {
         self.files = files
@@ -65,11 +69,13 @@ final class DiffReviewSession {
         if self.files.isEmpty {
             currentFileIndex = 0
             currentHunkIndex = 0
+            pendingSeekToLastHunk = false
             return
         }
         if currentFileIndex >= self.files.count {
             currentFileIndex = 0
             currentHunkIndex = 0
+            pendingSeekToLastHunk = false
         }
     }
 
@@ -77,18 +83,24 @@ final class DiffReviewSession {
         guard files.indices.contains(index) else { return }
         currentFileIndex = index
         currentHunkIndex = 0
+        pendingSeekToLastHunk = false
         navigationGeneration &+= 1
     }
 
     func recordHunkCount(_ count: Int, for path: String) {
         hunkCountsByPath[path] = count
-        if currentFile?.path == path, count > 0, currentHunkIndex >= count {
+        guard currentFile?.path == path else { return }
+        if pendingSeekToLastHunk {
+            pendingSeekToLastHunk = false
+            currentHunkIndex = max(0, count - 1)
+        } else if count > 0, currentHunkIndex >= count {
             currentHunkIndex = max(0, count - 1)
         }
     }
 
     func moveForward() {
         guard canMoveForward else { return }
+        pendingSeekToLastHunk = false
         let count = currentHunkCount
         if count > 0, currentHunkIndex + 1 < count {
             currentHunkIndex += 1
@@ -101,12 +113,19 @@ final class DiffReviewSession {
 
     func moveBackward() {
         guard canMoveBackward else { return }
+        pendingSeekToLastHunk = false
         if currentHunkIndex > 0 {
             currentHunkIndex -= 1
         } else {
             currentFileIndex -= 1
-            let previousCount = currentHunkCount
-            currentHunkIndex = max(0, previousCount - 1)
+            if let loadedCount = currentHunkCountIfLoaded {
+                currentHunkIndex = max(0, loadedCount - 1)
+            } else {
+                // Hunk count unknown until the file loads; land on the last
+                // hunk once `recordHunkCount` delivers it.
+                currentHunkIndex = 0
+                pendingSeekToLastHunk = true
+            }
         }
         navigationGeneration &+= 1
     }
@@ -122,6 +141,7 @@ final class DiffReviewSession {
             return
         }
         currentFileIndex = fileIndex
+        pendingSeekToLastHunk = false
         let count = hunkCountsByPath[bookmark.filePath] ?? 0
         currentHunkIndex = count > 0 ? min(bookmark.hunkIndex, count - 1) : bookmark.hunkIndex
         navigationGeneration &+= 1

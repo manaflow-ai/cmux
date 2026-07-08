@@ -5,6 +5,11 @@ import Foundation
 
 extension TerminalController {
     nonisolated static let mobileWorkspaceDiffByteCap = 2 * 1024 * 1024
+    /// Process-level bound on diff bytes read from git, slightly above the
+    /// response cap so `utf8BoundaryCapped` still sees more than
+    /// `mobileWorkspaceDiffByteCap` bytes and reports truncation. Keeps a huge
+    /// diff from accumulating unbounded memory before response capping.
+    nonisolated static let mobileWorkspaceDiffReadCap = mobileWorkspaceDiffByteCap + 4096
 
     func v2MobileWorkspaceDiffStatus(params: [String: Any]) async -> V2CallResult {
         switch mobileWorkspaceDiffSnapshot(params: params) {
@@ -111,7 +116,7 @@ extension TerminalController {
         guard let repoRoot = service.repositoryRoot(for: directory) else {
             return .repositoryNotFound
         }
-        guard let diff = service.fileDiff(repoRoot: repoRoot, path: path) else {
+        guard let diff = service.fileDiff(repoRoot: repoRoot, path: path, maxOutputBytes: mobileWorkspaceDiffReadCap) else {
             return .fileNotFound(path: path)
         }
         let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffByteCap)

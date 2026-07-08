@@ -439,13 +439,18 @@ struct WorkspaceDetailView: View {
             // Only while the terminal pane is showing: browser and chat modes
             // do not mount a terminal surface for text capture.
             if activeBrowser == nil && !isChatMode {
-                Button(action: openDiffReviewFromMenu) {
-                    Label(
-                        L10n.string("mobile.diff.reviewChanges", defaultValue: "Review Changes"),
-                        systemImage: "doc.text.magnifyingglass"
-                    )
+                // Hidden when the workspace's Mac has not advertised
+                // `workspace.diff.v1`, matching the other capability-gated
+                // workspace controls; older Macs reject the diff RPCs.
+                if store.supportsDiffReview(for: workspace.id) {
+                    Button(action: openDiffReviewFromMenu) {
+                        Label(
+                            L10n.string("mobile.diff.reviewChanges", defaultValue: "Review Changes"),
+                            systemImage: "doc.text.magnifyingglass"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileReviewChangesMenuItem")
                 }
-                .accessibilityIdentifier("MobileReviewChangesMenuItem")
 
                 Button(action: openTextSheetFromMenu) {
                     Label(

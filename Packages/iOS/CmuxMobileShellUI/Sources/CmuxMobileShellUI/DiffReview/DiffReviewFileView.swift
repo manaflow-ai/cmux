@@ -147,22 +147,35 @@ struct DiffReviewFileView: View {
 
     private func loadCurrentFile() async {
         guard let file = session.currentFile else { return }
+        let path = file.path
+        if loadedPath != path {
+            // Never show the previous file's hunks under the new file's title
+            // while the new diff is in flight.
+            hunks = []
+            isTruncated = false
+        }
         isLoading = true
         errorMessage = nil
-        loadedPath = file.path
-        defer { isLoading = false }
+        loadedPath = path
+        // A cancelled/superseded load must not clear the spinner the newer
+        // load owns; `loadedPath` tracks the owning request.
+        defer {
+            if loadedPath == path { isLoading = false }
+        }
         do {
-            let response = try await fetchFile(file.path)
-            guard loadedPath == file.path else { return }
+            let response = try await fetchFile(path)
+            guard loadedPath == path, !Task.isCancelled else { return }
             let result = UnifiedDiffParser().parse(response.unifiedDiff, isTruncated: response.truncated)
             hunks = result.hunks
             isTruncated = result.isTruncated
-            session.recordHunkCount(result.hunks.count, for: file.path)
+            session.recordHunkCount(result.hunks.count, for: path)
+        } catch is CancellationError {
+            return
         } catch {
-            guard loadedPath == file.path else { return }
+            guard loadedPath == path, !Task.isCancelled else { return }
             hunks = []
             isTruncated = false
-            session.recordHunkCount(0, for: file.path)
+            session.recordHunkCount(0, for: path)
             errorMessage = error.localizedDescription
         }
     }
