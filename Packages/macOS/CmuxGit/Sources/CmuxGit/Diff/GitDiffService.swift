@@ -8,18 +8,26 @@ public struct GitDiffService: Sendable {
 
     private let gitExecutableURL: URL
     private let environment: [String: String]
+    private let processDeadlineSeconds: Double
 
     /// Creates a git diff service.
     ///
     /// - Parameters:
     ///   - gitExecutableURL: Git executable URL.
     ///   - environment: Base process environment.
+    ///   - processDeadlineSeconds: Wall-clock bound on each git subprocess.
+    ///     The mobile RPC timeout cancels only the awaiting task, never the
+    ///     spawned process, so a stalled git (fsmonitor hang, dead network
+    ///     filesystem) is terminated here instead of accumulating across
+    ///     phone retries.
     public init(
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        processDeadlineSeconds: Double = 20
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.environment = environment
+        self.processDeadlineSeconds = processDeadlineSeconds
     }
 
     /// Resolves the enclosing repository root for a directory.
@@ -27,8 +35,10 @@ public struct GitDiffService: Sendable {
     /// - Parameter directory: Directory inside a git repository.
     /// - Returns: Repository root, or `nil` when `directory` is not in a repo.
     public func repositoryRoot(for directory: String) -> String? {
-        runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"]).successOutput?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let root = runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"]).successOutput?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !root.isEmpty else { return nil }
+        return root
     }
 
     /// Lists changed files relative to `HEAD`, including untracked files.
@@ -199,15 +209,27 @@ public struct GitDiffService: Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            // Wall-clock watchdog: terminate git at the deadline so a stalled
+            // subprocess never outlives the request that spawned it. The
+            // cancellable timer source is the sanctioned bounded-delay shape
+            // here (no async context exists for a Clock sleep, and the read
+            // below blocks this thread).
+            let watchdog = GitProcessWatchdog(process: process)
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            timer.schedule(deadline: .now() + processDeadlineSeconds)
+            timer.setEventHandler { watchdog.fire() }
+            timer.activate()
+            defer { timer.cancel() }
             let read = Self.readOutput(
                 pipe.fileHandleForReading,
                 maxOutputBytes: maxOutputBytes,
                 process: process
             )
             process.waitUntilExit()
-            if read.capped {
-                // We terminated git ourselves after the output bound; its exit
-                // status reflects our signal, not a git failure.
+            if read.capped || watchdog.didFire {
+                // We terminated git ourselves (output bound or deadline); its
+                // exit status reflects our signal, not a git failure. Return
+                // the bounded partial output and mark it cut off.
                 return GitProcessResult(
                     output: Self.decodeUTF8DroppingPartialTail(read.data),
                     capped: true
@@ -264,6 +286,32 @@ public struct GitDiffService: Sendable {
         var environment = environment
         environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
         return environment
+    }
+}
+
+/// Deadline watchdog for one running git process. `@unchecked Sendable`:
+/// the flag is lock-guarded and `Process.terminate()` is a thread-safe
+/// `kill(2)` wrapper once the process has launched.
+private final class GitProcessWatchdog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    private let process: Process
+
+    init(process: Process) {
+        self.process = process
+    }
+
+    func fire() {
+        lock.lock()
+        fired = true
+        lock.unlock()
+        process.terminate()
+    }
+
+    var didFire: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return fired
     }
 }
 

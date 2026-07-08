@@ -177,6 +177,31 @@ import Testing
         #expect(bounded.files.allSatisfy { $0.path.hasSuffix(".txt") })
     }
 
+    @Test func stalledGitProcessIsTerminatedAtTheDeadline() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        // A fake git that emits nothing and hangs far past the deadline.
+        let stalledGit = repo.appendingPathComponent("stalled-git.sh")
+        try Data("#!/bin/sh\nsleep 30\n".utf8).write(to: stalledGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
+        )
+
+        let service = GitDiffService(
+            gitExecutableURL: stalledGit,
+            processDeadlineSeconds: 0.5
+        )
+        let start = Date()
+        let root = service.repositoryRoot(for: repo.path)
+        let elapsed = Date().timeIntervalSince(start)
+
+        // The watchdog must kill the subprocess at ~0.5s; without it this call
+        // blocks for the full 30s sleep (and the phone's RPC timeout would
+        // leave the process running).
+        #expect(root == nil)
+        #expect(elapsed < 5)
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-tests-\(UUID().uuidString)")
