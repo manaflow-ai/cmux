@@ -1,6 +1,6 @@
 import type { Block } from "../src/session";
 import { activityRowLabel, groupTurns, summarizeTurnActivity } from "../src/turns";
-import { measureVirtualRow, measureVirtualRowFromResize, scrollCompensationDelta, virtualRange } from "../src/hooks/useVirtualTurns";
+import { measureVirtualRow, measureVirtualRowFromResize, scrollCompensationDelta, virtualFirstVisibleIndex, virtualRange } from "../src/hooks/useVirtualTurns";
 
 (globalThis as any).location ??= { pathname: "/" };
 const { disclosureHeightKeyframes, disclosureShouldRender, disclosureSnapshotStyle } = await import("../src/components/Transcript");
@@ -85,8 +85,11 @@ if (!footerThenFiles[0].footer || footerThenFiles[0].activity.at(-1)?.kind !== "
 
 const heights = new Map<number, number>([[0, 100], [1, 100], [2, 100], [3, 100]]);
 const range = virtualRange(10, heights, 250, 300, 100, 1);
-if (range.start > 2 || range.end < 5 || range.total !== 1000) {
+if (range.firstVisible !== 2 || range.start !== 1 || range.end < 5 || range.total !== 1000) {
   throw new Error(`unexpected virtual range: ${JSON.stringify(range)}`);
+}
+if (virtualFirstVisibleIndex(10, heights, 250, 100) !== 2) {
+  throw new Error("first visible index should ignore overscan and follow the viewport top");
 }
 const measuredDelta = scrollCompensationDelta(1, 3, 100, 135, 260);
 if (measuredDelta !== 35) {
@@ -100,6 +103,59 @@ const visibleDelta = scrollCompensationDelta(3, 3, 100, 140, 260);
 if (visibleDelta !== 0) {
   throw new Error(`measurement at/after anchor should not compensate, got ${visibleDelta}`);
 }
+const rowWithHeight = (getHeight: () => number) => ({
+  getBoundingClientRect: () => ({ height: getHeight() }) as DOMRect,
+  querySelector: () => null,
+});
+const overscanRange = virtualRange(10, heights, 450, 300, 100, 2);
+if (overscanRange.start !== 2 || overscanRange.firstVisible !== 4) {
+  throw new Error(`overscan range should expose unclamped first visible index: ${JSON.stringify(overscanRange)}`);
+}
+let overscanRowHeight = 130;
+const overscanResizeState = {
+  count: 10,
+  heights: new Map<number, number>([[0, 100], [1, 100], [2, 100], [3, 100], [4, 100]]),
+  measured: { current: { total: 500, count: 5 } },
+  estimate: { current: 100 },
+  scrollRef: { current: { scrollTop: 450 } as HTMLElement },
+  bumpVersion: () => {},
+};
+if (!measureVirtualRow(3, rowWithHeight(() => overscanRowHeight), overscanResizeState)) {
+  throw new Error("overscan row above the viewport should be measured");
+}
+if (overscanResizeState.scrollRef.current.scrollTop !== 480) {
+  throw new Error(`overscan row above viewport should compensate scrollTop by resize delta, got ${overscanResizeState.scrollRef.current.scrollTop}`);
+}
+let visibleRowHeight = 130;
+const visibleResizeState = {
+  count: 10,
+  heights: new Map<number, number>([[0, 100], [1, 100], [2, 100], [3, 100], [4, 100]]),
+  measured: { current: { total: 500, count: 5 } },
+  estimate: { current: 100 },
+  scrollRef: { current: { scrollTop: 450 } as HTMLElement },
+  bumpVersion: () => {},
+};
+if (!measureVirtualRow(4, rowWithHeight(() => visibleRowHeight), visibleResizeState)) {
+  throw new Error("visible row resize should still update its cached height");
+}
+if (visibleResizeState.scrollRef.current.scrollTop !== 450) {
+  throw new Error(`visible row resize should not compensate scrollTop, got ${visibleResizeState.scrollRef.current.scrollTop}`);
+}
+let scrollUpMountedHeight = 120;
+const scrollUpMountState = {
+  count: 10,
+  heights: new Map<number, number>([[0, 100], [1, 100], [2, 100], [4, 100]]),
+  measured: { current: { total: 400, count: 4 } },
+  estimate: { current: 100 },
+  scrollRef: { current: { scrollTop: 450 } as HTMLElement },
+  bumpVersion: () => {},
+};
+if (!measureVirtualRow(3, rowWithHeight(() => scrollUpMountedHeight), scrollUpMountState)) {
+  throw new Error("newly mounted scroll-up overscan row should measure against estimate");
+}
+if (scrollUpMountState.scrollRef.current.scrollTop !== 470) {
+  throw new Error(`scroll-up mount above viewport should still compensate against estimate, got ${scrollUpMountState.scrollRef.current.scrollTop}`);
+}
 const remeasureVersions = { current: 0 };
 let rowHeight = 340;
 const rowEvents = new EventTarget();
@@ -108,11 +164,11 @@ const animatingRow = Object.assign(rowEvents, {
   querySelector: (selector: string) => selector === '[data-disclosure-animating="true"]' ? ({} as Element) : null,
 });
 const remeasureState = {
+  count: 2,
   heights: new Map<number, number>([[0, 100]]),
   measured: { current: { total: 100, count: 1 } },
   estimate: { current: 100 },
-  anchorIndex: { current: 1 },
-  scrollRef: { current: { scrollTop: 0 } as HTMLElement },
+  scrollRef: { current: { scrollTop: 150 } as HTMLElement },
   bumpVersion: () => { remeasureVersions.current += 1; },
 };
 const remeasureVersionCount = () => remeasureVersions.current;
@@ -129,7 +185,7 @@ animatingRow.dispatchEvent(new Event("virtual-row-remeasure"));
 if (remeasureState.heights.get(0) !== rowHeight || remeasureVersionCount() !== 1) {
   throw new Error(`explicit disclosure remeasure should update while animating, got height ${remeasureState.heights.get(0)} versions ${remeasureVersionCount()}`);
 }
-if (remeasureState.scrollRef.current.scrollTop !== 240) {
+if (remeasureState.scrollRef.current.scrollTop !== 390) {
   throw new Error(`remeasure above anchor should preserve scroll position with delta, got ${remeasureState.scrollRef.current.scrollTop}`);
 }
 if (!disclosureShouldRender(true, false) || !disclosureShouldRender(false, true) || disclosureShouldRender(false, false)) {

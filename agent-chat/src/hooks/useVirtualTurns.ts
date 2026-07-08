@@ -3,9 +3,20 @@ import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "reac
 export interface VirtualRange {
   start: number;
   end: number;
+  firstVisible: number;
   top: number;
   bottom: number;
   total: number;
+}
+
+export function virtualFirstVisibleIndex(count: number, heights: Map<number, number>, scrollTop: number, estimate = 260): number {
+  if (count <= 0) return 0;
+  let offset = 0;
+  for (let i = 0; i < count; i++) {
+    offset += heights.get(i) ?? estimate;
+    if (offset >= scrollTop) return i;
+  }
+  return count - 1;
 }
 
 export function virtualRange(count: number, heights: Map<number, number>, scrollTop: number, viewport: number, estimate = 260, overscan = 3): VirtualRange {
@@ -13,16 +24,18 @@ export function virtualRange(count: number, heights: Map<number, number>, scroll
   offsets[0] = 0;
   for (let i = 0; i < count; i++) offsets[i + 1] = offsets[i] + (heights.get(i) ?? estimate);
   const total = offsets[count] ?? 0;
-  let start = 0;
-  while (start < count && offsets[start + 1] < scrollTop) start++;
-  let end = start;
+  let firstVisible = 0;
+  while (firstVisible < count && offsets[firstVisible + 1] < scrollTop) firstVisible++;
+  firstVisible = count > 0 ? Math.min(firstVisible, count - 1) : 0;
+  let start = Math.max(0, firstVisible - overscan);
+  let end = firstVisible;
   const limit = scrollTop + viewport;
   while (end < count && offsets[end] < limit) end++;
-  start = Math.max(0, start - overscan);
   end = Math.min(count - 1, end + overscan);
   return {
     start,
     end,
+    firstVisible,
     top: offsets[start] ?? 0,
     bottom: Math.max(0, total - (offsets[end + 1] ?? total)),
     total,
@@ -36,10 +49,10 @@ export function scrollCompensationDelta(index: number, anchorIndex: number, prev
 type VirtualRowMeasureNode = Pick<HTMLDivElement, "getBoundingClientRect" | "querySelector">;
 
 export interface VirtualRowMeasurementState {
+  count: number;
   heights: Map<number, number>;
   measured: { current: { total: number; count: number } };
   estimate: { current: number };
-  anchorIndex: { current: number };
   scrollRef: { current: HTMLElement | null };
   bumpVersion: () => void;
 }
@@ -49,7 +62,8 @@ export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, st
   const prev = state.heights.get(index);
   if (Math.abs((prev ?? state.estimate.current) - next) <= 1) return false;
 
-  const delta = scrollCompensationDelta(index, state.anchorIndex.current, prev, next, state.estimate.current);
+  const firstVisible = virtualFirstVisibleIndex(state.count, state.heights, state.scrollRef.current?.scrollTop ?? 0, state.estimate.current);
+  const delta = scrollCompensationDelta(index, firstVisible, prev, next, state.estimate.current);
   state.heights.set(index, next);
   const measured = state.measured.current;
   if (prev == null) {
@@ -80,7 +94,6 @@ export function useVirtualTurns(count: number, enabled = true) {
   const measureCacheKey = useRef({ count, enabled });
   const estimate = useRef(260);
   const measured = useRef({ total: 0, count: 0 });
-  const anchorIndex = useRef(0);
   const [version, setVersion] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 900 });
   useLayoutEffect(() => {
@@ -121,12 +134,9 @@ export function useVirtualTurns(count: number, enabled = true) {
     measureCallbacks.current.clear();
   }, []);
   const range = useMemo(
-    () => enabled ? virtualRange(count, heights.current, viewport.top, viewport.height, estimate.current) : { start: 0, end: count - 1, top: 0, bottom: 0, total: 0 },
+    () => enabled ? virtualRange(count, heights.current, viewport.top, viewport.height, estimate.current) : { start: 0, end: count - 1, firstVisible: 0, top: 0, bottom: 0, total: 0 },
     [count, enabled, version, viewport.height, viewport.top],
   );
-  useLayoutEffect(() => {
-    anchorIndex.current = range.start;
-  }, [range.start]);
   const measure = (index: number) => {
     const cached = measureCallbacks.current.get(index);
     if (cached) return cached;
@@ -137,10 +147,10 @@ export function useVirtualTurns(count: number, enabled = true) {
       cleanups.current.delete(index);
       if (!node || !enabled) return;
       const measurementState: VirtualRowMeasurementState = {
+        count,
         heights: heights.current,
         measured,
         estimate,
-        anchorIndex,
         scrollRef,
         bumpVersion: () => setVersion((v) => v + 1),
       };
