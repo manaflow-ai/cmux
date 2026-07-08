@@ -159,6 +159,33 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(await uploader.uploadedBatches.count == batchesBeforeWithdrawal)
     }
 
+    @Test func optedOutIdentityUpdatesOnlyLocalState() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent, anonymousID: "anon-9")
+
+        emitter.identify(userId: "user-old", alias: nil, properties: [:])
+        emitter.setSuperProperties(["is_authenticated": .bool(true)])
+        await emitter.flush()
+        #expect(await uploader.identifyCalls.count == 1)
+
+        consent.set(false)
+        emitter.identify(userId: nil, alias: nil, properties: [:])
+        emitter.setSuperProperties(["is_authenticated": .bool(false)])
+        await emitter.flush()
+        #expect(await uploader.identifyCalls.count == 1)
+
+        consent.set(true)
+        emitter.capture("ios_after_opt_in", [:])
+        await emitter.flush()
+
+        let event = await uploader.uploadedEvents.last
+        #expect(event?.distinctID == "anon-9")
+        #expect(event?.anonymousID == nil)
+        #expect(event?.properties["user_id"] == nil)
+        #expect(event?.properties["is_authenticated"] == .bool(false))
+    }
+
     @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {
         // A stuck uploader (.retry forever) must not let the pending buffer grow
         // without limit. With a cap of 4, only the 4 newest of 20 events survive.

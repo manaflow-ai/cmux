@@ -28,8 +28,9 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 ///
 /// ``capture(_:_:)`` consults the injected ``AnalyticsConsentProviding`` *before*
 /// yielding, so when telemetry is disabled nothing is even buffered, and no
-/// fire-site can bypass the opt-out. `identify` and super-property updates are
-/// gated the same way.
+/// fire-site can bypass the opt-out. Identity and super-property updates still
+/// enter the actor while opted out so local attribution state cannot go stale,
+/// but the network identify call remains consent-gated.
 ///
 /// ### Flush barrier
 ///
@@ -137,12 +138,10 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         alias: String?,
         properties: [String: AnalyticsValue]
     ) {
-        guard consent.isTelemetryEnabled else { return }
         continuation.yield(.identify(userID: userId, alias: alias, properties: properties))
     }
 
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
-        guard consent.isTelemetryEnabled else { return }
         continuation.yield(.superProperties(properties))
     }
 
@@ -221,6 +220,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         } else {
             superProperties.removeValue(forKey: "user_id")
         }
+        guard consent.isTelemetryEnabled else { return }
         var personProps: [String: any Sendable] = [:]
         for (key, value) in properties { personProps[key] = value.jsonObject }
         let aliasID = alias ?? (anonymousID == userID ? nil : anonymousID)
@@ -261,6 +261,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         // its barrier, so an opt-out followed by a background flush also drops.
         guard consent.isTelemetryEnabled else {
             pending.removeAll()
+            uploadOutageOpen = false
             return
         }
         while !pending.isEmpty {

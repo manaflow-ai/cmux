@@ -12,8 +12,9 @@ public import Foundation
 public protocol AnalyticsConsentProviding: Sendable {
     /// Whether anonymous product telemetry may currently be sent.
     ///
-    /// When `false`, the emitter drops every event and identify call and sends
-    /// nothing over the network.
+    /// When `false`, the emitter drops every event and sends no identify calls over
+    /// the network. Local identity state still advances so attribution is current if
+    /// the user opts back in later.
     var isTelemetryEnabled: Bool { get }
 }
 

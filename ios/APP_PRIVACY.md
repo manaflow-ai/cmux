@@ -60,6 +60,7 @@ Declared in `ios/cmux/Resources/PrivacyInfo.xcprivacy`.
 | --- | --- | --- |
 | `NSPrivacyAccessedAPICategoryUserDefaults` | `CA92.1` | Persist app-only settings and state: auth cache, pairing state, analytics opt-out, client id, onboarding, display preferences, session state, push state. |
 | `NSPrivacyAccessedAPICategoryFileTimestamp` | `C617.1` | Inspect app-local file metadata and file sizes for local config loading, debug build stamps, and preflight checks before user-selected attachments are processed. |
+| `NSPrivacyAccessedAPICategorySystemBootTime` | `35F9.1` | Measure elapsed time inside the app for terminal rendering, cursor timing, input idle checks, animation timing, and in-app duration metrics. |
 
 ## Privacy Manifest Coverage
 
