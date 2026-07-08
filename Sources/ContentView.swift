@@ -13392,18 +13392,22 @@ struct TabItemView: View, Equatable {
 
     /// Graphite prototype: selected-card fill = the workspace's color pulled
     /// far toward the sidebar base, so custom colors survive as a tint
-    /// instead of a saturated slab.
+    /// instead of a saturated slab. With no custom color (and no explicitly
+    /// customized selection color) the default is a neutral grey, not the
+    /// accent blue.
     private var graphiteSelectionFillNSColor: NSColor {
-        let base: NSColor = workspaceSnapshot.customColorHex.flatMap {
+        let explicitBase: NSColor? = workspaceSnapshot.customColorHex.flatMap {
             WorkspaceTabColorSettings.displayNSColor(
                 hex: $0,
                 colorScheme: colorScheme,
                 forceBright: false
             )
-        } ?? sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
-        )
+        } ?? sidebarSelectionColorHex.flatMap { NSColor(hex: $0) }
+        guard let base = explicitBase else {
+            return colorScheme == .dark
+                ? NSColor(calibratedWhite: 0.24, alpha: 1.0)
+                : NSColor(calibratedWhite: 0.82, alpha: 1.0)
+        }
         let srgbBase = base.usingColorSpace(.sRGB) ?? base
         let dimBase = colorScheme == .dark
             ? NSColor(calibratedWhite: 0.14, alpha: 1.0)
@@ -13419,6 +13423,27 @@ struct TabItemView: View, Equatable {
             ? NSColor.black
             : NSColor(calibratedWhite: 0.5, alpha: 1.0)
         return fill.blended(withFraction: 0.38, of: deep) ?? fill
+    }
+
+    /// Shared mount for the in-card agents accordion; used at both placements
+    /// (top of card / below the branch line).
+    @ViewBuilder
+    private var inCardAgentRowsMount: some View {
+        if !workspaceSnapshot.agentStatusRows.isEmpty {
+            SidebarAgentStatusInCardRows(
+                rows: workspaceSnapshot.agentStatusRows,
+                activePanelId: tab.focusedPanelId,
+                isActive: usesInvertedActiveForeground,
+                activeForegroundColor: activeSecondaryColor(0.95),
+                activeAgentRowColor: Color(nsColor: graphiteActiveAgentRowNSColor),
+                fontScale: fontScale,
+                onFocus: { updateSelection() },
+                onFocusPanel: { panelId in
+                    updateSelection()
+                    tab.focusPanel(panelId)
+                }
+            )
+        }
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -13857,21 +13882,8 @@ struct TabItemView: View, Equatable {
             if detailVisibility.showsMetadata {
                 let metadataEntries = workspaceSnapshot.metadataEntries
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !workspaceSnapshot.agentStatusRows.isEmpty {
-                    // Renders only while an in-card debug variant is selected.
-                    SidebarAgentStatusInCardRows(
-                        rows: workspaceSnapshot.agentStatusRows,
-                        activePanelId: tab.focusedPanelId,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
-                        activeAgentRowColor: Color(nsColor: graphiteActiveAgentRowNSColor),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() },
-                        onFocusPanel: { panelId in
-                            updateSelection()
-                            tab.focusPanel(panelId)
-                        }
-                    )
+                if agentRowsVariantStore.inCardPlacement == .top {
+                    inCardAgentRowsMount
                 }
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
@@ -14024,6 +14036,12 @@ struct TabItemView: View, Equatable {
                         )
                     }
                 }
+            }
+
+            // Agents accordion below the branch/directory line (default
+            // placement; switchable to top-of-card in the debug lab).
+            if detailVisibility.showsMetadata, agentRowsVariantStore.inCardPlacement == .belowBranch {
+                inCardAgentRowsMount
             }
 
             // Pull request rows

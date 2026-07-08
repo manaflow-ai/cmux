@@ -64,6 +64,25 @@ enum SidebarAgentRowsVariant: String, CaseIterable, Identifiable {
     }
 }
 
+/// Where the in-card agents accordion sits inside the workspace card.
+enum SidebarAgentRowsPlacement: String, CaseIterable, Identifiable {
+    case top
+    case belowBranch
+
+    static let userDefaultsKey = "sidebarAgentRowsPlacementDebug"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .top:
+            return String(localized: "debug.agentRows.placement.top", defaultValue: "Top of card (under the title)")
+        case .belowBranch:
+            return String(localized: "debug.agentRows.placement.belowBranch", defaultValue: "Below the branch line")
+        }
+    }
+}
+
 /// Singleton the row containers observe. It only mutates when the user picks
 /// a variant in the lab window, so the extra invalidation is bounded; this is
 /// a deliberate, temporary exception to the sidebar snapshot-boundary rule
@@ -78,9 +97,17 @@ final class SidebarAgentRowsVariantStore: ObservableObject {
         }
     }
 
+    @Published var inCardPlacement: SidebarAgentRowsPlacement {
+        didSet {
+            UserDefaults.standard.set(inCardPlacement.rawValue, forKey: SidebarAgentRowsPlacement.userDefaultsKey)
+        }
+    }
+
     private init() {
         let raw = UserDefaults.standard.string(forKey: SidebarAgentRowsVariant.userDefaultsKey)
         variant = raw.flatMap(SidebarAgentRowsVariant.init(rawValue:)) ?? .belowAccordion
+        let placementRaw = UserDefaults.standard.string(forKey: SidebarAgentRowsPlacement.userDefaultsKey)
+        inCardPlacement = placementRaw.flatMap(SidebarAgentRowsPlacement.init(rawValue:)) ?? .belowBranch
     }
 }
 
@@ -90,7 +117,7 @@ final class AgentRowsVariantLabWindowController: ReleasingWindowController {
 
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 430),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 560),
             styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -139,6 +166,27 @@ private struct AgentRowsVariantLabView: View {
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+
+            Text(String(localized: "debug.agentRows.placement.header", defaultValue: "Accordion position (in-card variants)"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            ForEach(SidebarAgentRowsPlacement.allCases) { placement in
+                Button {
+                    store.inCardPlacement = placement
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: store.inCardPlacement == placement ? "largecircle.fill.circle" : "circle")
+                            .foregroundColor(store.inCardPlacement == placement ? Color.accentColor : .secondary)
+                        Text(placement.displayName)
+                            .font(.system(size: 12))
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())
