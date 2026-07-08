@@ -1774,11 +1774,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(waiting.stdout, "{}\n")
 
         let waitingCommands = Array(state.commands.dropFirst(waitingCommandStart))
-        XCTAssertTrue(
-            waitingCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
-            },
-            "Expected waiting notification to forward the payload message, saw \(waitingCommands)"
+        XCTAssertFalse(
+            waitingCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok waiting notifications should update state without banners, saw \(waitingCommands)"
         )
         XCTAssertTrue(
             waitingCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1795,11 +1793,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
-            fallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
-            },
-            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+        XCTAssertFalse(
+            fallbackCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok fallback notifications should update state without banners, saw \(fallbackCommands)"
         )
         XCTAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1845,11 +1841,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(incompleteWaiting.stdout, "{}\n")
 
         let incompleteWaitingCommands = Array(state.commands.dropFirst(incompleteWaitingCommandStart))
-        XCTAssertTrue(
-            incompleteWaitingCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
-            },
-            "Incomplete/undone waiting text should not be classified as a completion, saw \(incompleteWaitingCommands)"
+        XCTAssertFalse(
+            incompleteWaitingCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Incomplete/undone waiting text should update state without banners, saw \(incompleteWaitingCommands)"
         )
         XCTAssertFalse(
             incompleteWaitingCommands.contains { $0.contains("Grok|Completed|") },
@@ -1893,11 +1887,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
-            neutralFallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
-            },
-            "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
+        XCTAssertFalse(
+            neutralFallbackCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok fallback notifications should update state without banners, saw \(neutralFallbackCommands)"
         )
         XCTAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },

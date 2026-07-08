@@ -29,7 +29,7 @@ struct AgentHookNotificationPolicyTests {
         #expect(arbitrary.status == nil)
         #expect(arbitrary.notifyCategory == .idleReminder)
 
-        let emptyFallback = AgentHookNotificationClassifier.classify(
+        let emptyFallback = agentHookClassifyNotification(
             displayName: "Grok",
             signal: "",
             message: "",
@@ -49,7 +49,7 @@ struct AgentHookNotificationPolicyTests {
         #expect(first != different)
         #expect(fingerprint(status: .idle, body: "a") == "idle-turn")
         #expect(fingerprint(status: .idle, body: "b") == "idle-turn")
-        let permissionFingerprint = AgentHookNotificationPolicy.dedupeFingerprint(
+        let permissionFingerprint = agentHookNotificationDedupeFingerprint(
             agentName: "grok",
             sessionId: "session-1",
             status: .needsInput,
@@ -58,14 +58,14 @@ struct AgentHookNotificationPolicyTests {
         )
         #expect(permissionFingerprint == fingerprint(status: .needsInput, body: "permission"))
         #expect(permissionFingerprint?.hasPrefix("needsInput:") == true)
-        #expect(AgentHookNotificationPolicy.dedupeFingerprint(
+        #expect(agentHookNotificationDedupeFingerprint(
             agentName: "codex",
             sessionId: "session-1",
             status: .needsInput,
             category: .idleReminder,
             body: "waiting"
         ) == nil)
-        #expect(AgentHookNotificationPolicy.dedupeFingerprint(
+        #expect(agentHookNotificationDedupeFingerprint(
             agentName: "grok",
             sessionId: "",
             status: .needsInput,
@@ -73,6 +73,20 @@ struct AgentHookNotificationPolicyTests {
             body: "waiting"
         ) == nil)
         #expect(first == "needsInput:5ed8d1309a36515b")
+    }
+
+    @Test func needsInputBannerSuppressionTable() {
+        #expect(agentHookNotificationSuppressesNeedsInputBanner(agentName: "grok") == true)
+        #expect(agentHookNotificationSuppressesNeedsInputBanner(agentName: "antigravity") == false)
+        #expect(agentHookNotificationSuppressesNeedsInputBanner(agentName: "codex") == false)
+        #expect(agentHookNotificationSuppressesNeedsInputBanner(agentName: "claude") == false)
+    }
+
+    @Test func storedStatusCategoryTable() {
+        #expect(agentHookNotifyCategory(forStoredStatus: .idle) == .turnComplete)
+        #expect(agentHookNotifyCategory(forStoredStatus: .needsInput) == .idleReminder)
+        #expect(agentHookNotifyCategory(forStoredStatus: .error) == .other)
+        #expect(agentHookNotifyCategory(forStoredStatus: nil) == .idleReminder)
     }
 
     @Test func metaRoundTripsWithAppGate() throws {
@@ -109,7 +123,7 @@ struct AgentHookNotificationPolicyTests {
     }
 
     private func classify(_ message: String) -> AgentHookNotificationSummary {
-        AgentHookNotificationClassifier.classify(
+        agentHookClassifyNotification(
             displayName: "Grok",
             signal: "",
             message: message,
@@ -118,7 +132,7 @@ struct AgentHookNotificationPolicyTests {
     }
 
     private func fingerprint(status: AgentHookNotificationStatus?, body: String) -> String? {
-        AgentHookNotificationPolicy.dedupeFingerprint(
+        agentHookNotificationDedupeFingerprint(
             agentName: "grok",
             sessionId: "session-1",
             status: status,

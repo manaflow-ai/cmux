@@ -27119,11 +27119,11 @@ struct CMUXCLI {
     }
 
     private func isGrokInternalSessionNotification(_ message: String) -> Bool {
-        AgentHookNotificationClassifier.isGrokInternalSessionNotification(message)
+        agentHookIsGrokInternalSessionNotification(message)
     }
 
     private func isGrokGenericTurnCompletion(_ message: String) -> Bool {
-        AgentHookNotificationClassifier.isGrokGenericTurnCompletion(message)
+        agentHookIsGrokGenericTurnCompletion(message)
     }
 
     private func latestGrokAssistantMessage(
@@ -27268,7 +27268,7 @@ struct CMUXCLI {
         message: String,
         isFallback: Bool
     ) -> AgentHookNotificationSummary {
-        AgentHookNotificationClassifier.classify(
+        agentHookClassifyNotification(
             displayName: def.displayName,
             signal: signal,
             message: message,
@@ -27286,11 +27286,11 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
-        if AgentHookNotificationClassifier.containsCompletionCue(lower) {
+        if agentHookNotificationContainsCompletionCue(lower) {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
-        if AgentHookNotificationClassifier.containsWaitingCue(lower) {
+        if agentHookNotificationContainsWaitingCue(lower) {
             let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
@@ -30478,7 +30478,7 @@ export default CMUXSessionRestore;
             category: AgentHookNotifyCategory,
             body: String
         ) -> String? {
-            AgentHookNotificationPolicy.dedupeFingerprint(
+            agentHookNotificationDedupeFingerprint(
                 agentName: def.name,
                 sessionId: sessionId,
                 status: status,
@@ -30711,7 +30711,7 @@ export default CMUXSessionRestore;
                         print("{}")
                         return
                     }
-                    if !AgentHookNotificationPolicy.preservesDedupeAcrossSessionStart(agentName: def.name) {
+                    if !agentHookNotificationPreservesDedupeAcrossSessionStart(agentName: def.name) {
                         try? store.clearNotificationEmission(sessionId: sessionId)
                     }
                     publishAgentSurfaceResumeBinding(
@@ -31540,7 +31540,7 @@ export default CMUXSessionRestore;
                     body: savedBody,
                     status: mapped?.lastNotificationStatus,
                     isFallback: false,
-                    notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : .idleReminder
+                    notifyCategory: agentHookNotifyCategory(forStoredStatus: mapped?.lastNotificationStatus)
                 )
             }
             let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
@@ -31678,61 +31678,72 @@ export default CMUXSessionRestore;
                 }
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(
-                status: summary.status,
-                category: summary.notifyCategory,
-                body: summary.body
-            )
-            if shouldSendNotification(fingerprint: notificationFingerprint) {
-                // Tag by the classifier's category so the app's agent notification
-                // settings cover every built-in agent: approval prompts gate under
-                // "Agent Needs Permission", waiting-for-input cues under "Agent
-                // Waiting for Input", turn-boundary completions (grok and
-                // antigravity route them through this hook) under "Agent
-                // Finished". Errors and unclassified alerts stay untagged.
-                // Completions AND waiting nags are both "pending" while
-                // background work is live, so a fullyIdle=false Antigravity
-                // waiting cue doesn't deliver a false "waiting for input".
-                let notificationMeta = summary.notifyCategory.metaSegment(
-                    pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork()
-                )
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
-                let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
+            if agentHookNotificationSuppressesNeedsInputBanner(agentName: def.name),
+               summary.status == .needsInput {
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.notification.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
+                    "agentHook.notification.notify.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=needsInputBannerSuppressed",
                     socketPath: client.socketPath,
                     env: env
                 )
 #endif
-                do {
-                    let response = try sendV1Command(notifyCommand, client: client)
+            } else {
+                let notificationFingerprint = notificationDedupeFingerprint(
+                    status: summary.status,
+                    category: summary.notifyCategory,
+                    body: summary.body
+                )
+                if shouldSendNotification(fingerprint: notificationFingerprint) {
+                    // Tag by the classifier's category so the app's agent notification
+                    // settings cover every built-in agent: approval prompts gate under
+                    // "Agent Needs Permission", waiting-for-input cues under "Agent
+                    // Waiting for Input", turn-boundary completions (grok and
+                    // antigravity route them through this hook) under "Agent
+                    // Finished". Errors and unclassified alerts stay untagged.
+                    // Completions AND waiting nags are both "pending" while
+                    // background work is live, so a fullyIdle=false Antigravity
+                    // waiting cue doesn't deliver a false "waiting for input".
+                    let notificationMeta = summary.notifyCategory.metaSegment(
+                        pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
+                            && hasActiveAntigravityBackgroundWork()
+                    )
+                    let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
+                    let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                     agentHookDebugLog(
-                        "agentHook.notification.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
+                        "agentHook.notification.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
                         socketPath: client.socketPath,
                         env: env
                     )
 #endif
-                    markNotificationSent(fingerprint: notificationFingerprint)
-                } catch {
+                    do {
+                        let response = try sendV1Command(notifyCommand, client: client)
+#if DEBUG
+                        agentHookDebugLog(
+                            "agentHook.notification.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
+                            socketPath: client.socketPath,
+                            env: env
+                        )
+#endif
+                        markNotificationSent(fingerprint: notificationFingerprint)
+                    } catch {
+#if DEBUG
+                        agentHookDebugLog(
+                            "agentHook.notification.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
+                            socketPath: client.socketPath,
+                            env: env
+                        )
+#endif
+                    }
+                } else {
 #if DEBUG
                     agentHookDebugLog(
-                        "agentHook.notification.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
+                        "agentHook.notification.notify.skipDuplicate agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fingerprint=\(agentHookDebugShort(notificationFingerprint))",
                         socketPath: client.socketPath,
                         env: env
                     )
 #endif
                 }
-            } else {
-#if DEBUG
-                agentHookDebugLog(
-                    "agentHook.notification.notify.skipDuplicate agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fingerprint=\(agentHookDebugShort(notificationFingerprint))",
-                    socketPath: client.socketPath,
-                    env: env
-                )
-#endif
             }
 
             switch summary.status {

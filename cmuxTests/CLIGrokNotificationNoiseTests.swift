@@ -2,7 +2,7 @@ import XCTest
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testGrokRepeatedWaitingNotificationsDedupe() throws {
+    func testGrokRepeatedWaitingNotificationsUpdateStateWithoutBanner() throws {
         let context = try makeGrokNoiseContext(name: "grok-wait-dedupe")
         defer { context.cleanup() }
 
@@ -12,15 +12,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "waiting for input"))
 
         let commands = Array(context.state.snapshot().dropFirst(firstStart))
-        XCTAssertEqual(notifyCommands(in: commands).count, 1, "Repeated waiting events should dedupe, saw \(commands)")
+        XCTAssertEqual(notifyCommands(in: commands).count, 0, "Grok waiting events should update state without banners, saw \(commands)")
+        XCTAssertTrue(
+            setStatusCommands(in: commands).contains { $0.contains("set_status grok Grok needs input") },
+            "Grok waiting events should still mark the pane as needing input, saw \(commands)"
+        )
     }
 
-    func testGrokUnclassifiedFallbackRebuildIsGateableAndDedupeable() throws {
-        let context = try makeGrokNoiseContext(name: "grok-fallback-gate", sessionId: nil)
+    func testGrokWaitingFallbackRebuildUpdatesStateWithoutBanner() throws {
+        let context = try makeGrokNoiseContext(name: "grok-fallback-waiting", sessionId: nil)
         defer { context.cleanup() }
 
         try runGrokNoiseHook(context, "session-start", payload: grokNoisePayload(context, event: "SessionStart"))
-        try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "Grok needs permission to run rm"))
+        try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "waiting for input"))
         try runGrokNoiseHook(context, "prompt-submit", payload: grokNoisePayload(context, event: "UserPromptSubmit"))
 
         let fallbackStart = context.state.snapshot().count
@@ -28,30 +32,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try runGrokNoiseHook(context, "notification", payload: unclassified)
         try runGrokNoiseHook(context, "notification", payload: unclassified)
 
-        let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(fallbackStart)))
-        XCTAssertEqual(notifications.count, 1, "Unclassified fallback re-notification should dedupe, saw \(notifications)")
+        let commands = Array(context.state.snapshot().dropFirst(fallbackStart))
+        XCTAssertEqual(notifyCommands(in: commands).count, 0, "Grok fallback rebuild should update state without banners, saw \(commands)")
         XCTAssertTrue(
-            notifications.first?.hasSuffix("|c=idle-reminder;p=0") == true,
-            "Fallback re-notification should be gateable as idle-reminder, saw \(notifications)"
+            setStatusCommands(in: commands).contains { $0.contains("set_status grok Grok needs input") },
+            "Grok fallback rebuild should preserve the needs-input pane state, saw \(commands)"
         )
     }
 
-    func testGrokIncidentalCompletionCueAfterInterleavedNotificationDoesNotReding() throws {
+    func testGrokIncidentalCompletionCueDoesNotReding() throws {
         let context = try makeGrokNoiseContext(name: "grok-incidental")
         defer { context.cleanup() }
 
         try runGrokNoiseHook(context, "session-start", payload: grokNoisePayload(context, event: "SessionStart"))
         let start = context.state.snapshot().count
         try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "Turn complete in 1.2s."))
-        try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "waiting for input"))
         try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "All done reviewing the files you asked about"))
 
-        // This is already green pre-fix because old waiting events do not
-        // overwrite the single legacy fingerprint slot. Keep it as a guard that
-        // the new multi-fingerprint store does not regress the eviction case.
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
-        XCTAssertEqual(notifications.count, 2, "Incidental completion cue should not send after a real completion, saw \(notifications)")
-        XCTAssertEqual(notifications.filter { $0.contains("Grok|Completed|") }.count, 1, notifications.joined(separator: "\n"))
+        XCTAssertEqual(notifications.count, 1, "Incidental completion cue should not send after a real completion, saw \(notifications)")
+        XCTAssertTrue(notifications.first?.contains("Grok|Completed|") == true, notifications.joined(separator: "\n"))
     }
 
     func testGrokSessionStartRefireDoesNotRearmCompletionDedupe() throws {
@@ -70,7 +70,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(notifications.count, 1, "SessionStart refire should not re-arm the same completion notification, saw \(notifications)")
     }
 
-    func testGrokRepeatedIdenticalPermissionPromptsDedupePerTurn() throws {
+    func testGrokRepeatedIdenticalPermissionPromptsDoNotBanner() throws {
         let context = try makeGrokNoiseContext(name: "grok-permission")
         defer { context.cleanup() }
 
@@ -80,22 +80,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try runGrokNoiseHook(context, "notification", payload: permissionPrompt)
         try runGrokNoiseHook(context, "notification", payload: permissionPrompt)
 
-        let firstTurnNotifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
-        XCTAssertEqual(firstTurnNotifications.count, 1, "Repeated identical permission prompts should dedupe per turn, saw \(firstTurnNotifications)")
-        XCTAssertTrue(
-            firstTurnNotifications.first?.hasSuffix("|c=needs-permission;p=0") == true,
-            firstTurnNotifications.joined(separator: "\n")
-        )
-
         try runGrokNoiseHook(context, "prompt-submit", payload: grokNoisePayload(context, event: "UserPromptSubmit"))
         try runGrokNoiseHook(context, "notification", payload: permissionPrompt)
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
-        XCTAssertEqual(notifications.count, 2, "Prompt submit should re-arm permission prompt delivery for the next turn, saw \(notifications)")
-        XCTAssertTrue(notifications.allSatisfy { $0.hasSuffix("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertEqual(notifications.count, 0, "Grok permission_prompt telemetry should never banner, saw \(notifications)")
     }
 
-    func testGrokDistinctPermissionPromptsAlwaysDeliver() throws {
+    func testGrokDistinctPermissionPromptsDoNotBanner() throws {
         let context = try makeGrokNoiseContext(name: "grok-distinct-permission")
         defer { context.cleanup() }
 
@@ -105,8 +97,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try runGrokNoiseHook(context, "notification", payload: grokPermissionPromptPayload(context, message: "Grok needs permission to edit config.yaml"))
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
-        XCTAssertEqual(notifications.count, 2, "Distinct permission prompts should each deliver, saw \(notifications)")
-        XCTAssertTrue(notifications.allSatisfy { $0.hasSuffix("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertEqual(notifications.count, 0, "Grok permission messages should update state without banners, saw \(notifications)")
     }
 
     func testAntigravityErrorNotificationRemainsUntagged() throws {
@@ -123,6 +114,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
             notifications.first?.contains("|c=") == true,
             "Error notifications should remain untagged, saw \(notifications)"
         )
+    }
+
+    func testAntigravityErrorFallbackRemainsUntagged() throws {
+        let context = try makeGrokNoiseContext(name: "antigravity-error-fallback", agent: "antigravity")
+        defer { context.cleanup() }
+
+        let errorMessage = "Build failed: exit 1"
+        try seedStoredNotification(
+            context,
+            subtitle: "Error",
+            body: errorMessage,
+            status: "error"
+        )
+
+        let start = context.state.snapshot().count
+        try runGrokNoiseHook(context, "notification", payload: antigravityNoisePayload(context, event: "Notification"))
+
+        let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
+        XCTAssertEqual(notifications.count, 1, "Expected one rebuilt Antigravity error notification, saw \(notifications)")
+        XCTAssertTrue(
+            notifications.first?.contains("Antigravity|Error|\(errorMessage)") == true,
+            notifications.joined(separator: "\n")
+        )
+        XCTAssertFalse(
+            notifications.first?.contains("|c=") == true,
+            "Rebuilt error notifications should remain untagged, saw \(notifications)"
+        )
+    }
+
+    func testAntigravityWaitingNotificationStillBanners() throws {
+        let context = try makeGrokNoiseContext(name: "antigravity-waiting", agent: "antigravity")
+        defer { context.cleanup() }
+
+        try runGrokNoiseHook(context, "session-start", payload: antigravityNoisePayload(context, event: "SessionStart"))
+        let start = context.state.snapshot().count
+        try runGrokNoiseHook(context, "notification", payload: antigravityNoisePayload(context, event: "Notification", message: "waiting for input"))
+
+        let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
+        XCTAssertEqual(notifications.count, 1, "Antigravity waiting cues should still banner, saw \(notifications)")
+        XCTAssertTrue(notifications.first?.hasSuffix("|c=idle-reminder;p=0") == true, notifications.joined(separator: "\n"))
     }
 
     private struct GrokNoiseContext {
@@ -216,6 +247,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
         notificationNoisePayload(sessionKey: "session_id", context: context, eventKey: "hook_event_name", event: event, message: message)
     }
 
+    private func seedStoredNotification(
+        _ context: GrokNoiseContext,
+        subtitle: String,
+        body: String,
+        status: String
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        let storePayload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                context.sessionId: [
+                    "sessionId": context.sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "lastSubtitle": subtitle,
+                    "lastBody": body,
+                    "lastNotificationStatus": status,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let storeData = try JSONSerialization.data(withJSONObject: storePayload, options: [.prettyPrinted, .sortedKeys])
+        let storeURL = context.root.appendingPathComponent("\(context.agent)-hook-sessions.json", isDirectory: false)
+        try storeData.write(to: storeURL)
+    }
+
     private func grokUnclassifiedPayload(_ context: GrokNoiseContext) -> String {
         #"{"sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","unparseable":true}"#
     }
@@ -240,5 +299,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func notifyCommands(in commands: [String]) -> [String] {
         commands.filter { $0.hasPrefix("notify_target_async ") }
+    }
+
+    private func setStatusCommands(in commands: [String]) -> [String] {
+        commands.filter { $0.hasPrefix("set_status ") }
     }
 }
