@@ -2,7 +2,7 @@ import AppKit
 import CmuxSettings
 import os
 
-private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmux", category: "browser")
+nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmux", category: "browser")
 
 /// Opens `url` in the user's preferred external browser, as configured by
 /// `browser.preferredExternalBrowser` in `~/.config/cmux/cmux.json`.
@@ -27,7 +27,11 @@ func cmuxOpenURLExternally(_ url: URL) -> Bool {
     if let appURL = resolvePreferredBrowserURL(preferred) {
         let cfg = NSWorkspace.OpenConfiguration()
         cfg.activates = true
-        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg, completionHandler: nil)
+        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg) { _, error in
+            if let error {
+                logger.error("Failed to open URL in preferred browser: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         return true
     }
 
