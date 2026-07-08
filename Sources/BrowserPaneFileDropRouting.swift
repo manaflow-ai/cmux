@@ -1,17 +1,17 @@
 import AppKit
 import WebKit
 
-/// How a file-URL drag over a browser pane should be handled.
-enum BrowserPaneFileDropDisposition: Equatable {
-    /// Forward the drag to the hosted WKWebView (HTML5 page upload).
-    case forwardToPage
-    /// Open the file in cmux (file-preview pane / split) via the workspace handlers.
-    case previewInWorkspace
-}
-
 /// Routes browser-pane file drops by intent only: intent never depends on transient webview
 /// availability; delivery failure refuses the drop instead of reinterpreting it.
 enum BrowserPaneFileDropRouting {
+    /// How a file-URL drag over a browser pane should be handled.
+    enum Disposition: Equatable {
+        /// Forward the drag to the hosted WKWebView (HTML5 page upload).
+        case forwardToPage
+        /// Open the file in cmux (file-preview pane / split) via the workspace handlers.
+        case previewInWorkspace
+    }
+
     /// `isDockHosted` is an autoclosure so callers can defer the app-wide dock
     /// ownership lookup until a file-URL payload is actually present; drag
     /// callbacks fire for every payload type and must not pay for it otherwise.
@@ -20,7 +20,7 @@ enum BrowserPaneFileDropRouting {
         modifierFlags: NSEvent.ModifierFlags,
         isDockHosted: @autoclosure () -> Bool,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
-    ) -> BrowserPaneFileDropDisposition? {
+    ) -> Disposition? {
         guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else { return nil }
 
         // A Dock-hosted browser pane has no workspace-tree file-preview destination, so a
@@ -58,7 +58,7 @@ extension BrowserPaneDropTargetView {
         dropContext.map { AppDelegate.shared?.dockForPane($0.paneId) != nil } ?? false
     }
 
-    func fileDropDisposition(_ sender: any NSDraggingInfo) -> BrowserPaneFileDropDisposition? {
+    func fileDropDisposition(_ sender: any NSDraggingInfo) -> BrowserPaneFileDropRouting.Disposition? {
         BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: sender.draggingPasteboard.types,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,

@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import AppKit
 import Bonsplit
 import WebKit
@@ -10,7 +10,8 @@ import WebKit
 #endif
 
 @MainActor
-final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
+@Suite(.serialized)
+struct BrowserPaneFileDropUploadRegressionTests {
     private final class DragSpyWebView: WKWebView {
         var dragCalls: [String] = []
 
@@ -78,37 +79,37 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
         func resetSpringLoading() {}
     }
 
-    func testDefaultFileDropWithHostedWebViewRoutesToPage() throws {
+    @Test func defaultFileDropWithHostedWebViewRoutesToPage() throws {
         try withFileDropDefault(.text) {
             let setup = try makeTarget(hostedWebView: true)
             defer { close(setup.window) }
-            let webView = try XCTUnwrap(setup.webView)
+            let webView = try #require(setup.webView)
             let dragInfo = makeFileDragInfo(window: setup.window, slot: setup.slot)
 
-            XCTAssertEqual(setup.target.draggingEntered(dragInfo), .copy)
-            XCTAssertTrue(setup.target.prepareForDragOperation(dragInfo))
-            XCTAssertTrue(setup.target.performDragOperation(dragInfo))
+            #expect(setup.target.draggingEntered(dragInfo) == .copy)
+            #expect(setup.target.prepareForDragOperation(dragInfo))
+            #expect(setup.target.performDragOperation(dragInfo))
             setup.target.concludeDragOperation(dragInfo)
 
-            XCTAssertEqual(webView.dragCalls, ["entered", "prepare", "perform", "conclude"])
+            #expect(webView.dragCalls == ["entered", "prepare", "perform", "conclude"])
         }
     }
 
-    func testFileDropWithUnresolvableWebViewIsNotClaimedAsPreview() throws {
+    @Test func fileDropWithUnresolvableWebViewIsNotClaimedAsPreview() throws {
         try withFileDropDefault(.text) {
             let setup = try makeTarget(hostedWebView: false)
             defer { close(setup.window) }
             let dragInfo = makeFileDragInfo(window: setup.window, slot: setup.slot)
 
-            XCTAssertTrue(setup.target.draggingEntered(dragInfo).isEmpty)
-            XCTAssertFalse(setup.target.prepareForDragOperation(dragInfo))
-            XCTAssertFalse(setup.target.performDragOperation(dragInfo))
+            #expect(setup.target.draggingEntered(dragInfo).isEmpty)
+            #expect(!setup.target.prepareForDragOperation(dragInfo))
+            #expect(!setup.target.performDragOperation(dragInfo))
         }
     }
 
-    func testHitTestClaimAndPrepareAgreeWhenWebViewUnavailable() throws {
+    @Test func hitTestClaimAndPrepareAgreeWhenWebViewUnavailable() throws {
         try withFileDropDefault(.text) {
-            XCTAssertTrue(BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 eventType: .leftMouseDragged
             ))
@@ -117,7 +118,7 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
             defer { close(setup.window) }
             let dragInfo = makeFileDragInfo(window: setup.window, slot: setup.slot)
 
-            XCTAssertFalse(setup.target.prepareForDragOperation(dragInfo))
+            #expect(!setup.target.prepareForDragOperation(dragInfo))
         }
     }
 
@@ -126,7 +127,7 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
     // fallback hit-tests the whole slot container, so without a geometry check
     // a file dropped over the non-page area would be misrouted into the page
     // upload path instead of being refused.
-    func testFileDropOverNonPageAreaOfLiveWebViewIsRefused() throws {
+    @Test func fileDropOverNonPageAreaOfLiveWebViewIsRefused() throws {
         try withFileDropDefault(.text) {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -137,7 +138,7 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
             defer { close(window) }
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
-            let root = try XCTUnwrap(window.contentView)
+            let root = try #require(window.contentView)
 
             let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
             root.addSubview(anchor)
@@ -155,7 +156,7 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
             root.layoutSubtreeIfNeeded()
 
-            let container = try XCTUnwrap(webView.superview as? WindowBrowserSlotView)
+            let container = try #require(webView.superview as? WindowBrowserSlotView)
 
             // Emulate a docked-inspector split: the live web view keeps only one
             // half of the slot, the companion view owns the other half.
@@ -172,137 +173,130 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
             // Harness sanity: the precise hosted-webview hit test resolves the
             // page area and misses the companion area, while the registry still
             // resolves the whole container.
-            XCTAssertTrue(container.hostedWebViewForFileDrop(at: pagePoint) === webView)
-            XCTAssertNil(container.hostedWebViewForFileDrop(at: nonPagePoint))
+            #expect(container.hostedWebViewForFileDrop(at: pagePoint) === webView)
+            #expect(container.hostedWebViewForFileDrop(at: nonPagePoint) == nil)
             let nonPageWindowPoint = container.convert(nonPagePoint, to: nil)
-            XCTAssertTrue(
+            #expect(
                 BrowserWindowPortalRegistry.webViewAtWindowPoint(nonPageWindowPoint, in: window) === webView
             )
 
-            let target = try XCTUnwrap(
+            let target = try #require(
                 BrowserWindowPortalRegistry.browserPaneDropTargetAtWindowPoint(nonPageWindowPoint, in: window)
             )
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7632.split.\(UUID().uuidString)"))
             pasteboard.clearContents()
-            XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
+            #expect(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
             let dragInfo = MockDraggingInfo(window: window, location: nonPageWindowPoint, pasteboard: pasteboard)
 
-            XCTAssertTrue(target.draggingEntered(dragInfo).isEmpty)
-            XCTAssertFalse(target.prepareForDragOperation(dragInfo))
-            XCTAssertFalse(target.performDragOperation(dragInfo))
-            XCTAssertEqual(webView.dragCalls, [])
+            #expect(target.draggingEntered(dragInfo).isEmpty)
+            #expect(!target.prepareForDragOperation(dragInfo))
+            #expect(!target.performDragOperation(dragInfo))
+            #expect(webView.dragCalls == [])
         }
     }
 
-    func testShiftInvertedFileDropStillRoutesToPreview() {
-        XCTAssertEqual(
+    @Test func shiftInvertedFileDropStillRoutesToPreview() {
+        #expect(
             DragOverlayRoutingPolicy.resolvedFileDropBehavior(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [.shift],
                 canDropAsText: true,
                 defaultBehavior: .text
-            ),
-            .preview
+            ) == .preview
         )
     }
 
-    func testDispositionDefaultsToPageUploadRegardlessOfWebViewAvailability() {
-        XCTAssertEqual(
+    @Test func dispositionDefaultsToPageUploadRegardlessOfWebViewAvailability() {
+        #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [],
                 isDockHosted: false,
                 defaultBehavior: .text
-            ),
-            .forwardToPage
+            ) == .forwardToPage
         )
     }
 
-    func testDispositionShiftInvertsToPreview() {
-        XCTAssertEqual(
+    @Test func dispositionShiftInvertsToPreview() {
+        #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [.shift],
                 isDockHosted: false,
                 defaultBehavior: .text
-            ),
-            .previewInWorkspace
+            ) == .previewInWorkspace
         )
-        XCTAssertEqual(
+        #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [.shift],
                 isDockHosted: false,
                 defaultBehavior: .preview
-            ),
-            .forwardToPage
+            ) == .forwardToPage
         )
     }
 
-    func testDispositionDockAlwaysForwardsToPage() {
-        XCTAssertEqual(
+    @Test func dispositionDockAlwaysForwardsToPage() {
+        #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [],
                 isDockHosted: true,
                 defaultBehavior: .preview
-            ),
-            .forwardToPage
+            ) == .forwardToPage
         )
-        XCTAssertEqual(
+        #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [.shift],
                 isDockHosted: true,
                 defaultBehavior: .text
-            ),
-            .forwardToPage
+            ) == .forwardToPage
         )
     }
 
-    func testDispositionRequiresFileURLPayload() {
-        XCTAssertNil(BrowserPaneFileDropRouting.disposition(
+    @Test func dispositionRequiresFileURLPayload() {
+        #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType],
             modifierFlags: [],
             isDockHosted: false,
             defaultBehavior: .text
-        ))
-        XCTAssertNil(BrowserPaneFileDropRouting.disposition(
+        ) == nil)
+        #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: nil,
             modifierFlags: [],
             isDockHosted: false,
             defaultBehavior: .text
-        ))
+        ) == nil)
     }
 
     // The dock-status lookup is an app-wide ownership sweep; disposition must not
     // evaluate it unless a file-URL payload is present. Drag callbacks fire for
     // every payload type, so an eager lookup would run on every non-file drag.
-    func testDispositionDoesNotEvaluateDockStatusWithoutFileURL() {
+    @Test func dispositionDoesNotEvaluateDockStatusWithoutFileURL() {
         var dockStatusEvaluations = 0
         func countingDockStatus() -> Bool {
             dockStatusEvaluations += 1
             return true
         }
 
-        XCTAssertNil(BrowserPaneFileDropRouting.disposition(
+        #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: nil,
             modifierFlags: [],
             isDockHosted: countingDockStatus(),
             defaultBehavior: .text
-        ))
-        XCTAssertEqual(dockStatusEvaluations, 0)
+        ) == nil)
+        #expect(dockStatusEvaluations == 0)
 
-        XCTAssertEqual(
+        #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [],
                 isDockHosted: countingDockStatus(),
                 defaultBehavior: .text
-            ),
-            .forwardToPage
+            ) == .forwardToPage
         )
-        XCTAssertEqual(dockStatusEvaluations, 1)
+        #expect(dockStatusEvaluations == 1)
     }
 
     private func withFileDropDefault(_ behavior: FileDropDefaultBehavior, run: () throws -> Void) rethrows {
@@ -353,14 +347,14 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
         ))
         slot.layoutSubtreeIfNeeded()
 
-        let target = try XCTUnwrap(slot.paneDropTargetForDrop(at: NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)))
+        let target = try #require(slot.paneDropTargetForDrop(at: NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)))
         return (window, slot, target, webView)
     }
 
     private func makeFileDragInfo(window: NSWindow, slot: WindowBrowserSlotView) -> MockDraggingInfo {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7632.file.\(UUID().uuidString)"))
         pasteboard.clearContents()
-        XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
+        #expect(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
         let dropPoint = slot.convert(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY), to: nil)
         return MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
     }
