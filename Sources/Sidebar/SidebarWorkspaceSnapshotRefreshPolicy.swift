@@ -97,6 +97,9 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
             isPointerHovering = false
             return
         }
+        if deferredPointerHoveringWhileContextMenuTracking == nil, isPointerHovering == hovering {
+            return
+        }
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = hovering
     }

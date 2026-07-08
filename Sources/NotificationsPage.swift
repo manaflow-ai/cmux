@@ -30,7 +30,7 @@ struct NotificationsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
+        .onChange(of: notificationStore.notifications.first?.id) { _, _ in
             setInitialFocus()
         }
     }

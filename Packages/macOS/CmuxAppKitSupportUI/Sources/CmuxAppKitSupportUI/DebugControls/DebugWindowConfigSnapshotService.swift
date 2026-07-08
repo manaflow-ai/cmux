@@ -32,7 +32,7 @@ public final class DebugWindowConfigSnapshotService {
     /// Builds the combined payload text. Supplied by the app target because the
     /// payload interpolates app-coupled settings types; this service never names
     /// those types itself.
-    private let payload: @MainActor () -> String
+    private let payload: @MainActor (DebugWindowConfigSnapshotService) -> String
 
     /// The pasteboard the snapshot is written to. Injected (defaulting to
     /// `.general`) so tests can observe the written string without touching the
@@ -46,12 +46,13 @@ public final class DebugWindowConfigSnapshotService {
     ///   - pasteboard: The pasteboard the combined payload is written to. Defaults
     ///     to `NSPasteboard.general`.
     ///   - payload: Builds the combined payload text. Invoked on the main actor
-    ///     each time ``copyCombinedToPasteboard()`` runs. The app builds this string
-    ///     from app-target settings using the coercion helpers on this service.
+    ///     each time ``copyCombinedToPasteboard()`` runs. The service is passed in
+    ///     so the app can build this string from app-target settings using the
+    ///     coercion helpers without self-referential capture.
     public init(
         defaults: UserDefaults = .standard,
         pasteboard: NSPasteboard = .general,
-        payload: @escaping @MainActor () -> String
+        payload: @escaping @MainActor (DebugWindowConfigSnapshotService) -> String
     ) {
         self.defaults = defaults
         self.pasteboard = pasteboard
@@ -61,7 +62,7 @@ public final class DebugWindowConfigSnapshotService {
     /// Writes the combined payload onto the pasteboard, replacing its contents.
     public func copyCombinedToPasteboard() {
         pasteboard.clearContents()
-        pasteboard.setString(payload(), forType: .string)
+        pasteboard.setString(payload(self), forType: .string)
     }
 
     /// Reads `key` as a string, returning `fallback` when it is absent.

@@ -7,7 +7,7 @@ import Foundation
 // Japanese and Korean translations are preserved. Resolving the keys inside the
 // package would bind to the package bundle (no catalog) and silently fall back to
 // the English default for every non-English locale.
-extension FileExplorerError: LocalizedError {
+extension FileExplorerError: @retroactive LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .providerUnavailable:

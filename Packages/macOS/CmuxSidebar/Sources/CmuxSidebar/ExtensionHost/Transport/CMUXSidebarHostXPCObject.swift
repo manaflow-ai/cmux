@@ -11,17 +11,17 @@ public import Foundation
 /// bundle's localized catalog is used.
 @MainActor
 final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
-    var snapshotProvider: () -> CmuxSidebarSnapshot
-    var actionHandler: (CmuxSidebarAction) -> CmuxSidebarActionResult
-    var onAcceptedAction: () -> Void
-    var isCurrentGeneration: () -> Bool
+    var snapshotProvider: @MainActor @Sendable () -> CmuxSidebarSnapshot
+    var actionHandler: @MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult
+    var onAcceptedAction: @MainActor @Sendable () -> Void
+    var isCurrentGeneration: @MainActor @Sendable () -> Bool
     private let staleConnection: String
 
     init(
-        snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
-        onAcceptedAction: @escaping @MainActor () -> Void,
-        isCurrentGeneration: @escaping @MainActor () -> Bool,
+        snapshotProvider: @escaping @MainActor @Sendable () -> CmuxSidebarSnapshot,
+        actionHandler: @escaping @MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult,
+        onAcceptedAction: @escaping @MainActor @Sendable () -> Void,
+        isCurrentGeneration: @escaping @MainActor @Sendable () -> Bool,
         staleConnection: String
     ) {
         self.snapshotProvider = snapshotProvider

@@ -499,15 +499,15 @@ final class SessionIndexStore {
         directorySnapshotCache.invalidate()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let scanned = await Self.scanAll()
-            await MainActor.run {
-                guard let self else { return }
-                if Task.isCancelled { return }
-                self.entries = scanned
-                self.isLoading = false
-                self.backfillAgentOrderFromEntries()
-                self.backfillDirectoryOrderFromEntries()
-            }
+            guard !Task.isCancelled else { return }
+            await self?.applyReloadedEntries(scanned)
         }
+    }
+
+    private func applyReloadedEntries(_ scanned: [SessionEntry]) {
+        entries = scanned; isLoading = false
+        backfillAgentOrderFromEntries()
+        backfillDirectoryOrderFromEntries()
     }
 
 #if DEBUG
@@ -1053,8 +1053,8 @@ final class SessionIndexStore {
                 includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
                 options: [.skipsHiddenFiles]
             ) else { return [] }
-            for case let url as URL in enumerator {
-                guard url.pathExtension == "jsonl" else { continue }
+            while let next = enumerator.nextObject() {
+                guard let url = next as? URL, url.pathExtension == "jsonl" else { continue }
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
                 guard values?.isRegularFile == true,
                       let mtime = values?.contentModificationDate else { continue }

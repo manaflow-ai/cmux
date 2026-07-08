@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Combine
+@preconcurrency import Dispatch
 import CmuxTerminal
 import CmuxWorkspaces
 import Foundation
@@ -184,7 +185,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
             ) { note in
                 guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                       candidateTabId == tabId else { return }
-                attemptResolve()
+                MainActor.assumeIsolated { attemptResolve() }
             }
             surfaceReadyObserver = NotificationCenter.default.addObserver(
                 forName: .terminalSurfaceDidBecomeReady,
@@ -193,7 +194,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
             ) { note in
                 guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
                       workspaceId == tabId else { return }
-                attemptResolve()
+                MainActor.assumeIsolated { attemptResolve() }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
                 if !resolved {
@@ -357,7 +358,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
             object: appDelegate,
             queue: .main
         ) { _ in
-            attemptFocus()
+            MainActor.assumeIsolated { attemptFocus() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidBecomeFirstResponderSurface,
@@ -368,7 +369,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
                   let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
                   candidateTabId == tabId,
                   candidateSurfaceId == surfaceId else { return }
-            attemptFocus()
+            MainActor.assumeIsolated { attemptFocus() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
@@ -379,7 +380,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
                   let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
                   candidateTabId == tabId,
                   candidateSurfaceId == surfaceId else { return }
-            attemptFocus()
+            MainActor.assumeIsolated { attemptFocus() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
@@ -390,14 +391,10 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
                   let readySurfaceId = note.userInfo?["surfaceId"] as? UUID,
                   workspaceId == tabId,
                   readySurfaceId == surfaceId else { return }
-            attemptFocus()
+            MainActor.assumeIsolated { attemptFocus() }
         })
         selectedTabObservation = tabManager.workspaces.observeSelectedTabId { attemptFocus() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            if !resolved {
-                attemptFocus()
-            }
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { MainActor.assumeIsolated { if !resolved { attemptFocus() } } }
         attemptFocus()
     }
 
@@ -434,8 +431,8 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
 
         let socketPath = config.path
         let socketMode = config.mode.rawValue
-        var observer: NSObjectProtocol?
-        var timeoutWorkItem: DispatchWorkItem?
+        nonisolated(unsafe) var observer: NSObjectProtocol?
+        nonisolated(unsafe) var timeoutWorkItem: DispatchWorkItem?
 
         func publishCurrentState(isTimedOut: Bool) {
             let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
@@ -492,11 +489,11 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
         ) { notification in
             let startedPath = notification.userInfo?["path"] as? String
             guard startedPath == socketPath else { return }
-            publishCurrentState(isTimedOut: false)
+            MainActor.assumeIsolated { publishCurrentState(isTimedOut: false) }
         }
 
         let timeout = DispatchWorkItem {
-            publishCurrentState(isTimedOut: true)
+            MainActor.assumeIsolated { publishCurrentState(isTimedOut: true) }
         }
         timeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 20.0, execute: timeout)

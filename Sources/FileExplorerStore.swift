@@ -170,14 +170,14 @@ final class FileExplorerStore: ObservableObject {
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     self?.gitStatusByPath = status
                 }
             }
         } else {
             Task {
                 let status = await service.fetchStatus(directory: path)
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     self?.gitStatusByPath = status
                 }
             }

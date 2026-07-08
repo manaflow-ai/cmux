@@ -351,13 +351,10 @@ final class DebugWindowControlsContentProvider {
     /// (the service is captured to reuse its coercion helpers). Byte-faithful to the
     /// legacy in-view action.
     private func copyAllDebugConfig() {
-        var service: DebugWindowConfigSnapshotService?
-        let built = DebugWindowConfigSnapshotService(defaults: defaults) {
-            guard let service else { return "" }
+        let service = DebugWindowConfigSnapshotService(defaults: defaults) { service in
             return self.combinedDebugConfigPayload(using: service)
         }
-        service = built
-        built.copyCombinedToPasteboard()
+        service.copyCombinedToPasteboard()
     }
 
     private func combinedDebugConfigPayload(

@@ -54,10 +54,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         useDefault: String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")
     )
 
-    var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
+    let snapshotProvider: @MainActor @Sendable () -> CmuxSidebarSnapshot
     var snapshotUpdateToken: UInt64 = 0
-    var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
-    var onUseDefaultSidebar: @MainActor () -> Void = {}
+    let actionHandler: @MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult
+    var onUseDefaultSidebar: @MainActor @Sendable () -> Void = {}
 
     @State private var selectionModel = CMUXSidebarExtensionSelectionModel()
     @State private var browserAnchorView: NSView?
@@ -86,8 +86,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             xpcHost.attach(
                                 connection: connection,
                                 bundleIdentifier: identity.bundleIdentifier,
-                                snapshotProvider: snapshotProvider,
-                                actionHandler: actionHandler,
+                                snapshotProvider: { snapshotProvider() },
+                                actionHandler: { actionHandler($0) },
                                 onGrantChanged: { grant in
                                     effectiveGrant = grant
                                 },

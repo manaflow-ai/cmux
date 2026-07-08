@@ -143,7 +143,7 @@ struct ConfigSettingsView: View {
         .onAppear {
             refreshSnapshots(preserveCmuxDraft: false)
         }
-        .onChange(of: configSource) { _ in
+        .onChange(of: configSource) { _, _ in
             statusMessage = ""
             statusIsError = false
         }

@@ -26,7 +26,7 @@ import Testing
     @Test func stringValueReturnsStoredValueThenFallback() {
         let defaults = makeDefaults()
         defaults.set("stored", forKey: "k")
-        let service = DebugWindowConfigSnapshotService(defaults: defaults) { "" }
+        let service = DebugWindowConfigSnapshotService(defaults: defaults) { _ in "" }
         #expect(service.stringValue(key: "k", fallback: "fb") == "stored")
         #expect(service.stringValue(key: "missing", fallback: "fb") == "fb")
     }
@@ -35,7 +35,7 @@ import Testing
         let defaults = makeDefaults()
         defaults.set(1.5, forKey: "num")
         defaults.set("2.25", forKey: "str")
-        let service = DebugWindowConfigSnapshotService(defaults: defaults) { "" }
+        let service = DebugWindowConfigSnapshotService(defaults: defaults) { _ in "" }
         #expect(service.doubleValue(key: "num", fallback: 0) == 1.5)
         #expect(service.doubleValue(key: "str", fallback: 0) == 2.25)
         #expect(service.doubleValue(key: "missing", fallback: 9.0) == 9.0)
@@ -44,7 +44,7 @@ import Testing
     @Test func boolValueReturnsFallbackOnlyWhenAbsent() {
         let defaults = makeDefaults()
         defaults.set(false, forKey: "explicitFalse")
-        let service = DebugWindowConfigSnapshotService(defaults: defaults) { "" }
+        let service = DebugWindowConfigSnapshotService(defaults: defaults) { _ in "" }
         // Present-but-false must NOT fall through to the fallback.
         #expect(service.boolValue(key: "explicitFalse", fallback: true) == false)
         #expect(service.boolValue(key: "missing", fallback: true) == true)
@@ -55,7 +55,7 @@ import Testing
         let service = DebugWindowConfigSnapshotService(
             defaults: makeDefaults(),
             pasteboard: pasteboard
-        ) { "the-combined-payload" }
+        ) { _ in "the-combined-payload" }
         service.copyCombinedToPasteboard()
         #expect(pasteboard.string(forType: .string) == "the-combined-payload")
     }

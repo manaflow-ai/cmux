@@ -53,25 +53,16 @@ public struct ControlBrowserEvalAwaiter: Sendable {
     /// - Returns: The delivered value, or `nil` if the timeout elapsed first.
     public func await<T>(
         timeout: TimeInterval,
-        start: (@escaping (T) -> Void) -> Void
+        start: (@escaping @Sendable (T) -> Void) -> Void
     ) -> T? {
         if Thread.isMainThread {
-            let runLoop = CFRunLoopGetCurrent()
-            let lock = NSLock()
-            var resolved = false
-            var timedOut = false
-            var result: T?
+            let runLoop = ControlBrowserEvalRunLoop(CFRunLoopGetCurrent())
+            let state = ControlBrowserEvalAwaiterState<T>()
 
-            let finish: (T) -> Void = { value in
-                lock.lock()
-                guard !resolved else {
-                    lock.unlock()
-                    return
+            let finish: @Sendable (T) -> Void = { value in
+                if state.finish(value) {
+                    runLoop.stop()
                 }
-                resolved = true
-                result = value
-                lock.unlock()
-                CFRunLoopStop(runLoop)
             }
 
             guard let timeoutTimer = CFRunLoopTimerCreateWithHandler(
@@ -81,49 +72,84 @@ public struct ControlBrowserEvalAwaiter: Sendable {
                 0,
                 0,
                 { _ in
-                    lock.lock()
-                    if !resolved {
-                        resolved = true
-                        timedOut = true
+                    if state.timeOut() {
+                        runLoop.stop()
                     }
-                    lock.unlock()
-                    CFRunLoopStop(runLoop)
                 }
             ) else {
                 return nil
             }
-            CFRunLoopAddTimer(runLoop, timeoutTimer, .defaultMode)
+            runLoop.addTimer(timeoutTimer, mode: .defaultMode)
             defer { CFRunLoopTimerInvalidate(timeoutTimer) }
 
             start(finish)
             while true {
-                lock.lock()
-                if resolved {
-                    let value = result
-                    let didTimeOut = timedOut
-                    lock.unlock()
+                if let (didTimeOut, value) = state.outcomeIfResolved() {
                     return didTimeOut ? nil : value
                 }
-                lock.unlock()
 
                 CFRunLoopRun()
             }
         }
 
         let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var result: T?
+        let state = ControlBrowserEvalAwaiterState<T>()
         start { value in
-            lock.lock()
-            result = value
-            lock.unlock()
-            semaphore.signal()
+            if state.finish(value) {
+                semaphore.signal()
+            }
         }
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
             return nil
         }
+        return state.outcomeIfResolved()?.value
+    }
+}
+
+private struct ControlBrowserEvalRunLoop: @unchecked Sendable {
+    private let value: CFRunLoop
+
+    init(_ value: CFRunLoop) {
+        self.value = value
+    }
+
+    func stop() {
+        CFRunLoopStop(value)
+    }
+
+    func addTimer(_ timer: CFRunLoopTimer, mode: CFRunLoopMode) {
+        CFRunLoopAddTimer(value, timer, mode)
+    }
+}
+
+private final class ControlBrowserEvalAwaiterState<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolved = false
+    private var timedOut = false
+    private var result: T?
+
+    func finish(_ value: T) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return result
+        guard !resolved else { return false }
+        resolved = true
+        result = value
+        return true
+    }
+
+    func timeOut() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resolved else { return false }
+        resolved = true
+        timedOut = true
+        return true
+    }
+
+    func outcomeIfResolved() -> (didTimeOut: Bool, value: T?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolved else { return nil }
+        return (timedOut, result)
     }
 }

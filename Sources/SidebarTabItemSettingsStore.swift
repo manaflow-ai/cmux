@@ -19,9 +19,9 @@ final class SidebarTabItemSettingsStore {
     private let defaults: UserDefaults
     private let sidebarFontSizeProvider: () async -> CGFloat
     private var sidebarFontSize: CGFloat
-    private nonisolated(unsafe) var sidebarFontSizeLoadTask: Task<Void, Never>?
-    private nonisolated(unsafe) var defaultsObserver: NSObjectProtocol?
-    private nonisolated(unsafe) var ghosttyConfigObserver: NSObjectProtocol?
+    @ObservationIgnored private var sidebarFontSizeLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+    @ObservationIgnored private var ghosttyConfigObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,

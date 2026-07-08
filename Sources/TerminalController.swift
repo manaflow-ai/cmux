@@ -164,7 +164,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// while they are migrated to the injected reference; this accessor and the
     /// type rename to `TerminalControlComposition` are the end state.
     nonisolated static var shared: TerminalController {
-        compositionRootInstance ?? instance
+        compositionRootInstance ?? MainActor.assumeIsolated { instance }
     }
 
     /// Called once by ``AppDelegate`` at startup to record composition-root

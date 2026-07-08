@@ -691,7 +691,7 @@ extension Workspace {
         ) else { return nil }
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
-        _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
+        reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
         if let tabId = surfaceIdFromPanelId(panelId) {
             bonsplitController.focusPane(pane)
             bonsplitController.selectTab(tabId)
@@ -984,7 +984,7 @@ extension Workspace {
         }
 
         for (index, panelId) in createdPanelIds.enumerated() {
-            _ = reorderSurface(panelId: panelId, toIndex: index)
+            reorderSurface(panelId: panelId, toIndex: index)
         }
 
         let selectedPanelId: UUID? = {
@@ -1832,7 +1832,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // `SurfaceLifecycleHosting` conformance in `Workspace+SurfaceLifecycleHosting.swift`,
     // which drives `SurfaceLifecycleCoordinator.setPreferredBrowserProfileID`. Still
     // module-internal, so external callers must go through `setPreferredBrowserProfileID`.
-    internal(set) var preferredBrowserProfileID: UUID?
+    var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -3488,7 +3488,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
 #if DEBUG
-    internal(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    var debugFocusReconcileScheduledDuringDetachCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif

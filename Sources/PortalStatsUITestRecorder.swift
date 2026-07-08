@@ -48,7 +48,9 @@ final class PortalStatsUITestRecorder: UITestRecording {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.appDelegate.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
+            Task { @MainActor [weak self] in
+                self?.appDelegate.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
+            }
         }
         observers.append(observer)
         appDelegate.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.portalStats.setup")

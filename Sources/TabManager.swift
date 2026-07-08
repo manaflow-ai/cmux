@@ -3492,7 +3492,7 @@ class TabManager {
             tab.focusPanel(topLeftPanelId)
             let toClose = Array(tab.panels.keys).filter { $0 != topLeftPanelId }
             for pid in toClose {
-                tab.closePanel(pid, force: true)
+                _ = tab.closePanel(pid, force: true)
             }
 
             // Create the repro layout. Most patterns use a 2x2 grid, but keep a single-split
@@ -3574,7 +3574,7 @@ class TabManager {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(topRight.id)
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                     ]
                 case "close_bottom":
@@ -3583,11 +3583,11 @@ class TabManager {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(bottomRight.id)
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
                             tab.focusPanel(bottomLeft.id)
-                            tab.closePanel(bottomLeft.id, force: true)
+                            _ = tab.closePanel(bottomLeft.id, force: true)
                         }),
                     ]
                 case "close_right_lrtd_bottom_first", "close_right_bottom_first":
@@ -3596,11 +3596,11 @@ class TabManager {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(bottomRight.id)
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
                             tab.focusPanel(topRight.id)
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                     ]
                 case "close_right_lrtd_unfocused":
@@ -3608,10 +3608,10 @@ class TabManager {
                     closeOrder = "TR_THEN_BR_UNFOCUSED"
                     return [
                         (frame: closeFrame, action: {
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                     ]
                 default:
@@ -3620,11 +3620,11 @@ class TabManager {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(topRight.id)
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
                             tab.focusPanel(bottomRight.id)
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                     ]
                 }
@@ -3833,7 +3833,7 @@ extension TabManager: SplitCloseRightScaffoldDriving {
     }
 
     func closePanel(_ panelId: UUID) {
-        selectedWorkspace?.closePanel(panelId, force: true)
+        _ = selectedWorkspace?.closePanel(panelId, force: true)
     }
 
     var paneCount: Int {
@@ -3953,7 +3953,7 @@ extension TabManager: ChildExitScaffoldDriving {
     }
 
     func closePinnedPanel(_ panelId: UUID) {
-        childExitWorkspace?.closePanel(panelId, force: true)
+        _ = childExitWorkspace?.closePanel(panelId, force: true)
     }
 
     func newRightSplit(from panelId: UUID) -> UUID? {

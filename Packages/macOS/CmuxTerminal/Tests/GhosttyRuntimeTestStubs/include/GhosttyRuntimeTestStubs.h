@@ -7,9 +7,8 @@
 // Test-only stand-ins for the libghostty symbols referenced by CmuxTerminal
 // and CmuxTerminalCore object files. SwiftPM cannot link the GhosttyKit macOS
 // archive (its binary is not lib-prefixed), so the test runner provides these
-// stubs to satisfy the link. No test ever calls them (tests construct no
-// runtime surface), so only the symbol names matter; C symbols carry no type
-// information for the linker.
+// stubs to satisfy the link. Most tests construct no runtime surface, but close
+// confirmation tests configure the process/tty stubs below.
 typedef struct {
   const char* ptr;
   uintptr_t len;
@@ -23,8 +22,8 @@ void ghostty_config_get(void);
 void ghostty_config_get_diagnostic(void);
 void ghostty_config_load_file(void);
 void ghostty_config_load_string(void);
-void ghostty_string_free(void);
 void ghostty_surface_read_selection(void);
+void ghostty_string_free(ghostty_string_s string);
 void ghostty_surface_binding_action(void);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void);
@@ -35,9 +34,9 @@ void ghostty_surface_key(void);
 void ghostty_surface_mouse_button(void);
 void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);
-void ghostty_surface_needs_confirm_quit(void);
+bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
-void ghostty_surface_process_exited(void);
+bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void);
 void ghostty_surface_quicklook_font(void);
 void ghostty_surface_read_text(void);
@@ -65,5 +64,8 @@ void ghostty_set_window_background_blur(void *app, void *window);
 // linker only needs the symbol. Real signature returns/takes ghostty_input_mods_e
 // (a uint32-backed enum); the width matches so the C stub links cleanly.
 uint32_t ghostty_surface_key_translation_mods(void *surface, uint32_t mods);
+
+void cmux_test_ghostty_runtime_stubs_reset(void);
+void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
 
 #endif

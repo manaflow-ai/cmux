@@ -309,10 +309,10 @@ struct cmuxApp: App {
 #endif
                     bootstrapMainWindowScene()
                 }
-                .onChange(of: appearanceMode) { _ in
+                .onChange(of: appearanceMode) { _, _ in
                     applyAppearance()
                 }
-                .onChange(of: socketControlMode) { _ in
+                .onChange(of: socketControlMode) { _, _ in
                     socketControlCoordinator.apply(
                         rawMode: socketControlMode,
                         tabManager: activeTabManager

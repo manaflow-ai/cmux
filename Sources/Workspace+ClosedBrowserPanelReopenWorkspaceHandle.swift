@@ -44,7 +44,7 @@ extension Workspace: ClosedBrowserPanelReopenWorkspaceHandle {
             let tabCount = bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
-            _ = reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
+            reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
             return browserPanel.id
         }
 

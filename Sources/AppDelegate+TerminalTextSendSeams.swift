@@ -61,7 +61,7 @@ final class TerminalTextSendTargetAdapter: TerminalTextSendTarget {
         let cancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
-                handler()
+                Task { @MainActor in handler() }
             }
         return TerminalTextSendObserverToken { cancellable.cancel() }
     }
@@ -76,7 +76,7 @@ final class TerminalTextSendTargetAdapter: TerminalTextSendTarget {
             guard let noteWorkspaceId = note.userInfo?["workspaceId"] as? UUID,
                   noteWorkspaceId == workspaceID else { return }
             let surfaceId = note.userInfo?["surfaceId"] as? UUID
-            handler(surfaceId)
+            Task { @MainActor in handler(surfaceId) }
         }
         return TerminalTextSendObserverToken {
             NotificationCenter.default.removeObserver(observer)
@@ -95,7 +95,7 @@ final class TerminalTextSendTargetAdapter: TerminalTextSendTarget {
                   let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else {
                 return
             }
-            handler(candidateSurfaceId)
+            Task { @MainActor in handler(candidateSurfaceId) }
         }
         return TerminalTextSendObserverToken {
             NotificationCenter.default.removeObserver(observer)
@@ -114,7 +114,7 @@ final class TerminalTextSendTargetAdapter: TerminalTextSendTarget {
                   let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else {
                 return
             }
-            handler(candidateSurfaceId)
+            Task { @MainActor in handler(candidateSurfaceId) }
         }
         return TerminalTextSendObserverToken {
             NotificationCenter.default.removeObserver(observer)

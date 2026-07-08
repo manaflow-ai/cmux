@@ -833,7 +833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }()
     private static let didInstallApplicationAccessibilitySwizzle: Void = {
         let targetClass: AnyClass = NSApplication.self
-        let originalSelector = #selector(NSApplication.accessibilityAttributeValue(_:))
+        let originalSelector = NSSelectorFromString("accessibilityAttributeValue:")
         let swizzledSelector = #selector(NSApplication.cmux_accessibilityAttributeValue(_:))
         guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
               let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
@@ -2772,9 +2772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let primaryWindow = mainWindow(for: primaryWindowId) {
             primaryWindow.makeKeyAndOrderFront(nil)
             setActiveMainWindow(primaryWindow)
-            NSRunningApplication.current.activate(
-                options: [.activateAllWindows, .activateIgnoringOtherApps]
-            )
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
 
         return true
@@ -4305,7 +4303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         destinationPanelId: UUID,
         destinationManager: TabManager
     ) {
-        let reassert: () -> Void = { [weak self, weak destinationManager] in
+        let reassert: @MainActor @Sendable () -> Void = { [weak self, weak destinationManager] in
             guard let self, let destinationManager else { return }
             guard let workspace = destinationManager.tabs.first(where: { $0.id == destinationWorkspaceId }),
                   workspace.panels[destinationPanelId] != nil else {
@@ -4327,8 +4325,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: reassert)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { reassert() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { MainActor.assumeIsolated { reassert() } }
     }
 
     /// The live window for `context`. Forwards to ``windowLifecycle``, which
@@ -6703,7 +6701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SettingsWindowPresenter.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
     ) {
 #if DEBUG
@@ -7632,7 +7630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshGhosttyGotoSplitShortcuts()
+            Task { @MainActor [weak self] in self?.refreshGhosttyGotoSplitShortcuts() }
         }
     }
 
@@ -10633,7 +10631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
             },
             activateCurrent: {
-                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                NSRunningApplication.current.activate(options: [.activateAllWindows])
             },
             startupBreadcrumb: { event, fields in
                 StartupBreadcrumbLog.append(event, fields: fields)
@@ -10729,13 +10727,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
-            self.browserOmnibarFocusTracker.setFocused(panelId: panelId)
+            Task { @MainActor [weak self] in
+                guard let self else { return }; self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
+                self.browserOmnibarFocusTracker.setFocused(panelId: panelId)
 #if DEBUG
-            cmuxDebugLog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+                cmuxDebugLog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
 #endif
+            }
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
@@ -10743,13 +10742,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
-            if self.browserOmnibarFocusTracker.clearFocus(ifTrackedPanelId: panelId) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }; self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
+                if self.browserOmnibarFocusTracker.clearFocus(ifTrackedPanelId: panelId) {
 #if DEBUG
-                cmuxDebugLog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+                    cmuxDebugLog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
 #endif
+                }
             }
         }
 
@@ -12925,7 +12925,7 @@ extension AppDelegate: StartupUITestScaffoldDriving {
             openNewMainWindow(nil)
         }
         moveUITestWindowToTargetDisplayIfNeeded()
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         // On headless CI runners, activate() silently fails (no GUI session).
         // Force windows visible so the terminal surface starts rendering.
         for window in NSApp.windows {

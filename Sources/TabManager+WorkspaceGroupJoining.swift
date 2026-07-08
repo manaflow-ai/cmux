@@ -47,4 +47,4 @@ extension TabManager: WorkspaceGroupJoining {
 
 /// Bridges the CmuxWorkspaces observation handle onto the sidebar seam's
 /// cancellable contract. Both expose an idempotent `cancel()`.
-extension WorkspacesObservation: WorkspaceGroupJoinObservation {}
+extension WorkspacesObservation: @retroactive WorkspaceGroupJoinObservation {}

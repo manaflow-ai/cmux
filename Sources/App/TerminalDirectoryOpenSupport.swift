@@ -30,7 +30,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
             fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
             isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) },
-            applicationPathForName: { NSWorkspace.shared.fullPath(forApplication: $0) }
+            applicationPathForName: { NSWorkspace.shared.cmuxFullPath(forApplicationName: $0) }
         )
     }
 
@@ -239,6 +239,14 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             deduped.append(path)
         }
         return deduped
+    }
+}
+
+private extension NSWorkspace {
+    func cmuxFullPath(forApplicationName name: String) -> String? {
+        let selector = NSSelectorFromString("fullPathForApplication:")
+        guard responds(to: selector) else { return nil }
+        return perform(selector, with: name)?.takeUnretainedValue() as? String
     }
 }
 

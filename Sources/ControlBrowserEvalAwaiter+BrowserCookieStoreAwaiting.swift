@@ -11,4 +11,4 @@ import CmuxControlSocket
 /// (`await(timeout:start:)` on a `Sendable` value), so the conformance is empty:
 /// the cookie repository drives a `WKHTTPCookieStore` callback on the exact same
 /// bounded blocking-await the browser JS-eval lane uses.
-extension ControlBrowserEvalAwaiter: BrowserCookieStoreAwaiting {}
+extension ControlBrowserEvalAwaiter: @retroactive BrowserCookieStoreAwaiting {}

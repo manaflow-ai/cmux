@@ -870,10 +870,10 @@ struct BrowserPanelView: View {
         .onDisappear {
             handleBrowserPanelDisappear()
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
         }
-        .onChange(of: panel.currentURL) { _ in
+        .onChange(of: panel.currentURL) { _, _ in
             handleCurrentURLChange()
         }
         .onChange(of: panel.shouldRenderWebView) { _, _ in
@@ -882,13 +882,13 @@ struct BrowserPanelView: View {
         .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
             refreshBrowserChromeStyle()
         }
-        .onChange(of: browserThemeModeRaw) { _ in
+        .onChange(of: browserThemeModeRaw) { _, _ in
             handleBrowserThemeModeRawChange()
         }
-        .onChange(of: colorScheme) { _ in
+        .onChange(of: colorScheme) { _, _ in
             handleSystemColorSchemeChange()
         }
-        .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
+        .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
@@ -904,16 +904,16 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             handleCommandPaletteVisibilityChange(notification)
         }
-        .onChange(of: panel.profileID) { _ in
+        .onChange(of: panel.profileID) { _, _ in
             handleProfileChange()
         }
-        .onChange(of: isVisibleInUI) { visibleInUI in
+        .onChange(of: isVisibleInUI) { _, visibleInUI in
             handlePanelVisibilityChange(visibleInUI)
         }
-        .onChange(of: isFocused) { focused in
+        .onChange(of: isFocused) { _, focused in
             handlePanelFocusChange(focused)
         }
-        .onChange(of: addressBarFocused) { focused in
+        .onChange(of: addressBarFocused) { _, focused in
             handleAddressBarFocusedChange(focused)
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in

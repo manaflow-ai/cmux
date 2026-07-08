@@ -1969,7 +1969,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            Task { @MainActor [weak self] in self?.downloadActivityCoordinator.begin() }
         }
     }
 
@@ -1980,7 +1980,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            Task { @MainActor [weak self] in self?.downloadActivityCoordinator.end() }
         }
     }
 
@@ -6363,7 +6363,7 @@ final class BrowserDataImportCoordinator {
 #endif
 
     @MainActor
-    private final class ImportWizardWindowController: NSObject, @preconcurrency NSWindowDelegate {
+    private final class ImportWizardWindowController: NSObject, NSWindowDelegate {
         private final class FlippedDocumentView: NSView {
             override var isFlipped: Bool { true }
         }

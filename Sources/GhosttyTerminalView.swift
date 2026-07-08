@@ -830,17 +830,7 @@ class GhosttyApp {
             guard let runtimeApp = GhosttyApp.runtimeAppRegistry.runtimeAppForActionCallback(app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
-        // Some GhosttyKit builds import this callback as returning `Void` in Swift even
-        // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
-        // project compiles against both importer variants.
-        runtimeConfig.read_clipboard_cb = unsafeBitCast(
-            cmuxRuntimeReadClipboardCallback as @convention(c) (
-                UnsafeMutableRawPointer?,
-                ghostty_clipboard_e,
-                UnsafeMutableRawPointer?
-            ) -> Bool,
-            to: ghostty_runtime_read_clipboard_cb.self
-        )
+        runtimeConfig.read_clipboard_cb = cmuxRuntimeReadClipboardCallback
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
@@ -6072,7 +6062,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     fileprivate func debugRegisteredDropTypes() -> [String] {
-        (registeredDraggedTypes ?? []).map(\.rawValue)
+        registeredDraggedTypes.map(\.rawValue)
     }
 #endif
 

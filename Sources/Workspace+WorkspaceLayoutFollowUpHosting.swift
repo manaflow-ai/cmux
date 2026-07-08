@@ -42,7 +42,7 @@ extension Workspace: WorkspaceLayoutFollowUpHosting {
                 object: nil,
                 queue: .main
             ) { _ in
-                onEvent()
+                Task { @MainActor in onEvent() }
             })
         }
 
@@ -50,7 +50,7 @@ extension Workspace: WorkspaceLayoutFollowUpHosting {
         // `fireImmediately` reproduces `CurrentValueSubject.sink`'s
         // replay-on-subscribe.
         let panelsObservation = paneTree.observePanels(fireImmediately: true) {
-            onEvent()
+            Task { @MainActor in onEvent() }
         }
 
         return WorkspaceLayoutFollowUpObservation {

@@ -18,6 +18,7 @@ final class CmuxExternalLinkPromptPresenter {
     /// alert. AppKit target-action requires an `NSObject` receiver, so the gate
     /// keeps a weak reference to the Connect button and toggles it from the
     /// checkbox's `@objc` action.
+    @MainActor
     private final class ConfirmationGate: NSObject {
         weak var connectButton: NSButton?
 

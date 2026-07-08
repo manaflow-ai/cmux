@@ -20,15 +20,15 @@ public final class CMUXSidebarExtensionHostXPC {
     private var connection: NSXPCConnection?
     private var extensionProxy: CMUXSidebarExtensionXPC?
     private var exportedObject: CMUXSidebarHostXPCObject?
-    private var snapshotProvider: (() -> CmuxSidebarSnapshot)?
-    private var actionHandler: ((CmuxSidebarAction) -> CmuxSidebarActionResult)?
+    private var snapshotProvider: (@MainActor @Sendable () -> CmuxSidebarSnapshot)?
+    private var actionHandler: (@MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult)?
     private var allowedScopes = untrustedScopes
     private var allowedActionScopes = untrustedActionScopes
     private var connectionGeneration: UInt64 = 0
     private var bundleIdentifier: String?
     private var currentManifest: CmuxExtensionManifest?
-    private var onGrantChanged: ((CMUXSidebarExtensionEffectiveGrant?) -> Void)?
-    private var onManifestBlocked: ((CMUXSidebarExtensionBlockedReason?) -> Void)?
+    private var onGrantChanged: (@MainActor @Sendable (CMUXSidebarExtensionEffectiveGrant?) -> Void)?
+    private var onManifestBlocked: (@MainActor @Sendable (CMUXSidebarExtensionBlockedReason?) -> Void)?
     private var awaitingManifestGeneration: UInt64?
     private var manifestRequestTimeoutTask: Task<Void, Never>?
     private let grantStore = CMUXSidebarExtensionGrantStore()
@@ -53,8 +53,8 @@ public final class CMUXSidebarExtensionHostXPC {
     }
 
     public func update(
-        snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
+        snapshotProvider: @escaping @MainActor @Sendable () -> CmuxSidebarSnapshot,
+        actionHandler: @escaping @MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
@@ -65,10 +65,10 @@ public final class CMUXSidebarExtensionHostXPC {
     public func attach(
         connection: NSXPCConnection,
         bundleIdentifier: String,
-        snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
-        onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void,
-        onManifestBlocked: @escaping @MainActor (CMUXSidebarExtensionBlockedReason?) -> Void
+        snapshotProvider: @escaping @MainActor @Sendable () -> CmuxSidebarSnapshot,
+        actionHandler: @escaping @MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult,
+        onGrantChanged: @escaping @MainActor @Sendable (CMUXSidebarExtensionEffectiveGrant?) -> Void,
+        onManifestBlocked: @escaping @MainActor @Sendable (CMUXSidebarExtensionBlockedReason?) -> Void
     ) {
         invalidate()
         connectionGeneration += 1
@@ -243,7 +243,9 @@ public final class CMUXSidebarExtensionHostXPC {
         onGrantChanged?(effectiveGrant)
     }
 
-    private func filteredSnapshot(from snapshotProvider: () -> CmuxSidebarSnapshot) -> CmuxSidebarSnapshot {
+    private func filteredSnapshot(
+        from snapshotProvider: @MainActor @Sendable () -> CmuxSidebarSnapshot
+    ) -> CmuxSidebarSnapshot {
         snapshotProvider().filtered(for: allowedScopes, actionScopes: allowedActionScopes)
     }
 
@@ -258,8 +260,8 @@ public final class CMUXSidebarExtensionHostXPC {
     }
 
     private func scopedActionHandler(
-        _ actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
-    ) -> (@MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult) {
+        _ actionHandler: @escaping @MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult
+    ) -> (@MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult) {
         // Capture the rejection message by value so it is returned even when
         // `self` has deallocated, matching the original's constant
         // `String(localized:)` literal in the guard-else.

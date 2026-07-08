@@ -33,7 +33,7 @@ private final class AppIconLaunchObserverToken: AppIconAppearanceObservation {
 /// app-icon subsystem (`UserDefaults`/`NSApplication` expose appearance change
 /// only via KVO); the conformance lives app-side because the settings package
 /// must not import AppKit.
-extension NSKeyValueObservation: AppIconAppearanceObservation {}
+extension NSKeyValueObservation: @retroactive AppIconAppearanceObservation {}
 
 // MARK: - Composition-root anchors
 

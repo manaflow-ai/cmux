@@ -223,7 +223,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     static func tmuxWorkspacePaneExactRect(
-        for panel: Panel,
+        for panel: any Panel,
         in contentView: NSView
     ) -> CGRect? {
         let targetView: NSView?
@@ -969,7 +969,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 }
             }
         }
-        .onChange(of: fileExplorerState.width) { newValue in
+        .onChange(of: fileExplorerState.width) { _, newValue in
             if sidebarResizerController.fileExplorerDragStartWidth == nil {
                 let sanitized = normalizedRightSidebarWidth(newValue)
                 if abs(newValue - sanitized) > 0.5 {
@@ -1595,7 +1595,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             }
         })
 
-        view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
+        view = AnyView(view.onChange(of: tabManager.selectedTabId) { _, newValue in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -1622,16 +1622,16 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
         })
 
-        view = AnyView(view.onChange(of: selectedTabIds) { _ in
+        view = AnyView(view.onChange(of: selectedTabIds) { _, _ in
             syncSidebarSelectedWorkspaceIds()
         })
 
         // File explorer: keep the directory-change subscription stable across body re-evaluations.
-        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryModel.directoryChangeGeneration) { _ in
+        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryModel.directoryChangeGeneration) { _, _ in
             syncFileExplorerDirectory()
         })
 
-        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _, _ in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -1645,7 +1645,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onChange(of: workspaceHandoffCoordinator.retiringWorkspaceId) { _ in
+        view = AnyView(view.onChange(of: workspaceHandoffCoordinator.retiringWorkspaceId) { _, _ in
             workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
@@ -1661,11 +1661,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         // change. The legacy `@Published` mutators already short-circuited
         // equal-set assignments, so `.onChange` matches the prior `.onReceive`
         // emission set exactly.
-        view = AnyView(view.onChange(of: tabManager.debugPinnedWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.debugPinnedWorkspaceLoadIds) { _, _ in
             workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onChange(of: tabManager.mountedBackgroundWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.mountedBackgroundWorkspaceLoadIds) { _, _ in
             workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
@@ -2026,11 +2026,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
         }))
 
-        view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
+        view = AnyView(view.onChange(of: bgGlassTintHex) { _, _ in
             updateWindowGlassTint()
         })
 
-        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _ in
+        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _, _ in
             updateWindowGlassTint()
         })
 
@@ -2077,7 +2077,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarWidth) { _ in
+        view = AnyView(view.onChange(of: sidebarWidth) { _, _ in
             let sanitized = normalizedSidebarWidth(sidebarWidth)
             if abs(sidebarWidth - sanitized) > 0.5 {
                 sidebarWidth = sanitized
@@ -2092,12 +2092,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _ in
+        view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _, _ in
             clampSidebarWidthIfNeeded()
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: titlebarControlsStyleRawValue) { _ in
+        view = AnyView(view.onChange(of: titlebarControlsStyleRawValue) { _, _ in
             clampSidebarWidthIfNeeded()
             updateSidebarResizerBandState()
         })
@@ -2112,7 +2112,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             syncTrafficLightInset()
         })
 
-        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { _, isVisible in
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
@@ -2128,7 +2128,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             syncFileExplorerDirectory()
         })
 
-        view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
+        view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _, _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
@@ -2157,11 +2157,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             applyTitlebarDebugChromeChange()
         })
 
-        view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
+        view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _, _ in
             syncTrafficLightInset()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
+        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { _, newValue in
             let sanitized = normalizedSidebarWidth(newValue)
             if abs(newValue - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
@@ -6173,7 +6173,7 @@ struct VerticalTabsSidebar: View {
                 frozenShortcutHintsValue = false
             }
         }
-        .onChange(of: dragState.draggedTabId) { newDraggedTabId in
+        .onChange(of: dragState.draggedTabId) { _, newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: newDraggedTabId,
                 reason: "drag_state_change"
@@ -6206,7 +6206,7 @@ struct VerticalTabsSidebar: View {
 #endif
             dragState.clearDrag()
         }
-        .onChange(of: tabManager.tabs.map(\.id)) { tabIds in
+        .onChange(of: tabManager.tabs.map(\.id)) { _, tabIds in
             guard let frozenTabId = frozenShortcutHintsTabId,
                   !tabIds.contains(frozenTabId) else { return }
             frozenShortcutHintsTabId = nil
@@ -8138,7 +8138,7 @@ struct TabItemView: View, Equatable {
             Self.logSidebarRowInvalidate(tab: tab, source: "debounced")
             refreshWorkspaceSnapshot()
         }
-        .onChange(of: settings) { _ in
+        .onChange(of: settings) { _, _ in
             refreshWorkspaceSnapshot(force: true)
         }
         .onChange(of: inlineRenameRequestToken) { _, token in
