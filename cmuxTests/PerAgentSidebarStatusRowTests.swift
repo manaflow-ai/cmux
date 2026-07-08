@@ -1,5 +1,6 @@
 import CmuxSidebar
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,7 +11,8 @@ import XCTest
 /// Per-pane agent status rows (sidebar): several agents in one workspace must
 /// each keep their own row instead of collapsing into one last-write-wins
 /// status pill per agent type.
-final class PerAgentSidebarStatusRowTests: XCTestCase {
+@MainActor
+struct PerAgentSidebarStatusRowTests {
     private func makeEntry(
         key: String,
         value: String,
@@ -25,10 +27,10 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         )
     }
 
-    @MainActor
+    @Test
     func testIdenticalPanelStatusReportDoesNotReplaceStoredEntry() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
 
         let first = makeEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 100))
         workspace.recordPanelStatusEntry(first, panelId: panelId)
@@ -36,19 +38,19 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         workspace.recordPanelStatusEntry(repeated, panelId: panelId)
         // Same display content, newer timestamp: dropped so agent heartbeats
         // do not invalidate the sidebar snapshot.
-        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"], first)
+        #expect(workspace.statusEntriesByPanelId[panelId]?["claude_code"] == first)
 
         let changed = makeEntry(key: "claude_code", value: "Idle", timestamp: Date(timeIntervalSince1970: 300))
         workspace.recordPanelStatusEntry(changed, panelId: panelId)
-        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"], changed)
+        #expect(workspace.statusEntriesByPanelId[panelId]?["claude_code"] == changed)
     }
 
-    @MainActor
+    @Test
     func testAmbiguousWorkspaceStatusIsNotAttributedDuringTransfer() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
         workspace.recordAgentPID(key: "claude_code.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
         workspace.recordAgentPID(key: "claude_code.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
@@ -56,16 +58,16 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         // could have written it, so it must not ride along with a transfer.
         workspace.statusEntries["claude_code"] = makeEntry(key: "claude_code", value: "Running")
 
-        let runtimeState = try XCTUnwrap(workspace.agentRuntimeState(forPanelId: secondPanelId))
-        XCTAssertNil(runtimeState.statusEntries["claude_code"])
+        let runtimeState = try #require(workspace.agentRuntimeState(forPanelId: secondPanelId))
+        #expect(runtimeState.statusEntries["claude_code"] == nil)
     }
 
-    @MainActor
+    @Test
     func testTwoAgentsOfSameTypeKeepSeparateRows() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
         workspace.recordAgentPID(key: "claude_code.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
         workspace.recordAgentPID(key: "claude_code.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
@@ -81,33 +83,33 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         )
 
         let rows = workspace.sidebarAgentStatusRows()
-        XCTAssertEqual(rows.count, 2)
-        XCTAssertEqual(Set(rows.map(\.panelId)), [firstPanelId, secondPanelId])
+        #expect(rows.count == 2)
+        #expect(Set(rows.map(\.panelId)) == [firstPanelId, secondPanelId])
         let valuesByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0.value) })
-        XCTAssertEqual(valuesByPanel[firstPanelId], "Running")
-        XCTAssertEqual(valuesByPanel[secondPanelId], "Claude is waiting for your input")
+        #expect(valuesByPanel[firstPanelId] == "Running")
+        #expect(valuesByPanel[secondPanelId] == "Claude is waiting for your input")
     }
 
-    @MainActor
+    @Test
     func testSoleOwnerFallsBackToWorkspaceEntry() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
 
         workspace.recordAgentPID(key: "claude_code.only", pid: 111, panelId: panelId, refreshPorts: false)
         workspace.statusEntries["claude_code"] = makeEntry(key: "claude_code", value: "Running")
 
         let rows = workspace.sidebarAgentStatusRows()
-        XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows.first?.panelId, panelId)
-        XCTAssertEqual(rows.first?.value, "Running")
+        #expect(rows.count == 1)
+        #expect(rows.first?.panelId == panelId)
+        #expect(rows.first?.value == "Running")
     }
 
-    @MainActor
+    @Test
     func testSharedKeyWithoutPanelEntriesUsesPerPanelLifecycleNotWorkspaceText() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
         workspace.recordAgentPID(key: "claude_code.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
         workspace.recordAgentPID(key: "claude_code.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
@@ -116,27 +118,27 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         workspace.statusEntries["claude_code"] = makeEntry(key: "claude_code", value: "Running")
 
         let rows = workspace.sidebarAgentStatusRows()
-        XCTAssertEqual(rows.count, 2)
+        #expect(rows.count == 2)
         let byPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0) })
         // The ambiguous workspace-level text must not be attributed to either pane.
-        XCTAssertNil(byPanel[firstPanelId]?.value)
-        XCTAssertNil(byPanel[secondPanelId]?.value)
+        #expect(byPanel[firstPanelId]?.value == nil)
+        #expect(byPanel[secondPanelId]?.value == nil)
         // Nor its decorations: the last writer's icon/color must not bleed
         // onto the other pane's row.
-        XCTAssertNil(byPanel[firstPanelId]?.icon)
-        XCTAssertNil(byPanel[secondPanelId]?.icon)
-        XCTAssertNil(byPanel[firstPanelId]?.color)
-        XCTAssertNil(byPanel[secondPanelId]?.color)
-        XCTAssertEqual(byPanel[firstPanelId]?.lifecycle, .running)
-        XCTAssertEqual(byPanel[secondPanelId]?.lifecycle, .needsInput)
+        #expect(byPanel[firstPanelId]?.icon == nil)
+        #expect(byPanel[secondPanelId]?.icon == nil)
+        #expect(byPanel[firstPanelId]?.color == nil)
+        #expect(byPanel[secondPanelId]?.color == nil)
+        #expect(byPanel[firstPanelId]?.lifecycle == .running)
+        #expect(byPanel[secondPanelId]?.lifecycle == .needsInput)
     }
 
-    @MainActor
+    @Test
     func testBareSharedPIDKeyHookSequenceKeepsBothPanesRows() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
         // Mirrors the real Claude Code hook sequence, which shares ONE bare
         // PID key per agent type across all panes of a workspace
@@ -156,19 +158,19 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         workspace.setAgentLifecycle(key: "claude_code", panelId: secondPanelId, lifecycle: .needsInput)
 
         let rows = workspace.sidebarAgentStatusRows()
-        XCTAssertEqual(rows.count, 2)
+        #expect(rows.count == 2)
         let valuesByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0.value) })
-        XCTAssertEqual(valuesByPanel[firstPanelId], "Running")
-        XCTAssertEqual(valuesByPanel[secondPanelId], "Claude is waiting for your input")
-        let lifecyclesByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0.lifecycle) })
-        XCTAssertEqual(lifecyclesByPanel[firstPanelId], .running)
-        XCTAssertEqual(lifecyclesByPanel[secondPanelId], .needsInput)
+        #expect(valuesByPanel[firstPanelId] == "Running")
+        #expect(valuesByPanel[secondPanelId] == "Claude is waiting for your input")
+        let rowsByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0) })
+        #expect(rowsByPanel[firstPanelId]?.lifecycle == .running)
+        #expect(rowsByPanel[secondPanelId]?.lifecycle == .needsInput)
     }
 
-    @MainActor
+    @Test
     func testAgentReplacementOnSamePanelKeepsFreshPanelEntry() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
 
         workspace.recordAgentPID(key: "claude_code.old", pid: 111, panelId: panelId, refreshPorts: false)
         workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Old session"), panelId: panelId)
@@ -179,57 +181,57 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         // order the control-socket path uses; writing the panel copy first
         // would let the eviction delete the fresh entry.
         workspace.recordAgentPID(key: "claude_code.new", pid: 222, panelId: panelId, refreshPorts: false)
-        XCTAssertNil(workspace.statusEntriesByPanelId[panelId]?["claude_code"])
+        #expect(workspace.statusEntriesByPanelId[panelId]?["claude_code"] == nil)
         workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "New session"), panelId: panelId)
 
-        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"]?.value, "New session")
-        XCTAssertEqual(workspace.sidebarAgentStatusRows().first?.value, "New session")
+        #expect(workspace.statusEntriesByPanelId[panelId]?["claude_code"]?.value == "New session")
+        #expect(workspace.sidebarAgentStatusRows().first?.value == "New session")
     }
 
-    @MainActor
+    @Test
     func testClearingAgentPIDRemovesThatPanelsRow() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
         workspace.recordAgentPID(key: "claude_code.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
         workspace.recordAgentPID(key: "claude_code.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
         workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: firstPanelId)
         workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Idle"), panelId: secondPanelId)
 
-        XCTAssertTrue(
+        #expect(
             workspace.clearAgentPID(key: "claude_code.first", panelId: firstPanelId, clearStatus: true, refreshPorts: false)
         )
 
         let rows = workspace.sidebarAgentStatusRows()
-        XCTAssertEqual(rows.map(\.panelId), [secondPanelId])
-        XCTAssertNil(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"])
-        XCTAssertEqual(workspace.statusEntriesByPanelId[secondPanelId]?["claude_code"]?.value, "Idle")
+        #expect(rows.map(\.panelId) == [secondPanelId])
+        #expect(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"] == nil)
+        #expect(workspace.statusEntriesByPanelId[secondPanelId]?["claude_code"]?.value == "Idle")
     }
 
-    @MainActor
+    @Test
     func testDetachedRuntimeTransferCarriesPanelScopedEntry() throws {
         let source = Workspace()
-        let panelId = try XCTUnwrap(source.focusedPanelId)
+        let panelId = try #require(source.focusedPanelId)
         source.recordAgentPID(key: "claude_code.moved", pid: 111, panelId: panelId, refreshPorts: false)
         source.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: panelId)
 
-        let runtimeState = try XCTUnwrap(source.agentRuntimeState(forPanelId: panelId))
-        XCTAssertEqual(runtimeState.statusEntries["claude_code"]?.value, "Running")
+        let runtimeState = try #require(source.agentRuntimeState(forPanelId: panelId))
+        #expect(runtimeState.statusEntries["claude_code"]?.value == "Running")
 
         let destination = Workspace()
         destination.adoptDetachedAgentRuntimeState(runtimeState)
-        XCTAssertEqual(destination.statusEntriesByPanelId[panelId]?["claude_code"]?.value, "Running")
-        XCTAssertEqual(destination.statusEntries["claude_code"]?.value, "Running")
+        #expect(destination.statusEntriesByPanelId[panelId]?["claude_code"]?.value == "Running")
+        #expect(destination.statusEntries["claude_code"]?.value == "Running")
     }
 
-    @MainActor
+    @Test
     func testClosingPanelDropsPanelScopedEntries() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
         workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: secondPanelId)
 
         _ = workspace.discardClosedPanelLifecycleState(
@@ -243,7 +245,7 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
             requestTransferredRemoteCleanup: false
         )
 
-        XCTAssertNil(workspace.statusEntriesByPanelId[secondPanelId])
-        XCTAssertTrue(workspace.sidebarAgentStatusRows().isEmpty)
+        #expect(workspace.statusEntriesByPanelId[secondPanelId] == nil)
+        #expect(workspace.sidebarAgentStatusRows().isEmpty)
     }
 }
