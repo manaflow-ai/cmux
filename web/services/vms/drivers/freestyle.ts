@@ -793,10 +793,13 @@ async function ensureFreestyleWebSocketHealthyOrRepair(
   }
 
   if (!healthError && canRepair) {
-    const state = await readFreestyleCloudShellState(vm).catch((err: unknown) => ({
-      ok: false,
-      reason: errorMessage(err),
-    }));
+    const state = await readFreestyleCloudShellState(vm).catch(() => null);
+    if (!state) {
+      // The daemon/admin websocket is the attach control plane. Freestyle exec
+      // can be temporarily unavailable on otherwise attachable VMs, so do not
+      // block lease installation on this shell-integration probe.
+      return;
+    }
     if (!state.ok) {
       await repairFreestyleWebSocketService(vm, adminToken, signedAdmin).catch((repairErr: unknown) => {
         throw new Error(
