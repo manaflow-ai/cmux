@@ -43,8 +43,8 @@ extension DockSplitStore {
     func makePanel(
         for def: DockControlDefinition,
         baseDirectory: String,
-        browserProfileIDsByDisplayName: [String: UUID]
-    ) -> (any Panel)? {
+        browserProfileIndex: DockBrowserProfileIndex
+    ) throws -> (any Panel)? {
         switch def.variant {
         case .command(let command):
             let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
@@ -68,12 +68,10 @@ extension DockSplitStore {
             )
         case .browser(let url, let profile):
             guard isBrowserPanelAvailable() else { return nil }
+            let resolvedProfile = try browserProfileIndex.resolve(profile)
             return makeBrowserPanel(
                 url: URL(string: url),
-                preferredProfileID: browserProfileID(
-                    displayName: profile,
-                    in: browserProfileIDsByDisplayName
-                )
+                preferredProfileID: resolvedProfile.id
             )
         }
     }
@@ -118,23 +116,15 @@ extension DockSplitStore {
         }
     }
 
-    func browserProfileIDIndex() -> [String: UUID] {
-        var index: [String: UUID] = [:]
+    func browserProfileIndex() -> DockBrowserProfileIndex {
+        let store = BrowserProfileStore.shared
+        var index = DockBrowserProfileIndex(
+            defaultProfileID: store.builtInDefaultProfileID,
+            defaultProfileDisplayName: store.displayName(for: store.builtInDefaultProfileID)
+        )
         for profile in BrowserProfileStore.shared.profiles {
-            let key = Self.browserProfileLookupKey(profile.displayName)
-            if index[key] == nil {
-                index[key] = profile.id
-            }
+            index.addProfile(id: profile.id, displayName: profile.displayName, slug: profile.slug)
         }
         return index
-    }
-
-    private func browserProfileID(displayName: String?, in index: [String: UUID]) -> UUID? {
-        guard let displayName else { return nil }
-        return index[Self.browserProfileLookupKey(displayName)]
-    }
-
-    private static func browserProfileLookupKey(_ displayName: String) -> String {
-        displayName.folding(options: [.caseInsensitive], locale: nil)
     }
 }

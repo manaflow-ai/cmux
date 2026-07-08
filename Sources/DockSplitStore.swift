@@ -652,18 +652,28 @@ final class DockSplitStore: BonsplitDelegate {
             lastLoadedConfigIdentity = Self.configIdentity(for: resolution)
             activeConfigURL = resolution.sourceURL
             resolvedBaseDirectory = resolution.baseDirectory
-            if let request = trustRequestIfNeeded(for: resolution) {
-                sourceLabel = String(localized: "dock.source.project", defaultValue: "Project Dock")
-                trustRequest = request
-                return
+            do {
+                let profileIndex = browserProfileIndex()
+                if let request = try trustRequestIfNeeded(for: resolution, browserProfileIndex: profileIndex) {
+                    sourceLabel = String(localized: "dock.source.project", defaultValue: "Project Dock")
+                    trustRequest = request
+                    return
+                }
+                sourceLabel = Self.sourceLabel(for: resolution)
+                let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
+                if shouldSeed {
+                    try seed(
+                        definitions: resolution.controls,
+                        baseDirectory: resolution.baseDirectory,
+                        browserProfileIndex: profileIndex
+                    )
+                }
+                if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
+                hasAppliedConfigurationSeed = true
+            } catch {
+                sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
+                errorMessage = Self.configurationLoadErrorMessage(for: error)
             }
-            sourceLabel = Self.sourceLabel(for: resolution)
-            let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
-            if shouldSeed {
-                seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
-            }
-            if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
-            hasAppliedConfigurationSeed = true
         case .failed(let identity, let message):
             lastLoadedConfigIdentity = identity
             activeConfigURL = identity.sourcePath.map { URL(fileURLWithPath: $0, isDirectory: false) }
@@ -685,17 +695,21 @@ final class DockSplitStore: BonsplitDelegate {
     /// initial divider is set from the requested-height ratios (a fractional
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
-    private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
-        let browserProfileIDsByDisplayName = browserProfileIDIndex()
+    private func seed(
+        definitions: [DockControlDefinition],
+        baseDirectory: String,
+        browserProfileIndex: DockBrowserProfileIndex
+    ) throws {
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
-        let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
-            guard let panel = makePanel(
+        var created: [(definition: DockControlDefinition, panel: any Panel)] = []
+        for definition in definitions {
+            guard let panel = try makePanel(
                 for: definition,
                 baseDirectory: baseDirectory,
-                browserProfileIDsByDisplayName: browserProfileIDsByDisplayName
-            ) else { return nil }
-            return (definition: definition, panel: panel)
+                browserProfileIndex: browserProfileIndex
+            ) else { continue }
+            created.append((definition: definition, panel: panel))
         }
         guard !created.isEmpty else { return }
 
@@ -753,26 +767,39 @@ final class DockSplitStore: BonsplitDelegate {
         applyVisibilityToAllPanels()
     }
 
-    private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
+    private func trustRequestIfNeeded(
+        for resolution: DockConfigResolution,
+        browserProfileIndex: DockBrowserProfileIndex
+    ) throws -> DockTrustRequest? {
         guard resolution.isProjectSource, let sourceURL = resolution.sourceURL else { return nil }
         let descriptor = Self.trustDescriptor(for: resolution)
         guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
         return DockTrustRequest(
             descriptor: descriptor,
             configPath: sourceURL.path,
-            controlSummaries: resolution.controls.map(Self.trustControlSummary(for:))
+            controlSummaries: try resolution.controls.map {
+                try Self.trustControlSummary(for: $0, browserProfileIndex: browserProfileIndex)
+            }
         )
     }
 
-    private static func trustControlSummary(for control: DockControlDefinition) -> DockTrustControlSummary {
+    private static func trustControlSummary(
+        for control: DockControlDefinition,
+        browserProfileIndex: DockBrowserProfileIndex
+    ) throws -> DockTrustControlSummary {
         let detail: DockTrustControlSummary.Detail
         switch control.variant {
         case .command(let command):
             detail = .command(command)
         case .terminal:
             detail = .loginShell
-        case .browser(let url, _):
-            detail = .browser(url)
+        case .browser(let url, let profile):
+            let resolvedProfile = try browserProfileIndex.resolve(profile)
+            detail = .browser(
+                url: url,
+                profileDisplayName: resolvedProfile.displayName,
+                profileIsDefault: resolvedProfile.isDefault
+            )
         }
         return DockTrustControlSummary(id: control.id, title: control.title, detail: detail)
     }

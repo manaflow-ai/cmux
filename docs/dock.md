@@ -75,7 +75,7 @@ Dock is configured with JSON:
       "title": "Docs",
       "type": "browser",
       "url": "https://example.com",
-      "profile": "Work"
+      "profile": "52B43C05-4A1D-45D3-8FD5-9EF94952E445"
     }
   ]
 }
@@ -88,12 +88,12 @@ Fields:
 - `type`: optional, `command` (default), `terminal`, or `browser`.
 - `command`: command to run in the Dock terminal. Required for command controls. Command controls may omit `type`.
 - `url`: page to open. Required for browser controls.
-- `profile`: optional browser profile display name. If absent or unknown, Dock uses the default browser profile.
+- `profile`: optional cmux browser profile reference. Prefer the stable profile UUID shown by `browser.profiles.list`; unambiguous profile slugs or display names are accepted for compatibility. If absent, Dock uses the default browser profile. Unknown or ambiguous profile references stop the Dock config instead of falling back to another cookie store.
 - `cwd`: optional working directory for command and terminal controls.
 - `height`: optional requested terminal height in points. Controls without a height share remaining space.
 - `env`: optional non-secret environment variables passed only to command and terminal controls.
 
-Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command.
+Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command. Project Dock trust prompts show each requested browser URL and profile before cmux opens the controls.
 
 Existing configs without `type` keep loading unchanged as command controls. Legacy configs that set `type: "terminal"` together with a `command` also keep loading as command controls. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 

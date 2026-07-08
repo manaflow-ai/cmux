@@ -107,7 +107,7 @@ struct DockPrimitiveControlTests {
             controls: [
                 DockControlDefinition(id: "git", title: "Git", variant: .command("lazygit"), cwd: "."),
                 DockControlDefinition(id: "shell", title: "Shell", variant: .terminal, cwd: "."),
-                DockControlDefinition(id: "docs", title: "Docs", variant: .browser(url: "https://docs.cmux.dev", profile: "Unknown"))
+                DockControlDefinition(id: "docs", title: "Docs", variant: .browser(url: "https://docs.cmux.dev", profile: nil))
             ],
             sourceURL: nil,
             baseDirectory: root.path,
@@ -126,6 +126,81 @@ struct DockPrimitiveControlTests {
         #expect(shellPanel.surface.initialCommand == nil)
         #expect(shellPanel.surface.requestedWorkingDirectory == DockSplitStore.resolvedWorkingDirectory(".", baseDirectory: root.path))
         #expect(browserPanel is BrowserPanel)
+    }
+
+    @Test("Browser profile references use stable IDs and fail closed on ambiguous names")
+    @MainActor
+    func browserProfileReferencesUseStableIDsAndFailClosed() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let profileName = "Dock Profile \(UUID().uuidString)"
+        let profile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(
+                    id: "docs",
+                    title: "Docs",
+                    variant: .browser(url: "https://docs.cmux.dev", profile: profile.id.uuidString)
+                )
+            ],
+            sourceURL: nil,
+            baseDirectory: root.path,
+            isProjectSource: false
+        )
+
+        let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
+        store.applyConfigurationLoadResult(.resolved(resolution), generation: generation, replacingPanels: true)
+
+        let browserPanel = try #require(try panel(in: store, titled: "Docs") as? BrowserPanel)
+        #expect(browserPanel.profileID == profile.id)
+
+        let duplicateName = "Dock Duplicate \(UUID().uuidString)"
+        let firstDuplicate = try #require(BrowserProfileStore.shared.createProfile(named: duplicateName))
+        let secondDuplicate = try #require(BrowserProfileStore.shared.createProfile(named: duplicateName))
+        defer {
+            _ = BrowserProfileStore.shared.deleteProfile(id: firstDuplicate.id)
+            _ = BrowserProfileStore.shared.deleteProfile(id: secondDuplicate.id)
+        }
+
+        let ambiguousStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { ambiguousStore.closeAllPanels() }
+
+        let ambiguousResolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(
+                    id: "ambiguous",
+                    title: "Ambiguous",
+                    variant: .browser(url: "https://docs.cmux.dev", profile: duplicateName)
+                )
+            ],
+            sourceURL: nil,
+            baseDirectory: root.path,
+            isProjectSource: false
+        )
+
+        let ambiguousGeneration = ambiguousStore.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
+        ambiguousStore.applyConfigurationLoadResult(
+            .resolved(ambiguousResolution),
+            generation: ambiguousGeneration,
+            replacingPanels: true
+        )
+
+        #expect(ambiguousStore.panels.isEmpty)
+        #expect(ambiguousStore.errorMessage?.contains("matches multiple") == true)
     }
 
     @Test("Project trust summaries distinguish command shell and browser controls")
@@ -161,13 +236,20 @@ struct DockPrimitiveControlTests {
         )
         defer { projectStore.closeAllPanels() }
 
+        let defaultProfileName = BrowserProfileStore.shared.displayName(
+            for: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
         let projectGeneration = projectStore.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
         projectStore.applyConfigurationLoadResult(.resolved(projectResolution), generation: projectGeneration, replacingPanels: true)
         let request = try #require(projectStore.trustRequest)
         #expect(request.controlSummaries.map(\.detail) == [
             .command("lazygit"),
             .loginShell,
-            .browser("https://docs.cmux.dev")
+            .browser(
+                url: "https://docs.cmux.dev",
+                profileDisplayName: defaultProfileName,
+                profileIsDefault: true
+            )
         ])
 
         let globalStore = DockSplitStore(
