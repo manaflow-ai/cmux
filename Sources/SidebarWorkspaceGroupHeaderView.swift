@@ -278,9 +278,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .onHover { hovering in
-            rowInteractionState.setPointerHovering(hovering)
-        }
+        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
@@ -309,9 +307,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     rowInteractionState.contextMenuTrackingObserverDidInstall()
                 }
             }
-        }
-        .onDisappear {
-            rowInteractionState.setPointerHovering(false)
         }
         .contextMenu {
             Button(

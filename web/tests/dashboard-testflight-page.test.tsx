@@ -2,14 +2,21 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
-import { testflightUser } from "./fixtures/testflight-user";
+import {
+  createTestflightUser,
+  testflightUserEligibility,
+} from "./helpers/testflight-user";
 
 let stackConfigured = true;
-let currentUser: ReturnType<typeof testflightUser> | null = null;
+let currentUser: ReturnType<typeof createTestflightUser> | null = null;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 
 const getUser = mock(async () => currentUser);
+const isTestflightEligible = mock(async (user: unknown) =>
+  testflightUserEligibility(user) ?? false,
+);
+const billingProModule = await import("../services/billing/pro");
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
@@ -75,21 +82,27 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
+mock.module("@/services/billing/pro", () => ({
+  ...billingProModule,
+  isTestflightEligible,
+}));
+
 const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
 
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
-    currentUser = testflightUser();
+    currentUser = createTestflightUser();
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
+    isTestflightEligible.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
   });
 
   test("renders not eligible state with pricing link", async () => {
-    currentUser = testflightUser({ eligible: false });
+    currentUser = createTestflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 

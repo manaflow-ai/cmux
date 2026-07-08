@@ -1,14 +1,14 @@
 import { Suspense } from "react";
 import { StackHandler } from "@stackframe/stack";
 import { notFound } from "next/navigation";
-import { stackHandlerApp } from "../../lib/stack";
+import { stackServerApp } from "../../lib/stack";
 
 export default function StackHandlerPage(props: { params: Promise<{ stack: string[] }> }) {
-  if (!stackHandlerApp) notFound();
+  if (!stackServerApp) notFound();
 
   return (
     <Suspense>
-      <StackHandler fullPage app={stackHandlerApp} params={props.params} />
+      <StackHandler fullPage app={stackServerApp} params={props.params} />
     </Suspense>
   );
 }

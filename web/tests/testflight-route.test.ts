@@ -1,12 +1,18 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { testflightUser } from "./fixtures/testflight-user";
+import { createTestflightUser } from "./helpers/testflight-user";
+
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = true;
 let ascConfigured = true;
-let currentUser = testflightUser();
+let currentUser = createTestflightUser();
 let user: typeof currentUser | null = currentUser;
+let useStubDb = false;
 
 const getUser = mock(async () => user);
 const ascFetch = mock(async (path: unknown) => {
@@ -44,13 +50,38 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
+mock.module("../db/client", () => ({
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: (() =>
+    useStubDb
+      ? ({
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                limit: async () => [],
+              }),
+            }),
+          }),
+        } as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb()) as typeof realCloudDb,
+}));
+
 const { POST } = await import("../app/api/testflight/route");
+
+beforeAll(() => {
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useStubDb = false;
+});
 
 describe("TestFlight route", () => {
   beforeEach(() => {
     stackConfigured = true;
     ascConfigured = true;
-    currentUser = testflightUser();
+    currentUser = createTestflightUser();
     user = currentUser;
     getUser.mockClear();
     ascFetch.mockClear();
@@ -91,7 +122,7 @@ describe("TestFlight route", () => {
   });
 
   test("does not enroll ineligible users", async () => {
-    currentUser = testflightUser({ eligible: false });
+    currentUser = createTestflightUser({ eligible: false });
     user = currentUser;
 
     const response = await postAction("join");

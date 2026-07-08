@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { requestIsExternallySecure } from "../../lib/request-scheme";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +46,7 @@ export function GET(request: NextRequest) {
       maxAge: 10 * 60,
       path: "/handler/after-sign-in",
       sameSite: "lax",
-      secure: requestIsExternallySecure(request),
+      secure: request.nextUrl.protocol === "https:",
     });
   }
   return response;
