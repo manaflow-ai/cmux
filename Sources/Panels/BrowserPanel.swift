@@ -3619,6 +3619,22 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
+    /// The profile a panel would use for the given requested ID. Shared with
+    /// prewarm callers so a prewarmed webview and the panel that later adopts
+    /// it resolve to the same profile and website data store.
+    static func resolvedProfileID(requested: UUID?) -> UUID {
+        let requestedProfileID = requested ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
+        return BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
+            ? requestedProfileID
+            : BrowserProfileStore.shared.builtInDefaultProfileID
+    }
+
+    /// Factory for ``BrowserPrewarmedWebViewPool``: identical configuration to
+    /// the webview a panel builds for itself, so adoption is a drop-in swap.
+    static func makePrewarmedWebView(profileID: UUID) -> CmuxWebView {
+        makeWebView(profileID: profileID)
+    }
+
     private static func makeWebView(
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil
@@ -3996,10 +4012,7 @@ final class BrowserPanel: Panel, ObservableObject {
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
-        let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
-        let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
-            ? requestedProfileID
-            : BrowserProfileStore.shared.builtInDefaultProfileID
+        let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -4010,13 +4023,32 @@ final class BrowserPanel: Panel, ObservableObject {
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
-        self.websiteDataStore = isRemoteWorkspace
+        let websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
-        let webView = Self.makeWebView(
-            profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
-        )
+        self.websiteDataStore = websiteDataStore
+        // Adopt a hover-prewarmed webview when it matches this panel's initial
+        // navigation exactly, so entrypoints like the Pro upgrade badge open an
+        // already-loaded page instead of starting a cold load.
+        var adoptedPrewarmedWebView = false
+        let webView: CmuxWebView
+        if !isRemoteWorkspace,
+           initialRequest == nil,
+           renderInitialNavigation,
+           let initialURL,
+           let prewarmed = BrowserPrewarmedWebViewPool.shared.claim(
+               url: initialURL,
+               profileID: resolvedProfileID,
+               websiteDataStore: websiteDataStore
+           ) {
+            webView = prewarmed
+            adoptedPrewarmedWebView = true
+        } else {
+            webView = Self.makeWebView(
+                profileID: resolvedProfileID,
+                websiteDataStore: websiteDataStore
+            )
+        }
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
@@ -4213,7 +4245,14 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            navigate(to: url)
+            if adoptedPrewarmedWebView {
+                // The adopted webview already finished this navigation while
+                // hidden; record it for recovery paths instead of reloading.
+                navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
+                refreshBackgroundAppearance()
+            } else {
+                navigate(to: url)
+            }
         }
     }
 
