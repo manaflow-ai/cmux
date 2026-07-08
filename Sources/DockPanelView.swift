@@ -238,28 +238,33 @@ private struct DockTrustControlSummaryRow: View {
     let summary: DockTrustControlSummary
 
     var body: some View {
+        let rows = detailRows
         VStack(alignment: .leading, spacing: 2) {
             Text(summary.title)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text(detailText)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(rows.indices, id: \.self) { index in
+                    Text(rows[index].text)
+                        .font(.system(size: 10, weight: .regular, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(rows[index].lineLimit)
+                        .truncationMode(.middle)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
         .padding(.horizontal, 6)
     }
 
-    private var detailText: String {
+    private var detailRows: [(text: String, lineLimit: Int)] {
         switch summary.detail {
         case .command(let command):
-            return command
+            return [(command, 2)]
         case .loginShell:
-            return String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell")
+            return [(String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell"), 1)]
         case .browser(let url, let profileDisplayName, let profileIsDefault, let profileID):
             let profileName = profileIsDefault
                 ? String(localized: "dock.trust.control.defaultBrowserProfile", defaultValue: "Default browser profile")
@@ -269,13 +274,13 @@ private struct DockTrustControlSummaryRow: View {
                 profileName
             )
             guard !profileIsDefault, !profileID.isEmpty else {
-                return "\(url)\n\(profileLine)"
+                return [(url, 1), (profileLine, 1)]
             }
             let profileIDLine = String(
                 format: String(localized: "dock.trust.control.browserProfileID", defaultValue: "Profile ID: %@"),
                 profileID
             )
-            return "\(url)\n\(profileLine)\n\(profileIDLine)"
+            return [(url, 1), (profileLine, 1), (profileIDLine, 1)]
         }
     }
 }
