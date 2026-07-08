@@ -106,8 +106,24 @@ enum AuthEnvironment {
         resolvedAppPricingURL(environment: ProcessInfo.processInfo.environment)
     }
 
+    static var appWebOrigin: URL {
+        resolvedAppWebOrigin(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedAppWebOrigin(environment: [String: String]) -> URL {
+        appWebOrigin(environment: environment)
+    }
+
     static func resolvedAppPricingURL(environment: [String: String]) -> URL {
         appWebOrigin(environment: environment).appendingPathComponent("app-pricing")
+    }
+
+    static var appProWelcomeURL: URL {
+        resolvedAppProWelcomeURL(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedAppProWelcomeURL(environment: [String: String]) -> URL {
+        appWebOrigin(environment: environment).appendingPathComponent("app-pro-welcome")
     }
 
     /// Payment entrypoint used by native app UI. `CMUX_BILLING_WWW_ORIGIN`

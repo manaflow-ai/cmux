@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { headers } from "next/headers";
 import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
@@ -8,6 +7,11 @@ import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
 import { appPricingCheckoutURL } from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
+import {
+  appPricingAppearance,
+  appPricingPageBackground,
+  appPricingStyle,
+} from "./appearance";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -342,53 +346,6 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
       ) : null}
     </div>
   );
-}
-
-function appPricingAppearance(
-  params: Record<string, string | string[] | undefined>,
-): "light" | "dark" {
-  return firstParam(params.appearance) === "dark" ? "dark" : "light";
-}
-
-function appPricingPageBackground(
-  params: Record<string, string | string[] | undefined>,
-  appearance: "light" | "dark",
-): string {
-  const background = firstParam(params.background);
-  if (background && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(background)) {
-    return background;
-  }
-  return appearance === "dark" ? "#272822" : "#fafafa";
-}
-
-function appPricingStyle(
-  appearance: "light" | "dark",
-  pageBackground: string,
-): CSSProperties {
-  if (appearance === "dark") {
-    return {
-      "--foreground": "#ededed",
-      "--muted": "#a3a3a3",
-      "--border": "rgba(255, 255, 255, 0.18)",
-      "--code-bg": "rgba(24, 24, 24, 0.72)",
-      "--background": pageBackground,
-      "--pricing-sticky-bg": pageBackground,
-      "--button-foreground": pageBackground,
-      backgroundColor: pageBackground,
-      colorScheme: "dark",
-    } as CSSProperties;
-  }
-  return {
-    "--foreground": "#171717",
-    "--muted": "#5f6368",
-    "--border": "rgba(0, 0, 0, 0.14)",
-    "--code-bg": "rgba(245, 245, 245, 0.78)",
-    "--background": pageBackground,
-    "--pricing-sticky-bg": pageBackground,
-    "--button-foreground": "#ffffff",
-    backgroundColor: pageBackground,
-    colorScheme: "light",
-  } as CSSProperties;
 }
 
 function appPricingRequestOrigin(headersList: Headers): string | null {

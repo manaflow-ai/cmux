@@ -94,9 +94,35 @@ enum ProUpgradePresenter {
         NSWorkspace.shared.open(url)
     }
 
+    /// Opens the in-app "Welcome to cmux Pro" checklist as a chromeless web
+    /// page in the same dedicated workspace surface used for pricing, so the
+    /// post-purchase checklist matches how upgrade/pricing already appears.
+    @MainActor
+    static func presentProWelcomeWeb() {
+        let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
+        if AppDelegate.shared?.performProUpgradeWorkspaceAction(
+            title: title,
+            url: url,
+            debugSource: "proWelcomeChecklist"
+        ) != nil {
+            return
+        }
+        presentBrowserSplit(url: url, transparentBackground: true)
+    }
+
     @MainActor
     private static func appPricingURLForCurrentAppearance() -> URL {
-        var components = URLComponents(url: AuthEnvironment.appPricingURL, resolvingAgainstBaseURL: false)
+        decoratedAppWebURL(AuthEnvironment.appPricingURL)
+    }
+
+    @MainActor
+    private static func decoratedAppWebURL(_ base: URL) -> URL {
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
         var queryItems = components?.queryItems ?? []
         queryItems.removeAll { $0.name == "appearance" }
         queryItems.removeAll { $0.name == "background" }
@@ -111,7 +137,7 @@ enum ProUpgradePresenter {
         queryItems.append(URLQueryItem(name: "cmux_app", value: "1"))
         queryItems.append(URLQueryItem(name: "cmux_scheme", value: AuthEnvironment.callbackScheme))
         components?.queryItems = queryItems
-        return components?.url ?? AuthEnvironment.appPricingURL
+        return components?.url ?? base
     }
 }
 
@@ -227,9 +253,30 @@ private final class NativePricingPlanStore: ObservableObject {
             let loadedState = await Self.loadPlanState()
             await MainActor.run {
                 guard self?.activeRequestID == requestID else { return }
-                self?.state = Task.isCancelled ? .idle : loadedState
+                if Task.isCancelled {
+                    self?.state = .idle
+                    return
+                }
+                self?.state = loadedState
+                Self.presentWelcomeChecklistIfPro(loadedState)
             }
         }
+    }
+
+    static func refreshForProWelcomeChecklist() async {
+        // Skip the authenticated /api/billing/plan fetch entirely when the
+        // checklist cannot be shown anyway (already seen, or the Pro upgrade
+        // UI flag is off) so Release sign-ins don't pay an extra GET.
+        guard ProWelcomeChecklistPresenter.canPresentAutomatically(
+            flagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled
+        ) else { return }
+        let loadedState = await loadPlanState()
+        presentWelcomeChecklistIfPro(loadedState)
+    }
+
+    private static func presentWelcomeChecklistIfPro(_ state: LoadState) {
+        guard case let .loaded(snapshot) = state else { return }
+        ProWelcomeChecklistPresenter.presentIfNewlyPro(isPro: snapshot.isPro)
     }
 
     private static func loadPlanState() async -> LoadState {
@@ -261,6 +308,13 @@ private final class NativePricingPlanStore: ObservableObject {
         } catch {
             return .failed(String(localized: "pricing.native.status.unavailable", defaultValue: "Billing status unavailable"))
         }
+    }
+}
+
+enum NativePricingPlanRefresh {
+    @MainActor
+    static func refreshForProWelcomeChecklist() async {
+        await NativePricingPlanStore.refreshForProWelcomeChecklist()
     }
 }
 

@@ -4617,5 +4617,33 @@
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro is active",
+    "title": "Welcome to cmux Pro",
+    "body": "You unlocked cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Here is where to start.",
+    "done": "Go to dashboard",
+    "steps": {
+      "modelGateway": {
+        "title": "Model gateway",
+        "body": "Route across providers with usage and cost analytics.",
+        "action": "Open model gateway"
+      },
+      "aiAccounts": {
+        "title": "Connect your AI accounts",
+        "body": "Add provider accounts so cmux can route work through them.",
+        "action": "Connect providers"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Use cmux on your phone.",
+        "action": "Join the iOS beta"
+      },
+      "billing": {
+        "title": "Manage your plan",
+        "body": "See your plan, invoices, and cancellation.",
+        "action": "Manage plan"
+      }
+    }
   }
 }

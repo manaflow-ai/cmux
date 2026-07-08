@@ -272,6 +272,7 @@ class TerminalController {
         "notification.open",
         "notification.jump_to_unread",
         "debug.command_palette.toggle",
+        "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",

@@ -14,6 +14,7 @@ extension ControlDebugContext {
     func controlDebugSetShortcut(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugSimulateShortcut(combo: String) -> String { "ERROR: not implemented" }
     func controlDebugActivateApp() -> String { "ERROR: not implemented" }
+    func controlDebugShowProWelcomeChecklist() {}
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugReadTerminalText(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugRenderStats(surfaceArgument: String) -> String { "ERROR: not implemented" }

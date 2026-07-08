@@ -1193,7 +1193,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for url in authCallbacks {
                 Task { @MainActor in
                     let signedIn = await browserSignIn.handleCallbackURL(url)
-                    if !signedIn {
+                    if signedIn {
+                        await NativePricingPlanRefresh.refreshForProWelcomeChecklist()
+                    } else {
                         AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
                 }

@@ -4526,5 +4526,33 @@
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro が有効です",
+    "title": "cmux Pro へようこそ",
+    "body": "Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリを利用できるようになりました。まずはここから始めましょう。",
+    "done": "ダッシュボードへ",
+    "steps": {
+      "modelGateway": {
+        "title": "モデルゲートウェイ",
+        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
+        "action": "モデルゲートウェイを開く"
+      },
+      "aiAccounts": {
+        "title": "AI アカウントを接続",
+        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
+        "action": "プロバイダーを接続"
+      },
+      "iosApp": {
+        "title": "cmux iOS アプリ",
+        "body": "スマートフォンで cmux を使えます。",
+        "action": "iOS ベータに参加"
+      },
+      "billing": {
+        "title": "プランを管理",
+        "body": "プラン、請求書、解約を確認できます。",
+        "action": "プランを管理"
+      }
+    }
   }
 }
