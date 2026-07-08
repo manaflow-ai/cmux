@@ -27,6 +27,7 @@ permissions:
 jobs:
   upload-and-validate:
     name: Upload and validate production App Store build
+    if: github.ref == 'refs/heads/main'
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
