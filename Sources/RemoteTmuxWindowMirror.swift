@@ -90,20 +90,6 @@ final class RemoteTmuxWindowMirror {
     /// minimum permanently below truth and overshoot f by a column.
     @ObservationIgnored private var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
     @ObservationIgnored private var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
-    /// Divider-strip thickness for the TRANSIENT render, matching the cell
-    /// rows/columns tmux allocates to separators and title rows — so the
-    /// drag-time chrome occupies exactly the space the imposed render's
-    /// strips do and the mode switch is seamless. Falls back to a thin gap
-    /// while the render constants are still unknown.
-    var stripRowHeightPt: CGFloat {
-        guard let geometry = currentGeometry() else { return 2 }
-        return CGFloat(geometry.cellHeightPx) / max(1, geometry.scale)
-    }
-
-    var stripColumnWidthPt: CGFloat {
-        guard let geometry = currentGeometry() else { return 2 }
-        return CGFloat(geometry.cellWidthPx) / max(1, geometry.scale)
-    }
 
     /// Whether tmux itself is drawing header rows for this window
     /// (`pane-border-status top`). The strips show label text ONLY then —
@@ -370,16 +356,6 @@ final class RemoteTmuxWindowMirror {
     /// re-nest changes the signature, and those MUST re-push: each split adds
     /// a pane's chrome to the fold. Pure over the node — `nonisolated` and
     /// unit-testable.
-    nonisolated static func structureSignature(of node: RemoteTmuxLayoutNode) -> String {
-        switch node.content {
-        case let .pane(paneId):
-            return "p\(paneId)"
-        case let .horizontal(children):
-            return "h(" + children.map(structureSignature(of:)).joined(separator: ",") + ")"
-        case let .vertical(children):
-            return "v(" + children.map(structureSignature(of:)).joined(separator: ",") + ")"
-        }
-    }
 
     /// Records tmux's active pane as reported by the remote
     /// (`%window-pane-changed` or the rects fetch) — the strip dot follows
@@ -518,58 +494,4 @@ final class RemoteTmuxWindowMirror {
         syntheticPaneIds.removeAll()
         activePaneId = nil
     }
-}
-
-/// Per-window sizing introspection returned by
-/// ``RemoteTmuxWindowMirror/sizingSnapshot()`` and serialized by the
-/// `remote.tmux.pane_grids` socket command: each pane's tmux-assigned dims (the
-/// window's base layout node) next to the grid its ghostty surface actually
-/// renders, plus the sizing state around them.
-///
-/// Top-level and `Sendable` (not nested in the `@MainActor` mirror) so socket
-/// handlers can carry it off the main actor after a `MainActor.run` read —
-/// the same shape as ``RemoteTmuxControlConnectionSnapshot``.
-struct RemoteTmuxWindowMirrorSizingSnapshot: Sendable {
-    struct Pane: Sendable {
-        let paneId: Int
-        let assignedCols: Int
-        let assignedRows: Int
-        let renderedCols: Int?
-        let renderedRows: Int?
-        /// Which axes the render contract requires to be EXACT (the leaf's
-        /// enclosing split axes). The other axis fills its parent, so the
-        /// surface may legitimately render beyond the assignment there.
-        let exactCols: Bool
-        let exactRows: Bool
-        /// Why a rendered grid might be absent: whether the pane still has a
-        /// panel at all, whether its view sits in a window, and whether the
-        /// runtime surface is live.
-        let hasPanel: Bool
-        let viewInWindow: Bool?
-        let surfaceLive: Bool?
-        /// Raw device-pixel calibration sample (see
-        /// ``TerminalSurfaceRawSizingSample``) — the frame→grid ground truth a
-        /// harness fits rendering constants against.
-        let calibration: TerminalSurfaceRawSizingSample?
-    }
-
-    let windowId: Int
-    let panes: [Pane]
-    /// The base tree's total assigned cells (tmux's current window size).
-    let baseCols: Int
-    let baseRows: Int
-    /// The last per-window size cmux requested (nil before the first push).
-    let pushedColumns: Int?
-    let pushedRows: Int?
-    let zoomed: Bool
-    let structureVersion: Int
-    /// Sizing-input introspection: whether this mirror may push (its tab is
-    /// visible), the container it last measured, and what the client-size
-    /// function computes from that container right now — lets a harness
-    /// distinguish "push gate closed" from "push stale" from "geometry
-    /// unknown" without screenshots.
-    let visibleForSizing: Bool
-    let containerPt: CGSize?
-    let currentFCols: Int?
-    let currentFRows: Int?
 }

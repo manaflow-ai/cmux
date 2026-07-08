@@ -172,27 +172,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let manualIO: Bool
     let manualInputHandler: (@Sendable (Data) -> Void)?
 
-    /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
-    /// after every APPLIED resize while the surface's portal is visible —
-    /// same-grid re-applies included, because a resize that lands on new
-    /// pixels without changing cols×rows still refines the owner's measured
-    /// padding constants. Carries the raw sizing sample of the applied
-    /// geometry so listeners calibrate from exactly what was applied instead
-    /// of re-querying the live surface later.
+    /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
-    /// Fires when the runtime surface becomes live (same moment as the
-    /// `terminalSurfaceDidBecomeReady` notification, but a direct per-surface
-    /// callback). A surface whose view is created already AT its final size
-    /// never applies a resize, so `onManualSizeApplied` never fires for it —
-    /// readiness is the one event guaranteed to happen exactly once for
-    /// every surface, which is what a one-time size claim must ride.
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
-    /// A manual size was applied while the view was outside any window, so
-    /// the `onManualSizeApplied` report was skipped. The report is state,
-    /// not an edge: flushed by ``flushPendingManualSizeReportIfAttached()``
-    /// when the view (re)enters a window — otherwise a listener waiting for
-    /// its first sample (a hidden mirror's one-time size claim) never hears
-    /// about a grid that settled entirely off-window.
     @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.

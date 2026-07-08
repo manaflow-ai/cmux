@@ -384,16 +384,11 @@ extension TerminalSurface {
         // If already attached to this view, nothing to do.
         // Still re-assert the display id: during split close tree restructuring, the view can be
         // removed/re-added (or briefly have window/screen nil) without recreating the surface.
-        // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
-        // or stale, the surface can appear visually frozen until a focus/visibility change.
-        // SwiftUI also re-enters this path for ordinary state propagation (drag hover, active
-        // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
+        // Ghostty's renderer depends on a valid display id; if it is missing or stale,
+        // the surface can freeze visually until focus/visibility changes. Avoid forcing refresh when the attachment
         // itself is unchanged.
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
-            // The view may have just (re)entered a window: deliver a manual
-            // size that applied while it was detached (the report is state —
-            // a listener's first sample must not depend on attach timing).
             flushPendingManualSizeReportIfAttached()
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
@@ -645,7 +640,6 @@ extension TerminalSurface {
             ]
         )
         onRuntimeReady?()
-
 #if DEBUG
         let runtimeFontText = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)
