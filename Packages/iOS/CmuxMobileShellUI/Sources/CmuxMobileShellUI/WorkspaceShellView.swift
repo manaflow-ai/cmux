@@ -20,6 +20,7 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -136,6 +137,7 @@ struct WorkspaceShellView: View {
                 showAddDevice: showAddDevice,
                 store: store,
                 telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
@@ -240,6 +242,7 @@ struct WorkspaceShellView: View {
                 showAddDevice: showAddDevice,
                 store: store,
                 telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,

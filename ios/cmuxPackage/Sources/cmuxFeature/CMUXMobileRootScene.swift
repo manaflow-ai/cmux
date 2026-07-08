@@ -38,6 +38,7 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     private let telemetryConsentStore: MobileTelemetryConsentStore
+    private let accountDeletionClient: MobileAccountDeletionClient
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -102,6 +103,10 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = MobileAccountDeletionClient(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenProvider: auth.coordinator
+        )
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -257,14 +262,16 @@ public struct CMUXMobileRootScene: View {
             CMUXMobileAppView(
                 store: makeStore(),
                 onboardingStore: onboardingStore,
-                telemetryConsentStore: telemetryConsentStore
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
             )
         }
         #else
         CMUXMobileAppView(
             store: makeStore(),
             onboardingStore: onboardingStore,
-            telemetryConsentStore: telemetryConsentStore
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: accountDeletionClient
         )
         #endif
         #else

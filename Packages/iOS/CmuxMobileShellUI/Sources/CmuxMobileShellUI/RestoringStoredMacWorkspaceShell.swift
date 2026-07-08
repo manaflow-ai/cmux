@@ -10,6 +10,7 @@ struct RestoringStoredMacWorkspaceShell: View {
     let signOut: () -> Void
     let showAddDevice: (() -> Void)?
     let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
     let reconnectStoredMac: () -> Void
 
     @Environment(AuthCoordinator.self) private var authManager
@@ -24,7 +25,8 @@ struct RestoringStoredMacWorkspaceShell: View {
             initialConnectionTimedOut: loadingTimedOut,
             retryInitialConnection: retry,
             showAddDevice: showAddDevice,
-            telemetryConsentStore: telemetryConsentStore
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: accountDeletionClient
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()

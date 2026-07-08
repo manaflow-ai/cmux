@@ -63,6 +63,7 @@ struct WorkspaceListView: View {
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
     let telemetryConsentStore: MobileTelemetryConsentStore
+    var accountDeletionClient: MobileAccountDeletionClient? = nil
 
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -342,7 +343,8 @@ struct WorkspaceListView: View {
                 rescanQR: rescanQR,
                 signOut: signOut,
                 store: store,
-                telemetryConsentStore: telemetryConsentStore
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
             )
         }
         // Present the device tree at the workspace-list level (a single sheet,

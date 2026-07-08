@@ -22,6 +22,7 @@ struct MobileSettingsView: View {
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
     let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -34,6 +35,9 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var showingDeleteAccountConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var accountDeletionErrorMessage: String?
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -44,13 +48,15 @@ struct MobileSettingsView: View {
         rescanQR: (() -> Void)?,
         signOut: (() -> Void)?,
         store: CMUXMobileShellStore?,
-        telemetryConsentStore: MobileTelemetryConsentStore
+        telemetryConsentStore: MobileTelemetryConsentStore,
+        accountDeletionClient: MobileAccountDeletionClient?
     ) {
         self.connectedHostName = connectedHostName
         self.rescanQR = rescanQR
         self.signOut = signOut
         self.store = store
         self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = accountDeletionClient
         _productAnalyticsEnabled = State(initialValue: telemetryConsentStore.isEnabled)
     }
 
@@ -81,14 +87,16 @@ struct MobileSettingsView: View {
                         .accessibilityIdentifier("MobileSettingsSignOut")
                     }
 
-                    if authManager.currentUser != nil {
-                        Link(destination: Self.accountSettingsURL) {
+                    if authManager.currentUser != nil, accountDeletionClient != nil {
+                        Button(role: .destructive) {
+                            showingDeleteAccountConfirmation = true
+                        } label: {
                             Label(
                                 L10n.string("mobile.settings.deleteAccount", defaultValue: "Delete Account"),
                                 systemImage: "trash"
                             )
                         }
-                        .foregroundStyle(.red)
+                        .disabled(isDeletingAccount)
                         .accessibilityIdentifier("MobileSettingsDeleteAccount")
                     }
                 } header: {
@@ -373,6 +381,11 @@ struct MobileSettingsView: View {
                 // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
+            .mobileSettingsAccountDeletionAlerts(
+                showingConfirmation: $showingDeleteAccountConfirmation,
+                errorMessage: $accountDeletionErrorMessage,
+                deleteAccount: deleteAccount
+            )
         }
         .accessibilityIdentifier("MobileSettingsView")
     }
@@ -386,8 +399,6 @@ struct MobileSettingsView: View {
     }
 
     private static let privacyPolicyURL = URL(string: "https://cmux.com/privacy-policy")!
-    private static let accountSettingsURL = URL(string: "https://cmux.com/handler/account-settings")!
-
     private var productAnalyticsBinding: Binding<Bool> {
         Binding(
             get: { productAnalyticsEnabled },
@@ -397,6 +408,29 @@ struct MobileSettingsView: View {
                 analytics.setTelemetryConsentEnabled(newValue)
             }
         )
+    }
+
+    private func deleteAccount() {
+        guard let accountDeletionClient else { return }
+        isDeletingAccount = true
+        Task {
+            do {
+                try await accountDeletionClient.deleteAccount()
+                await MainActor.run {
+                    isDeletingAccount = false
+                    signOut?()
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingAccount = false
+                    accountDeletionErrorMessage = L10n.string(
+                        "mobile.settings.deleteAccountFailedMessage",
+                        defaultValue: "Check your connection and try again. If this keeps failing, contact founders@manaflow.com."
+                    )
+                }
+            }
+        }
     }
 
     /// Whether the Connection section has any rows to show. When this sheet is

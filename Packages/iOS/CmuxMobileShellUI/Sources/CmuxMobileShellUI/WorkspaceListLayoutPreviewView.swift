@@ -76,7 +76,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     selectWorkspace: { selectedWorkspaceID = $0 },
                     createWorkspace: {},
                     macSelection: $macSelection,
-                    telemetryConsentStore: telemetryConsentStore
+                    telemetryConsentStore: telemetryConsentStore,
+                    accountDeletionClient: nil
                 )
             }
         }

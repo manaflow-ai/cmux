@@ -22,6 +22,7 @@ struct CMUXMobileRootView: View {
     /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
     private let telemetryConsentStore: MobileTelemetryConsentStore
+    private let accountDeletionClient: MobileAccountDeletionClient?
     /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
     /// onboarding (which calls `markSeen()` in the button action) re-renders the
     /// root and falls through to the pairing flow. Seeded synchronously from the
@@ -48,11 +49,13 @@ struct CMUXMobileRootView: View {
     init(
         store: CMUXMobileShellStore,
         onboardingStore: MobileOnboardingStore,
-        telemetryConsentStore: MobileTelemetryConsentStore
+        telemetryConsentStore: MobileTelemetryConsentStore,
+        accountDeletionClient: MobileAccountDeletionClient?
     ) {
         self.store = store
         self.onboardingStore = onboardingStore
         self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = accountDeletionClient
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else
@@ -221,6 +224,7 @@ struct CMUXMobileRootView: View {
                 signOut: signOut,
                 showAddDevice: showAddDevice,
                 telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {
@@ -237,7 +241,8 @@ struct CMUXMobileRootView: View {
                 signOut: signOut,
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store,
-                telemetryConsentStore: telemetryConsentStore
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
             )
         } else {
             // Connected, OR we have saved Macs and are auto-connecting in the
@@ -250,7 +255,8 @@ struct CMUXMobileRootView: View {
                 store: store,
                 signOut: signOut,
                 showAddDevice: showAddDevice,
-                telemetryConsentStore: telemetryConsentStore
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
             )
         }
     }

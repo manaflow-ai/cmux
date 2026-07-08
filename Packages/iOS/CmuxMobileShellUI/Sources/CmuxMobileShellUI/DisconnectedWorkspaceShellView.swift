@@ -29,6 +29,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
     let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
 
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
@@ -116,7 +117,8 @@ struct DisconnectedWorkspaceShellView: View {
                 rescanQR: nil,
                 signOut: signOut,
                 store: store,
-                telemetryConsentStore: telemetryConsentStore
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
             )
         }
         .alert(

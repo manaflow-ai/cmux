@@ -4,6 +4,8 @@ import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 
+const privacyPolicyLocales = ["en"] as const;
+
 type PrivacyPolicyBlock =
   | { type: "p"; text: string }
   | { type: "h2"; text: string }
@@ -17,13 +19,13 @@ export async function generateMetadata({
 }: {
   params: Promise<PageParams>;
 }): Promise<Metadata> {
-  const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "privacyPolicyPage" });
+  await params;
+  const t = await getTranslations({ locale: "en", namespace: "privacyPolicyPage" });
 
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/privacy-policy"),
+    alternates: buildAlternates("en", "/privacy-policy", privacyPolicyLocales),
   };
 }
 
@@ -32,8 +34,8 @@ export default async function PrivacyPolicyPage({
 }: {
   params: Promise<PageParams>;
 }) {
-  const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "privacyPolicyPage" });
+  await params;
+  const t = await getTranslations({ locale: "en", namespace: "privacyPolicyPage" });
   const blocks = t.raw("blocks") as PrivacyPolicyBlock[];
 
   return (

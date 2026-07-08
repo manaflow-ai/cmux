@@ -3979,6 +3979,74 @@
         }
       }
     },
+    "mobile.settings.deleteAccountConfirmationMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This permanently deletes your cmux account and signs this device out. This cannot be undone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アカウントを完全に削除し、このデバイスからサインアウトします。この操作は元に戻せません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.deleteAccountConfirmationTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this account?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントを削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.settings.deleteAccountFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your connection and try again. If this keeps failing, contact founders@manaflow.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を確認してからもう一度お試しください。失敗が続く場合は founders@manaflow.com までお問い合わせください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.deleteAccountFailedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could Not Delete Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除できませんでした"
+          }
+        }
+      }
+    },
     "mobile.settings.agentChatDemo": {
       "extractionState": "manual",
       "localizations": {
