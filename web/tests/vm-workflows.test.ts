@@ -336,6 +336,81 @@ describe("VM Effect workflows", () => {
     expect(sweepCalls).toBe(0);
   });
 
+  test("destroyVm bounds best-effort active identity cleanup before destroying", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000130",
+      userId: "user-workflow-destroy-cleanup-bound",
+      providerVmId: "provider-vm-destroy-cleanup-bound",
+      status: "running",
+    });
+    const activeIdentityLeases: CloudVmLeaseRow[] = Array.from({ length: 8 }, (_, index) => ({
+      id: `lease-destroy-cleanup-${index}`,
+      vmId: vm.id,
+      userId: vm.userId,
+      kind: "ssh",
+      tokenHash: `destroy-cleanup-${index}`,
+      providerIdentityHandle: `identity-destroy-cleanup-${index}`,
+      sessionId: null,
+      transport: "ssh",
+      metadata: {},
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: new Date(Date.now() + index),
+    }));
+    const repo = testWorkflowRepo({ vm, activeIdentityLeases });
+    let revokeCalls = 0;
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: () => {
+        revokeCalls += 1;
+        return Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed"));
+      },
+      destroy: () =>
+        Effect.sync(() => {
+          destroyCalls += 1;
+        }),
+    };
+
+    await Effect.runPromise(
+      destroyVm({
+        userId: "user-workflow-destroy-cleanup-bound",
+        providerVmId: "provider-vm-destroy-cleanup-bound",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(revokeCalls).toBe(5);
+    expect(destroyCalls).toBe(1);
+  });
+
+  test("revokeExpiredIdentityLeases uses a small default cron batch", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000131",
+      userId: "user-workflow-expired-default-limit",
+      providerVmId: "provider-vm-expired-default-limit",
+      status: "running",
+    });
+    let requestedLimit = 0;
+    const repo = testWorkflowRepo({
+      vm,
+      expiredIdentityLeases: (input) =>
+        Effect.sync(() => {
+          requestedLimit = input.limit;
+          return [];
+        }),
+    });
+
+    const revoked = await Effect.runPromise(
+      revokeExpiredIdentityLeases().pipe(
+        Effect.provide(workflowLayer(repo, unusedProviderGateway())),
+      ),
+    );
+
+    expect(revoked).toBe(0);
+    expect(requestedLimit).toBe(5);
+  });
+
   test("marks expired identity leases revoked when the provider identity is already gone", async () => {
     const now = new Date();
     const vm = testCloudVmRow({
@@ -4095,7 +4170,12 @@ function testWorkflowRepo(input: {
           closedAt: null,
         } satisfies CloudVmSessionRow;
       }),
-    activeIdentityLeases: () => Effect.succeed(input.activeIdentityLeases ?? []),
+    activeIdentityLeases: (_vmId, limit) =>
+      Effect.succeed(
+        typeof limit === "number" && limit > 0
+          ? (input.activeIdentityLeases ?? []).slice(0, limit)
+          : input.activeIdentityLeases ?? [],
+      ),
     markLeasesRevoked: (leaseIds) =>
       Effect.sync(() => {
         input.revokedLeaseIds?.push(...leaseIds);

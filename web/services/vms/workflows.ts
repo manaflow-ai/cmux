@@ -68,9 +68,11 @@ export type CloudVmSessionEntry = CloudVmSessionRow;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
-const EXPIRED_IDENTITY_REVOKE_BATCH = 50;
+const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
+const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
+const ACTIVE_IDENTITY_DESTROY_CLEANUP_LIMIT = 5;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 
 type ExistingVmAccessInput = {
@@ -1190,7 +1192,7 @@ export function destroyVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
 
-    yield* revokeActiveIdentities(vm);
+    yield* revokeActiveIdentities(vm, { limit: ACTIVE_IDENTITY_DESTROY_CLEANUP_LIMIT });
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
       Effect.catchAll((err) => {
         if (isProviderNotFoundError(err.cause)) return Effect.void;
@@ -1234,7 +1236,7 @@ export function revokeExpiredIdentityLeases(input: {
         retryAfter,
         error: "revoke pending",
       }) ?? Effect.void).pipe(Effect.catchAll(() => Effect.void));
-      const revoked = yield* providers.revokeSSHIdentity(lease.provider, identityHandle).pipe(
+      const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
           if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
@@ -1470,14 +1472,14 @@ function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRo
 
 function revokeActiveIdentities(
   vm: CloudVmRow,
-  options: { readonly failOnCleanupError?: boolean } = {},
+  options: { readonly failOnCleanupError?: boolean; readonly limit?: number } = {},
 ) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const leases = yield* repo.activeIdentityLeases(
       vm.id,
-      options.failOnCleanupError ? ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT + 1 : undefined,
+      options.failOnCleanupError ? ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT + 1 : options.limit,
     );
     if (options.failOnCleanupError && leases.length > ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT) {
       return yield* Effect.fail(new VmProviderOperationError({
@@ -1490,7 +1492,7 @@ function revokeActiveIdentities(
     for (const lease of leases) {
       const identityHandle = lease.providerIdentityHandle;
       if (!identityHandle) continue;
-      const revoked = yield* providers.revokeSSHIdentity(vm.provider, identityHandle).pipe(
+      const revoked = yield* revokeSSHIdentityForCleanup(providers, vm.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
           if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
@@ -1504,6 +1506,24 @@ function revokeActiveIdentities(
     }
     yield* repo.markLeasesRevoked(revokedIds);
   });
+}
+
+function revokeSSHIdentityForCleanup(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  identityHandle: string,
+): Effect.Effect<void, VmProviderOperationError> {
+  return providers.revokeSSHIdentity(provider, identityHandle).pipe(
+    Effect.timeoutFail({
+      duration: IDENTITY_REVOKE_PROVIDER_TIMEOUT,
+      onTimeout: () =>
+        new VmProviderOperationError({
+          provider,
+          operation: "revokeSSHIdentity",
+          cause: new Error("identity revoke timed out"),
+        }),
+    }),
+  );
 }
 
 function storeEndpointLeases(vm: CloudVmRow, endpoint: AttachEndpoint | SSHEndpoint) {
