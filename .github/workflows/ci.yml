@@ -388,7 +388,7 @@ jobs:
     needs:
       - changes
       - linux-preflight
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.macos == 'true' && needs.linux-preflight.result == 'success' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
@@ -772,7 +772,7 @@ jobs:
     needs:
       - changes
       - linux-preflight
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.macos == 'true' && needs.linux-preflight.result == 'success' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 40
     env:
@@ -1076,7 +1076,7 @@ jobs:
     needs:
       - changes
       - linux-preflight
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.macos == 'true' && needs.linux-preflight.result == 'success' }}
     # Build the full cmux scheme once, then run the required display/runtime
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
@@ -1412,7 +1412,7 @@ jobs:
       - changes
       - linux-preflight
       - swift-package-tests
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.macos == 'true' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
