@@ -167,7 +167,7 @@ extension CMUXCLI {
             )
             if let layer = resolve["layer"] as? [String: Any],
                let stepIndex = layer["step_index"] as? Int,
-               let snapshotId = layer["snapshot_id"] as? String,
+               let snapshotId = layer["snapshot_id"] as? String, !snapshotId.isEmpty,
                stepIndex >= 0, stepIndex < spec.steps.count {
                 cachedLayerIndex = stepIndex
                 restoredSnapshotId = snapshotId

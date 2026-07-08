@@ -124,6 +124,12 @@ enum VMEnvSpecCodec {
             guard let (key, rest) = splitKey(line.trimmingCharacters(in: .whitespaces)), !rest.isEmpty else {
                 throw VMEnvSpecParseError(line: index + 1, message: "`env` entries must be `KEY: value`")
             }
+            // Keys are emitted as `export KEY=...` in bash step scripts, so
+            // anything that is not a valid shell identifier fails at parse
+            // time instead of breaking every step under `set -e`.
+            if !isShellIdentifier(key) {
+                throw VMEnvSpecParseError(line: index + 1, message: "env key `\(key)` must match [A-Za-z_][A-Za-z0-9_]* (it is exported to the step shell)")
+            }
             if result[key] != nil {
                 throw VMEnvSpecParseError(line: index + 1, message: "duplicate env key `\(key)`")
             }
@@ -299,6 +305,14 @@ enum VMEnvSpecCodec {
             if char == " " { count += 1 } else { break }
         }
         return count
+    }
+
+    private static func isShellIdentifier(_ key: String) -> Bool {
+        guard let first = key.unicodeScalars.first else { return false }
+        guard first == "_" || (first >= "A" && first <= "Z") || (first >= "a" && first <= "z") else { return false }
+        return key.unicodeScalars.dropFirst().allSatisfy { scalar in
+            scalar == "_" || (scalar >= "0" && scalar <= "9") || (scalar >= "A" && scalar <= "Z") || (scalar >= "a" && scalar <= "z")
+        }
     }
 
     private static func splitKey(_ text: String) -> (key: String, rest: String)? {
