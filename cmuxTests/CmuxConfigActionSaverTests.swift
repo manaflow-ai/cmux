@@ -329,10 +329,10 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
-    @Test func commandLineUnwrapsNodeCodexAndStripsCmuxHooks() {
+    @Test func commandLinePreservesNodeCodexRuntimeAndStripsCmuxHooks() {
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv()) ==
-                "codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.5 -c model_reasoning_effort=xhigh"
+                "node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.5 -c model_reasoning_effort=xhigh"
         )
     }
 
@@ -354,12 +354,9 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
-    @Test func commandLineReplaysNativeWrappedCodexThroughBareName() {
-        // Native install: the cmux wrapper execs the resolved absolute binary
-        // with its injected hook args. The marker proves the user typed
-        // `codex`, so the saved command must be the bare name (replay
-        // re-enters the per-surface PATH shim and hooks are re-injected),
-        // never the absolute real binary that would bypass the shim.
+    @Test func commandLineKeepsNativeCodexExecutableWhenOnlyHooksLookInjected() {
+        // Codex hook config is normal user-controllable argv, so it is not proof
+        // that cmux's PATH shim launched the captured absolute executable.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "/usr/local/bin/codex",
@@ -370,7 +367,7 @@ struct CmuxConfigActionSaverTests {
                 "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
                 "--model",
                 "gpt-5.5",
-            ]) == "codex --model gpt-5.5"
+            ]) == "/usr/local/bin/codex --model gpt-5.5"
         )
         // Without the marker the user's own absolute-path launch is preserved.
         #expect(
@@ -380,10 +377,13 @@ struct CmuxConfigActionSaverTests {
         )
         let explicitPinnedCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
             "/opt/pinned/bin/codex",
-            "--model",
-            "gpt-5.5",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
             "-c",
             "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "--model",
+            "gpt-5.5",
         ])
         #expect(explicitPinnedCommand?.hasPrefix("/opt/pinned/bin/codex ") == true)
         #expect(explicitPinnedCommand?.hasPrefix("codex ") == false)

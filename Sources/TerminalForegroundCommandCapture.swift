@@ -73,11 +73,12 @@ enum TerminalForegroundCommandCapture {
     /// Turns a captured argv into a re-runnable one-liner. argv[0] is preserved
     /// verbatim for ordinary commands (it is the form the user invoked — bare
     /// name, `./gradlew`, or an absolute path — and panes replay from their
-    /// saved cwd). node/bun-hosted known agents unwrap to the bare agent name
-    /// first so replay resolves through cmux's per-surface PATH shim — but only
-    /// when the argv carries cmux's own injected hook arguments, the
-    /// deterministic proof the shim launched it from a bare name (a user's own
-    /// script or directly-launched install is never rewritten). Known
+    /// saved cwd). node/bun-hosted known agents with strong wrapper identity
+    /// markers unwrap to the bare agent name first so replay resolves through
+    /// cmux's per-surface PATH shim — but only
+    /// when the argv carries an identity-proving cmux wrapper marker; Codex hook
+    /// config alone is user-controllable and is not enough to rewrite an
+    /// executable path. Known
     /// agent argv then goes through the shared provider-aware
     /// `AgentLaunchSanitizer` so stale session/resume artifacts never replay,
     /// and every token including the executable is shell-quoted so nothing
@@ -103,12 +104,11 @@ enum TerminalForegroundCommandCapture {
                 // starts a fresh session.
                 sanitizedArgv = [executable]
             }
-            // The wrapper marker (checked on the pre-sanitization argv — the
-            // sanitizer strips it) proves the user launched the agent by bare
-            // name and the shim resolved it to this absolute binary. Save the
-            // bare name so replay routes back through the per-surface PATH
-            // shim and cmux hooks are re-injected fresh; a marker-less argv
-            // (user typed a path themselves) keeps its executable verbatim.
+            // A strong wrapper marker (checked on the pre-sanitization argv —
+            // the sanitizer may strip it) proves the user launched the agent by
+            // bare name and the shim resolved it to this absolute binary. Save
+            // the bare name so replay routes back through the per-surface PATH
+            // shim; marker-less argv keeps its executable verbatim.
             if !sanitizedArgv.isEmpty,
                runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(argv) {
                 sanitizedArgv[0] = executableName

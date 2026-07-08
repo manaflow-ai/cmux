@@ -18,8 +18,11 @@ func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
     return Array(args.dropFirst(injectedPrefixEnd))
 }
 
-func codexReplayExecutable(capturedExecutable: String, launchTail: [String]) -> String {
-    cmuxInjectedCodexHookArgumentPrefixEnd(launchTail) == nil ? capturedExecutable : "codex"
+func codexReplayExecutable(capturedExecutable: String, launchTail _: [String]) -> String {
+    // Codex hook config is normal user-controllable argv. It is safe to strip
+    // cmux's injected hook prefix from replay options, but it is not identity
+    // proof that the captured executable came from cmux's PATH shim.
+    capturedExecutable
 }
 
 struct CodexForkCommand {
@@ -191,13 +194,11 @@ private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
     "stop": ["session-stop"],
 ]
 
-/// The agent whose cmux wrapper injected hook arguments into captured argv, or
-/// nil when no cmux-injected marker is present. A non-nil name is the
-/// deterministic signal that cmux's PATH shim wrapper for that agent spawned
-/// this process from a bare agent name (vs the user launching a script or
-/// explicit path directly).
+/// The agent whose cmux wrapper injected identity-proving hook arguments into
+/// captured argv, or nil when no safe marker is present. Codex hook configs are
+/// normal user-controllable CLI arguments, so they are intentionally not used as
+/// executable identity proof here.
 func cmuxWrapperInjectedAgentNameFromArgumentPrefix(_ args: [String]) -> String? {
-    if cmuxInjectedCodexHookArgumentPrefixEnd(args) != nil { return "codex" }
     if cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(args) != nil { return "claude" }
     return nil
 }

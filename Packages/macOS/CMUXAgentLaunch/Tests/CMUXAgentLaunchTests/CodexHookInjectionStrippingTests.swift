@@ -13,7 +13,7 @@ struct CodexHookInjectionStrippingTests {
                 launcher: "",
                 fallbackKind: "codex"
             ) == [
-                "codex",
+                codexExecutable,
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--model",
                 "gpt-5.5",
@@ -38,7 +38,7 @@ struct CodexHookInjectionStrippingTests {
                 ],
                 launcher: "",
                 fallbackKind: "codex"
-            ) == ["codex", "--model", "gpt-5.5"]
+            ) == [codexExecutable, "--model", "gpt-5.5"]
         )
     }
 
@@ -59,7 +59,7 @@ struct CodexHookInjectionStrippingTests {
                 ],
                 launcher: "",
                 fallbackKind: "codex"
-            ) == ["codex", "--model", "gpt-5.5"]
+            ) == [codexExecutable, "--model", "gpt-5.5"]
         )
     }
 
@@ -87,7 +87,7 @@ struct CodexHookInjectionStrippingTests {
                 launcher: "",
                 fallbackKind: "codex"
             ) == [
-                "codex",
+                codexExecutable,
                 "--enable",
                 "hooks",
                 "-c",
@@ -137,15 +137,14 @@ struct CodexHookInjectionStrippingTests {
         #expect(!resume.contains("--enable"))
         #expect(!resume.contains("hooks"))
         #expect(!resume.contains { $0.contains("cmux-codex-hook") })
-        #expect(resume.first == "codex")
-        #expect(!resume.contains(codexExecutable))
+        #expect(resume.first == codexExecutable)
         #expect(resume.contains("--dangerously-bypass-approvals-and-sandbox"))
         #expect(resume.contains("gpt-5.5"))
         #expect(resume.contains("model_reasoning_effort=xhigh"))
     }
 
-    @Test("Codex fork preservation routes through wrapper when stripping cmux hooks")
-    func codexForkPreservationRoutesThroughWrapperWhenStrippingCmuxHooks() throws {
+    @Test("Codex fork preservation keeps captured executable when stripping cmux hooks")
+    func codexForkPreservationKeepsCapturedExecutableWhenStrippingCmuxHooks() throws {
         let fork = try #require(AgentForkArgv().builtInKind(
             kind: "codex",
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
@@ -154,8 +153,7 @@ struct CodexHookInjectionStrippingTests {
         ))
         #expect(!fork.contains("--dangerously-bypass-hook-trust"))
         #expect(!fork.contains { $0.contains("cmux-codex-hook") })
-        #expect(fork.first == "codex")
-        #expect(!fork.contains(codexExecutable))
+        #expect(fork.first == codexExecutable)
     }
 
     @Test("Claude cmux hook settings still sanitize")
@@ -188,12 +186,12 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
-    @Test("Unwraps node-hosted known agent argv")
-    func unwrapsNodeHostedKnownAgentArgv() {
+    @Test("Unwrap preserves node-hosted Codex without identity proof")
+    func unwrapPreservesNodeHostedCodexWithoutIdentityProof() {
         #expect(
             runtimeUnwrapper.unwrappedArgv(
                 ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
-            ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
+            ) == ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex", "--model", "gpt-5.5"]
         )
     }
 
@@ -231,8 +229,8 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
-    @Test("Unwrap derives the agent name from the cmux marker for package entrypoints")
-    func unwrapDerivesAgentNameFromCmuxMarkerForPackageEntrypoints() {
+    @Test("Unwrap derives Claude agent name from cmux marker for package entrypoints")
+    func unwrapDerivesClaudeAgentNameFromCmuxMarkerForPackageEntrypoints() {
         // Claude Code's real npm entrypoint is cli.js — the basename never
         // matches an agent name, so the injected-marker identity is used when
         // the script lives inside that agent's own npm package directory.
@@ -270,7 +268,12 @@ struct CodexHookInjectionStrippingTests {
         #expect(
             runtimeUnwrapper.unwrappedArgv(
                 ["node", "/opt/homebrew/lib/node_modules/@openai/codex/dist/cli.js"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
-            ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
+            ) == ["node", "/opt/homebrew/lib/node_modules/@openai/codex/dist/cli.js", "--model", "gpt-5.5"]
+        )
+        #expect(
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex", cmuxClaudeHookSettingsMarker]
+            ) == nil
         )
         // Hook-looking argv contents on a script outside the agent's package
         // must never rewrite it into an agent command.
@@ -286,12 +289,12 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
-    @Test("Unwrap accepts bun-hosted known agents")
-    func unwrapAcceptsBunHostedKnownAgents() {
+    @Test("Unwrap preserves bun-hosted Codex without identity proof")
+    func unwrapPreservesBunHostedCodexWithoutIdentityProof() {
         #expect(
             runtimeUnwrapper.unwrappedArgv(
                 ["bun", "/Users/u/.bun/install/global/node_modules/@openai/codex/bin/codex.mjs"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
-            ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
+            ) == ["bun", "/Users/u/.bun/install/global/node_modules/@openai/codex/bin/codex.mjs", "--model", "gpt-5.5"]
         )
     }
 
@@ -326,7 +329,7 @@ struct CodexHookInjectionStrippingTests {
 
     @Test("Wrapper marker detection identifies injected argv")
     func wrapperMarkerDetectionIdentifiesInjectedArgv() {
-        #expect(runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(realisticCodexHookArgv()))
+        #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(realisticCodexHookArgv()))
         #expect(runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             "/Users/u/.local/bin/claude", cmuxClaudeHookSettingsMarker,
         ]))
@@ -352,10 +355,13 @@ struct CodexHookInjectionStrippingTests {
         )
         #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             codexExecutable,
-            "--model",
-            "gpt-5.5",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
             "-c",
             "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "--model",
+            "gpt-5.5",
         ]))
         #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             codexExecutable, "--model", "gpt-5.5",
