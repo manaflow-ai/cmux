@@ -58,9 +58,12 @@ export async function deleteAccountWithDependencies(
   if (!user) return unauthorized();
 
   dependencies.assertPostHogDeletionConfigured();
-  await dependencies.markStackUserDeletionInProgress(user);
-
   const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });
+
+  if (deletion.status !== "completed") {
+    await dependencies.markStackUserDeletionInProgress(user);
+  }
+
   if (deletion.status !== "completed") {
     dependencies.scheduleAfterResponse(async () => {
       try {
