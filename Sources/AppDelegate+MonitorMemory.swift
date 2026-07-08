@@ -72,11 +72,10 @@ extension AppDelegate {
     /// (issue #2135), then re-clamps any window whose titlebar is still
     /// unreachable (#6913 safety net).
     ///
-    /// CoreGraphics display reconfiguration callbacks gate the transaction
-    /// boundary. The capture firewall is only released by a later capture
-    /// attempt that observes the reconciled signature from the latest display
-    /// generation while no transaction is active. A nil signature leaves the
-    /// previous restore baseline intact.
+    /// CoreGraphics/AppKit display-change callbacks advance the display
+    /// generation. The capture firewall is only released by a later capture
+    /// attempt that observes the reconciled signature from the latest
+    /// generation. A nil signature leaves the previous restore baseline intact.
     func scheduleScreenChangeReconcileWhenIdle() {
         NotificationQueue.default.enqueue(
             Notification(name: Self.screenChangeReconcileNotification, object: self),
@@ -107,10 +106,7 @@ extension AppDelegate {
     func handleDisplayReconfiguration(isBeginning: Bool) {
         displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
-        if isBeginning {
-            isDisplayReconfigurationTransactionOpen = true
-        } else {
-            isDisplayReconfigurationTransactionOpen = false
+        if !isBeginning {
             scheduleScreenChangeReconcileWhenIdle()
         }
     }
@@ -118,9 +114,7 @@ extension AppDelegate {
     func handleScreenParametersDidChange() {
         displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
-        if !isDisplayReconfigurationTransactionOpen {
-            scheduleScreenChangeReconcileWhenIdle()
-        }
+        scheduleScreenChangeReconcileWhenIdle()
     }
 
     func reconcileMainWindowFramesAfterScreenChange() {
@@ -129,7 +123,6 @@ extension AppDelegate {
         // mid-teardown geometry. Leaving suppression armed fails closed; restore
         // completion reruns this pass if a screen change was skipped.
         guard !isApplyingSessionRestore, !isTerminatingApp else { return }
-        guard !isDisplayReconfigurationTransactionOpen else { return }
         let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else {
             requeueScreenChangeReconcileIfPossible()
