@@ -19,6 +19,9 @@ public final class FleetEngine {
 
     var fleets: [FleetID: FleetRuntimeState] = [:]
 
+    /// Callback fired after Fleet runtime state changes.
+    public var onStateChange: (@MainActor () -> Void)?
+
     /// Creates a Fleet engine and restores persisted state, if any exists.
     /// - Parameter dependencies: The dependencies used for all imperative effects.
     public init(dependencies: FleetEngineDependencies) {
@@ -80,6 +83,7 @@ public final class FleetEngine {
             scheduledStallAttemptByTaskID: [:]
         )
         persistSnapshot()
+        notifyStateChanged()
         return .success(config)
     }
 
@@ -92,6 +96,7 @@ public final class FleetEngine {
         runtime.isRunning = true
         fleets[id] = runtime
         persistSnapshot()
+        notifyStateChanged()
         scheduleReconcileTimerIfNeeded()
         dispatchTick()
         return true
@@ -106,6 +111,7 @@ public final class FleetEngine {
         runtime.isRunning = false
         fleets[id] = runtime
         persistSnapshot()
+        notifyStateChanged()
         if !anyFleetRunning {
             dependencies.timers.cancel(key: Self.reconcileTimerKey)
         }
@@ -176,6 +182,7 @@ public final class FleetEngine {
         runtime.tasks[id] = task
         fleets[fleetID] = runtime
         persistSnapshot()
+        notifyStateChanged()
         if runtime.isRunning {
             dispatchTick()
         }
@@ -261,6 +268,10 @@ public final class FleetEngine {
         dependencies.persistence.save(FleetPersistedState(fleets: persisted))
     }
 
+    func notifyStateChanged() {
+        onStateChange?()
+    }
+
     func restore() {
         guard let snapshot = dependencies.persistence.load() else { return }
         fleets.removeAll()
@@ -314,6 +325,7 @@ public final class FleetEngine {
         if after == before {
             return .invalidState(before.state)
         }
+        notifyStateChanged()
         return .ok(after)
     }
 }

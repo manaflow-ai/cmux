@@ -12,6 +12,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let customSidebarNameKey = "rightSidebar.customSidebarName"
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+    private let fleetEnabledKey = RightSidebarBetaFeatureSettings.fleetEnabledKey
 
     func testDisabledFeedStoredModeFallsBackToFiles() {
         withSavedRightSidebarModeDefaults {
@@ -44,6 +45,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: feedEnabledKey)
             defaults.set(false, forKey: dockEnabledKey)
+            defaults.set(false, forKey: fleetEnabledKey)
             let state = FileExplorerState()
 
             state.mode = .feed
@@ -56,6 +58,16 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
 
             defaults.set(false, forKey: dockEnabledKey)
+            state.refreshModeAvailability()
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+
+            defaults.set(true, forKey: fleetEnabledKey)
+            state.mode = .fleet
+            XCTAssertEqual(state.mode, .fleet)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.fleet.rawValue)
+
+            defaults.set(false, forKey: fleetEnabledKey)
             state.refreshModeAvailability()
             XCTAssertEqual(state.mode, .files)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
@@ -82,6 +94,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "fleet"), .fleet)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
         XCTAssertNil(RightSidebarMode.from(cliArgument: "custom-sidebar"))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "custom"))
@@ -94,11 +107,13 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         let previousCustomSidebarName = defaults.object(forKey: customSidebarNameKey)
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        let previousFleetEnabled = defaults.object(forKey: fleetEnabledKey)
         defer {
             restore(previousMode, forKey: modeKey)
             restore(previousCustomSidebarName, forKey: customSidebarNameKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
+            restore(previousFleetEnabled, forKey: fleetEnabledKey)
         }
         body()
     }

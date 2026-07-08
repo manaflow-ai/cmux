@@ -14,6 +14,7 @@ struct FleetTestSupport {
         priority: Int? = nil,
         isBlocked: Bool = false,
         createdAt: Date = baseDate,
+        updatedAt: Date = baseDate,
         pr: FleetPullRequestStatus? = nil,
         lastError: String? = nil
     ) -> FleetTask {
@@ -28,7 +29,7 @@ struct FleetTestSupport {
             sourceState: "open",
             isBlocked: isBlocked,
             createdAt: createdAt,
-            updatedAt: baseDate,
+            updatedAt: updatedAt,
             state: state,
             attempts: attempts,
             workspaceID: "workspace-1",
@@ -46,6 +47,7 @@ struct FleetTestSupport {
         priority: Int? = nil,
         isBlocked: Bool = false,
         createdAt: Date = baseDate,
+        updatedAt: Date = baseDate,
         pr: FleetPullRequestStatus? = nil,
         lastError: String? = nil
     ) -> FleetTask {
@@ -57,6 +59,7 @@ struct FleetTestSupport {
             priority: priority,
             isBlocked: isBlocked,
             createdAt: createdAt,
+            updatedAt: updatedAt,
             pr: pr,
             lastError: lastError
         )

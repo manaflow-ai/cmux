@@ -12,57 +12,6 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     return String(describing: type(of: responder))
 }
 
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
-}
-
 nonisolated enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
         isRightSidebarVisible || hasMountedContent
@@ -75,7 +24,7 @@ nonisolated enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .fleet, .customSidebar:
             return false
         }
     }
@@ -136,6 +85,8 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.fleetEnabledKey)
+    private var fleetEnabled = RightSidebarBetaFeatureSettings.defaultFleetEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -145,7 +96,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled, fleetEnabled: fleetEnabled)
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -211,6 +162,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: fleetEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -401,6 +353,8 @@ struct RightSidebarPanelView: View {
                 FeedPanelView()
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
+            case .fleet:
+                FleetBoardPanelView()
             case .customSidebar:
                 EmptyView()
             }

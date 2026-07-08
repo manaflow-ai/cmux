@@ -749,6 +749,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "rightSidebarFleet",
+                settingsKey: "betaFeatures.fleet",
+                title: {
+                    String(localized: "settings.betaFeatures.fleet", defaultValue: "Fleet")
+                },
+                sectionTitle: beta,
+                keywords: ["betaFeatures.fleet", "fleet", "right", "sidebar", "beta", "task", "board"],
+                defaultValue: RightSidebarBetaFeatureSettings.defaultFleetEnabled,
+                defaultsKey: RightSidebarBetaFeatureSettings.fleetEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {

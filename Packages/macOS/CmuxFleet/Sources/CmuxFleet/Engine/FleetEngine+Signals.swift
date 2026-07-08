@@ -80,6 +80,7 @@ extension FleetEngine {
         }
         if next != task {
             persistSnapshot()
+            notifyStateChanged()
         }
         if task.state != next.state {
             dispatchTick()
@@ -129,6 +130,7 @@ extension FleetEngine {
             _ = fleetID
         }
         persistSnapshot()
+        notifyStateChanged()
         dispatchTick()
         scheduleReconcileTimerIfNeeded()
     }

@@ -9,6 +9,7 @@ import SwiftUI
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var fleet: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
@@ -16,6 +17,7 @@ public struct BetaFeaturesSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _fleet = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFleet))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -33,6 +35,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 dockRow
                 SettingsCardDivider()
+                fleetRow
+                SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
@@ -47,6 +51,7 @@ public struct BetaFeaturesSection: View {
         let models: [any SettingObservationStarting] = [
             feed,
             dock,
+            fleet,
             extensions,
             customSidebars,
             remoteTmux,
@@ -85,6 +90,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var fleetRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:fleet",
+            String(localized: "settings.betaFeatures.fleet", defaultValue: "Fleet"),
+            subtitle: fleet.current
+                ? String(localized: "settings.betaFeatures.fleet.subtitleOn", defaultValue: "Shows Fleet in the right sidebar mode switcher for task board monitoring.")
+                : String(localized: "settings.betaFeatures.fleet.subtitleOff", defaultValue: "Hides Fleet from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { fleet.current }, set: { fleet.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaFleetToggle")
         }
     }
 

@@ -335,6 +335,49 @@ struct FleetEngineTests {
         #expect(harness.actuator.notifications.count == notificationCount)
     }
 
+    @Test
+    func onStateChangeFiresForPublicMutationsAndReducedSignals() async throws {
+        let harness = FleetEngineHarness()
+        let engine = harness.engine()
+        let tempRoot = try Self.tempDirectory()
+        var callbackCount = 0
+        engine.onStateChange = {
+            callbackCount += 1
+        }
+
+        let fleet = try engine.createFleet(name: "Fleet", repoRoot: tempRoot.path, agentCommandTemplate: nil, maxConcurrent: nil).get()
+        let afterCreate = callbackCount
+        #expect(afterCreate > 0)
+
+        let task = try engine.addTask(fleetID: fleet.id, title: "Task", body: nil, priority: nil).get()
+        let afterAdd = callbackCount
+        #expect(afterAdd > afterCreate)
+
+        #expect(engine.startFleet(id: fleet.id))
+        await Task.yield()
+        await Task.yield()
+        let afterStart = callbackCount
+        #expect(afterStart > afterAdd)
+
+        let launching = try #require(try engine.tasks(fleetID: fleet.id, state: .launching).get().first?.task)
+        harness.world.existingWorkspaces.insert(launching.workspaceID!)
+        engine.noteWorkstreamHook(workspaceID: launching.workspaceID!, sessionID: "s1", pid: nil, kind: .sessionStart, at: harness.dateBox.now)
+        let afterSignal = callbackCount
+        #expect(afterSignal > afterStart)
+
+        #expect(engine.stopFleet(id: fleet.id))
+        let afterStop = callbackCount
+        #expect(afterStop > afterSignal)
+
+        #expect(engine.cancelTask(id: task.id).isOK)
+        let afterCancel = callbackCount
+        #expect(afterCancel > afterStop)
+
+        #expect(engine.retryTask(id: task.id).isOK)
+        let afterRetry = callbackCount
+        #expect(afterRetry > afterCancel)
+    }
+
     private static func createFleet(
         _ engine: FleetEngine,
         repoRoot: URL,

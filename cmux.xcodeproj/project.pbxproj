@@ -591,7 +591,12 @@
 		C0DEF1000000000000000032 /* FleetAppPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000031 /* FleetAppPersistence.swift */; };
 		C0DEF1000000000000000042 /* FleetAppTimers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000041 /* FleetAppTimers.swift */; };
 		C0DEF1000000000000000052 /* FleetAppWorldReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000051 /* FleetAppWorldReader.swift */; };
+		C0DE73610000000000000002 /* FleetBoardPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73610000000000000001 /* FleetBoardPanelView.swift */; };
+		C0DE73610000000000000004 /* FleetBoardRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73610000000000000003 /* FleetBoardRows.swift */; };
+		C0DE73610000000000000006 /* FleetBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73610000000000000005 /* FleetBoardStore.swift */; };
+		C0DE73610000000000000008 /* FleetConfigSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73610000000000000007 /* FleetConfigSheet.swift */; };
 		C0DEF1000000000000000062 /* FleetControlSocketMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */; };
+		C0DE7361000000000000000A /* FleetTaskWorkspaceOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73610000000000000009 /* FleetTaskWorkspaceOpener.swift */; };
 		F0C05170000000000000002 /* FocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C05170000000000000001 /* FocusHistory.swift */; };
 		C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */; };
 		5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */; };
@@ -900,6 +905,7 @@
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
+		C0DE7361000000000000000C /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7361000000000000000B /* RightSidebarMode.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
@@ -1916,7 +1922,12 @@
 		C0DEF1000000000000000031 /* FleetAppPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppPersistence.swift; sourceTree = "<group>"; };
 		C0DEF1000000000000000041 /* FleetAppTimers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppTimers.swift; sourceTree = "<group>"; };
 		C0DEF1000000000000000051 /* FleetAppWorldReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppWorldReader.swift; sourceTree = "<group>"; };
+		C0DE73610000000000000001 /* FleetBoardPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetBoardPanelView.swift; sourceTree = "<group>"; };
+		C0DE73610000000000000003 /* FleetBoardRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetBoardRows.swift; sourceTree = "<group>"; };
+		C0DE73610000000000000005 /* FleetBoardStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetBoardStore.swift; sourceTree = "<group>"; };
+		C0DE73610000000000000007 /* FleetConfigSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetConfigSheet.swift; sourceTree = "<group>"; };
 		C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetControlSocketMapping.swift; sourceTree = "<group>"; };
+		C0DE73610000000000000009 /* FleetTaskWorkspaceOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetTaskWorkspaceOpener.swift; sourceTree = "<group>"; };
 		F0C05170000000000000001 /* FocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistory.swift; sourceTree = "<group>"; };
 		C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryMenuInvalidator.swift; sourceTree = "<group>"; };
 		5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusStealingResponderConformances.swift; sourceTree = "<group>"; };
@@ -2221,6 +2232,7 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
+		C0DE7361000000000000000B /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarMode.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelViewTestSupport.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
@@ -3590,6 +3602,7 @@
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
+				C0DE7361000000000000000B /* RightSidebarMode.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
@@ -4078,7 +4091,12 @@
 				C0DEF1000000000000000031 /* FleetAppPersistence.swift */,
 				C0DEF1000000000000000041 /* FleetAppTimers.swift */,
 				C0DEF1000000000000000051 /* FleetAppWorldReader.swift */,
+				C0DE73610000000000000001 /* FleetBoardPanelView.swift */,
+				C0DE73610000000000000003 /* FleetBoardRows.swift */,
+				C0DE73610000000000000005 /* FleetBoardStore.swift */,
+				C0DE73610000000000000007 /* FleetConfigSheet.swift */,
 				C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */,
+				C0DE73610000000000000009 /* FleetTaskWorkspaceOpener.swift */,
 			);
 			name = Fleet;
 			path = Fleet;
@@ -4816,7 +4834,12 @@
 				C0DEF1000000000000000032 /* FleetAppPersistence.swift in Sources */,
 				C0DEF1000000000000000042 /* FleetAppTimers.swift in Sources */,
 				C0DEF1000000000000000052 /* FleetAppWorldReader.swift in Sources */,
+				C0DE73610000000000000002 /* FleetBoardPanelView.swift in Sources */,
+				C0DE73610000000000000004 /* FleetBoardRows.swift in Sources */,
+				C0DE73610000000000000006 /* FleetBoardStore.swift in Sources */,
+				C0DE73610000000000000008 /* FleetConfigSheet.swift in Sources */,
 				C0DEF1000000000000000062 /* FleetControlSocketMapping.swift in Sources */,
+				C0DE7361000000000000000A /* FleetTaskWorkspaceOpener.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */,
 				5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */,
@@ -5018,6 +5041,7 @@
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
+				C0DE7361000000000000000C /* RightSidebarMode.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,

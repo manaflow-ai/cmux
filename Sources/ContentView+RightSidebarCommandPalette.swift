@@ -118,8 +118,9 @@ extension ContentView {
             { _ in value }
         }
 
-        return commandPaletteRightSidebarToolPaneCommandDescriptors().map { descriptor in
-            CommandPaletteCommandContribution(
+        return commandPaletteRightSidebarToolPaneCommandDescriptors().compactMap { descriptor in
+            guard descriptor.mode.isAvailable() else { return nil }
+            return CommandPaletteCommandContribution(
                 commandId: descriptor.commandId,
                 title: constant(descriptor.title),
                 subtitle: constant(String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")),
@@ -140,6 +141,8 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .fleet:
+            return "palette.showRightSidebarFleet"
         case .customSidebar:
             return "palette.showRightSidebarCustomSidebar"
         }
@@ -163,6 +166,8 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
+        case .fleet:
+            return "palette.openFleetPane"
         case .feed, .dock, .customSidebar:
             return nil
         }
@@ -176,6 +181,8 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
+        case .fleet:
+            return String(localized: "command.openFleetPane.title", defaultValue: "Open Fleet as Pane")
         case .feed, .dock, .customSidebar:
             return nil
         }
@@ -199,6 +206,10 @@ extension ContentView {
     }
 
     func handleCommandPaletteRightSidebarToolPane(_ mode: RightSidebarMode) {
+        guard mode.isAvailable() else {
+            NSSound.beep()
+            return
+        }
         openRightSidebarToolPane(mode)
     }
 
