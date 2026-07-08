@@ -7,8 +7,10 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmLeases,
   cloudVmNotificationDeliveries,
   cloudVmNotificationEvents,
+  cloudVmSessions,
   cloudVmUsageEvents,
   cloudVms,
   deviceTokens,
@@ -98,6 +100,8 @@ export async function deleteCmuxAccountData(input: AccountDeletionInput): Promis
       .where(eq(cloudVmNotificationDeliveries.userId, input.userId));
     await tx.delete(cloudVmNotificationEvents)
       .where(eq(cloudVmNotificationEvents.userId, input.userId));
+    await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, input.userId));
+    await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, input.userId));
     await tx.delete(cloudVmUsageEvents).where(or(
       eq(cloudVmUsageEvents.userId, input.userId),
       eq(cloudVmUsageEvents.billingTeamId, input.userId),

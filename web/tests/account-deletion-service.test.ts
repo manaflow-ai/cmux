@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { cloudVmLeases, cloudVmSessions } from "../db/schema";
 
 const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
@@ -65,6 +66,8 @@ describe("account deletion cleanup", () => {
       providerVmId: "provider-vm-1",
     });
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
+    expect(calls).toContain("delete-cloud-vm-sessions");
+    expect(calls).toContain("delete-cloud-vm-leases");
   });
 
   test("fails closed when provider-backed VMs keep appearing", async () => {
@@ -110,7 +113,11 @@ function fakeDb() {
 function fakeTransaction() {
   return {
     update: () => updateBuilder(),
-    delete: () => writeBuilder(),
+    delete: (table: unknown) => {
+      if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
+      if (table === cloudVmLeases) return writeBuilder("delete-cloud-vm-leases");
+      return writeBuilder();
+    },
   };
 }
 
@@ -134,8 +141,11 @@ function updateBuilder(label?: string) {
   return builder;
 }
 
-function writeBuilder() {
+function writeBuilder(label?: string) {
   return {
-    where: async () => [],
+    where: async () => {
+      if (label) calls.push(label);
+      return [];
+    },
   };
 }
