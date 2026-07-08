@@ -9,7 +9,7 @@
         },
         {
           "name": "readiness",
-          "run": "ios/scripts/validate-app-store-release.sh --app \"$APP_ID\" --version \"$VERSION\" ${BUILD_NUMBER:+--build-number \"$BUILD_NUMBER\"} ${STRICT_VALIDATE:+--strict}"
+          "run": "set -- --app \"$APP_ID\" --version \"$VERSION\"; if [ -n \"${BUILD_NUMBER:-}\" ]; then set -- \"$@\" --build-number \"$BUILD_NUMBER\"; fi; if [ -n \"${STRICT_VALIDATE:-}\" ]; then set -- \"$@\" --strict; fi; ios/scripts/validate-app-store-release.sh \"$@\""
         }
       ]
     },
