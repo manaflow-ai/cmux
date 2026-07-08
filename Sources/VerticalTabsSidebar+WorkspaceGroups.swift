@@ -69,7 +69,7 @@ extension VerticalTabsSidebar {
             dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload(tabId: anchorId).provider()
         }
-        let header = SidebarWorkspaceGroupHeaderView(
+        let headerView = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
@@ -184,13 +184,22 @@ extension VerticalTabsSidebar {
             },
             onOpenDocs: {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
+            },
+            onContextMenuTrackingEnded: {
+                sidebarHoverCoordinator.reconcileCurrentPointer()
             }
         )
+        let header = headerView
         .equatable()
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
 
         header
+            .sidebarRowHoverRegistration(
+                rowID: group.anchorWorkspaceId,
+                coordinator: sidebarHoverCoordinator,
+                isHovered: headerView.hoverBinding
+            )
             .sidebarWorkspaceFrameAnchor(
                 id: group.anchorWorkspaceId,
                 isEnabled: shouldCollectWorkspaceDropTargets

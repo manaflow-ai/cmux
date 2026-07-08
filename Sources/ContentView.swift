@@ -10012,6 +10012,7 @@ struct VerticalTabsSidebar: View {
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var isWorkspaceReorderDropTargetCollectionActive = false
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
+    @State var sidebarHoverCoordinator = SidebarHoverCoordinator()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -11843,6 +11844,10 @@ struct VerticalTabsSidebar: View {
             shouldCollect: shouldCollectWorkspaceDropTargets
         )
         .overlay {
+            SidebarHoverContainerOverlay(coordinator: sidebarHoverCoordinator)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .overlay {
             workspaceReorderDropOverlay(renderContext: renderContext)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -12349,7 +12354,7 @@ struct VerticalTabsSidebar: View {
                 lastSidebarSelectionIndex = nil
             }
         }
-        let row = TabItemView(
+        let rowView = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
             tab: tab,
@@ -12385,13 +12390,20 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
-            onContextMenuDisappear: onContextMenuDisappear
+            onContextMenuDisappear: onContextMenuDisappear,
+            onContextMenuTrackingEnded: { sidebarHoverCoordinator.reconcileCurrentPointer() }
         )
+        let row = rowView
         .equatable()
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
 
         row
+            .sidebarRowHoverRegistration(
+                rowID: tab.id,
+                coordinator: sidebarHoverCoordinator,
+                isHovered: rowView.hoverBinding
+            )
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -13284,11 +13296,13 @@ struct TabItemView: View, Equatable {
     /// behind the open context menu.
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
+    let onContextMenuTrackingEnded: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
     @State private var observedIsActive: Bool?
     @State private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
+    @State private var isHovered = false
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var isEditing = false
     @State private var renameDraft = ""
@@ -13483,6 +13497,7 @@ struct TabItemView: View, Equatable {
 
     private var showCloseButton: Bool {
         rowInteractionState.shouldShowCloseButton(
+            isPointerHovering: self.isHovered,
             canCloseWorkspace: canCloseWorkspace,
             shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
         )
@@ -14041,9 +14056,6 @@ struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .contentShape(Rectangle())
-        .onHover { hovering in
-            rowInteractionState.setPointerHovering(hovering)
-        }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
             MiddleClickCapture {
@@ -14055,15 +14067,10 @@ struct TabItemView: View, Equatable {
         }
         .overlay {
             if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    guard rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow) else {
-                        return
-                    }
+                SidebarWorkspaceRowMenuTrackingReconciler { _ in
+                    onContextMenuTrackingEnded()
                     onContextMenuDisappear()
                     flushDeferredWorkspaceObservationInvalidation()
-                }
-                .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
                 }
             }
         }
@@ -14085,9 +14092,6 @@ struct TabItemView: View, Equatable {
         .onAppear {
             updateObservedActiveState(tabManager.selectedTabId == tab.id)
             refreshWorkspaceSnapshot(force: true)
-        }
-        .onDisappear {
-            rowInteractionState.setPointerHovering(false)
         }
         .onReceive(
             tabManager.selectedTabIdPublisher
@@ -15283,6 +15287,15 @@ struct TabItemView: View, Equatable {
         tabManager.selectTab(tab)
         setSelectionToTabs()
         _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+    }
+}
+
+extension TabItemView {
+    var hoverBinding: Binding<Bool> {
+        Binding(
+            get: { isHovered },
+            set: { isHovered = $0 }
+        )
     }
 }
 
