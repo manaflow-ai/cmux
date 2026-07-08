@@ -101,9 +101,10 @@ enum VMOnboardDeriver {
 
     /// Derive an environment for the repo rooted at `repoRoot`, to be cloned in
     /// the VM as `cloneURL` (checkout dir inferred from the URL's last path
-    /// component). Returns nil only when the directory has no recognizable
-    /// signal at all.
-    static func derive(repoRoot: String, cloneURL: String, repoName: String) -> VMOnboardDerivation? {
+    /// component). Always yields at least the clone step; a repo with no
+    /// recognizable signal comes back with empty `sources`, which the TUI
+    /// surfaces as a bare clone spec.
+    static func derive(repoRoot: String, cloneURL: String, repoName: String) -> VMOnboardDerivation {
         var sources: [Source] = []
         var steps: [VMEnvSpec.Step] = []
         var verify: [String] = []
@@ -203,10 +204,6 @@ enum VMOnboardDeriver {
 
         if verify.isEmpty {
             verify.append("test -d \(repoName)")
-        }
-        guard !sources.isEmpty || steps.count > 1 else {
-            // Only the clone step and no signal: still useful, but flag as bare.
-            return VMOnboardDerivation(sources: [], steps: steps, verify: verify, untranslated: untranslated)
         }
         return VMOnboardDerivation(sources: sources, steps: steps, verify: verify, untranslated: untranslated)
     }

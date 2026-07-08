@@ -45,13 +45,11 @@ extension CMUXCLI {
             ui.ok("this repo is already onboarded (.cmux/env.yaml exists)")
         } else {
             ui.step("scanning for environment sources...")
-            guard let derivation = VMOnboardDeriver.derive(
+            let derivation = VMOnboardDeriver.derive(
                 repoRoot: repo.scanRoot,
                 cloneURL: repo.cloneURL,
                 repoName: repo.name
-            ) else {
-                throw CLIError(message: "Could not scan \(repo.scanRoot).")
-            }
+            )
             for source in derivation.sources {
                 ui.ok("\(source.path)  →  \(source.summary)")
             }

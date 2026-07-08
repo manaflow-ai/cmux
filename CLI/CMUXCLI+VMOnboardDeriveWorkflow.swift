@@ -70,8 +70,19 @@ extension VMOnboardDeriver {
         let lines = text.components(separatedBy: "\n")
         var jobs: [WorkflowJob] = []
         var index = 0
-        // Find top-level `jobs:`
-        while index < lines.count, !lines[index].hasPrefix("jobs:") { index += 1 }
+        // Find top-level `jobs:`. A `working-directory:` line before it is the
+        // workflow-scope `defaults.run.working-directory`; jobs inherit it
+        // unless they declare their own.
+        var workflowWorkingDirectory: String?
+        while index < lines.count, !lines[index].hasPrefix("jobs:") {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("working-directory:") {
+                workflowWorkingDirectory = stripYAMLScalarQuotes(
+                    String(trimmed.dropFirst("working-directory:".count)).trimmingCharacters(in: .whitespaces)
+                )
+            }
+            index += 1
+        }
         guard index < lines.count else { return [] }
         index += 1
         // Job keys sit one level under `jobs:`; the first non-comment line
@@ -120,6 +131,9 @@ extension VMOnboardDeriver {
                 // statically; keep the job and let scoring pick the best one.
                 let runsOn = job.runsOn?.lowercased() ?? ""
                 if runsOn.isEmpty || runsOn.contains("ubuntu") || runsOn.contains("linux") || runsOn.contains("${{") {
+                    if job.defaultWorkingDirectory == nil {
+                        job.defaultWorkingDirectory = workflowWorkingDirectory
+                    }
                     jobs.append(job)
                 }
                 continue

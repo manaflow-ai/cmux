@@ -45,11 +45,11 @@ struct CMUXCLIVMOnboardDeriveTests {
         """
         let root = try makeRepo(files: [".github/workflows/ci.yml": workflow])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/ghostty-org/ghostty",
             repoName: "ghostty"
-        ))
+        )
         #expect(derivation.sources.map(\.kind) == [.githubWorkflow])
         let names = derivation.steps.map(\.name)
         #expect(names.first == "clone ghostty")
@@ -104,11 +104,11 @@ struct CMUXCLIVMOnboardDeriveTests {
         """
         let root = try makeRepo(files: [".devcontainer/devcontainer.json": devcontainer])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/app",
             repoName: "app"
-        ))
+        )
         #expect(derivation.sources.map(\.kind) == [.devcontainer])
         let toolStep = try #require(derivation.steps.first { $0.name == "toolchains (devcontainer features)" })
         #expect(toolStep.run == "mise use -g node@20")
@@ -130,11 +130,11 @@ struct CMUXCLIVMOnboardDeriveTests {
 
         let root = try makeRepo(files: ["Cargo.toml": "[package]\nname = \"x\"\n"])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/x",
             repoName: "x"
-        ))
+        )
         #expect(derivation.sources.map(\.kind) == [.heuristic])
         #expect(derivation.steps.contains { $0.run.contains("cargo build") })
         #expect(derivation.verify.contains { $0.contains("cargo check") })
@@ -144,11 +144,11 @@ struct CMUXCLIVMOnboardDeriveTests {
     func bareRepoStillYieldsCloneSpec() throws {
         let root = try makeRepo(files: ["README.md": "hi"])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/bare",
             repoName: "bare"
-        ))
+        )
         #expect(derivation.sources.isEmpty)
         #expect(derivation.steps.count == 1)
         #expect(derivation.verify == ["test -d bare"])
@@ -174,11 +174,11 @@ struct CMUXCLIVMOnboardDeriveTests {
             "flake.nix": "{}",
         ])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/app",
             repoName: "app"
-        ))
+        )
         #expect(derivation.untranslated.contains { $0.contains("flake.nix") })
         let yaml = VMOnboardDeriver.renderSpecYAML(
             name: "app",
@@ -314,11 +314,11 @@ struct CMUXCLIVMOnboardDeriveTests {
             "mise.toml": "[tools]\nnode = \"22\"\n",
         ])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/app",
             repoName: "app"
-        ))
+        )
         // Workflow only ran plain commands (preinstalled runner), so the
         // declared toolchains still get their layer.
         #expect(derivation.sources.map(\.kind).contains(.githubWorkflow))
@@ -338,11 +338,11 @@ struct CMUXCLIVMOnboardDeriveTests {
             ".devcontainer.json": "{ \"postCreateCommand\": \"npm install\" }",
         ])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/app",
             repoName: "app"
-        ))
+        )
         #expect(derivation.sources.map(\.path) == [".devcontainer.json"])
         #expect(derivation.steps.contains { $0.run == "cd app\nnpm install" })
     }
@@ -351,11 +351,11 @@ struct CMUXCLIVMOnboardDeriveTests {
     func hiddenMiseTomlIsLabeledWithItsActualPath() throws {
         let root = try makeRepo(files: [".mise.toml": "[tools]\nnode = \"22\"\n"])
         defer { try? FileManager.default.removeItem(atPath: root) }
-        let derivation = try #require(VMOnboardDeriver.derive(
+        let derivation = VMOnboardDeriver.derive(
             repoRoot: root,
             cloneURL: "https://github.com/o/app",
             repoName: "app"
-        ))
+        )
         #expect(derivation.sources.map(\.path) == [".mise.toml"])
         #expect(derivation.steps.contains { $0.run == "mise use -g node@22" })
     }
