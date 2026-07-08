@@ -64,7 +64,10 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         if normalized.contains("opencode") || normalized.contains("open-code") {
             return .opencode
         }
-        if normalized == "omp" || normalized == "pi" || normalized.hasPrefix("pi-") || normalized.hasPrefix("pi_") || normalized.contains("pi-swarm") || normalized.contains("piswarm") {
+        // Live agent-hook PID keys are dotted ("<statusKey>.<sessionId>"),
+        // so bucket on the base status key, not the raw dictionary key.
+        let baseKey = normalized.split(separator: ".").first.map(String.init) ?? normalized
+        if baseKey == "omp" || baseKey == "pi" || baseKey.hasPrefix("pi-") || baseKey.hasPrefix("pi_") || normalized.contains("pi-swarm") || normalized.contains("piswarm") {
             return .pi
         }
         return .other

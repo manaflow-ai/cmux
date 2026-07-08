@@ -6,16 +6,18 @@ enum TextBoxAgentDetection: CaseIterable {
     case opencode
     case pi
 
-    private var definitionID: String {
+    private var launchDefinitionIDs: Set<String> {
         switch self {
         case .claudeCode:
-            return "claude"
+            return ["claude"]
         case .codex:
-            return "codex"
+            return ["codex"]
         case .opencode:
-            return "opencode"
+            return ["opencode"]
         case .pi:
-            return "pi"
+            // omp (oh-my-pi) has its own task-manager definition but is a
+            // pi variant for textbox agent detection.
+            return ["pi", "omp"]
         }
     }
 
@@ -165,12 +167,12 @@ enum TextBoxAgentDetection: CaseIterable {
         guard !tokens.isEmpty else { return false }
         let resolved = Self.resolvedCommandSegment(tokens)
         guard let executable = resolved.arguments.first else { return false }
-        if CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        if let matched = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: executable,
             processPath: executable,
             arguments: resolved.arguments,
             environment: resolved.environment
-        )?.id == definitionID {
+        ), launchDefinitionIDs.contains(matched.id) {
             return true
         }
 
