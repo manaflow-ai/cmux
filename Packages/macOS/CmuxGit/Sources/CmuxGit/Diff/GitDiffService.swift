@@ -105,6 +105,18 @@ public struct GitDiffService: Sendable {
         // byte-exact because repository paths may legitimately start or end
         // with whitespace (`changedFiles` reports them verbatim).
         guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        // Single-file API: a directory-shaped request ("." or a subdirectory)
+        // would expand as a leading-directory pathspec into a combined
+        // multi-file diff, bypassing the changed-file selection the response
+        // is modeled around. Deleted files no longer exist on disk, so this
+        // only rejects paths that currently resolve to a directory.
+        var isDirectory: ObjCBool = false
+        let absolutePath = URL(fileURLWithPath: repoRoot, isDirectory: true)
+            .appendingPathComponent(path).path
+        if FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return nil
+        }
         if isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
             let result = runGit(
                 in: repoRoot,

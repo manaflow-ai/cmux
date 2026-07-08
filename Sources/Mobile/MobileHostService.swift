@@ -1389,7 +1389,11 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "mobile.workspace.diff_status", "mobile.workspace.diff_file":
-            return nil
+            // Source-content reads: a workspace-scoped ticket must not read
+            // another workspace's changed files or diffs, so these are
+            // constrained like workspace.action/workspace.close rather than
+            // exempted like the metadata-only workspace list.
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)

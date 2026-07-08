@@ -136,7 +136,7 @@ import Testing
         #expect(diff.unifiedDiff.contains("+changed"))
     }
 
-    @Test func directoryShapedFileDiffRequestStaysBoundedAndEmpty() throws {
+    @Test func directoryShapedFileDiffRequestIsRejected() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
         let sub = repo.appendingPathComponent("generated")
@@ -146,13 +146,21 @@ import Testing
         }
 
         let service = GitDiffService()
-        // A directory is never an untracked FILE, so the request resolves to
-        // an empty tracked diff; the byte bound keeps the untracked probe from
-        // materializing the whole tree on the way there.
-        let diff = try #require(
-            service.fileDiff(repoRoot: repo.path, path: "generated", maxOutputBytes: 1024)
-        )
-        #expect(diff.unifiedDiff.isEmpty)
+        // The API is single-file: a directory pathspec would expand into a
+        // combined multi-file diff, so it is rejected outright (and the byte
+        // bound keeps the untracked probe from materializing the whole tree
+        // in any case).
+        #expect(service.fileDiff(repoRoot: repo.path, path: "generated", maxOutputBytes: 1024) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: ".", maxOutputBytes: 1024) == nil)
+
+        // A deleted file no longer exists on disk and must still diff.
+        let tracked = repo.appendingPathComponent("kept.txt")
+        try Data("kept\n".utf8).write(to: tracked)
+        try runTestGit(in: repo, ["add", "--", "kept.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add kept"])
+        try FileManager.default.removeItem(at: tracked)
+        let deleted = try #require(service.fileDiff(repoRoot: repo.path, path: "kept.txt"))
+        #expect(deleted.unifiedDiff.contains("-kept"))
     }
 
     @Test func changedFilesListIsBoundedAndMarkedTruncated() throws {
