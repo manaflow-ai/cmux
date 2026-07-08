@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import AppKit
 import Darwin
 #if canImport(cmux_DEV)
@@ -443,7 +443,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             Darwin.close(fd)
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
         }
-        _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+        withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
                     buffer[index] = CChar(bitPattern: utf8[index])

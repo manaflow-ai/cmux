@@ -2576,7 +2576,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         let fallbackColor = NSColor.black
         let fallbackOpacity = 1.0
         let notification = Notification(
-            name: .ghosttyDefaultBackgroundDidChange,
+            name: Notification.Name("ghosttyDefaultBackgroundDidChange"),
             object: nil,
             userInfo: [
                 GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
@@ -2589,7 +2589,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
+        guard let srgb = actual.usingColorSpace(NSColorSpace.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -2603,14 +2603,14 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorFromNotificationFallsBackWhenPayloadMissing() {
         let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
         let fallbackOpacity = 0.42
-        let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
+        let notification = Notification(name: Notification.Name("ghosttyDefaultBackgroundDidChange"))
 
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
+        guard let srgb = actual.usingColorSpace(NSColorSpace.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -3904,7 +3904,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             super.scrollWheel(with: event)
             guard let nextScrollbar else { return }
             NotificationCenter.default.post(
-                name: .ghosttyDidUpdateScrollbar,
+                name: Notification.Name("ghosttyDidUpdateScrollbar"),
                 object: self,
                 userInfo: [GhosttyNotificationKey.scrollbar: nextScrollbar]
             )
@@ -4087,7 +4087,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
+            name: Notification.Name("ghosttyDidUpdateScrollbar"),
             object: surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
         )
@@ -4113,7 +4113,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
 
         NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
+            name: Notification.Name("ghosttyDidUpdateScrollbar"),
             object: surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
         )

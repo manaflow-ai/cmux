@@ -1,4 +1,6 @@
 import Foundation
+import enum CmuxWorkspaces.CmuxSurfaceTabBarBuiltInAction
+import struct CmuxWorkspaces.CmuxWorkspaceDefinition
 import Testing
 
 #if canImport(cmux_DEV)

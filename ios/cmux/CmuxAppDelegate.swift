@@ -8,7 +8,7 @@ import cmuxFeature
 /// foreground presentation + taps. All push policy lives in
 /// ``MobilePushCoordinator``, constructed at the app composition root and
 /// injected here by `cmuxApp`.
-final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UNUserNotificationCenterDelegate {
+final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     /// The app-root push coordinator, injected by `cmuxApp` at launch.
     @MainActor var pushCoordinator: MobilePushCoordinator?
     /// The app-root analytics emitter, injected by `cmuxApp` at launch.
@@ -55,7 +55,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
-        let present = await pushCoordinator?.shouldPresentInForeground(
+        let present = pushCoordinator?.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId
@@ -83,13 +83,13 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         // the notification read on the Mac, mirroring the Mac's own tap path
         // (which opens + marks read). The two compose: deep-link locally, clear
         // on the Mac.
-        let appState = await UIApplication.shared.applicationState
-        await analytics?.capture("ios_push_tapped", [
+        let appState = UIApplication.shared.applicationState
+        analytics?.capture("ios_push_tapped", [
             "has_workspace_id": .bool(ids.workspaceId != nil),
             "has_surface_id": .bool(ids.surfaceId != nil),
             "app_state": .string(Self.appStateLabel(appState)),
         ])
-        await pushCoordinator?.handleTap(
+        pushCoordinator?.handleTap(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId
@@ -108,7 +108,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     /// grants the background wake — strictly budgeted, a handful per hour at
     /// best — we also remove the matching delivered banners. Anything iOS
     /// defers is healed by the reconcile sweep on the next app open/attach.
-    nonisolated func application(
+    func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {

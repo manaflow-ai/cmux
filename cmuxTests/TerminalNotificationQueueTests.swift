@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import AppKit
 import Darwin
 #if canImport(cmux_DEV)
@@ -68,10 +68,11 @@ final class TerminalNotificationQueueTests: XCTestCase {
 
         let payload = "Async|Queued|Body"
         let command = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) \(payload)"
+        let socketPath = socketPath
         let responses = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendCommands([command], to: socketPath))
+                    continuation.resume(returning: try Self.sendCommands([command], to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -600,10 +601,10 @@ final class TerminalNotificationQueueTests: XCTestCase {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
     }
 
-    private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
+    private nonisolated static func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            throw posixError("socket(AF_UNIX)")
+            throw Self.posixError("socket(AF_UNIX)")
         }
         defer { Darwin.close(fd) }
 
@@ -631,18 +632,18 @@ final class TerminalNotificationQueueTests: XCTestCase {
             }
         }
         guard connectResult == 0 else {
-            throw posixError("connect(\(socketPath))")
+            throw Self.posixError("connect(\(socketPath))")
         }
 
         var responses: [String] = []
         for command in commands {
-            try writeLine(command, to: fd)
-            responses.append(try readLine(from: fd))
+            try Self.writeLine(command, to: fd)
+            responses.append(try Self.readLine(from: fd))
         }
         return responses
     }
 
-    private nonisolated func writeLine(_ command: String, to fd: Int32) throws {
+    private nonisolated static func writeLine(_ command: String, to fd: Int32) throws {
         let payload = Array((command + "\n").utf8)
         var offset = 0
         while offset < payload.count {
@@ -650,20 +651,20 @@ final class TerminalNotificationQueueTests: XCTestCase {
                 Darwin.write(fd, raw.baseAddress!.advanced(by: offset), payload.count - offset)
             }
             guard wrote >= 0 else {
-                throw posixError("write(\(command))")
+                throw Self.posixError("write(\(command))")
             }
             offset += wrote
         }
     }
 
-    private nonisolated func readLine(from fd: Int32) throws -> String {
+    private nonisolated static func readLine(from fd: Int32) throws -> String {
         var buffer = [UInt8](repeating: 0, count: 1)
         var data = Data()
 
         while true {
             let count = Darwin.read(fd, &buffer, 1)
             guard count >= 0 else {
-                throw posixError("read")
+                throw Self.posixError("read")
             }
             if count == 0 { break }
             if buffer[0] == 0x0A { break }
@@ -678,7 +679,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         return line
     }
 
-    private nonisolated func posixError(_ operation: String) -> NSError {
+    private nonisolated static func posixError(_ operation: String) -> NSError {
         NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(errno),

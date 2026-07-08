@@ -1,5 +1,6 @@
 import Combine
-import CmuxWorkspaces
+import enum CmuxWorkspaces.CmuxSurfaceTabBarBuiltInAction
+import struct CmuxWorkspaces.CmuxWorkspaceDefinition
 import XCTest
 
 #if canImport(cmux_DEV)

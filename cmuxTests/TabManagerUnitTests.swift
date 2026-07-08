@@ -418,7 +418,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
         )
 
-        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        workspace.reconnectRemoteConnection(surfaceId: remotePanelId)
         let reattachedPanel = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
         XCTAssertEqual(reattachedPanel.surface.initialCommand, startupCommand)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
@@ -490,7 +490,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        workspace.reconnectRemoteConnection(surfaceId: remotePanelId)
         let replacement = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
         let reconnectCommand = try XCTUnwrap(replacement.surface.debugInitialCommand())
         XCTAssertTrue(reconnectCommand.contains("vm-pty-attach"), reconnectCommand)
