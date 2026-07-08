@@ -4687,7 +4687,7 @@ struct ContentView: View {
     ) -> Bool {
         let scope = commandPaletteListScope(for: query)
         guard scope == .switcher else { return false }
-        return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
+        return searchAllSurfaces
     }
 
     private func refreshCommandPaletteSearchCorpus(
@@ -5136,12 +5136,16 @@ struct ContentView: View {
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
                                 guard let panel = workspace.panels[panelId] else { return nil }
+                                let surfaceName = panelDisplayName(
+                                    workspace: workspace,
+                                    panelId: panelId,
+                                    fallback: panel.displayTitle
+                                )
                                 return CommandPaletteSwitcherFingerprintSurface(
                                     id: panelId,
-                                    displayName: panelDisplayName(
-                                        workspace: workspace,
-                                        panelId: panelId,
-                                        fallback: panel.displayTitle
+                                    displayName: Self.commandPaletteSwitcherSurfaceTitle(
+                                        workspaceName: workspaceDisplayName(workspace),
+                                        surfaceName: surfaceName
                                     ),
                                     kindLabel: commandPaletteSurfaceKindLabel(for: panel.panelType),
                                     metadata: commandPaletteSurfaceSearchMetadata(
@@ -5294,6 +5298,10 @@ struct ContentView: View {
                         panelId: panelId,
                         fallback: panel.displayTitle
                     )
+                    let surfaceTitle = Self.commandPaletteSwitcherSurfaceTitle(
+                        workspaceName: workspaceName,
+                        surfaceName: surfaceName
+                    )
                     let surfaceKindLabel = commandPaletteSurfaceKindLabel(for: panel.panelType)
                     let surfaceCommandId = "switcher.surface.\(panelId.uuidString.lowercased())"
                     let surfaceKeywords = CommandPaletteSwitcherSearchIndexer(
@@ -5303,6 +5311,7 @@ struct ContentView: View {
                             "switch",
                             "go",
                             "open",
+                            surfaceTitle,
                             surfaceName,
                             workspaceName
                         ] + commandPaletteSurfaceKeywords(for: panel.panelType) + windowKeywords,
@@ -5313,7 +5322,7 @@ struct ContentView: View {
                         CommandPaletteCommand(
                             id: surfaceCommandId,
                             rank: nextRank,
-                            title: surfaceName,
+                            title: surfaceTitle,
                             subtitle: Self.commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
                             shortcutHint: nil,
                             kindLabel: surfaceKindLabel,
@@ -5485,6 +5494,18 @@ struct ContentView: View {
             ports: ports
         )
     }
+
+    private static func commandPaletteSwitcherSurfaceTitle(
+        workspaceName: String,
+        surfaceName: String
+    ) -> String {
+        let trimmedWorkspace = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSurface = surfaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedWorkspace.isEmpty else { return trimmedSurface }
+        guard !trimmedSurface.isEmpty else { return trimmedWorkspace }
+        return "\(trimmedWorkspace):\(trimmedSurface)"
+    }
+
     private func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
         switch panelType {
         case .terminal:

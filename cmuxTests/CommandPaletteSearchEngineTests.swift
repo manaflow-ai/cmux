@@ -2042,10 +2042,10 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertEqual(inputs.scope, "switcher")
         XCTAssertEqual(inputs.matchingQuery, "")
-        XCTAssertFalse(inputs.includesSurfaces)
+        XCTAssertTrue(inputs.includesSurfaces)
     }
 
-    func testRefreshInputsIncludeSurfacesOnlyForNonEmptySwitcherQuery() {
+    func testRefreshInputsIncludeSurfacesForSwitcherWhenEnabled() {
         let switcherInputs = ContentView.commandPaletteRefreshInputsForTests(
             stateQuery: "",
             observedQuery: "  feature/search  ",
@@ -2072,6 +2072,23 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(workspaceOnlyInputs.scope, "switcher")
         XCTAssertEqual(workspaceOnlyInputs.matchingQuery, "feature/search")
         XCTAssertFalse(workspaceOnlyInputs.includesSurfaces)
+    }
+
+    func testSwitcherSurfaceTitlePrefixesWorkspaceName() {
+        XCTAssertEqual(
+            ContentView.commandPaletteSwitcherSurfaceTitle(
+                workspaceName: "personal",
+                surfaceName: "fleet"
+            ),
+            "personal:fleet"
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteSwitcherSurfaceTitle(
+                workspaceName: "personal",
+                surfaceName: "prayerly"
+            ),
+            "personal:prayerly"
+        )
     }
 
     func testCommandContextFingerprintTracksExactContextValues() {
