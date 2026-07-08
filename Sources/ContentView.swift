@@ -10569,10 +10569,7 @@ struct VerticalTabsSidebar: View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
         return ScrollViewReader { scrollProxy in
             ScrollView(.vertical) {
-                workspaceScrollContent(
-                    renderContext: renderContext,
-                    minHeight: workspaceScrollContentMinHeight
-                )
+                workspaceScrollContent(renderContext: renderContext, minHeight: workspaceScrollContentMinHeight)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
@@ -10583,12 +10580,10 @@ struct VerticalTabsSidebar: View {
                 .frame(width: 0, height: 0)
             )
             .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: scrollInsets.top)
-                    .allowsHitTesting(false)
+                Color.clear.frame(height: scrollInsets.top).allowsHitTesting(false)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: scrollInsets.bottom)
-                    .allowsHitTesting(false)
+                Color.clear.frame(height: scrollInsets.bottom).allowsHitTesting(false)
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
@@ -10616,14 +10611,9 @@ struct VerticalTabsSidebar: View {
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                SidebarWorkspaceScrollLayout.contentMinHeight(
-                    viewportHeight: proxy.size.height,
-                    insets: scrollInsets
-                )
-            } action: { contentMinHeight in
-                updateWorkspaceScrollContentMinHeight(contentMinHeight)
-            }
+            .onGeometryChange(for: CGFloat.self) {
+                SidebarWorkspaceScrollLayout.contentMinHeight(viewportHeight: $0.size.height, insets: scrollInsets)
+            } action: { updateWorkspaceScrollContentMinHeight($0) }
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
             }
@@ -10691,14 +10681,10 @@ struct VerticalTabsSidebar: View {
             }
         }
     }
-
     private func updateWorkspaceScrollContentMinHeight(_ contentMinHeight: CGFloat) {
         guard workspaceScrollContentMinHeight != contentMinHeight else { return }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            workspaceScrollContentMinHeight = contentMinHeight
-        }
+        var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
+        withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
     }
 
     // Applies one stable overlay/autohide scroller config and never toggles it.
