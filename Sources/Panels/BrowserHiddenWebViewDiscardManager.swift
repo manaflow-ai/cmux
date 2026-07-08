@@ -116,7 +116,6 @@ final class BrowserHiddenWebViewDiscardManager {
         guard blockers(for: snapshot).isEmpty else {
             guard shouldScheduleBlockedRecheck(for: snapshot) else { return }
             scheduleBlockedRecheckIfNeeded(
-                reason: reason,
                 observedWebViewInstanceID: delegate.hiddenWebViewDiscardWebViewInstanceID,
                 generation: scheduleGeneration
             )
@@ -298,7 +297,6 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     private func scheduleBlockedRecheckIfNeeded(
-        reason: String,
         observedWebViewInstanceID: UUID,
         generation: UInt64
     ) {
@@ -315,7 +313,10 @@ final class BrowserHiddenWebViewDiscardManager {
                 guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
                 self.blockedRecheckTimer?.cancel()
                 self.blockedRecheckTimer = nil
-                self.scheduleIfNeeded(reason: reason, now: Date())
+                // Match performScheduledBlockedRecheckForTesting: a discard that
+                // fires via the blocked-recheck path reports "blocked_recheck",
+                // not the reason captured when the pane was first blocked.
+                self.scheduleIfNeeded(reason: "blocked_recheck", now: Date())
             }
         }
         blockedRecheckTimer = timer
