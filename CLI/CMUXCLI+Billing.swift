@@ -34,11 +34,14 @@ extension CMUXCLI {
             let response = try client.sendV2(method: "billing.status", responseTimeout: 75)
             try handleBillingStructuredError(response)
             let plan = (response["plan"] as? [String: Any]) ?? response
+            let source = response["source"] as? String
             if jsonOutput {
-                print(jsonString(plan))
+                var out = plan
+                if out["source"] == nil, let source { out["source"] = source }
+                print(jsonString(out))
                 return
             }
-            printBillingStatus(plan, source: response["source"] as? String)
+            printBillingStatus(plan, source: source)
 
         case "checkout":
             let (planOpt, rem0) = parseOption(rest, name: "--plan")

@@ -15126,17 +15126,9 @@ struct CMUXCLI {
         case "billing":
             return Self.billingUsage
         case "ping":
-            return """
-            Usage: cmux ping
-
-            Check connectivity to the cmux socket server.
-            """
+            return Self.pingUsage
         case "capabilities":
-            return """
-            Usage: cmux capabilities
-
-            Print server capabilities as JSON.
-            """
+            return Self.capabilitiesUsage
         case "canvas":
             return """
             Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
