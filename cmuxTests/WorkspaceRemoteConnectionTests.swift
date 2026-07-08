@@ -4163,7 +4163,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|Codex stopped because the account has no usage remaining. Check usage or billing, then retry.")
             },
             "Expected Codex failure notification, saw \(state.commands)"
         )
@@ -4237,7 +4237,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected typed Codex error notification, saw \(state.commands)"
         )
@@ -4315,7 +4315,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Codex stopped because the connection failed. Check the connection, then retry.")
             },
             "Expected discovered transcript failure notification, saw \(state.commands)"
         )
@@ -4704,7 +4704,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected explicit error field notification, saw \(state.commands)"
         )
@@ -4856,7 +4856,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected payload error notification to beat healthy transcript, saw \(state.commands)"
         )
@@ -4930,7 +4930,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
@@ -5152,7 +5152,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected monitor to send no-final-response notification, saw \(state.commands)"
         )
@@ -5232,7 +5232,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Codex stopped because the connection failed. Check the connection, then retry.")
             },
             "Expected monitor to send stream error notification before terminal completion, saw \(state.commands)"
         )
@@ -5245,6 +5245,301 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     command.contains("--tab=\(workspaceId)")
             },
             "Expected monitor to publish high-priority Codex network error status, saw \(state.commands)"
+        )
+    }
+
+    func testCodexHookMonitorClearsRunningForUnscopedUsageLimitAbortAfterLeaseStart() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-unscoped-usage-limit"
+        let turnId = "turn-monitor-unscoped-usage-limit"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let leaseCreatedAt = Date.now.addingTimeInterval(-10)
+        let eventTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(1))
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"\(eventTimestamp)","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"\(eventTimestamp)","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"credits":{"has_credits":false,"unlimited":false,"balance":"0"}}}}
+        {"timestamp":"\(eventTimestamp)","type":"event_msg","payload":{"type":"error","message":"You've hit your usage limit. Try again later.","codex_error_info":"usage_limit_exceeded"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let leaseDirectory = root.appendingPathComponent("codex-monitor-leases", isDirectory: true)
+        try FileManager.default.createDirectory(at: leaseDirectory, withIntermediateDirectories: true)
+        let leaseURL = leaseDirectory.appendingPathComponent("lease-unscoped-usage-limit.json", isDirectory: false)
+        let lease: [String: Any] = [
+            "leaseId": "lease-unscoped-usage-limit",
+            "sessionId": sessionId,
+            "turnId": turnId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "createdAt": leaseCreatedAt.timeIntervalSince1970,
+        ]
+        try JSONSerialization.data(withJSONObject: lease, options: [.prettyPrinted, .sortedKeys])
+            .write(to: leaseURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "codex", "monitor",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--session",
+                sessionId,
+                "--turn",
+                turnId,
+                "--transcript",
+                transcriptURL.path,
+                "--lease",
+                leaseURL.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertTrue(
+            state.commands.contains { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|Codex stopped because the account has no usage remaining. Check usage or billing, then retry.")
+            },
+            "Expected monitor to send usage-limit notification after unscoped abort, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains { command in
+                command.contains("set_status codex Codex rate limit") &&
+                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--color=#FF453A") &&
+                    command.contains("--priority=100") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to clear Running with high-priority Codex rate-limit status, saw \(state.commands)"
+        )
+    }
+
+    func testCodexHookMonitorIgnoresUnscopedAbortBeforeLeaseStart() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-stale-unscoped-abort"
+        let turnId = "turn-monitor-stale-unscoped-abort"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let leaseCreatedAt = Date.now
+        let staleTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(-5))
+        let terminalTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(1))
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"\(staleTimestamp)","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"\(staleTimestamp)","type":"event_msg","payload":{"type":"error","message":"Stream disconnected before completion.","codex_error_info":"response_stream_disconnected"}}
+        {"timestamp":"\(terminalTimestamp)","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnId)","last_agent_message":null}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let leaseDirectory = root.appendingPathComponent("codex-monitor-leases", isDirectory: true)
+        try FileManager.default.createDirectory(at: leaseDirectory, withIntermediateDirectories: true)
+        let leaseURL = leaseDirectory.appendingPathComponent("lease-stale-unscoped-abort.json", isDirectory: false)
+        let lease: [String: Any] = [
+            "leaseId": "lease-stale-unscoped-abort",
+            "sessionId": sessionId,
+            "turnId": turnId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "createdAt": leaseCreatedAt.timeIntervalSince1970,
+        ]
+        try JSONSerialization.data(withJSONObject: lease, options: [.prettyPrinted, .sortedKeys])
+            .write(to: leaseURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "codex", "monitor",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--session",
+                sessionId,
+                "--turn",
+                turnId,
+                "--transcript",
+                transcriptURL.path,
+                "--lease",
+                leaseURL.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertFalse(
+            state.commands.contains { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|")
+            },
+            "Did not expect monitor to publish stale pre-lease abort notification, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { command in
+                command.contains("set_status codex Codex network error") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Did not expect monitor to publish stale pre-lease abort status, saw \(state.commands)"
+        )
+    }
+
+    func testCodexHookMonitorHonorsLeaseBoundaryWhenTurnIdUnavailable() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-boundary-no-turn"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let leaseCreatedAt = Date.now
+        let staleTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(-5))
+        let terminalTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(1))
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"\(staleTimestamp)","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"\(staleTimestamp)","type":"event_msg","payload":{"type":"error","message":"Stream disconnected before completion.","codex_error_info":"response_stream_disconnected"}}
+        {"timestamp":"\(terminalTimestamp)","type":"event_msg","payload":{"type":"task_complete","last_agent_message":null}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let leaseDirectory = root.appendingPathComponent("codex-monitor-leases", isDirectory: true)
+        try FileManager.default.createDirectory(at: leaseDirectory, withIntermediateDirectories: true)
+        let leaseURL = leaseDirectory.appendingPathComponent("lease-boundary-no-turn.json", isDirectory: false)
+        let lease: [String: Any] = [
+            "leaseId": "lease-boundary-no-turn",
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "createdAt": leaseCreatedAt.timeIntervalSince1970,
+        ]
+        try JSONSerialization.data(withJSONObject: lease, options: [.prettyPrinted, .sortedKeys])
+            .write(to: leaseURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "codex", "monitor",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--session",
+                sessionId,
+                "--transcript",
+                transcriptURL.path,
+                "--lease",
+                leaseURL.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertTrue(
+            state.commands.contains { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
+            },
+            "Expected monitor to publish current-turn no-final-response notification, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|")
+            },
+            "Did not expect monitor to publish stale pre-lease network notification, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { command in
+                command.contains("set_status codex Codex network error") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Did not expect monitor to publish stale pre-lease network status, saw \(state.commands)"
         )
     }
 
@@ -5516,7 +5811,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected monitor to recover from stale transcript path, saw \(state.commands)"
         )
@@ -5633,7 +5928,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Codex stopped because the connection failed. Check the connection, then retry.")
             },
             "Expected monitor to ignore old unscoped terminal event and report scoped stream error, saw \(state.commands)"
         )
