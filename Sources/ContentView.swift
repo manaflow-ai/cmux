@@ -10556,6 +10556,7 @@ struct VerticalTabsSidebar: View {
                     minHeight: workspaceScrollContentMinHeight
                 )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
                 SidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
@@ -10603,7 +10604,7 @@ struct VerticalTabsSidebar: View {
                     insets: scrollInsets
                 )
             } action: { contentMinHeight in
-                workspaceScrollContentMinHeight = contentMinHeight
+                updateWorkspaceScrollContentMinHeight(contentMinHeight)
             }
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
@@ -10670,6 +10671,15 @@ struct VerticalTabsSidebar: View {
                     lastSidebarSelectionIndex = index
                 }
             }
+        }
+    }
+
+    private func updateWorkspaceScrollContentMinHeight(_ contentMinHeight: CGFloat) {
+        guard workspaceScrollContentMinHeight != contentMinHeight else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            workspaceScrollContentMinHeight = contentMinHeight
         }
     }
 
