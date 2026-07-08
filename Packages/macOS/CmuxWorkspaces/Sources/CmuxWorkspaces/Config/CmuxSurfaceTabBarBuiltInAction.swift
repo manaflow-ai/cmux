@@ -2,7 +2,7 @@ public import Bonsplit
 import Foundation
 
 /// A built-in surface tab-bar action shipped with cmux (new workspace, Cloud VM,
-/// new terminal, new browser, split right, split down). Its raw value is the
+/// Agent Chat, new terminal, new browser, split right, split down). Its raw value is the
 /// canonical `cmux.*` config identifier used in `cmux.json`; legacy and
 /// shorthand identifiers map onto a case through ``init(configID:)``. Decodes
 /// from a single JSON string and maps to the matching `Bonsplit` split-action
@@ -12,6 +12,8 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
     case newWorkspace = "cmux.newWorkspace"
     /// Create a new Cloud VM workspace.
     case cloudVM = "cmux.cloudvm"
+    /// Open the Agent Chat workspace.
+    case newAgentChat = "cmux.newAgentChat"
     /// Connect a mobile device (iPhone) to this workspace.
     case mobileConnect = "cmux.mobileconnect"
     /// Open a new terminal surface.
@@ -33,6 +35,8 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
              "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
              "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
             self = .cloudVM
+        case "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat":
+            self = .newAgentChat
         case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
              "cmux.connectPhone", "connectPhone":
             self = .mobileConnect
@@ -61,6 +65,8 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
             return "plus.square"
         case .cloudVM:
             return "cloud"
+        case .newAgentChat:
+            return "message"
         case .mobileConnect:
             return "iphone"
         case .newTerminal:
@@ -78,7 +84,7 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
     /// (new workspace, Cloud VM) that `Bonsplit` does not drive.
     public var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .cloudVM, .mobileConnect:
+        case .newWorkspace, .cloudVM, .newAgentChat, .mobileConnect:
             return nil
         case .newTerminal:
             return .newTerminal

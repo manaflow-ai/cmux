@@ -6,6 +6,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customColorHex: String?
         let finderDirectoryPath: String?
         let mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity
+        let activeCodingAgentCount: Int
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -15,7 +16,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: isPinned,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity
+            mediaActivity: mediaActivity,
+            activeCodingAgentCount: activeCodingAgentCount
         )
     }
 
@@ -37,6 +39,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            activeCodingAgentCount: snapshot.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

@@ -20,14 +20,18 @@ export interface MenuKeymapEntry {
   action: MenuKeyAction;
   ctrlJMode?: "newline" | "menu";
 }
+type KeyEventLike = Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">;
+export type KeyDispatch =
+  | { kind: "global"; action: KeyAction }
+  | { kind: "menu"; action: MenuKeyAction };
 
 export const KEYMAP: KeymapEntry[] = [
   { combo: "Shift+Tab", description: "Cycle mode-like option", action: "cycle-mode" },
-  { combo: "Ctrl+P", description: "Cycle model", action: "cycle-model" },
+  { combo: "Ctrl+Shift+M", description: "Cycle model", action: "cycle-model" },
   { combo: "Ctrl+Shift+P", description: "Open model selector", action: "open-model" },
-  { combo: "Ctrl+T", description: "Cycle thinking or effort", action: "cycle-thinking" },
-  { combo: "Ctrl+F", description: "Toggle fast mode", action: "toggle-fast" },
-  { combo: "Ctrl+Shift+M", description: "Toggle plan mode", action: "toggle-plan" },
+  { combo: "Ctrl+Shift+T", description: "Cycle thinking or effort", action: "cycle-thinking" },
+  { combo: "Ctrl+Shift+F", description: "Toggle fast mode", action: "toggle-fast" },
+  { combo: "Ctrl+Shift+L", description: "Toggle plan mode", action: "toggle-plan" },
   { combo: "Esc", description: "Interrupt or close overlay", action: "interrupt" },
   { combo: "Ctrl+/", description: "Toggle shortcut help", action: "help" },
   { combo: "?", description: "Toggle shortcut help when input is empty", action: "help" },
@@ -47,7 +51,7 @@ export const MENU_KEYMAP: MenuKeymapEntry[] = [
   { combo: "Esc", description: "Close menu", action: "menu-close" },
 ];
 
-export function actionForKey(e: KeyboardEvent): KeyAction | null {
+export function actionForKey(e: KeyEventLike): KeyAction | null {
   if (e.metaKey || e.altKey) return null;
   return KEYMAP.find((entry) => comboMatches(entry.combo, e))?.action ?? null;
 }
@@ -55,17 +59,28 @@ export function actionForKey(e: KeyboardEvent): KeyAction | null {
 // Entries tagged with ctrlJMode only apply when the caller's configured
 // Ctrl+J mode matches (composer menus pass it; standalone overlay menus that
 // have no newline semantics omit it and keep every binding).
-export function menuActionForKey(
-  e: Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">,
-  ctrlJ?: "newline" | "menu",
-): MenuKeyAction | null {
+export function menuActionForKey(e: KeyEventLike, ctrlJ?: "newline" | "menu"): MenuKeyAction | null {
   if (e.metaKey || e.altKey) return null;
   const entry = MENU_KEYMAP.find((item) =>
     comboMatches(item.combo, e) && !(item.ctrlJMode && ctrlJ && item.ctrlJMode !== ctrlJ));
   return entry?.action ?? null;
 }
 
-function comboMatches(combo: string, e: Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">): boolean {
+export function keyDispatchFor(e: KeyEventLike, ctx: { editable: boolean; popupOpen: boolean; ctrlJ?: "newline" | "menu" }): KeyDispatch | null {
+  const menuAction = menuActionForKey(e, ctx.ctrlJ);
+  if (ctx.popupOpen && menuAction) return { kind: "menu", action: menuAction };
+  if (ctx.editable && !ctx.popupOpen && isPlainCtrlLetter(e)) return null;
+  const action = actionForKey(e);
+  if (!action) return null;
+  if (ctx.popupOpen && action !== "interrupt") return null;
+  return { kind: "global", action };
+}
+
+function isPlainCtrlLetter(e: KeyEventLike): boolean {
+  return e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && /^[a-z]$/i.test(e.key);
+}
+
+function comboMatches(combo: string, e: KeyEventLike): boolean {
   const parts = combo.split("+");
   const key = parts[parts.length - 1];
   const wantsCtrl = parts.includes("Ctrl");

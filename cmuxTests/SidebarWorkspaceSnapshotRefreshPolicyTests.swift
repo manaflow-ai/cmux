@@ -124,7 +124,7 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    private static func snapshot(
+    static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
@@ -132,6 +132,7 @@ import Testing
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
+        activeCodingAgentCount: Int = 0,
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity = SidebarWorkspaceSnapshotBuilder.MediaActivity()
@@ -152,6 +153,7 @@ import Testing
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -164,11 +166,12 @@ import Testing
         )
     }
 
-    private static func presentationKey(
+    static func presentationKey(
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
+        showsAgentActivity: Bool = true,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -183,6 +186,7 @@ import Testing
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }

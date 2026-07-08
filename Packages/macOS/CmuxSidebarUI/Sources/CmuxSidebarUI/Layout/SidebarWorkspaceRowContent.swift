@@ -1,4 +1,5 @@
 public import CmuxSidebar
+public import CmuxSettings
 public import CoreGraphics
 public import SwiftUI
 
@@ -26,6 +27,11 @@ public struct SidebarWorkspaceRowContent<EditingTitleContent: View>: View {
     let unreadBadgeFillColor: Color
     let unreadBadgeTextColor: Color
     let unreadBadgeDiameter: CGFloat
+    let unreadBadgePosition: SidebarIndicatorPosition
+    let showsLoadingSpinner: Bool
+    let loadingSpinnerPosition: SidebarIndicatorPosition
+    let loadingSpinnerColor: Color
+    let loadingSpinnerTooltip: String
     let hasMemoryWarning: Bool
     let memoryWarningTooltip: String
     let memoryWarningAccessibilityLabel: String
@@ -88,6 +94,11 @@ public struct SidebarWorkspaceRowContent<EditingTitleContent: View>: View {
         unreadBadgeFillColor: Color,
         unreadBadgeTextColor: Color,
         unreadBadgeDiameter: CGFloat,
+        unreadBadgePosition: SidebarIndicatorPosition,
+        showsLoadingSpinner: Bool,
+        loadingSpinnerPosition: SidebarIndicatorPosition,
+        loadingSpinnerColor: Color,
+        loadingSpinnerTooltip: String,
         hasMemoryWarning: Bool,
         memoryWarningTooltip: String,
         memoryWarningAccessibilityLabel: String,
@@ -142,6 +153,11 @@ public struct SidebarWorkspaceRowContent<EditingTitleContent: View>: View {
         self.unreadBadgeFillColor = unreadBadgeFillColor
         self.unreadBadgeTextColor = unreadBadgeTextColor
         self.unreadBadgeDiameter = unreadBadgeDiameter
+        self.unreadBadgePosition = unreadBadgePosition
+        self.showsLoadingSpinner = showsLoadingSpinner
+        self.loadingSpinnerPosition = loadingSpinnerPosition
+        self.loadingSpinnerColor = loadingSpinnerColor
+        self.loadingSpinnerTooltip = loadingSpinnerTooltip
         self.hasMemoryWarning = hasMemoryWarning
         self.memoryWarningTooltip = memoryWarningTooltip
         self.memoryWarningAccessibilityLabel = memoryWarningAccessibilityLabel
@@ -197,6 +213,11 @@ public struct SidebarWorkspaceRowContent<EditingTitleContent: View>: View {
                 unreadBadgeFillColor: unreadBadgeFillColor,
                 unreadBadgeTextColor: unreadBadgeTextColor,
                 unreadBadgeDiameter: unreadBadgeDiameter,
+                unreadBadgePosition: unreadBadgePosition,
+                showsLoadingSpinner: showsLoadingSpinner,
+                loadingSpinnerPosition: loadingSpinnerPosition,
+                loadingSpinnerColor: loadingSpinnerColor,
+                loadingSpinnerTooltip: loadingSpinnerTooltip,
                 hasMemoryWarning: hasMemoryWarning,
                 memoryWarningTooltip: memoryWarningTooltip,
                 memoryWarningAccessibilityLabel: memoryWarningAccessibilityLabel,

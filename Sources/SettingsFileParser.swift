@@ -333,12 +333,48 @@ struct SettingsFileParser {
             }
         }
 
+        parseSidebarIndicatorPositionSetting(
+            section,
+            jsonKey: "loadingSpinnerPosition",
+            settingsPath: "sidebar.loadingSpinnerPosition",
+            defaultsKey: SidebarCatalogSection().loadingSpinnerPosition.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseSidebarIndicatorPositionSetting(
+            section,
+            jsonKey: "notificationBadgePosition",
+            settingsPath: "sidebar.notificationBadgePosition",
+            defaultsKey: SidebarCatalogSection().notificationBadgePosition.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
             )
         } else if section.keys.contains(RightSidebarWidthSettings.jsonKey) {
             logInvalid(RightSidebarWidthSettings.settingsPath, sourcePath: sourcePath)
+        }
+    }
+
+    private func parseSidebarIndicatorPositionSetting(
+        _ section: [String: Any],
+        jsonKey: String,
+        settingsPath: String,
+        defaultsKey: String,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let raw = jsonString(section[jsonKey]) {
+            guard let value = SidebarIndicatorPosition.decodeFromJSON(raw) else {
+                logInvalid(settingsPath, sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[defaultsKey] = .string(value.rawValue)
+        } else if section.keys.contains(jsonKey) {
+            logInvalid(settingsPath, sourcePath: sourcePath)
         }
     }
 

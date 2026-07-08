@@ -250,6 +250,8 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
         public let newTerminalTabSubtitle: String
         public let newBrowserTabTitle: String
         public let newBrowserTabSubtitle: String
+        public let newAgentChatTitle: String
+        public let newAgentChatSubtitle: String
         public let closeTabTitle: String
         public let closeTabSubtitle: String
         public let closeWorkspaceTitle: String
@@ -271,6 +273,8 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
             newTerminalTabSubtitle: String,
             newBrowserTabTitle: String,
             newBrowserTabSubtitle: String,
+            newAgentChatTitle: String,
+            newAgentChatSubtitle: String,
             closeTabTitle: String,
             closeTabSubtitle: String,
             closeWorkspaceTitle: String,
@@ -291,6 +295,8 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
             self.newTerminalTabSubtitle = newTerminalTabSubtitle
             self.newBrowserTabTitle = newBrowserTabTitle
             self.newBrowserTabSubtitle = newBrowserTabSubtitle
+            self.newAgentChatTitle = newAgentChatTitle
+            self.newAgentChatSubtitle = newAgentChatSubtitle
             self.closeTabTitle = closeTabTitle
             self.closeTabSubtitle = closeTabSubtitle
             self.closeWorkspaceTitle = closeWorkspaceTitle

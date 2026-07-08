@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSidebar"),
+        .package(path: "../CmuxSettings"),
         .package(path: "../CmuxFoundation"),
         // CmuxExtensionScope/CmuxExtensionActionScope back the permission-row
         // display-name and description copy in Extension/.
@@ -36,6 +37,7 @@ let package = Package(
             name: "CmuxSidebarUI",
             dependencies: [
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxExtensionKit", package: "CmuxExtensionKit"),
                 .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),

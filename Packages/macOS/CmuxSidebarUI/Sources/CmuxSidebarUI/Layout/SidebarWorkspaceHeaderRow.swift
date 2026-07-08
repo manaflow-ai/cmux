@@ -1,4 +1,5 @@
 public import CoreGraphics
+public import CmuxSettings
 public import SwiftUI
 
 /// The top header row of a workspace sidebar item.
@@ -17,6 +18,11 @@ public struct SidebarWorkspaceHeaderRow<EditingTitleContent: View>: View {
     let unreadBadgeFillColor: Color
     let unreadBadgeTextColor: Color
     let unreadBadgeDiameter: CGFloat
+    let unreadBadgePosition: SidebarIndicatorPosition
+    let showsLoadingSpinner: Bool
+    let loadingSpinnerPosition: SidebarIndicatorPosition
+    let loadingSpinnerColor: Color
+    let loadingSpinnerTooltip: String
     let hasMemoryWarning: Bool
     let memoryWarningTooltip: String
     let memoryWarningAccessibilityLabel: String
@@ -73,6 +79,11 @@ public struct SidebarWorkspaceHeaderRow<EditingTitleContent: View>: View {
         unreadBadgeFillColor: Color,
         unreadBadgeTextColor: Color,
         unreadBadgeDiameter: CGFloat,
+        unreadBadgePosition: SidebarIndicatorPosition,
+        showsLoadingSpinner: Bool,
+        loadingSpinnerPosition: SidebarIndicatorPosition,
+        loadingSpinnerColor: Color,
+        loadingSpinnerTooltip: String,
         hasMemoryWarning: Bool,
         memoryWarningTooltip: String,
         memoryWarningAccessibilityLabel: String,
@@ -98,6 +109,11 @@ public struct SidebarWorkspaceHeaderRow<EditingTitleContent: View>: View {
         self.unreadBadgeFillColor = unreadBadgeFillColor
         self.unreadBadgeTextColor = unreadBadgeTextColor
         self.unreadBadgeDiameter = unreadBadgeDiameter
+        self.unreadBadgePosition = unreadBadgePosition
+        self.showsLoadingSpinner = showsLoadingSpinner
+        self.loadingSpinnerPosition = loadingSpinnerPosition
+        self.loadingSpinnerColor = loadingSpinnerColor
+        self.loadingSpinnerTooltip = loadingSpinnerTooltip
         self.hasMemoryWarning = hasMemoryWarning
         self.memoryWarningTooltip = memoryWarningTooltip
         self.memoryWarningAccessibilityLabel = memoryWarningAccessibilityLabel
@@ -125,14 +141,26 @@ public struct SidebarWorkspaceHeaderRow<EditingTitleContent: View>: View {
     }
 
     public var body: some View {
+        let badgeOnLeading = unreadCount > 0 && unreadBadgePosition == .leading
+        let badgeOnTrailing = unreadCount > 0 && unreadBadgePosition == .trailing
+        let spinnerOnLeading = showsLoadingSpinner && loadingSpinnerPosition == .leading
+        let spinnerOnTrailing = showsLoadingSpinner && loadingSpinnerPosition == .trailing
+        let leadingStatusActive = badgeOnLeading || spinnerOnLeading
+        let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
+        let trailingAccessoryActive = showsCloseButton || trailingStatusActive
+
         HStack(alignment: .top, spacing: 8) {
-            if unreadCount > 0 {
-                SidebarWorkspaceUnreadBadge(
-                    count: unreadCount,
-                    fillColor: unreadBadgeFillColor,
-                    textColor: unreadBadgeTextColor,
+            if leadingStatusActive {
+                SidebarWorkspaceStatusSlot(
+                    showsBadge: badgeOnLeading,
+                    showsSpinner: spinnerOnLeading,
+                    unreadCount: unreadCount,
+                    badgeFillColor: unreadBadgeFillColor,
+                    badgeTextColor: unreadBadgeTextColor,
                     diameter: unreadBadgeDiameter,
-                    fontScale: fontScale
+                    fontScale: fontScale,
+                    spinnerColor: loadingSpinnerColor,
+                    spinnerTooltip: loadingSpinnerTooltip
                 )
             }
 
@@ -171,20 +199,76 @@ public struct SidebarWorkspaceHeaderRow<EditingTitleContent: View>: View {
             // before this corner instead of flowing under the hover x. Its
             // visibility toggles via opacity so hover never re-lays-out the
             // row. (Matches the group-header plus-button pattern.)
-            if showsCloseButton {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
-                        .foregroundColor(closeButtonColor)
-                        .frame(width: closeButtonWidth, height: closeButtonHitSize, alignment: .center)
-                        .contentShape(Rectangle())
+            if trailingAccessoryActive {
+                ZStack(alignment: .trailing) {
+                    if trailingStatusActive {
+                        SidebarWorkspaceStatusSlot(
+                            showsBadge: badgeOnTrailing,
+                            showsSpinner: spinnerOnTrailing,
+                            unreadCount: unreadCount,
+                            badgeFillColor: unreadBadgeFillColor,
+                            badgeTextColor: unreadBadgeTextColor,
+                            diameter: unreadBadgeDiameter,
+                            fontScale: fontScale,
+                            spinnerColor: loadingSpinnerColor,
+                            spinnerTooltip: loadingSpinnerTooltip
+                        )
+                        .opacity(showsCloseButton && closeButtonVisible ? 0 : 1)
+                    }
+                    if showsCloseButton {
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
+                                .foregroundColor(closeButtonColor)
+                                .frame(width: closeButtonWidth, height: closeButtonHitSize, alignment: .center)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(closeButtonTooltip)
+                        .opacity(closeButtonVisible ? 1 : 0)
+                        .allowsHitTesting(closeButtonVisible)
+                        .accessibilityHidden(!closeButtonVisible)
+                    }
                 }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .opacity(closeButtonVisible ? 1 : 0)
-                .allowsHitTesting(closeButtonVisible)
-                .accessibilityHidden(!closeButtonVisible)
+                .frame(width: closeButtonWidth, height: closeButtonHitSize, alignment: .trailing)
             }
         }
+    }
+}
+
+private struct SidebarWorkspaceStatusSlot: View {
+    let showsBadge: Bool
+    let showsSpinner: Bool
+    let unreadCount: Int
+    let badgeFillColor: Color
+    let badgeTextColor: Color
+    let diameter: CGFloat
+    let fontScale: CGFloat
+    let spinnerColor: Color
+    let spinnerTooltip: String
+
+    var body: some View {
+        ZStack {
+            if showsBadge {
+                SidebarWorkspaceUnreadBadge(
+                    count: unreadCount,
+                    fillColor: badgeFillColor,
+                    textColor: badgeTextColor,
+                    diameter: diameter,
+                    fontScale: fontScale
+                )
+                .opacity(showsSpinner ? 0 : 1)
+            }
+            if showsSpinner {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(spinnerColor)
+                    .frame(width: diameter, height: diameter)
+                    .safeHelp(spinnerTooltip)
+                    .accessibilityLabel(spinnerTooltip)
+            }
+        }
+        .frame(width: diameter, height: diameter)
+        .clipped()
     }
 }

@@ -82,6 +82,7 @@ extension SidebarWorkspaceSnapshotBuilder {
             metadataBlocks: flags.metadataBlocks,
             latestLog: flags.latestLog,
             progress: flags.progress,
+            activeCodingAgentCount: flags.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

@@ -27,6 +27,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
         public let showsGitBranch: Bool
         /// Whether the viewport-aware directory truncation path is used.
         public let usesViewportAwarePath: Bool
+        /// Whether agent activity changes affect row layout.
+        public let showsAgentActivity: Bool
         /// Which auxiliary detail rows are visible.
         public let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
 
@@ -36,12 +38,14 @@ public enum SidebarWorkspaceSnapshotBuilder {
             usesVerticalBranchLayout: Bool,
             showsGitBranch: Bool,
             usesViewportAwarePath: Bool,
+            showsAgentActivity: Bool,
             visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
         ) {
             self.showsWorkspaceDescription = showsWorkspaceDescription
             self.usesVerticalBranchLayout = usesVerticalBranchLayout
             self.showsGitBranch = showsGitBranch
             self.usesViewportAwarePath = usesViewportAwarePath
+            self.showsAgentActivity = showsAgentActivity
             self.visibleAuxiliaryDetails = visibleAuxiliaryDetails
         }
     }
@@ -105,6 +109,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
         public let latestLog: SidebarLogEntry?
         /// The agent progress state (already gated), or `nil`.
         public let progress: SidebarProgressState?
+        /// Count of visible active coding-agent tasks.
+        public let activeCodingAgentCount: Int
         /// The forwarded listening ports (already gated).
         public let listeningPorts: [Int]
         /// Browser media activity summarized for row affordances.
@@ -126,6 +132,7 @@ public enum SidebarWorkspaceSnapshotBuilder {
             metadataBlocks: [SidebarMetadataBlock],
             latestLog: SidebarLogEntry?,
             progress: SidebarProgressState?,
+            activeCodingAgentCount: Int = 0,
             listeningPorts: [Int],
             mediaActivity: MediaActivity = MediaActivity()
         ) {
@@ -143,6 +150,7 @@ public enum SidebarWorkspaceSnapshotBuilder {
             self.metadataBlocks = metadataBlocks
             self.latestLog = latestLog
             self.progress = progress
+            self.activeCodingAgentCount = activeCodingAgentCount
             self.listeningPorts = listeningPorts
             self.mediaActivity = mediaActivity
         }
@@ -234,6 +242,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
         public let latestLog: SidebarLogEntry?
         /// The agent progress state, or `nil`.
         public let progress: SidebarProgressState?
+        /// Count of visible active coding-agent tasks.
+        public let activeCodingAgentCount: Int
         /// The compact git branch summary text, or `nil`.
         public let compactGitBranchSummaryText: String?
         /// Compact directory candidates (longest to shortest).
@@ -270,6 +280,7 @@ public enum SidebarWorkspaceSnapshotBuilder {
             metadataBlocks: [SidebarMetadataBlock],
             latestLog: SidebarLogEntry?,
             progress: SidebarProgressState?,
+            activeCodingAgentCount: Int = 0,
             compactGitBranchSummaryText: String?,
             compactDirectoryCandidates: [String],
             compactBranchDirectoryCandidates: [String],
@@ -295,6 +306,7 @@ public enum SidebarWorkspaceSnapshotBuilder {
             self.metadataBlocks = metadataBlocks
             self.latestLog = latestLog
             self.progress = progress
+            self.activeCodingAgentCount = activeCodingAgentCount
             self.compactGitBranchSummaryText = compactGitBranchSummaryText
             self.compactDirectoryCandidates = compactDirectoryCandidates
             self.compactBranchDirectoryCandidates = compactBranchDirectoryCandidates

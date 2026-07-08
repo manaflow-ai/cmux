@@ -5512,6 +5512,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+        let actionCreatesWorkspace = action.workspaceCommandName != nil
+            || action.action.inlineWorkspace != nil
+            || action.action == .builtIn(.newAgentChat)
         // `context` is now an ephemeral value (`RegisteredMainWindow`), so it
         // cannot be captured `weak`. Capture its `WindowID` and re-resolve inside
         // the deferred closure: the resolver returns `nil` once the window has
@@ -5519,7 +5522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // window is gone" semantics (the manager outlives the value either way).
         let contextWindowId = WindowID(context.windowId)
         var asyncObserverId: UUID?
-        let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self] in
+        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self] in
             let context = self?.registeredMainWindow(for: contextWindowId)
             if let context,
                let workspaceGroupTarget,
@@ -5546,7 +5549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 }
             }
-            if action.workspaceCommandName != nil {
+            if actionCreatesWorkspace {
                 self?.workspaceCreationActions.closeInitialWorkspaceIfNeeded(
                     initialWorkspaceId: initialWorkspaceId,
                     in: context.map { WindowID($0.windowId) }
@@ -10375,7 +10378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didRun
     }
 
-    private func executeConfiguredCmuxAction(
+    func executeConfiguredCmuxAction(
         _ action: CmuxResolvedConfigAction,
         context: RegisteredMainWindow,
         preferredWindow: NSWindow? = nil,
@@ -10389,6 +10392,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.addWorkspace()
                 onExecuted?()
                 return true
+            case .newAgentChat:
+                return performConfiguredNewAgentChatAction(
+                    context: context,
+                    preferredWindow: preferredWindow,
+                    onExecuted: onExecuted
+                )
             case .cloudVM:
                 let didStart = performCloudVMAction(
                     tabManager: context.tabManager,

@@ -53,6 +53,10 @@ public struct SidebarTabItemSettingsSnapshot: Equatable, Sendable {
     public let selectionColorHex: String?
     /// Optional custom notification badge color, as a hex string.
     public let notificationBadgeColorHex: String?
+    /// Which side of the row shows the loading spinner.
+    public let loadingSpinnerPosition: SidebarIndicatorPosition
+    /// Which side of the row shows the unread notification badge.
+    public let notificationBadgePosition: SidebarIndicatorPosition
     /// Resolved visibility of the auxiliary detail rows under each workspace.
     public let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     /// Whether iMessage mode is enabled.
@@ -80,6 +84,8 @@ public struct SidebarTabItemSettingsSnapshot: Equatable, Sendable {
         activeTabIndicatorStyle: WorkspaceIndicatorStyle,
         selectionColorHex: String?,
         notificationBadgeColorHex: String?,
+        loadingSpinnerPosition: SidebarIndicatorPosition,
+        notificationBadgePosition: SidebarIndicatorPosition,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility,
         iMessageModeEnabled: Bool
     ) {
@@ -103,6 +109,8 @@ public struct SidebarTabItemSettingsSnapshot: Equatable, Sendable {
         self.activeTabIndicatorStyle = activeTabIndicatorStyle
         self.selectionColorHex = selectionColorHex
         self.notificationBadgeColorHex = notificationBadgeColorHex
+        self.loadingSpinnerPosition = loadingSpinnerPosition
+        self.notificationBadgePosition = notificationBadgePosition
         self.visibleAuxiliaryDetails = visibleAuxiliaryDetails
         self.iMessageModeEnabled = iMessageModeEnabled
     }

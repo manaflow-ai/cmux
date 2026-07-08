@@ -39,6 +39,7 @@ struct CommandPaletteContributionProviderTests {
             layout: CommandPaletteContributionStrings.Layout(
                 newTerminalTabTitle: "New Tab", newTerminalTabSubtitle: "Tab",
                 newBrowserTabTitle: "New Browser Tab", newBrowserTabSubtitle: "Tab",
+                newAgentChatTitle: "New agent chat", newAgentChatSubtitle: "Agent Chat",
                 closeTabTitle: "Close Tab", closeTabSubtitle: "Tab",
                 closeWorkspaceTitle: "Close Workspace", closeWorkspaceSubtitle: "Workspace",
                 closeWindowTitle: "Close Window", closeWindowSubtitle: "Window",
@@ -183,11 +184,14 @@ struct CommandPaletteContributionProviderTests {
         #expect(pinCmd.subtitle(named) == "Workspace • Alpha")
         #expect(pinCmd.subtitle(CommandPaletteContextSnapshot()) == "Workspace • Workspace")
 
-        // newBrowserWorkspace is gated off when the browser is disabled.
+        // Browser-backed commands are gated off when the browser is disabled.
         let nbw = byId["palette.newBrowserWorkspace"]
+        let agentChat = byId["palette.newAgentChat"]
         var browserOff = CommandPaletteContextSnapshot()
         browserOff.setBool(CommandPaletteContextKeys.browserDisabled, true)
         #expect(nbw?.when(CommandPaletteContextSnapshot()) == true)
         #expect(nbw?.when(browserOff) == false)
+        #expect(agentChat?.when(CommandPaletteContextSnapshot()) == true)
+        #expect(agentChat?.when(browserOff) == false)
     }
 }

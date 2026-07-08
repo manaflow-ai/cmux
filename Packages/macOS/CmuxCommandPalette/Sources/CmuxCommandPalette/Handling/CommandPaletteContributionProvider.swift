@@ -177,6 +177,15 @@ public struct CommandPaletteContributionProvider {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newAgentChat",
+                title: constant(layout.newAgentChatTitle),
+                subtitle: constant(layout.newAgentChatSubtitle),
+                keywords: ["create", "new", "agent", "chat", "browser", "codex", "claude"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
                 title: constant(layout.closeTabTitle),
                 subtitle: constant(layout.closeTabSubtitle),

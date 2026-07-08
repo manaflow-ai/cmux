@@ -3231,6 +3231,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
         case "palette.newBrowserTab":
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
+        case "palette.newAgentChat":
+            return CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
@@ -3495,6 +3497,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 newTerminalTabSubtitle: String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab"),
                 newBrowserTabTitle: String(localized: "command.newBrowserTab.title", defaultValue: "New Tab (Browser)"),
                 newBrowserTabSubtitle: String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab"),
+                newAgentChatTitle: String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"),
+                newAgentChatSubtitle: String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat"),
                 closeTabTitle: String(localized: "command.closeTab.title", defaultValue: "Close Tab"),
                 closeTabSubtitle: String(localized: "command.closeTab.subtitle", defaultValue: "Tab"),
                 closeWorkspaceTitle: String(localized: "command.closeWorkspace.title", defaultValue: "Close Workspace"),
@@ -4025,6 +4029,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             MobilePairingWindowController.shared.show()
         }
         registerAuthCommandHandlers(&registry)
+        registerAgentChatCommandPaletteHandler(&registry)
         registerCloudCommandHandlers(&registry)
         registerProCommandHandlers(&registry)
         registry.register(commandId: "palette.makeDefaultTerminal") {
@@ -5497,6 +5502,8 @@ extension SidebarTabItemSettingsSnapshot {
         let activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         let selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         let notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        let loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
+        let notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
         let iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
 
         self.init(
@@ -5520,6 +5527,8 @@ extension SidebarTabItemSettingsSnapshot {
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             selectionColorHex: selectionColorHex,
             notificationBadgeColorHex: notificationBadgeColorHex,
+            loadingSpinnerPosition: loadingSpinnerPosition,
+            notificationBadgePosition: notificationBadgePosition,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails,
             iMessageModeEnabled: iMessageModeEnabled
         )
@@ -5680,6 +5689,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -7370,6 +7380,7 @@ struct VerticalTabsSidebar: View {
             unreadCount: liveUnreadCount,
             hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
+            showsAgentActivity: showAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -7634,6 +7645,7 @@ struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.showsAgentActivity == rhs.showsAgentActivity &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -7682,6 +7694,7 @@ struct TabItemView: View, Equatable {
     /// the orange warning badge alongside the unread badge.
     let hasMemoryWarning: Bool
     let latestNotificationText: String?
+    let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -7907,6 +7920,7 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -7947,6 +7961,11 @@ struct TabItemView: View, Equatable {
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
             scaledCloseButtonHitSize
         )
+        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
+        let spinnerColor = palette.usesInvertedActiveForeground
+            ? Color(nsColor: palette.selectedWorkspaceForegroundNSColor(opacity: 0.55))
+            : Color(nsColor: .secondaryLabelColor)
 
         let rowContent = SidebarWorkspaceRowContent(
             snapshot: workspaceSnapshot,
@@ -7956,6 +7975,11 @@ struct TabItemView: View, Equatable {
             unreadBadgeFillColor: palette.activeUnreadBadgeFillColor,
             unreadBadgeTextColor: palette.activeUnreadBadgeTextColor,
             unreadBadgeDiameter: scaledUnreadBadgeSize,
+            unreadBadgePosition: settings.notificationBadgePosition,
+            showsLoadingSpinner: showsLoadingSpinner,
+            loadingSpinnerPosition: settings.loadingSpinnerPosition,
+            loadingSpinnerColor: spinnerColor,
+            loadingSpinnerTooltip: spinnerTooltip,
             hasMemoryWarning: hasMemoryWarning,
             memoryWarningTooltip: String(
                 localized: "sidebar.memoryWarning.tooltip",
@@ -8688,6 +8712,10 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
+            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: showsAgentActivity,
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ),
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
             mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity(
                 isPlayingAudio: tab.browserMediaActivity.isPlayingAudio,

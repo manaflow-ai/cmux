@@ -10652,6 +10652,8 @@ extension Workspace: BonsplitDelegate {
                     debugSource: "surfaceTabBar.cloudVM",
                     onCompletion: nil
                 )
+            case .newAgentChat:
+                performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .mobileConnect:
                 MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
