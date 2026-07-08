@@ -474,6 +474,9 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "build-for-testing" in runtime_block
     assert "Run display UI regressions" in runtime_block
     assert "scripts/ci/run-display-ui-regressions.sh" in runtime_block
+    assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
+    assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
+    assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
     assert "timeout-minutes: 40" in package_block
     assert "CMUX_CI_HELPER_XCODE_APP" in package_block
     assert "Select helper Xcode" in package_block

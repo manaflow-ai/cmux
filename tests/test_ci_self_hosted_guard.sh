@@ -284,11 +284,13 @@ check_runtime_regressions_collapsed() {
 
     in_job && /build-for-testing/ { saw_build_for_testing=1 }
     in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
+    in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
+    in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
-    END { exit !(saw_build_for_testing && saw_ui_script && saw_timeout) }
+    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must build once for testing and run the display UI regressions from that DerivedData"
+    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
     exit 1
   fi
 

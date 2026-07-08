@@ -1242,8 +1242,13 @@ jobs:
                 kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
                 sleep 0.1
               done
+              if kill -0 "$VDISPLAY_PID" >/dev/null 2>&1; then
+                kill -9 "$VDISPLAY_PID" >/dev/null 2>&1 || true
+                wait "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              fi
               VDISPLAY_PID=""
             fi
+            scripts/ci/virtual-display-lock.sh reap-strays || true
             scripts/ci/virtual-display-lock.sh release || true
           }
 
@@ -1376,7 +1381,12 @@ jobs:
               kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
               sleep 0.1
             done
+            if kill -0 "$VDISPLAY_PID" >/dev/null 2>&1; then
+              kill -9 "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              wait "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            fi
           fi
+          scripts/ci/virtual-display-lock.sh reap-strays || true
           scripts/ci/virtual-display-lock.sh release || true
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
