@@ -5,11 +5,8 @@ import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import SwiftUI
-import cmuxFeature
-
-#if DEBUG
 import CmuxMobileDiagnostics
-#endif
+import cmuxFeature
 
 /// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
 ///
@@ -35,14 +32,11 @@ final class AppCompositionRoot {
     /// explain a Tailscale-off phone.
     let tailscaleStatusMonitor: TailscaleStatusMonitorAdapter
 
-    #if DEBUG
     /// The structured diagnostic log, built once here and injected into the
-    /// shell store. DEBUG-only: it backs the DEV dogfood feedback round-trip and
-    /// is not present in release builds. Its export header is stamped with the
-    /// same build identity as the string debug log so a submitted bundle proves
-    /// which reload it came from.
+    /// shell store. Its export header is stamped with the same build identity
+    /// as the string debug log so a submitted bundle proves which build it came
+    /// from.
     let diagnosticLog: DiagnosticLog
-    #endif
 
     init(
         runtime: CMUXMobileRuntime,
@@ -74,9 +68,7 @@ final class AppCompositionRoot {
             forceSeen: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
-        #if DEBUG
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
-        #endif
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a
