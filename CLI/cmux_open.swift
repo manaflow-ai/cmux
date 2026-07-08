@@ -348,7 +348,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerAllowedFile: Codable {
+    struct DiffViewerAllowedFile: Codable {
         var requestPath: String
         var filePath: String
         var mimeType: String
