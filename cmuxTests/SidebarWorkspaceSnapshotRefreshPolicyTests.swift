@@ -223,6 +223,9 @@ import Testing
         ))
     }
 
+    @Test func skipsScrollWhenWorkspaceBeforeSelectedWorkspaceCloses() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(selectedWorkspaceId: "d", oldWorkspaceIds: ["a", "b", "c", "d"], newWorkspaceIds: ["a", "c", "d"]))
+    }
     @Test func skipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
         #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
             selectedWorkspaceId: "a",
