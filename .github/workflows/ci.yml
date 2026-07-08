@@ -831,6 +831,41 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Build universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          mkdir -p ghostty-cli-helper
+          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
+          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
+
+      - name: Upload universal Ghostty CLI helper
+        id: upload-ghostty-cli-helper
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+
+      - name: Retry universal Ghostty CLI helper upload
+        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+          overwrite: true
+
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
@@ -1337,6 +1372,7 @@ jobs:
     needs:
       - changes
       - linux-preflight
+      - swift-package-tests
     if: ${{ needs.changes.outputs.macos == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
@@ -1404,24 +1440,6 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
-
-      - name: Cache Zig packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
-
-      - name: Build universal Ghostty CLI helper
-        run: |
-          set -euo pipefail
-          mkdir -p ghostty-cli-helper
-          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
-          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
-
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1449,6 +1467,12 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Download universal Ghostty CLI helper
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper
 
       - name: Install universal Ghostty CLI helper
         run: |

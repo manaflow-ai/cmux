@@ -466,6 +466,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     runtime_block = workflow_job_block("tests-build-and-lag")
+    package_block = workflow_job_block("swift-package-tests")
     release_block = workflow_job_block("release-build")
 
     assert "\n  ui-regressions:" not in workflow
@@ -473,9 +474,14 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "build-for-testing" in runtime_block
     assert "Run display UI regressions" in runtime_block
     assert "scripts/ci/run-display-ui-regressions.sh" in runtime_block
-    assert "Build universal Ghostty CLI helper" in release_block
-    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" in release_block
-    assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" not in release_block
+    assert "Build universal Ghostty CLI helper" in package_block
+    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" in package_block
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in package_block
+    assert "      - swift-package-tests" in release_block
+    assert "Download universal Ghostty CLI helper" in release_block
+    assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
+    assert "Install universal Ghostty CLI helper" in release_block
+    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" not in release_block
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:

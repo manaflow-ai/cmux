@@ -207,23 +207,42 @@ check_release_build_disk_cleanup() {
   echo "PASS: release-build reclaims runner disk before large cache restores"
 }
 
-check_release_helper_built_inline() {
+check_release_helper_artifact_from_package_lane() {
   if ! awk '
-    /^  release-build:/ { in_job=1; next }
+    /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
     in_job && /- name: Build universal Ghostty CLI helper/ { saw_build_step=1; next }
     in_job && /\.\/scripts\/build-ghostty-cli-helper\.sh --universal --output ghostty-cli-helper\/ghostty/ { saw_build=1 }
     in_job && /lipo ghostty-cli-helper\/ghostty -verify_arch arm64 x86_64/ { saw_lipo=1 }
-    in_job && /- name: Install universal Ghostty CLI helper/ { saw_install_step=1; next }
-    in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
-    in_job && /actions\/download-artifact@/ { saw_download=1 }
+    in_job && /- name: Upload universal Ghostty CLI helper/ { saw_upload_step=1; next }
+    in_job && /uses: actions\/upload-artifact@/ { saw_upload=1 }
+    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
 
     END {
-      exit !(saw_build_step && saw_build && saw_lipo && saw_install_step && saw_install && !saw_download)
+      exit !(saw_build_step && saw_build && saw_lipo && saw_upload_step && saw_upload && saw_artifact_name)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: release-build must build and install the universal Ghostty helper inline without a separate CI artifact job"
+    echo "FAIL: swift-package-tests must build and upload the universal Ghostty helper from an existing macOS 15 lane"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- swift-package-tests/ { saw_need=1 }
+    in_job && /- name: Download universal Ghostty CLI helper/ { saw_download_step=1; next }
+    in_job && /uses: actions\/download-artifact@/ { saw_download=1 }
+    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /- name: Install universal Ghostty CLI helper/ { saw_install_step=1; next }
+    in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
+
+    END {
+      exit !(saw_need && saw_download_step && saw_download && saw_artifact_name && saw_install_step && saw_install)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build must depend on swift-package-tests, download the helper artifact, and install it into the app"
     exit 1
   fi
 
@@ -232,7 +251,7 @@ check_release_helper_built_inline() {
     exit 1
   fi
 
-  echo "PASS: release-build builds and installs the universal Ghostty helper inline"
+  echo "PASS: release-build consumes the Ghostty helper artifact built by swift-package-tests"
 }
 
 check_runtime_regressions_collapsed() {
@@ -835,7 +854,7 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_release_build_disk_cleanup
-check_release_helper_built_inline
+check_release_helper_artifact_from_package_lane
 check_runtime_regressions_collapsed
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior

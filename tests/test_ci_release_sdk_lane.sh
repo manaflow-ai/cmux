@@ -8,7 +8,7 @@ RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 # nightly.yml is intentionally not covered here. It has its own helper-build
 # model and guards via test_ci_nightly_xcode_selection.sh plus
 # test_nightly_universal_build.sh. This lane guards the release artifact-download
-# model and the CI inline-helper release-build model.
+# model and the CI package-lane helper handoff model.
 
 job_section() {
   local file="$1" job="$2"
@@ -69,14 +69,30 @@ if ! grep -Fq "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef35013
   exit 1
 fi
 
-release_build_section="$(job_section "$CI_FILE" "release-build")"
-if [[ "$release_build_section" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
-  echo "FAIL: CI release-build must build the universal Ghostty CLI helper inline" >&2
+swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
+if [[ "$swift_package_section" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
+  echo "FAIL: CI swift-package-tests must build the universal Ghostty CLI helper on the macOS 15 lane" >&2
   exit 1
 fi
 
-if [[ "$release_build_section" == *"actions/download-artifact@"* ]]; then
-  echo "FAIL: CI release-build must not wait on a separate Ghostty helper artifact job" >&2
+if [[ "$swift_package_section" != *"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1"* ]]; then
+  echo "FAIL: CI swift-package-tests must upload the macOS 15-built Ghostty helper artifact" >&2
+  exit 1
+fi
+
+release_build_section="$(job_section "$CI_FILE" "release-build")"
+if [[ "$release_build_section" != *"actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0"* ]]; then
+  echo "FAIL: CI release-build must download the macOS 15-built Ghostty helper artifact" >&2
+  exit 1
+fi
+
+if [[ "$release_build_section" != *"- swift-package-tests"* ]]; then
+  echo "FAIL: CI release-build must wait for the helper-producing swift-package-tests lane" >&2
+  exit 1
+fi
+
+if [[ "$release_build_section" == *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
+  echo "FAIL: CI release-build must not build the Ghostty helper on macOS 26" >&2
   exit 1
 fi
 
@@ -85,4 +101,4 @@ if grep -Fq "release-ghostty-cli-helper:" "$CI_FILE"; then
   exit 1
 fi
 
-echo "PASS: release uses artifact helper handoff; CI release-build builds the helper inline on the macOS 26 lane"
+echo "PASS: release uses artifact helper handoff; CI release-build downloads the helper from the existing macOS 15 package lane"
