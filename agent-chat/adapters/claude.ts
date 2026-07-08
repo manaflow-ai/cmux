@@ -168,6 +168,12 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
   const st = state(sess);
   if (st.proc && st.proc.exitCode === null && !st.proc.killed) return st.proc;
 
+  // A replacement process starts from spawn-flag state only; re-run the
+  // control-message option pass so runtime changes (thinking, effort, fast
+  // mode) survive a respawn.
+  if (sess.internal.claudeSpawnedOnce) st.initialApplied = false;
+  sess.internal.claudeSpawnedOnce = true;
+
   const args = [
     "-p",
     "--input-format", "stream-json",
@@ -198,6 +204,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
       rejectPending(st, "claude process exited");
       if (sess.status === "running") {
         sess.emit({ kind: "error", message: "claude process exited mid-turn" });
+        sess.emit({ kind: "done" });
       }
       sess.setStatus("idle");
     }
@@ -211,6 +218,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
       sess.emit({ kind: "error", message: `claude exited (${code})${err ? ": " + truncate(err) : ""}` });
       st.proc = undefined;
       rejectPending(st, `claude exited (${code})`);
+      if (sess.status === "running") sess.emit({ kind: "done" });
       sess.setStatus("idle");
     }
   });
@@ -251,13 +259,15 @@ async function applyInitialOptions(sess: SessionCtx) {
   const st = state(sess);
   if (st.initialApplied) return;
   st.initialApplied = true;
-  if (typeof sess.startOptions.thinking === "string") {
+  // Apply when the caller pinned a start option OR the tracked value has
+  // drifted from the spawn default (a runtime setOption before a respawn).
+  if (typeof sess.startOptions.thinking === "string" || st.thinking !== "0") {
     await control(sess, "set_max_thinking_tokens", { max_thinking_tokens: Number(st.thinking) || 0 });
   }
-  if (typeof sess.startOptions.effort === "string") {
+  if (typeof sess.startOptions.effort === "string" || st.effort !== "medium") {
     await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
   }
-  if (typeof sess.startOptions.fastMode === "boolean") {
+  if (typeof sess.startOptions.fastMode === "boolean" || st.fastMode) {
     await control(sess, "apply_flag_settings", { settings: { fastMode: st.fastMode } });
   }
   emitOptions(sess);
