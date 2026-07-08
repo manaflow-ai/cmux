@@ -20,12 +20,20 @@ use crate::session::TabNotificationView;
 /// stays dim. Notification flashing will slot in here as another state
 /// later. (No hover state: mousing across terminals should not light up
 /// their borders.)
-fn border_style(theme: &Theme, focused: bool) -> Style {
-    if focused {
-        Style::default().fg(theme.border_active)
+fn border_style(app: &App, focused: bool) -> Style {
+    let theme = app.config.theme;
+    let color = if focused {
+        if app.config.theme_overrides.border_active {
+            theme.border_active
+        } else {
+            app.chrome.border_active_fg
+        }
+    } else if app.config.theme_overrides.border_inactive {
+        theme.border_inactive
     } else {
-        Style::default().fg(theme.border_inactive)
-    }
+        app.chrome.border_fg
+    };
+    Style::default().fg(color)
 }
 
 fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color {
@@ -75,7 +83,7 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
         .filter(|notification| notification.unread);
     let style = notification
         .map(|notification| Style::default().fg(notification_color(&theme, notification)))
-        .unwrap_or_else(|| border_style(&theme, focused));
+        .unwrap_or_else(|| border_style(app, focused));
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     if x1 >= screen.width || y1 >= screen.height {
@@ -127,29 +135,31 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         return;
     }
     let theme = app.config.theme;
-    let style = border_style(&theme, focused);
+    let chrome = app.chrome;
+    let style = border_style(app, focused);
+    let tab_bg = if app.config.theme_overrides.tab_bg { theme.tab_bg } else { chrome.tab_bar_bg };
     let (base, active_style) = if tab_cfg.solid_background {
         // Solid tab chips on the border line.
         (
-            Style::default().bg(theme.tab_bg).fg(Color::Indexed(248)),
+            Style::default().bg(tab_bg).fg(chrome.tab_fg),
             if focused {
                 Style::default()
-                    .bg(theme.tab_active_bg.unwrap_or(Color::Indexed(240)))
-                    .fg(Color::Indexed(255))
+                    .bg(theme.tab_active_bg.unwrap_or(chrome.tab_active_bg))
+                    .fg(chrome.tab_active_fg)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
-                    .bg(theme.tab_active_bg.unwrap_or(Color::Indexed(238)))
-                    .fg(Color::Indexed(252))
+                    .bg(theme.tab_active_bg.unwrap_or(chrome.tab_active_unfocused_bg))
+                    .fg(chrome.tab_active_unfocused_fg)
             },
         )
     } else {
         (
-            Style::default().fg(Color::Indexed(246)),
+            Style::default().fg(chrome.tab_plain_fg),
             if focused {
-                Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
+                Style::default().fg(chrome.tab_plain_active_fg).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Indexed(250))
+                Style::default().fg(chrome.tab_plain_unfocused_fg)
             },
         )
     };
@@ -157,7 +167,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let hovered_ctrl = |rect: Rect| hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
     let ctrl_style = |rect: Rect| {
         if hovered_ctrl(rect) {
-            Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
+            Style::default().fg(chrome.tab_control_hover_fg).add_modifier(Modifier::BOLD)
         } else {
             base
         }
@@ -409,7 +419,7 @@ fn draw_browser_content(
         y,
         &text,
         max_cols as usize,
-        Style::default().fg(Color::Indexed(244)),
+        Style::default().fg(app.chrome.browser_message_fg),
     );
 }
 
@@ -450,9 +460,9 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
     let glyph = if active { "▐" } else { "▕" };
 
     let thumb_style = if active || focused {
-        Style::default().fg(Color::Indexed(252))
+        Style::default().fg(app.chrome.scrollbar_thumb_active_fg)
     } else {
-        Style::default().fg(Color::Indexed(246))
+        Style::default().fg(app.chrome.scrollbar_thumb_fg)
     };
     for dy in 0..track.height {
         let y = track.y + dy;

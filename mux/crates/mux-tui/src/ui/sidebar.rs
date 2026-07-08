@@ -46,13 +46,19 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     let workspace_drag = app.workspace_drag();
     let buf = frame.buffer_mut();
 
+    let chrome = app.chrome;
+    let selected_bg = if app.config.theme_overrides.sidebar_active_bg {
+        app.config.theme.sidebar_active_bg
+    } else {
+        chrome.sidebar_selected_bg
+    };
     let base = Style::default();
-    let dim = base.fg(Color::Indexed(242));
+    let dim = base.fg(chrome.sidebar_dim_fg);
     let active_style = Style::default()
-        .bg(app.config.theme.sidebar_active_bg)
-        .fg(Color::Indexed(255))
+        .bg(selected_bg)
+        .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let border = base.fg(Color::Indexed(237));
+    let border = base.fg(chrome.sidebar_border);
 
     for y in 0..height {
         for x in 0..width - 1 {

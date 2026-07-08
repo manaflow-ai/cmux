@@ -6,7 +6,7 @@
 use mux_core::Rect;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
 
 use crate::app::{App, ContextMenu};
@@ -38,10 +38,11 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let Some(prompt) = app.prompt.as_mut() else { return };
     prompt.rect = Rect { x, y, width, height };
 
-    let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(252));
-    let border = base.fg(Color::Indexed(244));
-    let title_style = base.fg(Color::Indexed(255)).add_modifier(Modifier::BOLD);
-    let input_style = Style::default().bg(Color::Indexed(233)).fg(Color::Indexed(255));
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
+    let border = base.fg(chrome.prompt_border);
+    let title_style = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
+    let input_style = Style::default().bg(chrome.prompt_input_bg).fg(chrome.prompt_input_fg);
     let buf = frame.buffer_mut();
 
     for dy in 0..height {
@@ -84,9 +85,9 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     };
     let button_style = |rect: Rect, accent: bool| {
         let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
-        let mut s = if accent { base.fg(Color::Indexed(114)) } else { base };
+        let mut s = if accent { base.fg(chrome.prompt_button_accent_fg) } else { base };
         if hovered {
-            s = s.add_modifier(Modifier::BOLD).bg(Color::Indexed(240));
+            s = s.add_modifier(Modifier::BOLD).bg(chrome.prompt_button_hover_bg);
         }
         s
     };
@@ -125,11 +126,12 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         return;
     }
 
-    let base = Style::default().bg(Color::Indexed(237)).fg(Color::Indexed(252));
-    let border = base.fg(Color::Indexed(244));
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.menu_bg).fg(chrome.menu_fg);
+    let border = base.fg(chrome.menu_border);
     let selected = Style::default()
-        .bg(Color::Indexed(242))
-        .fg(Color::Indexed(255))
+        .bg(chrome.menu_selected_bg)
+        .fg(chrome.menu_selected_fg)
         .add_modifier(Modifier::BOLD);
     let buf = frame.buffer_mut();
 
@@ -178,7 +180,7 @@ pub fn draw_toast(app: &App, frame: &mut Frame) {
     }
     let x = area.x + area.width.saturating_sub(width + 1);
     let y = area.y + area.height.saturating_sub(2);
-    let style = Style::default().bg(Color::Indexed(240)).fg(Color::Indexed(255));
+    let style = Style::default().bg(app.chrome.toast_bg).fg(app.chrome.toast_fg);
     frame.buffer_mut().set_stringn(x, y, &label, width as usize, style);
 }
 

@@ -5,6 +5,7 @@
 //! ```json
 //! {
 //!   "theme": {
+//!     "chrome": "auto",
 //!     "selection_background": "#3a3a3a",
 //!     "selection_foreground": null,
 //!     "sidebar_rail": "#87afd7",
@@ -61,8 +62,7 @@
 use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use mux_core::platform;
-use mux_core::SurfaceOptions;
+use mux_core::{platform, DefaultColors, Rgb, SurfaceOptions};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -101,6 +101,7 @@ struct RawConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTheme {
+    chrome: Option<ChromeMode>,
     selection_background: Option<ColorValue>,
     /// Distinguishes an absent key (keep the Ghostty-seeded value) from an
     /// explicit `null` (clear it back to "no override"), which `Option`
@@ -117,6 +118,182 @@ struct RawTheme {
     notification_info: Option<ColorValue>,
     notification_warning: Option<ColorValue>,
     notification_error: Option<ColorValue>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChromeMode {
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChromeTheme {
+    pub menu_bg: Color,
+    pub menu_fg: Color,
+    pub menu_border: Color,
+    pub menu_selected_bg: Color,
+    pub menu_selected_fg: Color,
+    pub prompt_bg: Color,
+    pub prompt_fg: Color,
+    pub prompt_border: Color,
+    pub prompt_title_fg: Color,
+    pub prompt_input_bg: Color,
+    pub prompt_input_fg: Color,
+    pub prompt_button_accent_fg: Color,
+    pub prompt_button_hover_bg: Color,
+    pub toast_bg: Color,
+    pub toast_fg: Color,
+    pub status_bg: Color,
+    pub status_fg: Color,
+    pub status_dim_fg: Color,
+    pub status_active_bg: Color,
+    pub status_active_fg: Color,
+    pub tab_bar_bg: Color,
+    pub tab_fg: Color,
+    pub tab_active_bg: Color,
+    pub tab_active_fg: Color,
+    pub tab_active_unfocused_bg: Color,
+    pub tab_active_unfocused_fg: Color,
+    pub tab_plain_fg: Color,
+    pub tab_plain_active_fg: Color,
+    pub tab_plain_unfocused_fg: Color,
+    pub tab_control_hover_fg: Color,
+    pub sidebar_dim_fg: Color,
+    pub sidebar_selected_bg: Color,
+    pub sidebar_selected_fg: Color,
+    pub sidebar_border: Color,
+    pub omnibar_fg: Color,
+    pub omnibar_sep_fg: Color,
+    pub omnibar_dim_fg: Color,
+    pub omnibar_edit_bg: Color,
+    pub omnibar_edit_fg: Color,
+    pub omnibar_hover_fg: Color,
+    pub border_active_fg: Color,
+    pub border_fg: Color,
+    pub browser_message_fg: Color,
+    pub scrollbar_thumb_fg: Color,
+    pub scrollbar_thumb_active_fg: Color,
+}
+
+impl ChromeTheme {
+    pub fn dark() -> Self {
+        Self {
+            menu_bg: Color::Indexed(237),
+            menu_fg: Color::Indexed(252),
+            menu_border: Color::Indexed(244),
+            menu_selected_bg: Color::Indexed(242),
+            menu_selected_fg: Color::Indexed(255),
+            prompt_bg: Color::Indexed(236),
+            prompt_fg: Color::Indexed(252),
+            prompt_border: Color::Indexed(244),
+            prompt_title_fg: Color::Indexed(255),
+            prompt_input_bg: Color::Indexed(233),
+            prompt_input_fg: Color::Indexed(255),
+            prompt_button_accent_fg: Color::Indexed(114),
+            prompt_button_hover_bg: Color::Indexed(240),
+            toast_bg: Color::Indexed(240),
+            toast_fg: Color::Indexed(255),
+            status_bg: Color::Indexed(236),
+            status_fg: Color::Indexed(250),
+            status_dim_fg: Color::Indexed(244),
+            status_active_bg: Color::Indexed(240),
+            status_active_fg: Color::Indexed(255),
+            tab_bar_bg: Color::Indexed(236),
+            tab_fg: Color::Indexed(248),
+            tab_active_bg: Color::Indexed(240),
+            tab_active_fg: Color::Indexed(255),
+            tab_active_unfocused_bg: Color::Indexed(238),
+            tab_active_unfocused_fg: Color::Indexed(252),
+            tab_plain_fg: Color::Indexed(246),
+            tab_plain_active_fg: Color::Indexed(255),
+            tab_plain_unfocused_fg: Color::Indexed(250),
+            tab_control_hover_fg: Color::Indexed(255),
+            sidebar_dim_fg: Color::Indexed(242),
+            sidebar_selected_bg: Color::Indexed(236),
+            sidebar_selected_fg: Color::Indexed(255),
+            sidebar_border: Color::Indexed(237),
+            omnibar_fg: Color::Indexed(244),
+            omnibar_sep_fg: Color::Indexed(238),
+            omnibar_dim_fg: Color::Indexed(241),
+            omnibar_edit_bg: Color::Indexed(236),
+            omnibar_edit_fg: Color::Indexed(252),
+            omnibar_hover_fg: Color::Indexed(255),
+            border_active_fg: Color::Indexed(110),
+            border_fg: Color::Indexed(238),
+            browser_message_fg: Color::Indexed(244),
+            scrollbar_thumb_fg: Color::Indexed(246),
+            scrollbar_thumb_active_fg: Color::Indexed(252),
+        }
+    }
+
+    pub fn light() -> Self {
+        Self {
+            menu_bg: Color::Indexed(254),
+            menu_fg: Color::Indexed(236),
+            menu_border: Color::Indexed(246),
+            menu_selected_bg: Color::Indexed(252),
+            menu_selected_fg: Color::Indexed(234),
+            prompt_bg: Color::Indexed(254),
+            prompt_fg: Color::Indexed(236),
+            prompt_border: Color::Indexed(246),
+            prompt_title_fg: Color::Indexed(234),
+            prompt_input_bg: Color::Indexed(255),
+            prompt_input_fg: Color::Indexed(234),
+            prompt_button_accent_fg: Color::Indexed(28),
+            prompt_button_hover_bg: Color::Indexed(252),
+            toast_bg: Color::Indexed(252),
+            toast_fg: Color::Indexed(234),
+            status_bg: Color::Indexed(254),
+            status_fg: Color::Indexed(238),
+            status_dim_fg: Color::Indexed(242),
+            status_active_bg: Color::Indexed(252),
+            status_active_fg: Color::Indexed(234),
+            tab_bar_bg: Color::Indexed(254),
+            tab_fg: Color::Indexed(240),
+            tab_active_bg: Color::Indexed(252),
+            tab_active_fg: Color::Indexed(234),
+            tab_active_unfocused_bg: Color::Indexed(253),
+            tab_active_unfocused_fg: Color::Indexed(236),
+            tab_plain_fg: Color::Indexed(242),
+            tab_plain_active_fg: Color::Indexed(234),
+            tab_plain_unfocused_fg: Color::Indexed(238),
+            tab_control_hover_fg: Color::Indexed(234),
+            sidebar_dim_fg: Color::Indexed(242),
+            sidebar_selected_bg: Color::Indexed(253),
+            sidebar_selected_fg: Color::Indexed(234),
+            sidebar_border: Color::Indexed(246),
+            omnibar_fg: Color::Indexed(240),
+            omnibar_sep_fg: Color::Indexed(246),
+            omnibar_dim_fg: Color::Indexed(242),
+            omnibar_edit_bg: Color::Indexed(255),
+            omnibar_edit_fg: Color::Indexed(234),
+            omnibar_hover_fg: Color::Indexed(234),
+            border_active_fg: Color::Indexed(31),
+            border_fg: Color::Indexed(246),
+            browser_message_fg: Color::Indexed(242),
+            scrollbar_thumb_fg: Color::Indexed(246),
+            scrollbar_thumb_active_fg: Color::Indexed(240),
+        }
+    }
+
+    pub fn for_defaults(mode: ChromeMode, colors: DefaultColors) -> Self {
+        match mode {
+            ChromeMode::Light => Self::light(),
+            ChromeMode::Dark => Self::dark(),
+            ChromeMode::Auto => match colors.bg {
+                Some(bg) if is_light_background(bg) => Self::light(),
+                _ => Self::dark(),
+            },
+        }
+    }
+}
+
+pub fn is_light_background(bg: Rgb) -> bool {
+    let luminance = 0.2126 * f64::from(bg.r) + 0.7152 * f64::from(bg.g) + 0.0722 * f64::from(bg.b);
+    luminance > 128.0
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -612,11 +789,21 @@ fn parse_chord(s: &str) -> Option<Chord> {
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub theme: Theme,
+    pub theme_overrides: ThemeOverrides,
+    pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
     pub keys: Keys,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ThemeOverrides {
+    pub sidebar_active_bg: bool,
+    pub tab_bg: bool,
+    pub border_active: bool,
+    pub border_inactive: bool,
 }
 
 /// Load the config: defaults, overlaid with the user's Ghostty selection
@@ -633,6 +820,9 @@ pub fn load() -> Config {
 
     let raw = load_raw_config();
     let t = &raw.theme;
+    if let Some(chrome) = t.chrome {
+        config.chrome = chrome;
+    }
     if let Some(c) = t.selection_background.as_ref().and_then(ColorValue::to_color) {
         config.theme.selection_bg = c;
     }
@@ -650,21 +840,25 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.sidebar_active_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_active_bg = c;
+        config.theme_overrides.sidebar_active_bg = true;
     }
     if let Some(c) = t.tab_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_rail = c;
     }
     if let Some(c) = t.tab_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_bg = c;
+        config.theme_overrides.tab_bg = true;
     }
     if let Some(c) = t.tab_active_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_active_bg = Some(c);
     }
     if let Some(c) = t.border_active.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_active = c;
+        config.theme_overrides.border_active = true;
     }
     if let Some(c) = t.border_inactive.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_inactive = c;
+        config.theme_overrides.border_inactive = true;
     }
     if let Some(c) = t.notification_info.as_ref().and_then(ColorValue::to_color) {
         config.theme.notification_info = c;
@@ -843,6 +1037,68 @@ mod tests {
     }
 
     #[test]
+    fn detects_light_background_from_luminance() {
+        assert!(is_light_background(Rgb { r: 255, g: 255, b: 255 }));
+        assert!(!is_light_background(Rgb { r: 0, g: 0, b: 0 }));
+        assert!(!is_light_background(Rgb { r: 128, g: 128, b: 128 }));
+        assert!(is_light_background(Rgb { r: 129, g: 129, b: 129 }));
+    }
+
+    #[test]
+    fn dark_chrome_matches_legacy_indices() {
+        let chrome = ChromeTheme::dark();
+        assert_eq!(chrome.menu_bg, Color::Indexed(237));
+        assert_eq!(chrome.menu_selected_bg, Color::Indexed(242));
+        assert_eq!(chrome.prompt_bg, Color::Indexed(236));
+        assert_eq!(chrome.status_bg, Color::Indexed(236));
+        assert_eq!(chrome.status_active_bg, Color::Indexed(240));
+        assert_eq!(chrome.tab_bar_bg, Color::Indexed(236));
+        assert_eq!(chrome.tab_active_bg, Color::Indexed(240));
+        assert_eq!(chrome.tab_active_unfocused_bg, Color::Indexed(238));
+        assert_eq!(chrome.sidebar_selected_bg, Color::Indexed(236));
+        assert_eq!(chrome.omnibar_edit_bg, Color::Indexed(236));
+        assert_eq!(chrome.border_fg, Color::Indexed(238));
+        assert_eq!(chrome.scrollbar_thumb_active_fg, Color::Indexed(252));
+    }
+
+    #[test]
+    fn chrome_theme_selection_honors_auto_and_overrides() {
+        let light_defaults = DefaultColors { fg: None, bg: Some(Rgb { r: 240, g: 240, b: 240 }) };
+        let dark_defaults = DefaultColors { fg: None, bg: Some(Rgb { r: 20, g: 20, b: 20 }) };
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Auto, light_defaults),
+            ChromeTheme::light()
+        );
+        assert_eq!(ChromeTheme::for_defaults(ChromeMode::Auto, dark_defaults), ChromeTheme::dark());
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Auto, DefaultColors::default()),
+            ChromeTheme::dark()
+        );
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Dark, light_defaults),
+            ChromeTheme::dark()
+        );
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Light, dark_defaults),
+            ChromeTheme::light()
+        );
+    }
+
+    #[test]
+    fn parses_chrome_config_and_rejects_unknown_values() {
+        let raw: RawConfig = serde_json::from_str(r##"{"theme": {"chrome": "light"}}"##).unwrap();
+        assert_eq!(raw.theme.chrome, Some(ChromeMode::Light));
+
+        let err = serde_json::from_str::<RawConfig>(r##"{"theme": {"chrome": "solarized"}}"##)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown variant"), "{err}");
+        assert!(err.contains("light"), "{err}");
+        assert!(err.contains("dark"), "{err}");
+        assert!(err.contains("auto"), "{err}");
+    }
+
+    #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
         assert_eq!(tab_label(&tabs, 0, "", None), "1");
@@ -871,6 +1127,7 @@ mod tests {
             &path,
             r##"{
                 "theme": {
+                    "chrome": "dark",
                     "selection_background": "#101010",
                     "sidebar_rail": 42,
                     "sidebar_active_bg": "#202020",
@@ -894,9 +1151,12 @@ mod tests {
         std::env::remove_var("CMUX_MUX_CONFIG");
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
+        assert_eq!(config.chrome, ChromeMode::Dark);
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
         assert_eq!(config.theme.sidebar_active_bg, Color::Rgb(0x20, 0x20, 0x20));
         assert_eq!(config.theme.tab_bg, Color::Indexed(44));
+        assert!(config.theme_overrides.sidebar_active_bg);
+        assert!(config.theme_overrides.tab_bg);
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);

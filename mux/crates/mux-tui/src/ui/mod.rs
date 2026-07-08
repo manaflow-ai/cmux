@@ -55,14 +55,15 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let status_y = area.height - 1;
     let bar_x = app.sidebar_width.min(area.width);
-    let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(250));
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.status_bg).fg(chrome.status_fg);
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
     }
 
     let active_style = Style::default()
-        .bg(Color::Indexed(240))
-        .fg(Color::Indexed(255))
+        .bg(chrome.status_active_bg)
+        .fg(chrome.status_active_fg)
         .add_modifier(Modifier::BOLD);
     let mut x: u16 = bar_x;
     let mut hits = Vec::new();
@@ -77,7 +78,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     };
 
     let Some(ws) = app.tree.active_workspace().cloned() else { return };
-    put(frame, &mut x, " screens ", base.fg(Color::Indexed(244)));
+    put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
     for (i, screen) in ws.screens.iter().enumerate() {
         let active = i == ws.active_screen;
         let label = format!(" {} ", truncate(&screen.display_name(i), 20));
@@ -89,7 +90,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             ));
         }
     }
-    let (start, width) = put(frame, &mut x, " + ", base.fg(Color::Indexed(244)));
+    let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
     if width > 0 {
         hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
     }
@@ -112,7 +113,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             if app.status_message.is_some() {
                 base.fg(Color::Red).add_modifier(Modifier::BOLD)
             } else {
-                base.fg(Color::Indexed(244))
+                base.fg(chrome.status_dim_fg)
             },
         );
     }

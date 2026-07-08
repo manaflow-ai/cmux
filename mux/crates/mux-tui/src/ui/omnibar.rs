@@ -1,5 +1,5 @@
 use mux_core::{BrowserStatus, Rect, SurfaceKind};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
 
 use super::truncate;
@@ -56,13 +56,14 @@ fn draw_idle(
     rect: Rect,
     surface: &crate::session::SurfaceHandle,
 ) {
-    let base = Style::default().fg(Color::Indexed(244));
+    let chrome = app.chrome;
+    let base = Style::default().fg(chrome.omnibar_fg);
     fill(frame, rect, base);
     put(frame, rect, 0, " ", base);
     put_nav(frame, app, rect, BACK_X, "‹", base);
     put_nav(frame, app, rect, FORWARD_X, "›", base);
     put_nav(frame, app, rect, RELOAD_X, "⟳", base);
-    put(frame, rect, 7, "│", base.fg(Color::Indexed(238)));
+    put(frame, rect, 7, "│", base.fg(chrome.omnibar_sep_fg));
 
     if rect.width <= TEXT_START_X {
         return;
@@ -105,11 +106,11 @@ fn draw_idle(
                 rect,
                 TEXT_START_X + text.chars().count() as u16,
                 suffix,
-                base.fg(Color::Indexed(241)),
+                base.fg(chrome.omnibar_dim_fg),
             );
         } else {
             let text = truncate(suffix.trim_start(), max);
-            put(frame, rect, TEXT_START_X, &text, base.fg(Color::Indexed(241)));
+            put(frame, rect, TEXT_START_X, &text, base.fg(chrome.omnibar_dim_fg));
         }
     } else {
         let text = truncate(&label, max);
@@ -119,7 +120,7 @@ fn draw_idle(
 
 fn draw_editing(app: &App, frame: &mut Frame, rect: Rect) {
     let Some(state) = app.omnibar.as_ref() else { return };
-    let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(252));
+    let base = Style::default().bg(app.chrome.omnibar_edit_bg).fg(app.chrome.omnibar_edit_fg);
     fill(frame, rect, base);
     if rect.width == 0 {
         return;
@@ -153,8 +154,11 @@ fn put_nav(frame: &mut Frame, app: &App, rect: Rect, rel_x: u16, text: &str, bas
     }
     let cell = Rect { x: rect.x + rel_x, y: rect.y, width: 1, height: 1 };
     let hovered = app.hover.is_some_and(|(x, y)| cell.contains(x, y));
-    let style =
-        if hovered { base.fg(Color::Indexed(255)).add_modifier(Modifier::BOLD) } else { base };
+    let style = if hovered {
+        base.fg(app.chrome.omnibar_hover_fg).add_modifier(Modifier::BOLD)
+    } else {
+        base
+    };
     put(frame, rect, rel_x, text, style);
 }
 
