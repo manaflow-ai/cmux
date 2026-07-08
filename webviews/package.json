@@ -9,7 +9,7 @@
     "lint:ci": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --deny-warnings",
     "lint:fix": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --fix",
     "test": "bun test",
-    "typecheck": "bun x --no-install -p typescript-7 tsc --noEmit",
+    "typecheck": "./node_modules/typescript-7/bin/tsc --noEmit",
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"

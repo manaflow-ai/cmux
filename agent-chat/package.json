@@ -5,7 +5,7 @@
   "scripts": {
     "start": "bun server.ts",
     "build": "bun run build.ts",
-    "check": "bun x --no-install -p typescript-7 tsc --noEmit && bun test/model-label.test.ts && bun test/activity.test.ts && bun test/keymap.test.ts && bun test/options-store.test.ts && bun test/options-ui.test.ts && bun test/turns.test.ts && bun test/selection-css.test.ts && bun test/highlight.test.ts"
+    "check": "./node_modules/typescript-7/bin/tsc --noEmit && bun test/model-label.test.ts && bun test/activity.test.ts && bun test/keymap.test.ts && bun test/options-store.test.ts && bun test/options-ui.test.ts && bun test/turns.test.ts && bun test/selection-css.test.ts && bun test/highlight.test.ts"
   },
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",

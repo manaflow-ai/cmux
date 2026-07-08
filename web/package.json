@@ -27,7 +27,7 @@
     "start": "next start",
     "test": "bun test",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
-    "typecheck": "bun x --no-install -p typescript-7 tsc --noEmit",
+    "typecheck": "./node_modules/typescript-7/bin/tsc --noEmit",
     "lint": "eslint"
   },
   "dependencies": {
