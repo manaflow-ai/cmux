@@ -4140,6 +4140,9 @@ struct CMUXCLI {
                 print("attach:   cmux vm ssh \(vmId)")
                 print("inspect:  cmux vm tools \(vmId)")
 
+            case "onboard":
+                try runVMOnboardCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
+
             case "env":
                 try runVMEnvCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
 
@@ -4158,11 +4161,12 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|env|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|onboard|env|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
+                      cmux vm onboard [repo-url]
                       cmux vm env build
                       cmux vm status <id>
                       cmux vm snapshot <id>
