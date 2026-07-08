@@ -147,7 +147,17 @@ final class MobileTerminalSyncDiagnostics {
     }
 
     func barrierArmed(surface: UInt32, trigger: ReplayTrigger) {
-        barrierStartedAtBySurface[surface] = now()
+        let timestamp = now()
+        barrierStartedAtBySurface[surface] = timestamp
+        stallMonitor.noteGateReplaced(
+            surface: surface,
+            from: [.pendingInputSeq, .baselineWait, .viewportBarrier],
+            to: .replayBarrier,
+            now: timestamp
+        )
+        resetDropCount(surface: surface, gate: .pendingInputSeq)
+        resetDropCount(surface: surface, gate: .baselineWait)
+        resetDropCount(surface: surface, gate: .viewportBarrier)
         diagnosticLog?.record(DiagnosticEvent(
             .replayBarrierArmed,
             surface: surface,
@@ -230,22 +240,25 @@ final class MobileTerminalSyncDiagnostics {
         ])
     }
 
-    func resyncTriggered(trigger: ResyncTrigger, restartedStream: Bool, surfaces: [UInt32]) {
-        let timestamp = now()
-        for surface in Set(surfaces) {
-            stallMonitor.noteResyncTriggered(surface: surface, now: timestamp)
-        }
+    func resyncTriggered(trigger: ResyncTrigger, restartedStream: Bool, surfaceCount: Int) {
         diagnosticLog?.record(DiagnosticEvent(
             .resyncTriggered,
             a: trigger.rawValue,
             b: restartedStream ? 1 : 0,
-            c: surfaces.count
+            c: surfaceCount
         ))
         captureRateLimited("ios_terminal_resync", [
             "trigger": .string(trigger.analyticsValue),
             "restarted_stream": .bool(restartedStream),
-            "surface_count": .int(surfaces.count),
+            "surface_count": .int(surfaceCount),
         ])
+    }
+
+    func resyncReplayRequested(surfaces: [UInt32]) {
+        let timestamp = now()
+        for surface in Set(surfaces) {
+            stallMonitor.noteResyncTriggered(surface: surface, now: timestamp)
+        }
     }
 
     func manualRecoverySnapshot(
@@ -317,6 +330,11 @@ final class MobileTerminalSyncDiagnostics {
         // drop, so a burst of invalid packets must not fire one analytics
         // event each. The bounded ring row above still records every drop.
         captureRateLimited("ios_terminal_input_dropped", props)
+    }
+
+    func resetInputState() {
+        inputHighWaterBytes = 0
+        inputBatchStartedAt = nil
     }
 
     private func emit(

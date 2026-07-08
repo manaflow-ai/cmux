@@ -158,6 +158,129 @@ import Testing
         )])
     }
 
+    @Test func resyncAttributionDoesNotApplyToEpisodeOpenedAfterMark() {
+        let start = Date(timeIntervalSince1970: 385)
+        var monitor = TerminalRenderStallMonitor(stallThreshold: 1)
+
+        _ = monitor.noteFrameDropped(surface: 4, gate: .pendingInputSeq, now: start)
+        _ = monitor.noteFrameDropped(surface: 4, gate: .pendingInputSeq, now: start.addingTimeInterval(2))
+        monitor.noteResyncTriggered(surface: 4, now: start.addingTimeInterval(3))
+        _ = monitor.noteFrameDropped(surface: 4, gate: .replayBarrier, now: start.addingTimeInterval(4))
+        _ = monitor.noteFrameDropped(surface: 4, gate: .replayBarrier, now: start.addingTimeInterval(6))
+
+        let replayRecovered = monitor.noteGateResolved(
+            surface: 4,
+            gate: .replayBarrier,
+            how: .replayAck,
+            now: start.addingTimeInterval(7)
+        )
+        let pendingRecovered = monitor.noteGateResolved(
+            surface: 4,
+            gate: .pendingInputSeq,
+            how: .catchupFrame,
+            now: start.addingTimeInterval(8)
+        )
+
+        #expect(replayRecovered == [.stallRecovered(
+            surface: 4,
+            gate: .replayBarrier,
+            how: .replayAck,
+            duration: 3,
+            droppedFrames: 2
+        )])
+        #expect(pendingRecovered == [.stallRecovered(
+            surface: 4,
+            gate: .pendingInputSeq,
+            how: .resync,
+            duration: 8,
+            droppedFrames: 2
+        )])
+    }
+
+    @Test func gateReplacementMergesDetectedEpisodeWithoutDuplicateEmission() {
+        let start = Date(timeIntervalSince1970: 390)
+        var monitor = TerminalRenderStallMonitor(stallThreshold: 5)
+
+        _ = monitor.noteFrameDropped(surface: 2, gate: .pendingInputSeq, now: start)
+        let detected = monitor.noteFrameDropped(
+            surface: 2,
+            gate: .pendingInputSeq,
+            now: start.addingTimeInterval(6)
+        )
+        _ = monitor.noteFrameDropped(surface: 2, gate: .replayBarrier, now: start.addingTimeInterval(5))
+
+        monitor.noteGateReplaced(
+            surface: 2,
+            from: [.pendingInputSeq],
+            to: .replayBarrier,
+            now: start.addingTimeInterval(7)
+        )
+
+        #expect(detected == [.stallDetected(
+            surface: 2,
+            gate: .pendingInputSeq,
+            droppedFrames: 2,
+            stallDuration: 6
+        )])
+        #expect(monitor.snapshot(surface: 2, now: start.addingTimeInterval(8)) == [
+            TerminalRenderStallSnapshot(
+                surface: 2,
+                gate: .replayBarrier,
+                droppedFrames: 3,
+                duration: 8,
+                stallDetected: true
+            ),
+        ])
+        #expect(monitor.noteFrameDropped(
+            surface: 2,
+            gate: .replayBarrier,
+            now: start.addingTimeInterval(9)
+        ).isEmpty)
+
+        let recovered = monitor.noteGateResolved(
+            surface: 2,
+            gate: .replayBarrier,
+            how: .replayAck,
+            now: start.addingTimeInterval(10)
+        )
+        #expect(recovered == [.stallRecovered(
+            surface: 2,
+            gate: .replayBarrier,
+            how: .replayAck,
+            duration: 10,
+            droppedFrames: 4
+        )])
+    }
+
+    @Test func gateReplacementKeepsUndetectedEpisodeAgingFromEarliestStart() {
+        let start = Date(timeIntervalSince1970: 395)
+        var monitor = TerminalRenderStallMonitor(stallThreshold: 5)
+
+        _ = monitor.noteFrameDropped(surface: 2, gate: .baselineWait, now: start)
+        monitor.noteGateReplaced(
+            surface: 2,
+            from: [.baselineWait],
+            to: .replayBarrier,
+            now: start.addingTimeInterval(2)
+        )
+
+        #expect(monitor.noteFrameDropped(
+            surface: 2,
+            gate: .replayBarrier,
+            now: start.addingTimeInterval(4.9)
+        ).isEmpty)
+        #expect(monitor.noteFrameDropped(
+            surface: 2,
+            gate: .replayBarrier,
+            now: start.addingTimeInterval(5)
+        ) == [.stallDetected(
+            surface: 2,
+            gate: .replayBarrier,
+            droppedFrames: 3,
+            stallDuration: 5
+        )])
+    }
+
     @Test func snapshotReportsActiveGateBitmaskAndLastAppliedAge() {
         let start = Date(timeIntervalSince1970: 400)
         var monitor = TerminalRenderStallMonitor(stallThreshold: 5)

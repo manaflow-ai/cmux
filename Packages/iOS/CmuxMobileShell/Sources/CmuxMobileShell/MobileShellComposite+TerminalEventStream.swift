@@ -208,8 +208,9 @@ extension MobileShellComposite {
         terminalSyncDiagnostics.resyncTriggered(
             trigger: .from(reason: reason),
             restartedStream: restartEventStream,
-            surfaces: surfaceIDs.map(Self.diagnosticSurfaceHandle)
+            surfaceCount: surfaceIDs.count
         )
+        terminalSyncDiagnostics.resyncReplayRequested(surfaces: surfaceIDs.map(Self.diagnosticSurfaceHandle))
         if restartEventStream {
             stopTerminalRefreshPolling()
             startTerminalRefreshPolling()

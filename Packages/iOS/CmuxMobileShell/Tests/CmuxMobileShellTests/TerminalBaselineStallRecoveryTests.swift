@@ -5,9 +5,9 @@ import Testing
 @testable import CmuxMobileShell
 
 /// Regression coverage for stall recovery fidelity around resets and replays:
-/// a successful missing-baseline replay must resolve the baseline_wait gate
-/// episode, and reset paths that leave a replay barrier gating output must
-/// not claim recovery (https://github.com/manaflow-ai/cmux/issues/7573
+/// a successful missing-baseline replay must resolve the transferred replay
+/// barrier episode, and reset paths that leave a replay barrier gating output
+/// must not claim recovery (https://github.com/manaflow-ai/cmux/issues/7573
 /// review rounds).
 
 @MainActor
@@ -99,7 +99,7 @@ import Testing
 }
 
 @MainActor
-@Test func baselineReplaySuccessResolvesBaselineWaitStall() async throws {
+@Test func baselineReplaySuccessResolvesTransferredBaselineWaitStall() async throws {
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
     let box = TransportBox()
@@ -136,8 +136,9 @@ import Testing
     #expect(coldReplaySettledEmpty)
 
     // Two baseline-wait drops more than the stall threshold apart open a
-    // detected baseline_wait episode while the missing-baseline replay is
-    // held in flight.
+    // detected episode. The first drop triggers a missing-baseline replay
+    // barrier, so the baseline wait is transferred into replay_barrier while
+    // the missing-baseline replay is held in flight.
     await router.holdNextReplayResponses()
     let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(
@@ -156,13 +157,14 @@ import Testing
     ))
     let stalled = try await pollUntil {
         analytics.events(named: "ios_terminal_render_stall").contains {
-            $0["gate"] == .string("baseline_wait")
+            $0["gate"] == .string("replay_barrier")
         }
     }
-    #expect(stalled, "a second baseline-wait drop past the threshold must emit a stall")
+    #expect(stalled, "a second baseline-wait drop past the threshold must emit a transferred replay barrier stall")
 
     // The missing-baseline replay succeeds with a full frame; delivering it
-    // establishes the baseline and must resolve the baseline_wait stall.
+    // establishes the baseline and must resolve the transferred replay barrier
+    // stall on ack.
     await router.enqueueReplayRenderGrid(try renderGridFrame(
         surfaceID: surfaceID,
         seq: 6,
@@ -176,8 +178,8 @@ import Testing
 
     let recovered = try await pollUntil {
         analytics.events(named: "ios_terminal_render_stall_recovered").contains {
-            $0["gate"] == .string("baseline_wait") && $0["recovery"] == .string("replay_ack")
+            $0["gate"] == .string("replay_barrier") && $0["recovery"] == .string("replay_ack")
         }
     }
-    #expect(recovered, "baseline replay success must resolve the baseline_wait stall as replay_ack")
+    #expect(recovered, "baseline replay success must resolve the transferred replay barrier stall as replay_ack")
 }

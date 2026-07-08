@@ -85,6 +85,15 @@ public struct TerminalRenderStallMonitor: Sendable {
         var droppedFrames: Int
         var detected: Bool
         var recoveryAttribution: TerminalStallRecoveryCause?
+
+        mutating func merge(_ other: Episode) {
+            if other.startedAt < startedAt {
+                startedAt = other.startedAt
+            }
+            droppedFrames += other.droppedFrames
+            detected = detected || other.detected
+            recoveryAttribution = recoveryAttribution ?? other.recoveryAttribution
+        }
     }
 
     /// The elapsed time after which a drop episode becomes a stall.
@@ -155,15 +164,47 @@ public struct TerminalRenderStallMonitor: Sendable {
 
     /// Marks currently open surface episodes as resync-attributed.
     ///
-    /// This does not emit recovery. If one of the marked episodes later
-    /// resolves through an actual gate clear, the recovery cause is reported as
-    /// ``TerminalStallRecoveryCause/resync``.
+    /// This does not emit recovery. Call this only when resync actually
+    /// requests replay for the surface. That replay is allowed to repair any
+    /// gate on the surface, so every currently open gate episode is marked; if
+    /// one later resolves through an actual gate clear, the recovery cause is
+    /// reported as ``TerminalStallRecoveryCause/resync``.
     public mutating func noteResyncTriggered(surface: UInt32, now: Date) {
         let keys = episodes.keys.filter { $0.surface == surface }
         for key in keys {
             guard var episode = episodes[key] else { continue }
             episode.recoveryAttribution = .resync
             episodes[key] = episode
+        }
+    }
+
+    /// Transfers open gate episodes into a replacement gate without recovery.
+    ///
+    /// The merged episode keeps the earliest start time, sums dropped frames,
+    /// and stays detected if any source episode had already crossed the stall
+    /// threshold. Transfer itself never emits a stall detection or recovery.
+    public mutating func noteGateReplaced(
+        surface: UInt32,
+        from gates: [TerminalRenderDropGate],
+        to replacementGate: TerminalRenderDropGate,
+        now: Date
+    ) {
+        let replacementKey = SurfaceGate(surface: surface, gate: replacementGate)
+        var merged = episodes[replacementKey] ?? Episode(
+            startedAt: now,
+            droppedFrames: 0,
+            detected: false,
+            recoveryAttribution: nil
+        )
+        var didMerge = episodes[replacementKey] != nil
+        for gate in gates where gate != replacementGate {
+            let key = SurfaceGate(surface: surface, gate: gate)
+            guard let episode = episodes.removeValue(forKey: key) else { continue }
+            merged.merge(episode)
+            didMerge = true
+        }
+        if didMerge {
+            episodes[replacementKey] = merged
         }
     }
 

@@ -5350,6 +5350,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
+        terminalSyncDiagnostics.resetInputState()
         for surfaceID in terminalByteContinuationsBySurfaceID.keys {
             terminalSyncDiagnostics.surfaceResolved(
                 surface: Self.diagnosticSurfaceHandle(surfaceID),
@@ -6459,7 +6460,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSyncDiagnostics.resyncTriggered(
             trigger: .streamEnded,
             restartedStream: true,
-            surfaces: terminalByteContinuationsBySurfaceID.keys.map(Self.diagnosticSurfaceHandle)
+            surfaceCount: terminalByteContinuationsBySurfaceID.count
         )
         markMacConnectionReconnecting()
         terminalEventListenerTask = nil

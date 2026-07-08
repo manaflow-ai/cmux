@@ -163,12 +163,6 @@ extension MobileShellComposite {
                     .rearmExhausted,
                     surface: Self.diagnosticSurfaceHandle(surfaceID)
                 )
-                terminalSyncDiagnostics.gateResolved(
-                    surface: Self.diagnosticSurfaceHandle(surfaceID),
-                    gate: .viewportBarrier,
-                    how: .barrierCleared,
-                    transport: terminalOutputTransport.debugName
-                )
                 requestTerminalReplay(
                     surfaceID: surfaceID,
                     replayBarrierToken: replayBarrierToken,
@@ -293,7 +287,7 @@ extension MobileShellComposite {
             if trigger == .viewport {
                 terminalSyncDiagnostics.renderGridDropped(
                     surface: Self.diagnosticSurfaceHandle(surfaceID),
-                    gate: .viewportBarrier,
+                    gate: .replayBarrier,
                     droppedFrames: 1,
                     replayRetryCount: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0,
                     barrierFollowUpCount: terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0,
