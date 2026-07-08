@@ -219,6 +219,33 @@ struct DockPaneDropUnfocusedRoutingTests {
         ))
     }
 
+    @Test("Sidebar reorder mouse-up routing uses the active sidebar drag registry")
+    @MainActor
+    func sidebarReorderMouseUpRoutingUsesActiveSidebarDragRegistry() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            let pasteboardTypes = [DragOverlayRoutingPolicy.sidebarTabReorderType]
+            #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseUp,
+                hasActiveDropDrag: appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
+            ))
+
+            let workspaceId = UUID()
+            appDelegate.sidebarWorkspaceDragRegistry.begin(workspaceId: workspaceId)
+            defer { appDelegate.sidebarWorkspaceDragRegistry.end(workspaceId: workspaceId) }
+            #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseUp,
+                hasActiveDropDrag: appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
+            ))
+        }
+    }
+
     @Test("Nil exit clears only the target view active drag sequence")
     @MainActor
     func nilExitClearsOnlyTargetViewActiveDragSequence() async throws {
