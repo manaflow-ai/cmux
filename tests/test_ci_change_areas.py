@@ -502,6 +502,11 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
 
 
 def test_macos_jobs_wait_for_linux_preflight() -> None:
+    # The staged macOS jobs must gate on their direct needs explicitly.
+    # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit
+    # success() gate, which GitHub evaluates over the transitive needs chain:
+    # routed linux jobs that legitimately skip (web/go/agent-session paths)
+    # then mark every macOS job skipped even though linux-preflight succeeded.
     for job_name in [
         "app-host-unit-tests",
         "swift-package-tests",
@@ -511,7 +516,16 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         block = workflow_job_block(job_name)
         assert "      - changes" in block
         assert "      - linux-preflight" in block
-        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" in block
+        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" not in block
+        expected_needs = ["changes", "linux-preflight"]
+        if job_name == "release-build":
+            expected_needs.append("swift-package-tests")
+        expected_if = (
+            "if: ${{ !cancelled() && "
+            + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
+            + " && needs.changes.outputs.macos == 'true' }}"
+        )
+        assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
