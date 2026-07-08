@@ -20,6 +20,7 @@ fn main() {
             e
         )
     });
+    let ghostty_dir = strip_windows_verbatim(ghostty_dir);
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
@@ -83,6 +84,24 @@ fn main() {
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
+}
+
+// std::fs::canonicalize on Windows returns \\?\-prefixed extended-length
+// paths. clang accepts such a path for the root header but cannot resolve
+// nested relative includes from it (ghostty/vt.h -> "ghostty/vt/types.h"
+// fails with file-not-found), which broke the windows-gnu bindgen step.
+// Strip the verbatim prefix so bindgen/clang see plain paths.
+fn strip_windows_verbatim(path: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
 }
 
 fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
