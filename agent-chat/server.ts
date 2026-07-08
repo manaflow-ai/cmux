@@ -313,11 +313,19 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
   const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
   const pending = (async () => {
     const finalEvents: AgentEvent[] = [];
-    const fileEvents = await filesChangedEvents(sess, generation, DONE_FILES_TIMEOUT_MS)
-      .catch((err) => {
-        console.error("[agent-chat] files-changed failed", err);
-        return [];
-      });
+    // Per-call git timeouts do not bound the stat/hash loop inside dirtyState;
+    // race the whole attribution against one hard deadline so done can never
+    // be held hostage by a slow or wedged working tree.
+    let filesDeadline: ReturnType<typeof setTimeout> | undefined;
+    const fileEvents = await Promise.race([
+      filesChangedEvents(sess, generation, DONE_FILES_TIMEOUT_MS),
+      new Promise<AgentEvent[]>((res) => {
+        filesDeadline = setTimeout(() => res([]), DONE_FILES_TIMEOUT_MS + 500);
+      }),
+    ]).catch((err) => {
+      console.error("[agent-chat] files-changed failed", err);
+      return [] as AgentEvent[];
+    }).finally(() => clearTimeout(filesDeadline));
     finalEvents.push(...fileEvents);
     finalEvents.push(evt);
     const oldLength = sess.events.length;
