@@ -47,28 +47,14 @@ extension RestorableAgentSessionIndex {
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
-    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        return processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt,
-            processArgumentsProvider: { CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0) }
-        )
-    }
-
-    static func processDetectedSnapshots(
-        registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager,
-        processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan, and the
         // OpenCode, claude-fork-fallback, and registry passes below all walk the same
-        // cmux-scoped process list. Memoize per invocation so each pid is read once
-        // per snapshot regardless of how many detection passes inspect it.
+        // cmux-scoped process list; memoize so each pid is read once per snapshot.
         var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
         func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
             if let cached = processArgumentsByPID[processID] { return cached }
