@@ -3490,7 +3490,6 @@ struct CMUXCLI {
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
         }
-
         if command == "events" {
             try runEventsCommand(
                 commandArgs: commandArgs,
@@ -3518,7 +3517,7 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
-
+        try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -6347,7 +6346,7 @@ struct CMUXCLI {
         }
         throw CLIError(message: "Surface index not found")
     }
-    private static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
+    static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
     }
@@ -8103,7 +8102,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -8192,11 +8191,13 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "loading":
+            try runWorkspaceLoading(commandArgs: rest, client: client, windowId: windowOverride, jsonOutput: jsonOutput)
         default:
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
                 ),
                 locale: .current,
                 sub
@@ -15872,12 +15873,11 @@ struct CMUXCLI {
                                       whose automatic reconnect paused because the host
                                       was unreachable
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
+              loading <on|off> [--id <name>] Toggle the workspace loading spinner.
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
-
             env/reconnect/disconnect accept a positional handle or --workspace
             <id|ref|index>, defaulting to the caller's workspace, then the
             selected one (of --window's window when given).
-
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
