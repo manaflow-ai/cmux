@@ -393,6 +393,45 @@ struct CMUXCLIVMOnboardDeriveTests {
     }
 
     @Test
+    func projectStepMentioningMiseDoesNotSuppressDeclaredToolchains() throws {
+        let workflow = """
+        jobs:
+          test:
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "run mise install manually" && make test
+        """
+        let root = try makeRepo(files: [
+            ".github/workflows/test.yml": workflow,
+            "mise.toml": "[tools]\nnode = \"22\"\n",
+        ])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let derivation = VMOnboardDeriver.derive(
+            repoRoot: root,
+            cloneURL: "https://github.com/o/app",
+            repoName: "app"
+        )
+        // The echo merely mentions mise; the declared toolchains still apply.
+        #expect(derivation.steps.contains { $0.run == "mise use -g node@22" })
+    }
+
+    @Test
+    func emptyMiseTomlFallsThroughToHiddenVariant() throws {
+        let root = try makeRepo(files: [
+            "mise.toml": "# no tools declared\n",
+            ".mise.toml": "[tools]\nzig = \"0.13.0\"\n",
+        ])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let derivation = VMOnboardDeriver.derive(
+            repoRoot: root,
+            cloneURL: "https://github.com/o/app",
+            repoName: "app"
+        )
+        #expect(derivation.sources.map(\.path) == [".mise.toml"])
+        #expect(derivation.steps.contains { $0.run == "mise use -g zig@0.13.0" })
+    }
+
+    @Test
     func hiddenMiseTomlIsLabeledWithItsActualPath() throws {
         let root = try makeRepo(files: [".mise.toml": "[tools]\nnode = \"22\"\n"])
         defer { try? FileManager.default.removeItem(atPath: root) }
