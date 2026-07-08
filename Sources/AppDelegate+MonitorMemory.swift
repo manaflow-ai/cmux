@@ -140,8 +140,9 @@ extension AppDelegate {
         } ?? false
         let visibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
             .trustedTopologySignature(of: displays.available)
+        let hasTrustedVisibleFrameFitTopology = visibleFrameFitTopologySignature != nil
         let visibleFrameFitTopologyChanged = visibleFrameFitTopologySignature.map {
-            $0 != lastVisibleFrameFitTopologySignature
+            didObserveUnknownVisibleFrameFitTopology || $0 != lastVisibleFrameFitTopologySignature
         } ?? false
 #if DEBUG
         cmuxDebugLog(
@@ -157,10 +158,14 @@ extension AppDelegate {
             }
             lastAppliedConfigurationSignature = signature
             didObserveUnknownDisplayConfiguration = false
-            screenChangeReconcileRetryBudget = 0
-            if isScreenChangeCaptureSuppressed {
-                screenChangeCaptureSuppressionSignature = signature
-                screenChangeCaptureSuppressionSignatureGeneration = displayReconfigurationGeneration
+            if hasTrustedVisibleFrameFitTopology {
+                screenChangeReconcileRetryBudget = 0
+                if isScreenChangeCaptureSuppressed {
+                    screenChangeCaptureSuppressionSignature = signature
+                    screenChangeCaptureSuppressionSignatureGeneration = displayReconfigurationGeneration
+                }
+            } else {
+                requeueScreenChangeReconcileIfPossible()
             }
         } else {
             didObserveUnknownDisplayConfiguration = true
@@ -168,6 +173,9 @@ extension AppDelegate {
         }
         if let visibleFrameFitTopologySignature {
             lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
+            didObserveUnknownVisibleFrameFitTopology = false
+        } else {
+            didObserveUnknownVisibleFrameFitTopology = true
         }
 
         // Reachability safety net: any window still stranded is clamped back.
