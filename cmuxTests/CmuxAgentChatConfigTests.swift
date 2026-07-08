@@ -221,9 +221,9 @@ import Testing
         #expect(payload.source == "cmux")
     }
 
-    @Test func agentChatThemeEndpointAppendsAPIThemeToConfiguredURL() throws {
+    @Test func agentChatThemeEndpointIsRootAnchoredLikeHealthURL() throws {
         let url = try #require(URL(string: "http://127.0.0.1:7739/chat?ignored=1"))
-        #expect(AgentChatThemeSync.themeURL(for: url).absoluteString == "http://127.0.0.1:7739/chat/api/theme")
+        #expect(AgentChatThemeSync.themeURL(for: url).absoluteString == "http://127.0.0.1:7739/api/theme")
     }
 
     @Test func agentChatThemePayloadEncodesNullNullableFields() throws {

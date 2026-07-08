@@ -141,9 +141,11 @@ enum AgentChatThemeSync {
     }
 
     static func themeURL(for baseURL: URL) -> URL {
+        // Root-anchored like CmuxAgentChatConfiguration.healthURL: the sidecar
+        // serves /api/theme at the origin root, so any path in agentChat.url
+        // must not prefix the endpoint or every push 404s.
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
-        let basePath = components?.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
-        components?.percentEncodedPath = "/" + ([basePath, "api/theme"].filter { !$0.isEmpty }.joined(separator: "/"))
+        components?.percentEncodedPath = "/api/theme"
         components?.percentEncodedQuery = nil
         components?.fragment = nil
         return components?.url ?? baseURL.appendingPathComponent("api/theme")
