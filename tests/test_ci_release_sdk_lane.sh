@@ -80,6 +80,17 @@ if [[ "$swift_package_section" != *"actions/upload-artifact@043fb46d1a93c77aae65
   exit 1
 fi
 
+swift_package_before_xcode="${swift_package_section%%- name: Select Xcode*}"
+if [[ "$swift_package_before_xcode" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
+  echo "FAIL: CI swift-package-tests must build the Ghostty helper before selecting the Xcode 26 SDK" >&2
+  exit 1
+fi
+
+if [[ "$swift_package_before_xcode" != *"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1"* ]]; then
+  echo "FAIL: CI swift-package-tests must upload the Ghostty helper before selecting the Xcode 26 SDK" >&2
+  exit 1
+fi
+
 release_build_section="$(job_section "$CI_FILE" "release-build")"
 if [[ "$release_build_section" != *"actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0"* ]]; then
   echo "FAIL: CI release-build must download the macOS 15-built Ghostty helper artifact" >&2

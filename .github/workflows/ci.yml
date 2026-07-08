@@ -793,6 +793,41 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Build universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          mkdir -p ghostty-cli-helper
+          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
+          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
+
+      - name: Upload universal Ghostty CLI helper
+        id: upload-ghostty-cli-helper
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+
+      - name: Retry universal Ghostty CLI helper upload
+        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+          overwrite: true
+
       - name: Select Xcode
         run: |
           set -euo pipefail
@@ -830,41 +865,6 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
-
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Cache Zig packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
-
-      - name: Build universal Ghostty CLI helper
-        run: |
-          set -euo pipefail
-          mkdir -p ghostty-cli-helper
-          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
-          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
-
-      - name: Upload universal Ghostty CLI helper
-        id: upload-ghostty-cli-helper
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-ghostty-cli-helper
-          path: ghostty-cli-helper/ghostty
-          if-no-files-found: error
-
-      - name: Retry universal Ghostty CLI helper upload
-        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-ghostty-cli-helper
-          path: ghostty-cli-helper/ghostty
-          if-no-files-found: error
-          overwrite: true
 
       - name: Run Swift package unit tests
         run: |

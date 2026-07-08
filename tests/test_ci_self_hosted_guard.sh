@@ -212,18 +212,31 @@ check_release_helper_artifact_from_package_lane() {
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /- name: Build universal Ghostty CLI helper/ { saw_build_step=1; next }
+    in_job && /- name: Select Xcode/ { saw_select=1; after_select=1; next }
+    in_job && /- name: Build universal Ghostty CLI helper/ {
+      saw_build_step=1
+      if (after_select) {
+        saw_build_after_select=1
+      }
+      next
+    }
     in_job && /\.\/scripts\/build-ghostty-cli-helper\.sh --universal --output ghostty-cli-helper\/ghostty/ { saw_build=1 }
     in_job && /lipo ghostty-cli-helper\/ghostty -verify_arch arm64 x86_64/ { saw_lipo=1 }
-    in_job && /- name: Upload universal Ghostty CLI helper/ { saw_upload_step=1; next }
+    in_job && /- name: Upload universal Ghostty CLI helper/ {
+      saw_upload_step=1
+      if (after_select) {
+        saw_upload_after_select=1
+      }
+      next
+    }
     in_job && /uses: actions\/upload-artifact@/ { saw_upload=1 }
     in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
 
     END {
-      exit !(saw_build_step && saw_build && saw_lipo && saw_upload_step && saw_upload && saw_artifact_name)
+      exit !(saw_build_step && saw_build && saw_lipo && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: swift-package-tests must build and upload the universal Ghostty helper from an existing macOS 15 lane"
+    echo "FAIL: swift-package-tests must build and upload the universal Ghostty helper before selecting Xcode 26"
     exit 1
   fi
 
