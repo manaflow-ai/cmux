@@ -1036,9 +1036,21 @@ jobs:
               if result != "success":
                   bad[name] = result
 
+          outputs = needs["changes"].get("outputs", {})
+          routed_outputs = {
+              "remote-daemon-tests": "go",
+              "web-typecheck": "web",
+              "react-apps-check": "web",
+              "web-db-migrations": "web",
+              "agent-session-web-resources": "agent_session_web",
+          }
           for name in sorted(allowed_routed):
               result = needs[name]["result"]
-              if result not in {"success", "skipped"}:
+              route = routed_outputs[name]
+              if outputs.get(route) == "true":
+                  if result != "success":
+                      bad[name] = f"{result} (route {route}=true)"
+              elif result not in {"success", "skipped"}:
                   bad[name] = result
 
           if bad:
@@ -1046,7 +1058,6 @@ jobs:
                   print(f"{name}: {result}", file=sys.stderr)
               sys.exit(1)
 
-          outputs = needs["changes"].get("outputs", {})
           print(
               "routes: "
               f"macos={outputs.get('macos')} "
@@ -1223,6 +1234,9 @@ jobs:
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
 
+      - name: Run display UI regressions
+        run: scripts/ci/run-display-ui-regressions.sh
+
       - name: Create virtual display
         run: |
           set -euo pipefail
@@ -1389,9 +1403,6 @@ jobs:
           scripts/ci/virtual-display-lock.sh reap-strays || true
           scripts/ci/virtual-display-lock.sh release || true
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
-
-      - name: Run display UI regressions
-        run: scripts/ci/run-display-ui-regressions.sh
 
   release-build:
     needs:

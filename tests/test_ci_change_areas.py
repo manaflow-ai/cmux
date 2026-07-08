@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -174,6 +175,77 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
                 body.append(body_line)
             return "\n".join(body)
     raise AssertionError(f"{job_name} job not found")
+
+
+def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
+    job_marker = f"  {job_name}:"
+    step_marker = f"      - name: {step_name}"
+    in_job = False
+    for index, line in enumerate(lines):
+        if line == job_marker:
+            in_job = True
+            continue
+        if in_job and line.startswith("  ") and not line.startswith("    ") and line.strip():
+            break
+        if in_job and line == step_marker:
+            for run_index in range(index + 1, len(lines)):
+                if lines[run_index] == "        run: |":
+                    body: list[str] = []
+                    for body_line in lines[run_index + 1 :]:
+                        if body_line.startswith("          "):
+                            body.append(body_line[10:])
+                            continue
+                        if not body_line.strip():
+                            body.append("")
+                            continue
+                        break
+                    return "\n".join(body)
+            break
+    raise AssertionError(f"{step_name} run block not found in {job_name}")
+
+
+def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
+    env = {**os.environ, "PREFLIGHT_NEEDS": json.dumps(needs)}
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def linux_preflight_needs(
+    *,
+    outputs: dict[str, str] | None = None,
+    results: dict[str, str] | None = None,
+) -> dict[str, object]:
+    route_outputs = {
+        "macos": "true",
+        "web": "true",
+        "go": "true",
+        "agent_session_web": "true",
+    }
+    if outputs:
+        route_outputs.update(outputs)
+    job_results = {
+        "changes": "success",
+        "workflow-guard-tests": "success",
+        "remote-daemon-tests": "success",
+        "web-typecheck": "success",
+        "react-apps-check": "success",
+        "web-db-migrations": "success",
+        "agent-session-web-resources": "success",
+    }
+    if results:
+        job_results.update(results)
+    return {
+        name: {"result": result, "outputs": route_outputs if name == "changes" else {}}
+        for name, result in job_results.items()
+    }
 
 
 def run_detect_step_for_paths(
@@ -445,7 +517,29 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "if: ${{ always() }}" in block
     assert 'required = ("changes", "workflow-guard-tests")' in block
     assert 'allowed_routed = {' in block
-    assert 'result not in {"success", "skipped"}' in block
+    assert 'routed_outputs = {' in block
+    assert 'bad[name] = f"{result} (route {route}=true)"' in block
+
+
+def test_linux_preflight_fails_when_routed_job_skips() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(results={"remote-daemon-tests": "skipped"})
+    )
+
+    assert result.returncode != 0
+    assert "remote-daemon-tests: skipped (route go=true)" in result.stderr
+
+
+def test_linux_preflight_allows_unrouted_job_skip() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(
+            outputs={"go": "false"},
+            results={"remote-daemon-tests": "skipped"},
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "remote-daemon-tests: skipped" in result.stdout
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
@@ -474,6 +568,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "build-for-testing" in runtime_block
     assert "Run display UI regressions" in runtime_block
     assert "scripts/ci/run-display-ui-regressions.sh" in runtime_block
+    assert runtime_block.index("Run display UI regressions") < runtime_block.index("Create virtual display")
     assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
     assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
     assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
