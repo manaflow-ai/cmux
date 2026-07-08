@@ -50,6 +50,14 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         }
     }
 
+    private final class EditableUndoProbeTextView: NSTextView {
+        private(set) var undoCallCount = 0
+
+        @objc func undo(_ sender: Any?) {
+            undoCallCount += 1
+        }
+    }
+
     private final class MenuActionProbe: NSObject {
         private(set) var callCount = 0
 
@@ -88,6 +96,26 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         container.addSubview(terminal)
         XCTAssertTrue(window.makeFirstResponder(terminal))
         return (window, terminal)
+    }
+
+    private func makeWindowWithTerminalHostedEditableResponder()
+        -> (NSWindow, TerminalCommandEquivalentProbeView, EditableUndoProbeTextView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let terminal = TerminalCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 128, height: 64))
+        let textView = EditableUndoProbeTextView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        textView.isEditable = true
+        terminal.addSubview(textView)
+        container.addSubview(terminal)
+        XCTAssertTrue(window.makeFirstResponder(textView))
+        return (window, terminal, textView)
     }
 
     private func makeCommandZKeyDownEvent(
@@ -130,6 +158,16 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         redoItem.target = probe
         menu.addItem(redoItem)
 
+        NSApp.mainMenu = menu
+        return previousMenu
+    }
+
+    private func installResponderChainUndoMenu() -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(title: "Main")
+        let undoItem = NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        undoItem.keyEquivalentModifierMask = [.command]
+        menu.addItem(undoItem)
         NSApp.mainMenu = menu
         return previousMenu
     }
@@ -260,5 +298,28 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
             ["z", "z"],
             "Undo/Redo command equivalents should be routed to the terminal shortcut path instead"
         )
+    }
+
+    func testTerminalHostedEditableResponderKeepsLocalUndo() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let previousMenu = installResponderChainUndoMenu()
+        defer { NSApp.mainMenu = previousMenu }
+
+        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
+            XCTFail("Failed to construct Undo key event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(textView.undoCallCount, 1)
+        XCTAssertTrue(terminal.afterMenuMissEvents.isEmpty)
     }
 }

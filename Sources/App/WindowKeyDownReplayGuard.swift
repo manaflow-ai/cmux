@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 
 extension NSEvent {
     var cmuxIsUndoRedoCommandEquivalent: Bool {
@@ -43,6 +44,43 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
 private var cmuxInFlightForceDispatchedKeyEventIdentities = Set<CmuxForceDispatchedKeyEventIdentity>()
 
 extension NSWindow {
+    func cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+        _ event: NSEvent,
+        terminalView: GhosttyNSView?,
+        webView: CmuxWebView?
+    ) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent,
+              !cmuxFirstResponderPreservesLocalUndoRedo else {
+            return false
+        }
+        if let terminalView {
+            _ = terminalView.performKeyEquivalentAfterMenuMiss(with: event)
+#if DEBUG
+            cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
+#endif
+            return true
+        }
+        if let webView {
+            _ = webView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog("  -> undo/redo routed to browser before AppKit menu")
+#endif
+            return true
+        }
+        return false
+    }
+
+    private var cmuxFirstResponderPreservesLocalUndoRedo: Bool {
+        guard let responder = firstResponder else { return false }
+        if let textView = responder as? NSTextView {
+            return textView.isEditable || textView.isFieldEditor
+        }
+        if let textField = responder as? NSTextField {
+            return textField.isEditable
+        }
+        return false
+    }
+
     /// Single chokepoint for every direct `keyDown(with:)` force-dispatch made
     /// by `cmux_performKeyEquivalent(with:)`.
     ///
