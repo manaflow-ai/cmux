@@ -1,4 +1,5 @@
 import GhosttyKit
+import QuartzCore
 import UIKit
 
 /// The surface-pointer → view registry and its registry-scoped reads, split
@@ -15,9 +16,35 @@ final class WeakGhosttySurfaceViewBox {
     }
 }
 
+nonisolated private struct CachedTerminalSnapshotFallback: Sendable {
+    let text: String
+    let capturedAt: CFTimeInterval
+}
+
 extension GhosttySurfaceView {
     @MainActor
     static var registeredSurfaceViews: [UInt: WeakGhosttySurfaceViewBox] = [:]
+    @MainActor
+    private static var cachedSnapshotFallbacksByHostSurfaceID: [String: CachedTerminalSnapshotFallback] = [:]
+
+    @MainActor
+    static func cachedSnapshotFallback(for hostSurfaceID: String) -> String? {
+        cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID]?.text
+    }
+
+    @MainActor
+    static func rememberSnapshotFallback(_ text: String, for hostSurfaceID: String?, capturedAt: CFTimeInterval) {
+        guard let hostSurfaceID,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let existing = cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID],
+           existing.capturedAt > capturedAt {
+            return
+        }
+        cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID] = CachedTerminalSnapshotFallback(
+            text: text,
+            capturedAt: capturedAt
+        )
+    }
 
     @MainActor
     static func register(surface: ghostty_surface_t, for view: GhosttySurfaceView) {
@@ -38,26 +65,6 @@ extension GhosttySurfaceView {
             return nil
         }
         return view
-    }
-
-    /// Focuses a mounted terminal input in the matching scene.
-    @MainActor
-    @discardableResult
-    public static func focusMountedInput(surfaceID: String, sceneID: ObjectIdentifier?) -> Bool {
-        guard let sceneID else { return false }
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        let matchingView = registeredSurfaceViews
-            .sorted { $0.key < $1.key }
-            .compactMap(\.value.value)
-            .first { candidate in
-                candidate.hostSurfaceID == surfaceID && candidate.window != nil
-                    && candidate.window?.windowScene.map(ObjectIdentifier.init) == sceneID
-                    && candidate.surface != nil && !candidate.isDismantled
-                    && !candidate.isHidden && candidate.alpha > 0.01
-            }
-        guard let matchingView else { return false }
-        matchingView.focusInput()
-        return true
     }
 
     static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {

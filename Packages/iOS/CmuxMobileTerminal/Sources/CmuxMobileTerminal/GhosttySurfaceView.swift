@@ -297,8 +297,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.isHidden = true
         return view
     }()
-    private var snapshotFallbackVisualView: UIView?
-
     private(set) var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
     private var lastReportedSize: TerminalGridSize?
@@ -1004,7 +1002,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func layoutRenderedTerminalForCurrentViewport(using snapshot: TerminalViewportSnapshot) {
         snapshotFallbackView.frame = snapshot.layoutViewportRect
-        snapshotFallbackVisualView?.frame = snapshot.layoutViewportRect
         guard !lastRenderRect.isEmpty else { return }
         let renderRect = snapshot.renderRect(
             forRenderSize: lastRenderRect.size,
@@ -2067,7 +2064,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
                     self.snapshotFallbackView.isHidden = true
-                    self.clearSnapshotFallbackVisual()
                     self.scrollInitialOutputToBottomIfNeeded()
                 }
                 let now = CACurrentMediaTime()
@@ -2155,31 +2151,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// Use before presenting SwiftUI chrome so UIKit releases the hidden text
     /// input and terminal geometry can expand after the keyboard leaves.
-    @discardableResult
-    public static func resignActiveInput(surfaceID: String? = nil, sceneID: ObjectIdentifier? = nil) -> GhosttySurfaceInputFocusToken? {
-        guard let surface = activeInputSurface else { return nil }
-        if let sceneID, surface.window?.windowScene.map(ObjectIdentifier.init) != sceneID { return nil }
-        if sceneID == nil, let surfaceID, surface.hostSurfaceID != surfaceID { return nil }
-        let token = GhosttySurfaceInputFocusToken(view: surface)
-        surface.resignInput()
-        return token
-    }
-
-    /// Restores terminal input focus to a previously resigned surface token.
-    public static func restoreInputFocus(
-        _ token: GhosttySurfaceInputFocusToken?,
-        surfaceID: String?
-    ) -> Bool {
-        guard let surfaceID,
-              let view = token?.view,
-              view.hostSurfaceID == surfaceID,
-              view.window != nil, view.surface != nil, !view.isDismantled,
-              !view.isHidden,
-              view.alpha > 0.01 else {
-            return false
-        }
-        view.focusInput()
-        return true
+    public static func resignActiveInput() {
+        activeInputSurface?.resignInput()
     }
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
@@ -2197,6 +2170,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
+        cacheVisibleSnapshotBeforeDetach()
         isDismantled = true
         prepareForReuseAfterDetach()
     }
@@ -2213,7 +2187,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         resignInput()
         stopKeyboardHeightAnimation()
         stopDisplayLink()
-        clearSnapshotFallbackVisual()
         setFocus(false)
         #if DEBUG
         debugAccessibilityProxy.accessibilityLabel = nil
@@ -3588,7 +3561,49 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func isUsingSnapshotFallbackForTesting() -> Bool {
-        !snapshotFallbackView.isHidden || snapshotFallbackVisualView != nil
+        !snapshotFallbackView.isHidden
+    }
+
+    public func applyCachedSnapshotFallback(surfaceID: String) {
+        guard !surfaceHasReceivedOutput,
+              let snapshot = Self.cachedSnapshotFallback(for: surfaceID) else {
+            return
+        }
+        lastRecoverySnapshotText = snapshot
+        lastSnapshotFallbackHTML = nil
+        _ = updateSnapshotFallback(text: snapshot, html: nil, clearWhenEmpty: false)
+    }
+
+    private func cacheVisibleSnapshotBeforeDetach() {
+        let capturedAt = CACurrentMediaTime()
+        rememberCurrentSnapshotFallback(capturedAt: capturedAt)
+        guard let surface,
+              let hostSurfaceID else { return }
+        let read = SnapshotFallbackCacheRead(
+            surface: surface,
+            hostSurfaceID: hostSurfaceID,
+            capturedAt: capturedAt
+        )
+        outputQueue.async {
+            let snapshot = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+            guard let snapshot else { return }
+            Task { @MainActor in
+                Self.rememberSnapshotFallback(
+                    snapshot,
+                    for: read.hostSurfaceID,
+                    capturedAt: read.capturedAt
+                )
+            }
+        }
+    }
+
+    private func rememberCurrentSnapshotFallback(capturedAt: CFTimeInterval) {
+        let visibleText = snapshotFallbackView.isHidden
+            ? ""
+            : (snapshotFallbackView.attributedText?.string ?? snapshotFallbackView.text ?? "")
+        if !visibleText.isEmpty {
+            Self.rememberSnapshotFallback(visibleText, for: hostSurfaceID, capturedAt: capturedAt)
+        }
     }
 
     private func syncSnapshotFallback() {
@@ -3596,15 +3611,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // keep the fallback hidden so the IOSurfaceLayer is visible.
         if surfaceHasReceivedOutput {
             snapshotFallbackView.isHidden = true
-            clearSnapshotFallbackVisual()
             return
         }
 
         let rendererHasContents = !prefersSnapshotFallbackRendering &&
             (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
-        if rendererHasContents {
+        if rendererHasContents && lastRecoverySnapshotText.isEmpty {
             snapshotFallbackView.isHidden = true
-            clearSnapshotFallbackVisual()
             return
         }
 
@@ -3618,7 +3631,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @discardableResult
     private func captureSnapshotFallbackForRecovery() -> Bool {
-        let capturedVisual = captureVisualSnapshotFallbackForRecovery()
         let visibleText = snapshotFallbackView.isHidden
             ? ""
             : (snapshotFallbackView.attributedText?.string ?? snapshotFallbackView.text ?? "")
@@ -3628,35 +3640,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             capturedText = false
         } else {
             lastRecoverySnapshotText = visibleText
+            rememberCurrentSnapshotFallback(capturedAt: CACurrentMediaTime())
             capturedText = updateSnapshotFallback(
                 text: visibleText,
                 html: lastSnapshotFallbackHTML,
                 clearWhenEmpty: false
             )
         }
-        return capturedVisual || capturedText
-    }
-
-    @discardableResult
-    private func captureVisualSnapshotFallbackForRecovery() -> Bool {
-        guard !bounds.isEmpty,
-              let visual = snapshotView(afterScreenUpdates: false) else {
-            return false
-        }
-        clearSnapshotFallbackVisual()
-        visual.frame = snapshotFallbackView.frame.isEmpty ? bounds : snapshotFallbackView.frame
-        visual.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        visual.isUserInteractionEnabled = false
-        visual.layer.zPosition = 900
-        addSubview(visual)
-        snapshotFallbackVisualView = visual
-        bringSubviewToFront(snapshotFallbackView)
-        return true
-    }
-
-    private func clearSnapshotFallbackVisual() {
-        snapshotFallbackVisualView?.removeFromSuperview()
-        snapshotFallbackVisualView = nil
+        return capturedText
     }
 
     private func requestSnapshotFallbackTextForRecovery(
@@ -3677,6 +3668,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.lastRecoverySnapshotText = snapshot
                 self.lastSnapshotFallbackHTML = nil
+                Self.rememberSnapshotFallback(
+                    snapshot,
+                    for: self.hostSurfaceID,
+                    capturedAt: CACurrentMediaTime()
+                )
                 if self.updateSnapshotFallback(text: snapshot, html: nil, clearWhenEmpty: false) {
                     self.flushSnapshotFallbackPresentation()
                 }
@@ -3717,7 +3713,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             snapshotFallbackView.scrollRangeToVisible(NSRange(location: max(0, visibleTextLength - 1), length: 1))
         }
         snapshotFallbackView.isHidden = false
-        clearSnapshotFallbackVisual()
         flushSnapshotFallbackPresentation()
         return true
     }
@@ -3984,6 +3979,14 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
         enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
         recenterScrollMechanicsViewIfNeeded()
     }
+}
+
+// Safety: `SnapshotFallbackCacheRead` is enqueued onto the surface's serial
+// `GhosttySurfaceWorkQueue`, ahead of the later surface free during dismantle.
+nonisolated private struct SnapshotFallbackCacheRead: @unchecked Sendable {
+    let surface: ghostty_surface_t
+    let hostSurfaceID: String
+    let capturedAt: CFTimeInterval
 }
 
 nonisolated enum RenderPipelineRecoveryReplay {

@@ -1,7 +1,6 @@
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import SwiftUI
 
 #if os(iOS)
@@ -98,7 +97,10 @@ extension WorkspaceDetailView {
                     set: { chatDrafts[session.id] = $0 }
                 ),
                 onExitChat: {
-                    exitChatModeToTerminal()
+                    withAnimation(.snappy(duration: 0.28)) {
+                        isChatMode = false
+                    }
+                    pinnedChatSessionID = nil
                 }
             )
             .id(session.id)
@@ -353,68 +355,19 @@ extension WorkspaceDetailView {
     /// chosen session. Shared by the toolbar button and the menu row.
     private func toggleChatMode() {
         if isChatMode {
-            exitChatModeToTerminal()
+            withAnimation(.snappy(duration: 0.28)) { isChatMode = false }
+            pinnedChatSessionID = nil
             return
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
-        let openedFromBrowser = hasActiveBrowserForCurrentWorkspace()
-        pendingTerminalFocusSurfaceID = nil
-        let focusToken = workspaceSceneID == nil
-            ? nil
-            : GhosttySurfaceView.resignActiveInput(surfaceID: selectedTerminalID, sceneID: workspaceSceneID)
-        chatInputFocusToken = focusToken
-        chatShouldFocusTerminalOnExit = (openedFromBrowser || workspaceSceneID == nil) && focusToken == nil
-        if openedFromBrowser {
-            store.suppressSelectedTerminalAutoFocusOnNextAttach()
-        }
+        // Chat, browser, and terminal are exclusive modes. Close the browser so
+        // exiting chat returns to the terminal instead of revealing stale web UI.
         closeBrowserForCurrentWorkspace()
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }
         pinnedChatSessionID = openingSession.id
-    }
-
-    /// Leave GUI chat without remounting the terminal, then restore keyboard
-    /// focus to the terminal that was selected when chat closed.
-    private func exitChatModeToTerminal() {
-        let terminalID = selectedTerminalID
-        withAnimation(.snappy(duration: 0.28)) {
-            isChatMode = false
-        }
-        pinnedChatSessionID = nil
-        let token = chatInputFocusToken
-        let shouldFocusTerminal = chatShouldFocusTerminalOnExit || token != nil
-        chatInputFocusToken = nil
-        chatShouldFocusTerminalOnExit = false
-        if let terminalID {
-            let restored = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
-            if restored {
-                pendingTerminalFocusSurfaceID = nil
-                return
-            }
-            if !restored, shouldFocusTerminal {
-                let focused = GhosttySurfaceView.focusMountedInput(
-                    surfaceID: terminalID,
-                    sceneID: workspaceSceneID
-                )
-                pendingTerminalFocusSurfaceID = focused ? nil : terminalID
-            }
-        }
-    }
-
-    func restorePendingTerminalFocusIfPossible() {
-        guard let terminalID = pendingTerminalFocusSurfaceID else { return }
-        if GhosttySurfaceView.focusMountedInput(surfaceID: terminalID, sceneID: workspaceSceneID) {
-            pendingTerminalFocusSurfaceID = nil
-        }
-    }
-
-    func handleSelectedTerminalChangeForChat() {
-        refreshCachedChatToggleAnchor()
-        guard let pendingTerminalFocusSurfaceID,
-              pendingTerminalFocusSurfaceID != selectedTerminalID else { return }
-        self.pendingTerminalFocusSurfaceID = nil
     }
 
     /// Keeps the active transcript store warm without retaining stores for every
@@ -448,7 +401,8 @@ extension WorkspaceDetailView {
     private func applyChatModeFallback(canInvalidateSelection: Bool) {
         guard canInvalidateSelection else { return }
         if isChatMode, chosenChatSession == nil {
-            exitChatModeToTerminal()
+            isChatMode = false
+            pinnedChatSessionID = nil
         }
     }
 

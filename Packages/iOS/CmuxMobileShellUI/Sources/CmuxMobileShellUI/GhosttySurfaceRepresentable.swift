@@ -77,6 +77,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // Stamp the shell-level id so id-scoped registry lookups (the
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
+        view.applyCachedSnapshotFallback(surfaceID: surfaceID)
         context.coordinator.attach(surfaceView: view)
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and

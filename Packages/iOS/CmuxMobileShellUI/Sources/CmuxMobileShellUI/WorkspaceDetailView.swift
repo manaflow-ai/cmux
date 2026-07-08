@@ -57,10 +57,6 @@ struct WorkspaceDetailView: View {
     /// sorting first cannot swap the conversation out from under the user
     /// mid-read. Cleared when chat mode turns off.
     @State var pinnedChatSessionID: String?
-    @State var chatInputFocusToken: GhosttySurfaceInputFocusToken?
-    @State var chatShouldFocusTerminalOnExit = false
-    @State var pendingTerminalFocusSurfaceID: String?
-    @State var workspaceSceneID: ObjectIdentifier?
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
@@ -84,15 +80,17 @@ struct WorkspaceDetailView: View {
         let content = Group { detailSurfaceContent }
 
         #if os(iOS)
-        content.background(WorkspaceSceneIDProbe(sceneID: $workspaceSceneID))
+        content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
-            .onChange(of: selectedTerminalID) { _, _ in handleSelectedTerminalChangeForChat() }
-            .onChange(of: workspaceSceneID) { _, _ in restorePendingTerminalFocusIfPossible() }
+            .onChange(of: selectedTerminalID) { _, _ in
+                refreshCachedChatToggleAnchor()
+                syncTerminalPickerRows()
+            }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
@@ -179,10 +177,13 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var detailSurfaceContent: some View {
         #if os(iOS)
-        if let browser = activeBrowser {
+        if isChatMode, let session = chosenChatSession {
+            chatContent(session)
+                .transition(.opacity)
+        } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
-            terminalContentWithChatOverlay
+            detailContent()
         }
         #else
         detailContent()
@@ -190,25 +191,6 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Keep the terminal renderer mounted while GUI chat is shown. Toggling
-    /// chat should cover the terminal, not destroy and recreate Ghostty.
-    @ViewBuilder
-    private var terminalContentWithChatOverlay: some View {
-        let isPresentingChat = isChatMode && chosenChatSession != nil
-
-        ZStack {
-            detailContent()
-                .allowsHitTesting(!isPresentingChat)
-                .accessibilityHidden(isPresentingChat)
-
-            if isChatMode, let session = chosenChatSession {
-                chatContent(session)
-                    .transition(.opacity)
-                    .zIndex(1)
-            }
-        }
-    }
-
     /// The browser pane shown when this workspace has an active browser surface.
     /// It carries its own navigation chrome, so it does not get the terminal's
     /// keyboard/safe-area handling. Closing returns to the terminal.
@@ -700,16 +682,10 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
     }
 
-    func hasActiveBrowserForCurrentWorkspace() -> Bool {
-        activeBrowser != nil
-    }
-
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         isChatMode = false
         pinnedChatSessionID = nil
-        chatInputFocusToken = nil
-        chatShouldFocusTerminalOnExit = false
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
