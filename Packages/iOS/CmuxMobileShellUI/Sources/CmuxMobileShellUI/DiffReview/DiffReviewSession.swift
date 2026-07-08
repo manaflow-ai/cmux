@@ -66,6 +66,11 @@ final class DiffReviewSession {
         hunkCountsByPath = hunkCountsByPath.filter { path, _ in
             files.contains { $0.path == path }
         }
+        // A bookmark whose file left the list would keep showing the Jump
+        // Back pill while jumpToBookmark silently no-ops.
+        if let bookmark, !files.contains(where: { $0.path == bookmark.filePath }) {
+            self.bookmark = nil
+        }
         if self.files.isEmpty {
             currentFileIndex = 0
             currentHunkIndex = 0

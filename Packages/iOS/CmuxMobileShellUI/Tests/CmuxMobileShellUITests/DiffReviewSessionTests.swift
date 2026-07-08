@@ -57,6 +57,19 @@ import Testing
         #expect(session.currentHunkIndex == 0)
     }
 
+    @Test func setFilesClearsBookmarkWhoseFileDisappeared() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift")])
+        session.recordHunkCount(2, for: "A.swift")
+        session.markBookmark()
+
+        session.setFiles([file("B.swift")])
+
+        // A stale bookmark would keep hasJumpBackTarget true while
+        // jumpToBookmark silently no-ops.
+        #expect(session.bookmark == nil)
+        #expect(!session.hasJumpBackTarget)
+    }
+
     @Test func moveForwardDoesNotSkipFileBeforeHunksLoad() {
         let session = DiffReviewSession(files: [
             file("A.swift"),
