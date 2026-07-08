@@ -481,4 +481,28 @@ import CmuxSettings
         )
         #expect(bindings?["closeWindow"] != nil, "the edited action must be written")
     }
+
+    @Test func handAuthoredStringBindingLoadsIntoModel() async throws {
+        // A binding authored in the file as a string stroke now decodes into the
+        // UI model with the same canonical key the runtime resolver uses —
+        // previously one such entry blanked the whole map, so the UI showed no
+        // shortcuts at all.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shortcut-lossless-load-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let fileURL = tempDir.appendingPathComponent("cmux.json")
+        let seed = """
+        { "shortcuts": { "bindings": { "focusDown": "cmd+shift+down" } } }
+        """
+        try Data(seed.utf8).write(to: fileURL)
+
+        let store = JSONConfigStore(fileURL: fileURL)
+        let model = ShortcutListModel(jsonStore: store, catalog: SettingCatalog(), errorLog: SettingsErrorLog())
+        model.startObserving()
+        await spin(until: { model.bindings["focusDown"] != nil })
+        #expect(
+            model.bindings["focusDown"]
+                == StoredShortcut(first: ShortcutStroke(key: "↓", command: true, shift: true))
+        )
+    }
 }
