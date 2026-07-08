@@ -1,6 +1,7 @@
 import { Popover } from "@base-ui-components/react/popover";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
+import { fileDiffCacheKey } from "../session";
 import { activityIndicatorState, activityTailKey } from "../activity";
 import { ChatMarkdown, MarkdownCodeBlock } from "../ChatMarkdown";
 import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
@@ -366,16 +367,29 @@ function splitChangedFilePath(path: string): { dirPrefix: string; basename: stri
   };
 }
 
-function ChangedFilesBlock({ files, diffs, onDiff }: { files: ChangedFile[]; diffs: Record<string, string>; onDiff: (path: string) => void }) {
+function ChangedFilesBlock({
+  files,
+  revision,
+  diffs,
+  onDiff,
+}: {
+  files: ChangedFile[];
+  revision?: string;
+  diffs: Record<string, string>;
+  onDiff: (path: string) => void;
+}) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const total = useMemo(
     () => files.reduce((sum, f) => ({ adds: sum.adds + f.adds, dels: sum.dels + f.dels }), { adds: 0, dels: 0 }),
     [files],
   );
   const statusSummary = useMemo(() => changedFilesSummary(files), [files]);
+  const diffRevision = revision ?? "0";
+  const diffKey = (path: string) => fileDiffCacheKey(diffRevision, path);
+  const hasDiff = (path: string) => Object.prototype.hasOwnProperty.call(diffs, diffKey(path));
   const openFileDiff = (path: string) => {
     setExpanded((current) => ({ ...current, [path]: true }));
-    if (!diffs[path]) onDiff(path);
+    if (!hasDiff(path)) onDiff(diffKey(path));
   };
   const firstPath = files[0]?.path;
   return (
@@ -411,7 +425,7 @@ function ChangedFilesBlock({ files, diffs, onDiff }: { files: ChangedFile[]; dif
                 style={filesFileRowStyle}
                 onClick={() => {
                   setExpanded((m) => ({ ...m, [file.path]: !m[file.path] }));
-                  if (!isOpen && !diffs[file.path]) onDiff(file.path);
+                  if (!isOpen && !hasDiff(file.path)) onDiff(diffKey(file.path));
                 }}
               >
                 <span className="files-file-name" style={filesPathTextStyle}>
@@ -423,7 +437,7 @@ function ChangedFilesBlock({ files, diffs, onDiff }: { files: ChangedFile[]; dif
               <DisclosureMotion open={isOpen}>
                 {() => (
                   <div className="files-diff selectable" style={filesDiffStyle}>
-                    {diffs[file.path] ? <MarkdownCodeBlock code={diffs[file.path]} lang="diff" /> : <div className="diff-loading">Loading diff...</div>}
+                    {hasDiff(file.path) ? <MarkdownCodeBlock code={diffs[diffKey(file.path)]} lang="diff" /> : <div className="diff-loading">Loading diff...</div>}
                   </div>
                 )}
               </DisclosureMotion>
@@ -608,7 +622,7 @@ function ActivityBlock({
     case "error":
       return <div className="error-block-wrap"><div className="error-block">{block.text}</div></div>;
     case "files":
-      return <ChangedFilesBlock files={block.files} diffs={fileDiffs} onDiff={onFileDiff} />;
+      return <ChangedFilesBlock files={block.files} revision={block.revision} diffs={fileDiffs} onDiff={onFileDiff} />;
     default:
       return null;
   }

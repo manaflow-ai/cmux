@@ -43,6 +43,33 @@ struct CmuxConfigNewWorkspaceMenuTests {
     }
 
     @MainActor
+    private func contextMenuActionIDs(_ menu: NSMenu) -> [String] {
+        menu.items.compactMap { item in
+            (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.id
+        }
+    }
+
+    @MainActor
+    private func withNewWorkspaceContextMenu<T>(
+        store: CmuxConfigStore,
+        _ body: (NSMenu) throws -> T
+    ) throws -> T {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: store
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: store
+        ))
+        return try body(menu)
+    }
+
+    @MainActor
     @Test func storeAutoAppendsWorkspaceActionsToPlusButtonMenu() throws {
         let (store, root) = try loadStore(globalJSON: """
         {
@@ -107,6 +134,60 @@ struct CmuxConfigNewWorkspaceMenuTests {
         #expect(agentChatBox.windowId == windowId)
         #expect(agentChatBox.action.id == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID)
         #expect(agentChatBox.action.title == String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"))
+    }
+
+    @MainActor
+    @Test func contextMenuHidesBuiltInAgentChatWhenActionOptsOut() throws {
+        let (store, root) = try loadStore(globalJSON: """
+        {
+          "actions": {
+            "cmux.newAgentChat": {
+              "type": "builtin",
+              "builtin": "cmux.newAgentChat",
+              "newWorkspaceMenu": false
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
+        #expect(!ids.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
+    }
+
+    @MainActor
+    @Test func customContextMenuControlsBuiltInAgentChatLikeOtherBuiltIns() throws {
+        let (store, root) = try loadStore(globalJSON: """
+        {
+          "ui": {
+            "newWorkspace": {
+              "contextMenu": ["cmux.newWorkspace"]
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
+        #expect(ids.contains(CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
+        #expect(!ids.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
+    }
+
+    @MainActor
+    @Test func customContextMenuCanExplicitlyIncludeBuiltInAgentChat() throws {
+        let (store, root) = try loadStore(globalJSON: """
+        {
+          "ui": {
+            "newWorkspace": {
+              "contextMenu": ["cmux.newAgentChat"]
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
+        #expect(ids.filter { $0 == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID }.count == 1)
     }
 
     @MainActor

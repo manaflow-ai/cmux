@@ -196,8 +196,16 @@ extension AppDelegate {
         // Agent chat opens a browser surface; hide it when browser surfaces
         // are disabled, matching the command palette's browserDisabled gate.
         guard BrowserAvailabilitySettings.isEnabled() else { return [] }
-        let action = cmuxConfigStore.resolvedAction(id: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID)
+        let actionID = CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
+        let action = cmuxConfigStore.resolvedAction(id: actionID)
             ?? .builtIn(.newAgentChat)
+        guard shouldAppendBuiltInNewAgentChatMenuItem(
+            action,
+            actionID: actionID,
+            cmuxConfigStore: cmuxConfigStore
+        ) else {
+            return []
+        }
         let item = NSMenuItem(
             title: action.title,
             action: #selector(performNewWorkspaceContextMenuItem(_:)),
@@ -214,6 +222,40 @@ extension AppDelegate {
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
         return [item]
+    }
+
+    private func shouldAppendBuiltInNewAgentChatMenuItem(
+        _ action: CmuxResolvedConfigAction,
+        actionID: String,
+        cmuxConfigStore: CmuxConfigStore
+    ) -> Bool {
+        if action.newWorkspaceMenu == false { return false }
+        let configuredActionIDs = Set(cmuxConfigStore.newWorkspaceContextMenuItems.compactMap { item -> String? in
+            guard case .action(let menuAction) = item else { return nil }
+            return menuAction.action.id
+        })
+        if configuredActionIDs.contains(actionID) { return false }
+        if action.newWorkspaceMenu == true { return true }
+        return !newWorkspaceContextMenuIsConfigured(cmuxConfigStore)
+    }
+
+    private func newWorkspaceContextMenuIsConfigured(_ cmuxConfigStore: CmuxConfigStore) -> Bool {
+        if let localConfigPath = cmuxConfigStore.localConfigPath,
+           Self.configFileDefinesNewWorkspaceContextMenu(at: localConfigPath) {
+            return true
+        }
+        return Self.configFileDefinesNewWorkspaceContextMenu(at: cmuxConfigStore.globalConfigPath)
+    }
+
+    nonisolated private static func configFileDefinesNewWorkspaceContextMenu(at path: String) -> Bool {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let ui = root["ui"] as? [String: Any],
+              let newWorkspace = ui["newWorkspace"] as? [String: Any] else {
+            return false
+        }
+        return newWorkspace.keys.contains("contextMenu") || newWorkspace.keys.contains("rightClick")
     }
 
     private func appendNewWorkspaceMenuSection(_ items: [NSMenuItem], to menu: NSMenu) {

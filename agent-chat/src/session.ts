@@ -36,6 +36,26 @@ export interface ProviderCapabilities { options: SessionOption[]; triggers: Comm
 export interface SessionActions { fork?: boolean; }
 export interface ChangedFile { path: string; adds: number; dels: number; status: string; }
 
+const diffKeySeparator = "\0";
+
+export function fileDiffCacheKey(revision: string, path: string): string {
+  return `${revision}${diffKeySeparator}${path}`;
+}
+
+export function decodeFileDiffRequest(value: string): { key: string; path: string } {
+  const index = value.indexOf(diffKeySeparator);
+  if (index < 0) return { key: value, path: value };
+  return { key: value, path: value.slice(index + diffKeySeparator.length) };
+}
+
+function nextFilesRevision(blocks: Block[]): string {
+  let count = 0;
+  for (const block of blocks) {
+    if (block.kind === "files") count += 1;
+  }
+  return String(count + 1);
+}
+
 export type Block =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string; open: boolean }
@@ -44,7 +64,7 @@ export type Block =
   | { kind: "status"; text: string }
   | { kind: "error"; text: string }
   | { kind: "footer"; text: string }
-  | { kind: "files"; files: ChangedFile[] };
+  | { kind: "files"; files: ChangedFile[]; revision?: string };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
 export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
@@ -92,7 +112,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       return [...closed, { kind: "footer", text: evt.stats ?? "" }];
     }
     case "files-changed":
-      return [...closeStreaming(blocks), { kind: "files", files: evt.files }];
+      return [...closeStreaming(blocks), { kind: "files", files: evt.files, revision: nextFilesRevision(blocks) }];
     case "error":
       return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
     case "status":
@@ -162,6 +182,7 @@ export function useSession(): SessionState {
   const [forkPending, setForkPending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
+  const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
   const pendingStartRef = useRef<{
     requestId: string;
     key: string;
@@ -223,6 +244,8 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
+            pendingFileDiffKeysRef.current = {};
+            setFileDiffs({});
             setPhase("chat");
             break;
           case "history":
@@ -234,6 +257,8 @@ export function useSession(): SessionState {
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
             setCommands(latestCommands(msg.events as AgentEvent[]));
+            pendingFileDiffKeysRef.current = {};
+            setFileDiffs({});
             setPhase("chat");
             break;
           case "no-session":
@@ -243,6 +268,8 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
+            pendingFileDiffKeysRef.current = {};
+            setFileDiffs({});
             setPhase("composer");
             optimisticUsersRef.current = [];
             break;
@@ -283,7 +310,11 @@ export function useSession(): SessionState {
             break;
           case "file-diff":
             if (msg.sessionId === sessionIdRef.current) {
-              setFileDiffs((m) => ({ ...m, [String(msg.path)]: String(msg.diff ?? "") }));
+              const path = String(msg.path);
+              const queue = pendingFileDiffKeysRef.current[path];
+              const key = queue?.shift() ?? path;
+              if (queue && !queue.length) delete pendingFileDiffKeysRef.current[path];
+              setFileDiffs((m) => ({ ...m, [key]: String(msg.diff ?? "") }));
             }
             break;
           case "error":
@@ -309,7 +340,11 @@ export function useSession(): SessionState {
             }
             if (msg.op === "fork") setForkPending(false);
             if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
-              setFileDiffs((m) => ({ ...m, [String(msg.path)]: String(msg.message ?? "Failed to load diff") }));
+              const path = String(msg.path);
+              const queue = pendingFileDiffKeysRef.current[path];
+              const key = queue?.shift() ?? path;
+              if (queue && !queue.length) delete pendingFileDiffKeysRef.current[path];
+              setFileDiffs((m) => ({ ...m, [key]: String(msg.message ?? "Failed to load diff") }));
             }
             break;
         }
@@ -343,6 +378,8 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
+    pendingFileDiffKeysRef.current = {};
+    setFileDiffs({});
     setPhase("chat");
     return true;
   }, [sendRaw]);
@@ -355,6 +392,8 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
+    pendingFileDiffKeysRef.current = {};
+    setFileDiffs({});
     setPhase("composer");
   }, []);
   const reply = useCallback((text: string) => {
@@ -396,7 +435,10 @@ export function useSession(): SessionState {
     sendRaw({ op: "list-files", cwd, query });
   }, [sendRaw]);
   const requestFileDiff = useCallback((sessionId: string, path: string) => {
-    sendRaw({ op: "get-file-diff", sessionId, path });
+    const request = decodeFileDiffRequest(path);
+    if (sendRaw({ op: "get-file-diff", sessionId, path: request.path })) {
+      pendingFileDiffKeysRef.current[request.path] = [...(pendingFileDiffKeysRef.current[request.path] ?? []), request.key];
+    }
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {
     sendRaw({ op: "check-cwd", cwd });
