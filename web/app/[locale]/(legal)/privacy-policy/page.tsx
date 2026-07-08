@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
+import { locales, routing, type Locale } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
-
-const privacyPolicyLocales = ["en"] as const;
 
 type PrivacyPolicyBlock =
   | { type: "p"; text: string }
@@ -19,13 +18,14 @@ export async function generateMetadata({
 }: {
   params: Promise<PageParams>;
 }): Promise<Metadata> {
-  await params;
-  const t = await getTranslations({ locale: "en", namespace: "privacyPolicyPage" });
+  const { locale: rawLocale } = await params;
+  const locale = resolveLocale(rawLocale);
+  const t = await getTranslations({ locale, namespace: "privacyPolicyPage" });
 
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates("en", "/privacy-policy", privacyPolicyLocales),
+    alternates: buildAlternates(locale, "/privacy-policy"),
   };
 }
 
@@ -34,8 +34,9 @@ export default async function PrivacyPolicyPage({
 }: {
   params: Promise<PageParams>;
 }) {
-  await params;
-  const t = await getTranslations({ locale: "en", namespace: "privacyPolicyPage" });
+  const { locale: rawLocale } = await params;
+  const locale = resolveLocale(rawLocale);
+  const t = await getTranslations({ locale, namespace: "privacyPolicyPage" });
   const blocks = t.raw("blocks") as PrivacyPolicyBlock[];
 
   return (
@@ -66,6 +67,10 @@ function renderBlock(block: PrivacyPolicyBlock, index: number): ReactNode {
     case "p":
       return <p key={key}>{renderInline(block.text)}</p>;
   }
+}
+
+function resolveLocale(locale: string): Locale {
+  return locales.includes(locale as Locale) ? (locale as Locale) : routing.defaultLocale;
 }
 
 function renderInline(message: string): ReactNode[] {

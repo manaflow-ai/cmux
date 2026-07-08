@@ -345,6 +345,7 @@ struct MobileSettingsView: View {
                     Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
                         dismiss()
                     }
+                    .disabled(isDeletingAccount)
                     .accessibilityIdentifier("MobileSettingsDone")
                 }
             }
@@ -387,6 +388,7 @@ struct MobileSettingsView: View {
                 deleteAccount: deleteAccount
             )
         }
+        .interactiveDismissDisabled(isDeletingAccount)
         .accessibilityIdentifier("MobileSettingsView")
     }
 
