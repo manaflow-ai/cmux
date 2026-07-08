@@ -8466,6 +8466,23 @@
           }
         }
       }
+    },
+    "mobile.diff.hunkLinesTruncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing first %1$d of %2$d lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全%2$d行のうち先頭%1$d行を表示"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

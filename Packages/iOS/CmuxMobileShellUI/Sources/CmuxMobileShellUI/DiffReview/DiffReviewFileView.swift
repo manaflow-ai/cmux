@@ -204,6 +204,12 @@ struct DiffReviewFileView: View {
 }
 
 private struct DiffReviewHunkView: View {
+    /// Upper bound on eagerly-built line rows. The Mac's byte cap does not
+    /// bound row count: a new/generated file is a single hunk, so a 2 MiB
+    /// diff of short lines could otherwise construct ~100k rows in this
+    /// non-lazy stack and freeze the screen.
+    static let maxRenderedLines = 2000
+
     let hunk: DiffHunk
 
     var body: some View {
@@ -217,10 +223,27 @@ private struct DiffReviewHunkView: View {
                 .background(.thinMaterial)
             ScrollView(.horizontal, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(hunk.lines) { line in
+                    ForEach(hunk.lines.prefix(Self.maxRenderedLines)) { line in
                         DiffReviewLineView(line: line)
                     }
                 }
+            }
+            if hunk.lines.count > Self.maxRenderedLines {
+                Label(
+                    String(
+                        format: L10n.string(
+                            "mobile.diff.hunkLinesTruncated",
+                            defaultValue: "Showing first %1$d of %2$d lines"
+                        ),
+                        Self.maxRenderedLines,
+                        hunk.lines.count
+                    ),
+                    systemImage: "scissors"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
         }
     }
