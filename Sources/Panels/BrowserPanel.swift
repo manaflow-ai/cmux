@@ -3162,8 +3162,8 @@ final class BrowserPanel: Panel, ObservableObject {
     // callback to a bounded redock deadline.
     private var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
     private var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
-    private var detachedDeveloperToolsWindowDismissalWorkItems: [DispatchWorkItem] = []
-    private var developerToolsDockControlNormalizationWorkItem: DispatchWorkItem?
+    private var detachedDeveloperToolsWindowDismissalTasks: [Task<Void, Never>] = []
+    private var developerToolsDockControlNormalizationTask: Task<Void, Never>?
     private var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
     private var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
     private var browserThemeMode: BrowserThemeMode
@@ -6020,10 +6020,10 @@ final class BrowserPanel: Panel, ObservableObject {
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil
         detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
-        detachedDeveloperToolsWindowDismissalWorkItems.forEach { $0.cancel() }
-        detachedDeveloperToolsWindowDismissalWorkItems.removeAll()
-        developerToolsDockControlNormalizationWorkItem?.cancel()
-        developerToolsDockControlNormalizationWorkItem = nil
+        detachedDeveloperToolsWindowDismissalTasks.forEach { $0.cancel() }
+        detachedDeveloperToolsWindowDismissalTasks.removeAll()
+        developerToolsDockControlNormalizationTask?.cancel()
+        developerToolsDockControlNormalizationTask = nil
         detachedDeveloperToolsExplicitUserCloseWindowIds.removeAll()
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
@@ -6135,8 +6135,8 @@ extension BrowserPanel {
         developerToolsRestoreRetryAttempt = 0
         cancelDetachedDeveloperToolsWindowCloseResolution()
         cancelDetachedDeveloperToolsWindowDismissal()
-        developerToolsDockControlNormalizationWorkItem?.cancel()
-        developerToolsDockControlNormalizationWorkItem = nil
+        developerToolsDockControlNormalizationTask?.cancel()
+        developerToolsDockControlNormalizationTask = nil
         clearWebContentTerminationRecovery()
 
         loadingEndWorkItem?.cancel()
@@ -6547,20 +6547,23 @@ extension BrowserPanel {
     }
 
     private func cancelDetachedDeveloperToolsWindowDismissal() {
-        for workItem in detachedDeveloperToolsWindowDismissalWorkItems {
-            workItem.cancel()
+        for task in detachedDeveloperToolsWindowDismissalTasks {
+            task.cancel()
         }
-        detachedDeveloperToolsWindowDismissalWorkItems.removeAll()
+        detachedDeveloperToolsWindowDismissalTasks.removeAll()
     }
 
     private func scheduleDeveloperToolsDockControlNormalization(
         reason: String,
         delay: TimeInterval = 0
     ) {
-        developerToolsDockControlNormalizationWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.developerToolsDockControlNormalizationWorkItem = nil
+        developerToolsDockControlNormalizationTask?.cancel()
+        developerToolsDockControlNormalizationTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await ContinuousClock().sleep(for: .seconds(delay))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.developerToolsDockControlNormalizationTask = nil
             self.normalizeDeveloperToolsDockControls()
 #if DEBUG
             cmuxDebugLog(
@@ -6568,12 +6571,6 @@ extension BrowserPanel {
                 "reason=\(reason) \(self.debugDeveloperToolsStateSummary()) \(self.debugDeveloperToolsGeometrySummary())"
             )
 #endif
-        }
-        developerToolsDockControlNormalizationWorkItem = workItem
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        } else {
-            DispatchQueue.main.async(execute: workItem)
         }
     }
     private func installDetachedDeveloperToolsWindowCloseObserver() {
@@ -6822,12 +6819,15 @@ extension BrowserPanel {
     private func scheduleDetachedDeveloperToolsWindowDismissal() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
         cancelDetachedDeveloperToolsWindowDismissal()
-        for delay in [0.0, 0.15] {
-            let workItem = DispatchWorkItem { [weak self] in
+        for delay in [Duration.zero, .milliseconds(150)] {
+            let task = Task { @MainActor [weak self] in
+                if delay > .zero {
+                    try? await ContinuousClock().sleep(for: delay)
+                }
+                guard !Task.isCancelled else { return }
                 self?.dismissDetachedDeveloperToolsWindowsIfNeeded()
             }
-            detachedDeveloperToolsWindowDismissalWorkItems.append(workItem)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+            detachedDeveloperToolsWindowDismissalTasks.append(task)
         }
     }
 

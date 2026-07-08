@@ -1,6 +1,6 @@
 import AppKit
+import Testing
 import WebKit
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,7 +9,8 @@ import XCTest
 #endif
 
 @MainActor
-final class BrowserDeveloperToolsDockControlNormalizerTests: XCTestCase {
+@Suite("Browser developer tools dock control normalizer")
+struct BrowserDeveloperToolsDockControlNormalizerTests {
     private final class TrackingInspectorFrontendWebView: WKWebView {
         private(set) var evaluatedJavaScript: [String] = []
 
@@ -22,7 +23,7 @@ final class BrowserDeveloperToolsDockControlNormalizerTests: XCTestCase {
         }
     }
 
-    func testDetachedInspectorFrontendUsesDetachedDockButtonState() {
+    @Test func detachedInspectorFrontendUsesDetachedDockButtonState() {
         let hostWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -36,8 +37,8 @@ final class BrowserDeveloperToolsDockControlNormalizerTests: XCTestCase {
             defer: false
         )
         defer {
-            hostWindow.close()
-            inspectorWindow.close()
+            hostWindow.orderOut(nil)
+            inspectorWindow.orderOut(nil)
         }
 
         let inspectorFrontendWebView = TrackingInspectorFrontendWebView(
@@ -52,8 +53,8 @@ final class BrowserDeveloperToolsDockControlNormalizerTests: XCTestCase {
         )
 
         let script = inspectorFrontendWebView.evaluatedJavaScript.joined(separator: "\n")
-        XCTAssertTrue(script.contains("const detachedFromHostWindow = true;"))
-        XCTAssertTrue(script.contains("WI._dockBottomTabBarButton"))
-        XCTAssertTrue(script.contains("WI._detachTabBarButton"))
+        #expect(script.contains("const detachedFromHostWindow = true;"))
+        #expect(script.contains("WI._dockBottomTabBarButton"))
+        #expect(script.contains("WI._detachTabBarButton"))
     }
 }

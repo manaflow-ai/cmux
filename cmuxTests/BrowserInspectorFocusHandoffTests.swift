@@ -1,6 +1,6 @@
 import AppKit
+import Testing
 import WebKit
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,12 +9,13 @@ import XCTest
 #endif
 
 @MainActor
-final class BrowserInspectorFocusHandoffTests: XCTestCase {
+@Suite("Browser inspector focus handoff")
+struct BrowserInspectorFocusHandoffTests {
     private final class FakeWKInspectorResponderView: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
 
-    func testWindowFirstResponderGuardPostsBrowserClickIntentForInspectorFocus() {
+    @Test func windowFirstResponderGuardPostsBrowserClickIntentForInspectorFocus() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -42,10 +43,10 @@ final class BrowserInspectorFocusHandoffTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected bound portal slot")
-            return
-        }
+        let slot = try #require(
+            webView.superview as? WindowBrowserSlotView,
+            "Expected bound portal slot"
+        )
 
         let inspector = FakeWKInspectorResponderView(frame: NSRect(x: 320, y: 0, width: 160, height: slot.bounds.height))
         slot.addSubview(inspector)
@@ -74,11 +75,11 @@ final class BrowserInspectorFocusHandoffTests: XCTestCase {
             clickCount: 1,
             pressure: 1.0
         )
-        XCTAssertNotNil(pointerDownEvent)
+        #expect(pointerDownEvent != nil)
 
         AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: nil)
         _ = window.makeFirstResponder(nil)
-        XCTAssertTrue(window.makeFirstResponder(inspector))
-        XCTAssertEqual(clickIntentCount, 1)
+        #expect(window.makeFirstResponder(inspector))
+        #expect(clickIntentCount == 1)
     }
 }

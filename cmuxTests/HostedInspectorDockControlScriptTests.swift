@@ -1,5 +1,5 @@
 import JavaScriptCore
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,8 +7,9 @@ import XCTest
 @testable import cmux
 #endif
 
-final class HostedInspectorDockControlScriptTests: XCTestCase {
-    func testDetachedInspectorShowsDockTargetsAndHidesUndockButtons() throws {
+@Suite("Hosted inspector dock control script")
+struct HostedInspectorDockControlScriptTests {
+    @Test func detachedInspectorShowsDockTargetsAndHidesUndockButtons() throws {
         let context = try makeDockControlContext(dockConfiguration: "detached")
         context.evaluateScript(
             HostedInspectorDockControlScript(
@@ -17,14 +18,14 @@ final class HostedInspectorDockControlScriptTests: XCTestCase {
             ).source
         )
 
-        XCTAssertEqual(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._detachTabBarButton.hidden").toBool(), true)
-        XCTAssertEqual(context.evaluateScript("WI._undockButton.hidden").toBool(), true)
+        #expect(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._detachTabBarButton.hidden").toBool() == true)
+        #expect(context.evaluateScript("WI._undockButton.hidden").toBool() == true)
     }
 
-    func testAttachedInspectorShowsUndockAndNonCurrentDockTargets() throws {
+    @Test func attachedInspectorShowsUndockAndNonCurrentDockTargets() throws {
         let context = try makeDockControlContext(dockConfiguration: "bottom")
         context.evaluateScript(
             HostedInspectorDockControlScript(
@@ -33,14 +34,14 @@ final class HostedInspectorDockControlScriptTests: XCTestCase {
             ).source
         )
 
-        XCTAssertEqual(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool(), true)
-        XCTAssertEqual(context.evaluateScript("WI._detachTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._undockButton.hidden").toBool(), false)
+        #expect(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool() == true)
+        #expect(context.evaluateScript("WI._detachTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._undockButton.hidden").toBool() == false)
     }
 
-    func testSideDockDisallowedHidesSideTargetsAndRoutesToBottom() throws {
+    @Test func sideDockDisallowedHidesSideTargetsAndRoutesToBottom() throws {
         let context = try makeDockControlContext(dockConfiguration: "detached")
         context.evaluateScript(
             """
@@ -60,17 +61,17 @@ final class HostedInspectorDockControlScriptTests: XCTestCase {
             ).source
         )
 
-        XCTAssertEqual(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool(), true)
-        XCTAssertEqual(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool(), true)
-        XCTAssertEqual(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool(), false)
-        XCTAssertEqual(context.evaluateScript("WI._dockLeft({}); bottomCount").toInt32(), 1)
-        XCTAssertEqual(context.evaluateScript("WI._dockRight({}); bottomCount").toInt32(), 2)
-        XCTAssertEqual(context.evaluateScript("leftCount").toInt32(), 0)
-        XCTAssertEqual(context.evaluateScript("rightCount").toInt32(), 0)
+        #expect(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool() == true)
+        #expect(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool() == true)
+        #expect(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool() == false)
+        #expect(context.evaluateScript("WI._dockLeft({}); bottomCount").toInt32() == 1)
+        #expect(context.evaluateScript("WI._dockRight({}); bottomCount").toInt32() == 2)
+        #expect(context.evaluateScript("leftCount").toInt32() == 0)
+        #expect(context.evaluateScript("rightCount").toInt32() == 0)
     }
 
-    func testReexecutingScriptDoesNotWrapMissingDockMethod() throws {
-        let context = try XCTUnwrap(JSContext())
+    @Test func reexecutingScriptDoesNotWrapMissingDockMethod() throws {
+        let context = try #require(JSContext())
         var exception: String?
         context.exceptionHandler = { _, value in
             exception = value?.toString()
@@ -118,15 +119,15 @@ final class HostedInspectorDockControlScriptTests: XCTestCase {
         context.evaluateScript(source)
         context.evaluateScript(source)
 
-        XCTAssertNil(exception)
-        XCTAssertEqual(context.evaluateScript("typeof WI._dockLeft").toString(), "undefined")
-        XCTAssertEqual(context.evaluateScript("typeof WI.__cmuxOriginalDockLeft").toString(), "undefined")
-        XCTAssertEqual(context.evaluateScript("WI._dockRight({}); rightCount").toInt32(), 1)
-        XCTAssertEqual(context.evaluateScript("updateCount").toInt32(), 2)
+        #expect(exception == nil)
+        #expect(context.evaluateScript("typeof WI._dockLeft").toString() == "undefined")
+        #expect(context.evaluateScript("typeof WI.__cmuxOriginalDockLeft").toString() == "undefined")
+        #expect(context.evaluateScript("WI._dockRight({}); rightCount").toInt32() == 1)
+        #expect(context.evaluateScript("updateCount").toInt32() == 2)
     }
 
     private func makeDockControlContext(dockConfiguration: String) throws -> JSContext {
-        let context = try XCTUnwrap(JSContext())
+        let context = try #require(JSContext())
         context.evaluateScript(
             """
             var updateCount = 0;
