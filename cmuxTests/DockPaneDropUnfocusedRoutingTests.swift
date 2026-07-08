@@ -222,7 +222,7 @@ struct DockPaneDropUnfocusedRoutingTests {
     @Test("Sidebar reorder mouse-up routing uses the active sidebar drag registry")
     @MainActor
     func sidebarReorderMouseUpRoutingUsesActiveSidebarDragRegistry() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
+        await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
             AppDelegate.shared = appDelegate
@@ -415,7 +415,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
             let dockTabId = try #require(dock.surfaceId(forPanelId: dockPanelId))
-            let dockSourcePane = try #require(dock.paneId(forPanelId: dockPanelId) ?? dockPane)
+            let dockSourcePane = dock.paneId(forPanelId: dockPanelId) ?? dockPane
 
             let payload = try Self.makePaneDragPayload(tabId: dockTabId.uuid, sourcePaneId: dockSourcePane.id)
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.\(UUID().uuidString)"))

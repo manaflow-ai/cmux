@@ -7,6 +7,7 @@ import CmuxRemoteSession
 import CmuxSidebar
 import CmuxRemoteWorkspace
 import CmuxTerminal
+import struct CmuxWorkspaces.SessionLogEntrySnapshot
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6871,7 +6872,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let callerTTY = "/dev/ttys777"
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let callerSurface = "22222222-2222-2222-2222-222222222222"
-        let focusedSurface = "33333333-3333-3333-3333-333333333333"
         let staleWorkspace = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
         let staleSurface = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
 

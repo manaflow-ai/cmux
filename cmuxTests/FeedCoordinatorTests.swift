@@ -447,20 +447,14 @@ struct FeedCoordinatorTests {
             requestId: "timeout-request"
         )
 
-        let done = DispatchSemaphore(value: 0)
-        let resultBox = IngestResultBox()
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+        let result = await Task.detached(priority: .userInitiated) {
+            FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 0.05
             )
-            done.signal()
-        }
+        }.value
 
-        #expect(done.wait(timeout: .now() + 2) == .success)
-
-        guard case .timedOut = resultBox.value else {
+        guard case .timedOut = result else {
             Issue.record("expected feed.push to time out")
             return
         }
@@ -508,22 +502,16 @@ struct FeedCoordinatorTests {
             requestId: requestId
         )
 
-        let done = DispatchSemaphore(value: 0)
-        let resultBox = IngestResultBox()
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+        let result = await Task.detached(priority: .userInitiated) {
+            FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1
             )
-            done.signal()
-        }
-
-        #expect(done.wait(timeout: .now() + 2) == .success)
+        }.value
 
         await MainActor.run {}
 
-        guard case .resolved(_, .permission(.once)) = resultBox.value else {
+        guard case .resolved(_, .permission(.once)) = result else {
             Issue.record("expected auto-allowed permission request to resolve")
             return
         }
@@ -577,16 +565,12 @@ struct FeedCoordinatorTests {
             requestId: requestId
         )
 
-        let done = DispatchSemaphore(value: 0)
-        let resultBox = IngestResultBox()
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+        _ = await Task.detached(priority: .userInitiated) {
+            FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1
             )
-            done.signal()
-        }
-        #expect(done.wait(timeout: .now() + 2) == .success)
+        }.value
         await MainActor.run {}
 
         #expect(
@@ -632,10 +616,6 @@ struct FeedCoordinatorTests {
             DispatchQueue.main.sync(execute: reset)
         }
     }
-}
-
-private final class IngestResultBox: @unchecked Sendable {
-    var value: WorkstreamIngestBlockingResult?
 }
 
 private final class AttentionSurfaceRecorder: @unchecked Sendable {

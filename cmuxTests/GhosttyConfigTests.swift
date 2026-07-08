@@ -731,7 +731,7 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testParseBackgroundOpacityReadsConfigValue() {
-        let config = GhosttyConfig()
+        var config = GhosttyConfig()
         config.parse("background-opacity = 0.42")
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }

@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Decode resolves a `color` string (literal hex or a workspace color name)
 /// through ``WorkspaceTabColorSettings/resolvedColorHex(_:defaults:)`` against the
-/// `UserDefaults` carried on `decoder.userInfo[.cmuxWorkspaceColorDefaults]`
+/// defaults carried on `decoder.userInfo[.cmuxWorkspaceColorDefaults]`
 /// (production decode falls back to `.standard`), preserving the on-disk wire
 /// format exactly.
 public struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
@@ -51,7 +51,9 @@ public struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            let defaults = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults ?? .standard
+            let defaults = (decoder.userInfo[.cmuxWorkspaceColorDefaults] as? CmuxWorkspaceColorDefaults)?.defaults
+                ?? (decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults)
+                ?? .standard
             guard let normalized = WorkspaceTabColorSettings().resolvedColorHex(rawColor, defaults: defaults) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .color,

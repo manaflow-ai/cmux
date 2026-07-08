@@ -107,7 +107,7 @@ final class WorkspaceContentViewVisibilityTests {
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
             window.contentView?.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            try? await Task.sleep(nanoseconds: 1_000_000)
             await Task.yield()
         }
     }

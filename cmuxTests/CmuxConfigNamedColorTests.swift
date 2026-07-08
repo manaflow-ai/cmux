@@ -12,7 +12,7 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         let data = json.data(using: .utf8)!
         let decoder = JSONDecoder()
         if let colorDefaults {
-            decoder.userInfo[.cmuxWorkspaceColorDefaults] = colorDefaults
+            decoder.userInfo[.cmuxWorkspaceColorDefaults] = CmuxWorkspaceColorDefaults(colorDefaults)
         }
         return try decoder.decode(CmuxConfigFile.self, from: data)
     }

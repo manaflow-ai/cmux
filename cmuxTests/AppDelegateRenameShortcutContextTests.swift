@@ -35,11 +35,20 @@ private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSV
     }
 }
 
-private final class ShortcutNotificationFlag {
-    var wasPosted = false
+private final class ShortcutNotificationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var posted = false
+
+    var wasPosted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return posted
+    }
 
     func markPosted() {
-        wasPosted = true
+        lock.lock()
+        posted = true
+        lock.unlock()
     }
 }
 

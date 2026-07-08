@@ -1,6 +1,7 @@
 import AppKit
 import CmuxWindowing
 import struct CmuxWorkspaces.SessionRectSnapshot
+import struct CmuxWorkspaces.SessionSidebarSnapshot
 import Testing
 
 #if canImport(cmux_DEV)
@@ -398,7 +399,7 @@ struct AppDelegateDisplayConfigRestoreTests {
         try #require(!NSScreen.screens.isEmpty)
         let restoredWindowId = UUID()
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_000,
             windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
         )

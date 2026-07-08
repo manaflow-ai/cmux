@@ -171,7 +171,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         let browserPanel = try #require(
             sourceWorkspace.newBrowserSurface(
                 inPane: sourcePaneId,
-                url: try #require(URL(string: "https://example.com")),
+                url: URL(string: "https://example.com")!,
                 focus: false
             )
         )
