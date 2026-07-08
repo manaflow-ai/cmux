@@ -28,32 +28,6 @@ extension WorkspaceGroupCoordinator {
         )
     }
 
-    /// Resolves delete intent from a rendered group header.
-    ///
-    /// The sidebar header row is intentionally snapshot-driven. If that row
-    /// briefly outlives the backing group record, keep Delete Group useful by
-    /// treating the captured header workspace as the destructive target instead
-    /// of no-oping on a stale group id.
-    public func deletionConfirmation(
-        groupId: UUID,
-        fallbackGroupName: String,
-        fallbackAnchorWorkspaceId: UUID
-    ) -> WorkspaceGroupDeletionConfirmation? {
-        if let confirmation = deletionConfirmation(groupId: groupId) {
-            return confirmation
-        }
-        guard model.tabs.contains(where: { $0.id == fallbackAnchorWorkspaceId }) else {
-            return nil
-        }
-        return WorkspaceGroupDeletionConfirmation(
-            groupId: groupId,
-            groupName: fallbackGroupName,
-            anchorWorkspaceId: fallbackAnchorWorkspaceId,
-            includesAnchorWorkspace: true,
-            memberWorkspaceIds: [fallbackAnchorWorkspaceId]
-        )
-    }
-
     /// Deletes a group using the exact membership the user confirmed.
     ///
     /// Confirmation sheets run a nested modal loop, so other entrypoints can
@@ -67,8 +41,7 @@ extension WorkspaceGroupCoordinator {
         recordHistory: Bool = true
     ) -> Int {
         guard let host else { return 0 }
-        guard model.workspaceGroups.contains(where: { $0.id == confirmation.groupId })
-            || model.tabs.contains(where: { $0.id == confirmation.anchorWorkspaceId }) else {
+        guard model.workspaceGroups.contains(where: { $0.id == confirmation.groupId }) else {
             return 0
         }
 

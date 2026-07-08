@@ -112,30 +112,24 @@ struct WorkspaceGroupDeletionConfirmationTests {
     }
 
     @Test
-    func staleRenderedHeaderConfirmationClosesCapturedAnchorWorkspace() throws {
+    func staleRenderedHeaderDeleteDoesNotCloseFormerAnchorWorkspace() throws {
         let (model, host, groups) = makeWorld()
         let other = CoordinatorStubTab()
         model.tabs = [other]
         let groupId = try #require(groups.createWorkspaceGroup(name: "Stale", childWorkspaceIds: []))
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         let anchorId = group.anchorWorkspaceId
+        let staleConfirmation = try #require(groups.deletionConfirmation(groupId: groupId))
         model.workspaceGroups.removeAll { $0.id == groupId }
         model.assignGroup(workspaceId: anchorId, groupId: nil)
 
-        let confirmation = try #require(groups.deletionConfirmation(
-            groupId: groupId,
-            fallbackGroupName: group.name,
-            fallbackAnchorWorkspaceId: anchorId
-        ))
-        #expect(confirmation.memberWorkspaceIds == [anchorId])
-        #expect(confirmation.containedWorkspaceCount == 0)
+        #expect(groups.deletionConfirmation(groupId: groupId) == nil)
 
-        let closed = groups.deleteWorkspaceGroup(confirmed: confirmation)
+        let closed = groups.deleteWorkspaceGroup(confirmed: staleConfirmation)
 
-        #expect(closed == 1)
-        #expect(host.closedWorkspaceIds == [anchorId])
-        #expect(!model.tabs.contains { $0.id == anchorId })
-        #expect(model.tabs.map(\.id) == [other.id])
+        #expect(closed == 0)
+        #expect(host.closedWorkspaceIds.isEmpty)
+        #expect(Set(model.tabs.map(\.id)) == [other.id, anchorId])
     }
 
     @Test
