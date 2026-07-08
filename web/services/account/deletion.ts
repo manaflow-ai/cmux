@@ -35,6 +35,25 @@ import { deleteObject } from "../vault/storage";
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 
+type AccountDeletionWorkflow = unknown;
+type AccountDeletionRuntime = {
+  readonly cloudDb: typeof cloudDb;
+  readonly deleteObject: (key: string) => Promise<void>;
+  readonly destroyAccountOwnedVm: (input: {
+    readonly userId: string;
+    readonly providerVmId: string;
+  }) => AccountDeletionWorkflow;
+  readonly runVmWorkflow: (workflow: AccountDeletionWorkflow) => Promise<unknown>;
+};
+
+const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
+  cloudDb,
+  deleteObject,
+  destroyAccountOwnedVm: (input) => destroyAccountOwnedVm(input),
+  runVmWorkflow: (workflow) =>
+    runVmWorkflow(workflow as ReturnType<typeof destroyAccountOwnedVm>),
+};
+
 type StackJson =
   | null
   | boolean
@@ -70,21 +89,24 @@ export async function markStackUserDeletionInProgress(
   await user.update({ clientReadOnlyMetadata: metadata });
 }
 
-export async function deleteCmuxAccountData(input: AccountDeletionInput): Promise<void> {
+export async function deleteCmuxAccountData(
+  input: AccountDeletionInput,
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<void> {
   const anonymizedUserId = deletedAccountId(input.userId);
-  await claimProviderlessAccountVms(input.userId);
-  await destroyProviderBackedAccountVms(input.userId);
+  await claimProviderlessAccountVms(input.userId, runtime);
+  await destroyProviderBackedAccountVms(input.userId, runtime);
 
-  const objectKeys = await accountVaultObjectKeys(input.userId);
+  const objectKeys = await accountVaultObjectKeys(input.userId, runtime);
   for (const key of objectKeys) {
-    await deleteObject(key);
+    await runtime.deleteObject(key);
   }
 
-  await cancelStripeAccountBilling(input.userId, anonymizedUserId);
+  await cancelStripeAccountBilling(input.userId, anonymizedUserId, runtime);
 
   const anonymizedEmail = `${anonymizedUserId}@deleted.cmux.invalid`;
   const now = new Date();
-  const db = cloudDb();
+  const db = runtime.cloudDb();
 
   await db.transaction(async (tx) => {
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, input.userId));
@@ -148,8 +170,11 @@ export async function deleteCmuxAccountData(input: AccountDeletionInput): Promis
   });
 }
 
-async function claimProviderlessAccountVms(userId: string): Promise<void> {
-  const db = cloudDb();
+async function claimProviderlessAccountVms(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
   await db
     .update(cloudVms)
     .set({
@@ -164,27 +189,33 @@ async function claimProviderlessAccountVms(userId: string): Promise<void> {
     ));
 }
 
-async function destroyProviderBackedAccountVms(userId: string): Promise<void> {
+async function destroyProviderBackedAccountVms(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
   for (let pass = 0; pass < MAX_ACCOUNT_VM_CLEANUP_PASSES; pass += 1) {
-    const activeVms = await providerBackedAccountVms(userId);
+    const activeVms = await providerBackedAccountVms(userId, runtime);
     if (activeVms.length === 0) return;
     for (const vm of activeVms) {
       if (!vm.providerVmId) continue;
-      await runVmWorkflow(destroyAccountOwnedVm({
+      await runtime.runVmWorkflow(runtime.destroyAccountOwnedVm({
         userId,
         providerVmId: vm.providerVmId,
       }));
     }
   }
 
-  const remaining = await providerBackedAccountVms(userId);
+  const remaining = await providerBackedAccountVms(userId, runtime);
   if (remaining.length > 0) {
     throw new Error("Cloud VM account deletion cleanup did not settle");
   }
 }
 
-async function providerBackedAccountVms(userId: string): Promise<readonly { readonly providerVmId: string | null }[]> {
-  const db = cloudDb();
+async function providerBackedAccountVms(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<readonly { readonly providerVmId: string | null }[]> {
+  const db = runtime.cloudDb();
   return await db
     .select({ providerVmId: cloudVms.providerVmId })
     .from(cloudVms)
@@ -195,8 +226,11 @@ async function providerBackedAccountVms(userId: string): Promise<readonly { read
     ));
 }
 
-async function accountVaultObjectKeys(userId: string): Promise<readonly string[]> {
-  const db = cloudDb();
+async function accountVaultObjectKeys(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<readonly string[]> {
+  const db = runtime.cloudDb();
   const keys = new Set<string>();
   const snapshotRows = await db
     .select({ objectKey: vaultSnapshots.objectKey })
@@ -226,8 +260,12 @@ async function accountVaultObjectKeys(userId: string): Promise<readonly string[]
   return [...keys];
 }
 
-async function cancelStripeAccountBilling(userId: string, anonymizedUserId: string): Promise<void> {
-  const db = cloudDb();
+async function cancelStripeAccountBilling(
+  userId: string,
+  anonymizedUserId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
   const customerRows = await db
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)

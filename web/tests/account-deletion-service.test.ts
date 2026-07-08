@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { cloudDb } from "../db/client";
 import { cloudVmLeases, cloudVmSessions } from "../db/schema";
+import { deleteCmuxAccountData } from "../services/account/deletion";
 
 const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
@@ -20,21 +22,6 @@ const runVmWorkflow = mock(async (workflow: unknown) => {
 });
 const deleteObject = mock(async () => {});
 
-mock.module("../services/vms/workflows", () => ({
-  destroyAccountOwnedVm,
-  runVmWorkflow,
-}));
-
-mock.module("../vault/storage", () => ({
-  deleteObject,
-}));
-
-mock.module("../db/client", () => ({
-  cloudDb: () => fakeDb(),
-}));
-
-const { deleteCmuxAccountData } = await import("../services/account/deletion");
-
 beforeEach(() => {
   calls.length = 0;
   providerBackedVmBatches = [];
@@ -53,7 +40,7 @@ describe("account deletion cleanup", () => {
     await deleteCmuxAccountData({
       userId: "user-1",
       teamIds: [],
-    });
+    }, fakeRuntime());
 
     expect(calls.slice(0, 4)).toEqual([
       "claim-providerless-vms",
@@ -81,7 +68,7 @@ describe("account deletion cleanup", () => {
     await expect(deleteCmuxAccountData({
       userId: "user-1",
       teamIds: [],
-    })).rejects.toThrow("Cloud VM account deletion cleanup did not settle");
+    }, fakeRuntime())).rejects.toThrow("Cloud VM account deletion cleanup did not settle");
 
     expect(runVmWorkflow).toHaveBeenCalledTimes(3);
     expect(calls).toContain("destroy:user-1:provider-vm-1");
@@ -107,6 +94,15 @@ function fakeDb() {
       calls.push("transaction");
       await callback(fakeTransaction());
     },
+  };
+}
+
+function fakeRuntime() {
+  return {
+    cloudDb: () => fakeDb() as unknown as ReturnType<typeof cloudDb>,
+    deleteObject,
+    destroyAccountOwnedVm,
+    runVmWorkflow,
   };
 }
 
