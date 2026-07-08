@@ -480,9 +480,18 @@ jobs:
           with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
               text = handle.read()
 
-          matches = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
-          if matches:
-              print(matches[-1])
+          # XCTest summaries ("Executed N tests") and Swift Testing run summaries
+          # ("Test run with N tests ...") are independent per-framework counts in
+          # one xcodebuild invocation; a filter can select a suite living in either.
+          xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
+          swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
+          counts = []
+          if xctest:
+              counts.append(xctest[-1])
+          if swift_testing:
+              counts.append(swift_testing[-1])
+          if counts:
+              print(max(counts))
           PY
           )
 
