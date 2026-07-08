@@ -31,7 +31,6 @@ extension ControlDebugContext {
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
-    func controlDebugShowSpinnerGallery() {}
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution { .noWindow }
     func controlDebugTabManagerAvailable() -> Bool { false }
     func controlDebugTextBoxInlineFixture(

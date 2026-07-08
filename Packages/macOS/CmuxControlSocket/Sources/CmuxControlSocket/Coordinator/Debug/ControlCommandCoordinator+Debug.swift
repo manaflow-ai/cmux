@@ -102,8 +102,6 @@ extension ControlCommandCoordinator {
             return debugScreenshot(request.params)
         case "debug.canvas.command_scroll_hint":
             return debugCanvasCommandScrollHint(request.params)
-        case "debug.spinner_gallery.show":
-            return debugShowSpinnerGallery()
         default:
             return nil
         }
@@ -140,14 +138,6 @@ extension ControlCommandCoordinator {
         let resolution = debugContext?.controlDebugShowCanvasCommandScrollHint(routing: routing)
             ?? .tabManagerUnavailable
         return canvasActionResult(resolution)
-    }
-
-    // MARK: - debug.spinner_gallery.show
-
-    /// `debug.spinner_gallery.show` — open the debug spinner gallery window.
-    func debugShowSpinnerGallery() -> ControlCallResult {
-        debugContext?.controlDebugShowSpinnerGallery()
-        return .ok(.object([:]))
     }
 
     // MARK: - debug.session_snapshot_benchmark
