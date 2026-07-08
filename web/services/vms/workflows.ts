@@ -1467,12 +1467,17 @@ function revokeActiveIdentities(vm: CloudVmRow) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const leases = yield* repo.activeIdentityLeases(vm.id);
+    const revokedIds: string[] = [];
     for (const lease of leases) {
       const identityHandle = lease.providerIdentityHandle;
       if (!identityHandle) continue;
-      yield* providers.revokeSSHIdentity(vm.provider, identityHandle);
+      const revoked = yield* providers.revokeSSHIdentity(vm.provider, identityHandle).pipe(
+        Effect.as(true),
+        Effect.catchAll((err) => Effect.succeed(isProviderNotFoundError(err.cause))),
+      );
+      if (revoked) revokedIds.push(lease.id);
     }
-    yield* repo.markLeasesRevoked(leases.map((lease) => lease.id));
+    yield* repo.markLeasesRevoked(revokedIds);
   });
 }
 

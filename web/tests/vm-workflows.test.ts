@@ -1678,6 +1678,66 @@ describe("VM Effect workflows", () => {
     expect(leases[1]).toMatchObject({ providerIdentityHandle: "identity-2", revokedAt: null });
   });
 
+  dbTest("keeps opening SSH endpoints when previous identity cleanup fails", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-ssh-revoke-failure', 'freestyle', 'provider-vm-ssh-revoke-failure', 'snapshot-test', 'running')
+      returning id
+    `;
+
+    let mintCount = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () =>
+        Effect.sync(() => {
+          mintCount += 1;
+          return {
+            transport: "ssh" as const,
+            host: "vm-ssh.freestyle.sh",
+            port: 22,
+            username: "provider-vm-ssh-revoke-failure+cmux",
+            publicKeyFingerprint: null,
+            credential: { kind: "password" as const, value: `token-${mintCount}` },
+            identityHandle: `identity-revoke-failure-${mintCount}`,
+          };
+        }),
+      revokeSSHIdentity: () =>
+        Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed")),
+    };
+    const layer = providerLayer(provider);
+
+    await Effect.runPromise(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-revoke-failure",
+        providerVmId: "provider-vm-ssh-revoke-failure",
+      }).pipe(Effect.provide(layer)),
+    );
+    const endpoint2 = await Effect.runPromise(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-revoke-failure",
+        providerVmId: "provider-vm-ssh-revoke-failure",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(endpoint2.identityHandle).toBe("identity-revoke-failure-2");
+
+    const leases = await sql<{ providerIdentityHandle: string; revokedAt: Date | null }[]>`
+      select provider_identity_handle as "providerIdentityHandle", revoked_at as "revokedAt"
+      from cloud_vm_leases
+      where vm_id = ${vm.id}
+      order by provider_identity_handle
+    `;
+    expect(leases).toEqual([
+      { providerIdentityHandle: "identity-revoke-failure-1", revokedAt: null },
+      { providerIdentityHandle: "identity-revoke-failure-2", revokedAt: null },
+    ]);
+  });
+
   dbTest("resumes a paused VM before minting SSH credentials", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
