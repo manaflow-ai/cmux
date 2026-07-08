@@ -35,7 +35,7 @@ struct TerminalTabAgentIconTests {
     func liveStatusKeyMapsToAsset(statusKey: String, expectedAsset: String) {
         let asset = TerminalTabAgentIconResolver().assetName(
             liveAgents: [liveAgent(statusKey)],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == expectedAsset)
@@ -54,7 +54,7 @@ struct TerminalTabAgentIconTests {
     func unsupportedAgentsUseSystemTerminalIcon(statusKey: String) {
         let asset = TerminalTabAgentIconResolver().assetName(
             liveAgents: [liveAgent(statusKey)],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == nil)
@@ -63,7 +63,7 @@ struct TerminalTabAgentIconTests {
     @Test func restoredAgentIsUsedWhenNoLiveAgentHasBrandAsset() {
         let asset = TerminalTabAgentIconResolver().assetName(
             liveAgents: [liveAgent("amp")],
-            restoredAgentKind: "codex"
+            restoredAgent: .init(kind: "codex", registrationIconAssetName: nil)
         )
 
         #expect(asset == "AgentIcons/Codex")
@@ -72,7 +72,7 @@ struct TerminalTabAgentIconTests {
     @Test func liveAgentWinsOverRestoredAgent() {
         let asset = TerminalTabAgentIconResolver().assetName(
             liveAgents: [liveAgent("opencode")],
-            restoredAgentKind: "codex"
+            restoredAgent: .init(kind: "codex", registrationIconAssetName: nil)
         )
 
         #expect(asset == "AgentIcons/OpenCode")
@@ -86,7 +86,7 @@ struct TerminalTabAgentIconTests {
                 liveAgent("codex", startSeconds: 1_000),
                 liveAgent("grok", startSeconds: 2_000),
             ],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == "AgentIcons/Grok")
@@ -98,7 +98,7 @@ struct TerminalTabAgentIconTests {
                 liveAgent("grok", startSeconds: 1_000, startMicroseconds: 10),
                 liveAgent("codex", startSeconds: 1_000, startMicroseconds: 20),
             ],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == "AgentIcons/Codex")
@@ -110,7 +110,7 @@ struct TerminalTabAgentIconTests {
                 liveAgent("claude_code"),
                 liveAgent("rovodev", startSeconds: 1),
             ],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == "AgentIcons/RovoDev")
@@ -119,7 +119,7 @@ struct TerminalTabAgentIconTests {
     @Test func agentsWithoutRecordedStartsFallBackToDeterministicKeyOrder() {
         let asset = TerminalTabAgentIconResolver().assetName(
             liveAgents: [liveAgent("grok"), liveAgent("codex")],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == "AgentIcons/Codex")
@@ -128,7 +128,7 @@ struct TerminalTabAgentIconTests {
     @Test func rawAgentPIDKeysAreNormalizedBeforeResolvingAssets() {
         let asset = TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: ["codex.12345"],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == "AgentIcons/Codex")
@@ -141,9 +141,57 @@ struct TerminalTabAgentIconTests {
                 "codex.101": AgentPIDProcessIdentity(pid: 101, startSeconds: 5, startMicroseconds: 0),
                 "grok.102": AgentPIDProcessIdentity(pid: 102, startSeconds: 9, startMicroseconds: 0),
             ],
-            restoredAgentKind: nil
+            restoredAgent: nil
         )
 
         #expect(asset == "AgentIcons/Grok")
+    }
+
+    @Test func liveRegisteredAgentResolvesThroughRegistrationLookup() {
+        var lookedUpKeys: [String] = []
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [liveAgent("my-custom-agent")],
+            restoredAgent: nil,
+            registrationIconAssetName: { key in
+                lookedUpKeys.append(key)
+                return key == "my-custom-agent" ? "AgentIcons/Pi" : nil
+            }
+        )
+
+        #expect(asset == "AgentIcons/Pi")
+        #expect(lookedUpKeys == ["my-custom-agent"])
+    }
+
+    @Test func registrationLookupIsNotConsultedForBuiltInAgents() {
+        var lookedUpKeys: [String] = []
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [liveAgent("codex")],
+            restoredAgent: nil,
+            registrationIconAssetName: { key in
+                lookedUpKeys.append(key)
+                return nil
+            }
+        )
+
+        #expect(asset == "AgentIcons/Codex")
+        #expect(lookedUpKeys.isEmpty)
+    }
+
+    @Test func restoredRegisteredAgentPrefersRegistrationIconOverBuiltInSwitch() {
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [],
+            restoredAgent: .init(kind: "pi", registrationIconAssetName: "AgentIcons/Grok")
+        )
+
+        #expect(asset == "AgentIcons/Grok")
+    }
+
+    @Test func restoredCustomRegisteredAgentUsesRegistrationIcon() {
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [],
+            restoredAgent: .init(kind: "my-custom-agent", registrationIconAssetName: "AgentIcons/HermesAgent")
+        )
+
+        #expect(asset == "AgentIcons/HermesAgent")
     }
 }

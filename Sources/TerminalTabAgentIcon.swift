@@ -5,8 +5,11 @@ import Foundation
 /// slot from the panel's agent state: live agents win over a restored
 /// (resumable) agent snapshot, and among several recognized live agents the
 /// most recently started process wins, matching "the newest agent is the one
-/// the user launched last".
-struct TerminalTabAgentIconResolver {
+/// the user launched last". Registry-owned agents (Vault registrations,
+/// including project-config overrides) resolve through their registration's
+/// `iconAssetName` so this file never becomes a second source of truth for
+/// registered-agent branding.
+nonisolated struct TerminalTabAgentIconResolver {
     /// One live agent candidate: its normalized status key plus the recorded
     /// process start identity used to order concurrent agents by recency.
     struct LiveAgent {
@@ -14,27 +17,48 @@ struct TerminalTabAgentIconResolver {
         let processStart: AgentPIDProcessIdentity?
     }
 
-    func assetName(liveAgents: [LiveAgent], restoredAgentKind: String?) -> String? {
-        let recognized = liveAgents.compactMap { agent in
-            assetName(statusKey: agent.statusKey).map { (agent: agent, asset: $0) }
+    /// A restored (resumable) agent snapshot's icon inputs. The registration
+    /// icon, when present, is authoritative: registrations can override
+    /// built-in agents (e.g. project-config pi/grok) and carry custom agents
+    /// the built-in switch cannot know about.
+    struct RestoredAgent {
+        let kind: String
+        let registrationIconAssetName: String?
+    }
+
+    /// - Parameter registrationIconAssetName: Lazy lookup for live status keys
+    ///   that are not built-in agents (registered/vault agents). Only consulted
+    ///   for keys the built-in switch does not recognize, so callers can back
+    ///   it with a registry load without paying that cost on common paths.
+    func assetName(
+        liveAgents: [LiveAgent],
+        restoredAgent: RestoredAgent?,
+        registrationIconAssetName: (String) -> String? = { _ in nil }
+    ) -> String? {
+        let recognized = liveAgents.compactMap { agent -> (agent: LiveAgent, asset: String)? in
+            let asset = builtInAssetName(statusKey: agent.statusKey)
+                ?? registrationIconAssetName(agent.statusKey)
+            return asset.map { (agent: agent, asset: $0) }
         }
         if let newest = recognized.min(by: { Self.isOrderedByRecency($0.agent, $1.agent) }) {
             return newest.asset
         }
-        guard let restoredAgentKind else { return nil }
-        return assetName(statusKey: restoredAgentKind)
+        guard let restoredAgent else { return nil }
+        return restoredAgent.registrationIconAssetName ?? builtInAssetName(statusKey: restoredAgent.kind)
     }
 
     func assetName(
         agentPIDKeys: Set<String>,
         processIdentities: [String: AgentPIDProcessIdentity] = [:],
-        restoredAgentKind: String?
+        restoredAgent: RestoredAgent?,
+        registrationIconAssetName: (String) -> String? = { _ in nil }
     ) -> String? {
         assetName(
             liveAgents: agentPIDKeys.map { key in
                 LiveAgent(statusKey: statusKey(forAgentPIDKey: key), processStart: processIdentities[key])
             },
-            restoredAgentKind: restoredAgentKind
+            restoredAgent: restoredAgent,
+            registrationIconAssetName: registrationIconAssetName
         )
     }
 
@@ -64,7 +88,7 @@ struct TerminalTabAgentIconResolver {
         key.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? key
     }
 
-    private func assetName(statusKey: String) -> String? {
+    private func builtInAssetName(statusKey: String) -> String? {
         switch statusKey {
         case "claude", "claude_code":
             return "AgentIcons/Claude"
@@ -88,6 +112,15 @@ struct TerminalTabAgentIconResolver {
     }
 }
 
+extension TerminalTabAgentIconResolver.RestoredAgent {
+    init(snapshot: SessionRestorableAgentSnapshot) {
+        self.init(
+            kind: snapshot.kind.rawValue,
+            registrationIconAssetName: snapshot.registration?.iconAssetName
+        )
+    }
+}
+
 extension Workspace {
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let liveAgents = (agentPIDKeysByPanelId[panelId] ?? []).map { key in
@@ -96,9 +129,24 @@ extension Workspace {
                 processStart: agentPIDProcessIdentitiesByKey[key]
             )
         }
+        // Loaded at most once per resolution, and only when a live key is not
+        // a built-in agent (mirrors the lifecycle-key validation path, which
+        // already loads the registry per accepted registered-agent event).
+        var loadedRegistry: CmuxVaultAgentRegistry?
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
-            restoredAgentKind: restoredAgentSnapshotsByPanelId[panelId]?.kind.rawValue
+            restoredAgent: restoredAgentSnapshotsByPanelId[panelId].map(
+                TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
+            ),
+            registrationIconAssetName: { statusKey in
+                guard CmuxVaultAgentRegistration.isValidID(statusKey) else { return nil }
+                if loadedRegistry == nil {
+                    loadedRegistry = CmuxVaultAgentRegistry.load(
+                        workingDirectory: effectivePanelDirectory(panelId: panelId)
+                    )
+                }
+                return loadedRegistry?.registration(id: statusKey)?.iconAssetName
+            }
         )
     }
 
@@ -138,7 +186,9 @@ extension DockSplitStore {
         return TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: transfer.agentRuntime?.agentPIDKeys ?? [],
             processIdentities: transfer.agentRuntime?.agentPIDProcessIdentities ?? [:],
-            restoredAgentKind: transfer.restorableAgent?.kind.rawValue
+            restoredAgent: transfer.restorableAgent.map(
+                TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
+            )
         )
     }
 }
