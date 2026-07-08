@@ -21,11 +21,17 @@ extension BrowserPanel {
         return true
     }
 
-    nonisolated static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
-        guard let date else { return NSNull() }
+    /// ISO8601DateFormatter is documented thread-safe; cached so the polled
+    /// lifecycle-payload path stays allocation-free.
+    private nonisolated(unsafe) static let webViewLifecycleTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    nonisolated static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
+        guard let date else { return NSNull() }
+        return webViewLifecycleTimestampFormatter.string(from: date)
     }
 
     nonisolated static func webViewHiddenDurationMilliseconds(
