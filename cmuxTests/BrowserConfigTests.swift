@@ -3997,6 +3997,48 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    func testDirectAttachedOpenAdoptsAttachedPresentation() {
+        let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected window content view")
+            return
+        }
+
+        let attachedHost = NSView(frame: contentView.bounds)
+        contentView.addSubview(attachedHost)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 260, height: attachedHost.bounds.height)
+        attachedHost.addSubview(panel.webView)
+        let attachedInspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
+        )
+        attachedHost.addSubview(attachedInspectorView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(panel.debugDeveloperToolsStateSummary().contains("presentation=detached"))
+
+        // WebKit can open DevTools directly in its saved attached/bottom dock
+        // configuration: no detached inspector window ever exists, so the
+        // detached-window close resolver never runs. The UI sync must adopt
+        // the attached classification or attached manual-close detection
+        // stays disabled and preserved visible intent can resurrect an
+        // inspector the user explicitly closed.
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(
+            panel.debugDeveloperToolsStateSummary().contains("presentation=attached"),
+            "Direct attached open must adopt the attached presentation classification"
+        )
+    }
+
     private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
