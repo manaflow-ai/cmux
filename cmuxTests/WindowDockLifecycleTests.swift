@@ -88,8 +88,8 @@ struct WindowDockLifecycleTests {
 
     @Test("Each window gets its own independent Dock store")
     @MainActor
-    func windowDocksAreIndependentPerWindow() throws {
-        try withIsolatedAppDelegate { appDelegate in
+    func windowDocksAreIndependentPerWindow() {
+        withIsolatedAppDelegate { appDelegate in
             let firstManager = TabManager(autoWelcomeIfNeeded: false)
             let secondManager = TabManager(autoWelcomeIfNeeded: false)
             let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
