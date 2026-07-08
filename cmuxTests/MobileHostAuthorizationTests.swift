@@ -712,12 +712,17 @@ struct MobileHostAuthorizationTests {
         #expect(service.authenticatedConnectionCount == 0)
         #expect(service.statusSnapshot().authenticatedConnectionCount == 0)
 
+        // Client-id bookkeeping alone (viewport-report cleanup tracking)
+        // must not mark the connection authenticated.
         service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        #expect(service.authenticatedConnectionCount == 0)
+
+        service.debugRecordAuthorizedConnectionForTesting(id: connectionID)
         #expect(service.authenticatedConnectionCount == 1)
         #expect(service.statusSnapshot().authenticatedConnectionCount == 1)
 
-        // A second client id on the same connection must not double-count.
-        service.debugRecordClientIDForTesting("ipad-client", connectionID: connectionID)
+        // Re-marking the same connection must not double-count.
+        service.debugRecordAuthorizedConnectionForTesting(id: connectionID)
         #expect(service.authenticatedConnectionCount == 1)
 
         service.debugRemoveConnectionForTesting(id: connectionID)
