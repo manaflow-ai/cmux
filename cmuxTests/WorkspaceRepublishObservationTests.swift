@@ -18,8 +18,8 @@ final class ObservationChangeFlag: @unchecked Sendable {
 
 /// Same-state refreshes of focused-panel git metadata must not invalidate the
 /// workspace's Observation-tracked git properties (extracted from
-/// `WorkspaceUnitTests.swift`, where these assertions counted
-/// `objectWillChange` publishes before the Observation migration).
+/// `WorkspaceUnitTests.swift`, where these assertions counted object-wide
+/// will-change publishes before the Observation migration).
 @MainActor
 final class WorkspaceRepublishObservationTests: XCTestCase {
     func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
