@@ -69,6 +69,7 @@ export type CloudVmSessionEntry = CloudVmSessionRow;
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
 const EXPIRED_IDENTITY_REVOKE_BATCH = 50;
+const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 
@@ -1218,8 +1219,9 @@ export function revokeExpiredIdentityLeases(input: {
     const providers = yield* VmProviderGateway;
     const expiredIdentityLeases = repo.expiredIdentityLeases;
     if (!expiredIdentityLeases) return 0;
+    const now = input.now ?? new Date();
     const leases = yield* expiredIdentityLeases({
-      now: input.now ?? new Date(),
+      now,
       limit: input.limit ?? EXPIRED_IDENTITY_REVOKE_BATCH,
     });
     const revokedIds: string[] = [];
@@ -1228,7 +1230,18 @@ export function revokeExpiredIdentityLeases(input: {
       if (!identityHandle) continue;
       const revoked = yield* providers.revokeSSHIdentity(lease.provider, identityHandle).pipe(
         Effect.as(true),
-        Effect.catchAll((err) => Effect.succeed(isProviderNotFoundError(err.cause))),
+        Effect.catchAll((err) => {
+          if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
+          const retryAfter = new Date(now.getTime() + EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS);
+          return (repo.markLeaseRevocationRetry?.({
+            id: lease.id,
+            retryAfter,
+            error: errorMessage(err.cause),
+          }) ?? Effect.void).pipe(
+            Effect.catchAll(() => Effect.void),
+            Effect.as(false),
+          );
+        }),
       );
       if (revoked) revokedIds.push(lease.id);
     }

@@ -52,6 +52,7 @@ let sql: Sql | null = null;
 type RecordedUsageEvent = Parameters<VmRepositoryShape["recordUsageEvent"]>[0];
 type RecordedLease = Parameters<VmRepositoryShape["recordLease"]>[0];
 type ObservedStatusUpdate = Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0];
+type LeaseRevocationRetry = Parameters<NonNullable<VmRepositoryShape["markLeaseRevocationRetry"]>>[0];
 
 function databaseURL() {
   const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -423,6 +424,94 @@ describe("VM Effect workflows", () => {
 
     expect(revoked).toBe(0);
     expect(revokedLeaseIds).toEqual([]);
+  });
+
+  dbTest("backs off failed expired identity cleanup so later leases progress", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (
+        user_id, provider, provider_vm_id, image_id, status, created_at, updated_at
+      )
+      values (
+        'user-expired-starvation',
+        'freestyle',
+        'provider-expired-starvation',
+        'snapshot-test',
+        'running',
+        ${new Date(now.getTime() - 60_000)},
+        ${new Date(now.getTime() - 60_000)}
+      )
+      returning id
+    `;
+    await sql`
+      insert into cloud_vm_leases (
+        vm_id, user_id, kind, token_hash, provider_identity_handle, transport, expires_at, created_at
+      )
+      values
+        (
+          ${vm.id},
+          'user-expired-starvation',
+          'ssh',
+          'expired-starvation-fail',
+          'identity-delete-fails',
+          'ssh',
+          ${new Date(now.getTime() - 2_000)},
+          ${new Date(now.getTime() - 2_000)}
+        ),
+        (
+          ${vm.id},
+          'user-expired-starvation',
+          'ssh',
+          'expired-starvation-later',
+          'identity-delete-later',
+          'ssh',
+          ${new Date(now.getTime() - 1_000)},
+          ${new Date(now.getTime() - 1_000)}
+        )
+    `;
+    const revokeCalls: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, handle) => {
+        revokeCalls.push(handle);
+        if (handle === "identity-delete-fails") {
+          return Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed"));
+        }
+        return Effect.void;
+      },
+    };
+
+    const first = await Effect.runPromise(
+      revokeExpiredIdentityLeases({ now, limit: 1 }).pipe(
+        Effect.provide(providerLayer(provider)),
+      ),
+    );
+    const second = await Effect.runPromise(
+      revokeExpiredIdentityLeases({ now, limit: 1 }).pipe(
+        Effect.provide(providerLayer(provider)),
+      ),
+    );
+
+    expect(first).toBe(0);
+    expect(second).toBe(1);
+    expect(revokeCalls).toEqual(["identity-delete-fails", "identity-delete-later"]);
+    const [failed] = await sql<{ retryAfter: string | null; attempts: string | null }[]>`
+      select
+        metadata->>'identityCleanupRetryAfter' as "retryAfter",
+        metadata->>'identityCleanupAttempts' as attempts
+      from cloud_vm_leases
+      where token_hash = 'expired-starvation-fail'
+    `;
+    const [later] = await sql<{ revokedAt: Date | null }[]>`
+      select revoked_at as "revokedAt"
+      from cloud_vm_leases
+      where token_hash = 'expired-starvation-later'
+    `;
+    expect(failed.retryAfter).toBeTruthy();
+    expect(failed.attempts).toBe("1");
+    expect(later.revokedAt).toBeInstanceOf(Date);
   });
 
   test("fails closed when team-scoped VM access omits team membership context", async () => {
@@ -3817,6 +3906,7 @@ function testWorkflowRepo(input: {
   readonly leases?: RecordedLease[];
   readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
   readonly revokedLeaseIds?: string[];
+  readonly leaseRevocationRetries?: LeaseRevocationRetry[];
   readonly observedStatuses?: ObservedStatusUpdate[];
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
@@ -3861,6 +3951,10 @@ function testWorkflowRepo(input: {
         input.leases?.push(lease);
       }),
     expiredIdentityLeases: input.expiredIdentityLeases,
+    markLeaseRevocationRetry: (retry) =>
+      Effect.sync(() => {
+        input.leaseRevocationRetries?.push(retry);
+      }),
     listVmSessions: () => Effect.succeed([]),
     upsertVmSession: (session) =>
       Effect.sync(() => {

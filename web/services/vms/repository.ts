@@ -173,6 +173,11 @@ export type VmRepositoryShape = {
     readonly now: Date;
     readonly limit: number;
   }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
+  readonly markLeaseRevocationRetry?: (input: {
+    readonly id: string;
+    readonly retryAfter: Date;
+    readonly error: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly listVmSessions: (input: {
     readonly userId: string;
     readonly vmId: string;
@@ -1243,9 +1248,42 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             isNotNull(cloudVmLeases.providerIdentityHandle),
             isNull(cloudVmLeases.revokedAt),
             lt(cloudVmLeases.expiresAt, input.now),
+            or(
+              sql`${cloudVmLeases.metadata}->>'identityCleanupRetryAfter' is null`,
+              sql`(${cloudVmLeases.metadata}->>'identityCleanupRetryAfter')::timestamptz <= ${input.now.toISOString()}::timestamptz`,
+            ),
           ),
         )
+        .orderBy(asc(cloudVmLeases.expiresAt), asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id))
         .limit(input.limit);
+    }),
+
+  markLeaseRevocationRetry: (input) =>
+    dbEffect("markLeaseRevocationRetry", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVmLeases)
+        .set({
+          metadata: sql<Record<string, unknown>>`
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  ${cloudVmLeases.metadata},
+                  '{identityCleanupRetryAfter}',
+                  to_jsonb(${input.retryAfter.toISOString()}::text),
+                  true
+                ),
+                '{identityCleanupAttempts}',
+                to_jsonb((coalesce((${cloudVmLeases.metadata}->>'identityCleanupAttempts')::int, 0) + 1)),
+                true
+              ),
+              '{identityCleanupLastError}',
+              to_jsonb(${input.error.slice(0, 240)}::text),
+              true
+            )
+          `,
+        })
+        .where(eq(cloudVmLeases.id, input.id));
     }),
 
   listVmSessions: (input) =>
