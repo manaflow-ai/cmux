@@ -416,6 +416,16 @@ impl Mux {
         record
     }
 
+    /// Drop the per-surface side tables (`agent_records`,
+    /// `surface_notifications`) for a surface that has left the tree.
+    /// `SurfaceId` is monotonic, so without this every closed tab would
+    /// leak an entry forever and `list-agents` would keep reporting dead
+    /// surfaces as live agents.
+    fn purge_surface_side_tables(&self, surface: SurfaceId) {
+        self.agent_records.lock().unwrap().remove(&surface);
+        self.surface_notifications.lock().unwrap().remove(&surface);
+    }
+
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,
@@ -928,6 +938,7 @@ impl Mux {
             (remove_surface(&mut state, target), state.workspaces.is_empty())
         };
         if let Some(surface) = removed {
+            self.purge_surface_side_tables(surface.id);
             surface.kill();
             self.emit(MuxEvent::TreeChanged);
         }
@@ -951,6 +962,7 @@ impl Mux {
         };
         if !removed.is_empty() {
             for surface in removed {
+                self.purge_surface_side_tables(surface.id);
                 surface.kill();
             }
             self.emit(MuxEvent::TreeChanged);
@@ -1519,6 +1531,39 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
+    }
+
+    #[test]
+    fn closing_a_surface_purges_agent_and_notification_side_tables() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        // A second tab keeps the workspace alive after `first` closes, so we
+        // exercise the per-surface purge rather than a full teardown.
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+
+        mux.report_agent(
+            first.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("conf".to_string()),
+        );
+        mux.post_notification(
+            "Build".to_string(),
+            "ok".to_string(),
+            NotificationLevel::Warning,
+            Some(first.id),
+        );
+        assert_eq!(mux.list_agents(Some(first.id), None).len(), 1);
+        assert!(mux.surface_notification(first.id).is_some());
+
+        mux.close_surface(first.id);
+
+        // The dead surface must not linger in either side table.
+        assert!(mux.list_agents(Some(first.id), None).is_empty());
+        assert!(mux.list_agents(None, None).is_empty());
+        assert!(mux.surface_notification(first.id).is_none());
+        assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
     }
 
     #[test]
