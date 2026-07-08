@@ -1076,6 +1076,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .rightSidebarFiles:
             title = String(localized: "command.rightSidebarFiles.title", defaultValue: "Show Sidebar Files")
             keywords = ["right", "sidebar", "files", "finder"]
+        case .rightSidebarNotes:
+            title = String(localized: "command.rightSidebarNotes.title", defaultValue: "Show Sidebar Notes")
+            keywords = ["right", "sidebar", "notes", "note", "markdown"]
         case .rightSidebarFind:
             title = String(localized: "command.rightSidebarFind.title", defaultValue: "Show Sidebar Find")
             keywords = ["right", "sidebar", "find", "search"]

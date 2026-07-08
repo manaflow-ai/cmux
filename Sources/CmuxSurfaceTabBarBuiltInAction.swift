@@ -12,6 +12,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case splitDown = "cmux.splitDown"
     case more = "cmux.more"
     case rightSidebarFiles = "cmux.rightSidebar.files"
+    case rightSidebarNotes = "cmux.rightSidebar.notes"
     case rightSidebarFind = "cmux.rightSidebar.find"
     case rightSidebarVault = "cmux.rightSidebar.vault"
     case rightSidebarFeed = "cmux.rightSidebar.feed"
@@ -48,6 +49,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .more
         case "cmux.rightSidebar.files", "rightSidebar.files", "sidebar.files", "files":
             self = .rightSidebarFiles
+        case "cmux.rightSidebar.notes", "rightSidebar.notes", "sidebar.notes", "notes":
+            self = .rightSidebarNotes
         case "cmux.rightSidebar.find", "rightSidebar.find", "sidebar.find", "find":
             self = .rightSidebarFind
         case "cmux.rightSidebar.vault", "cmux.rightSidebar.sessions", "rightSidebar.vault",
@@ -93,17 +96,19 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .newBrowser:
             return "globe"
         case .newNote:
-            return "doc.text"
+            return "note.text.badge.plus"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
             return "square.split.1x2"
         case .more:
-            return "ellipsis.vertical"
+            return "ellipsis.circle"
         case .rightSidebarFiles:
-            return "folder"
+            return "folder.fill"
+        case .rightSidebarNotes:
+            return "note.text"
         case .rightSidebarFind:
-            return "magnifyingglass"
+            return "text.magnifyingglass"
         case .rightSidebarVault:
             return "books.vertical"
         case .rightSidebarFeed:
@@ -111,13 +116,13 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .rightSidebarDock:
             return "dock.rectangle"
         case .filesPane:
-            return "folder"
+            return "folder.fill"
         case .findPane:
-            return "magnifyingglass"
+            return "text.magnifyingglass"
         case .vaultPane:
             return "books.vertical"
         case .diffViewer:
-            return "doc.text.magnifyingglass"
+            return "plusminus.circle"
         case .revealCurrentDirectoryInFinder:
             return "folder"
         case .customizeSurfaceTabBar:
@@ -142,7 +147,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .newBrowser:
             return String(localized: "surfaceTabBar.menu.newBrowser", defaultValue: "Browser")
         case .newNote:
-            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "Note")
+            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "New Note")
         case .splitRight:
             return String(localized: "surfaceTabBar.menu.splitRight", defaultValue: "Split Right")
         case .splitDown:
@@ -151,6 +156,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return String(localized: "surfaceTabBar.menu.more", defaultValue: "More")
         case .rightSidebarFiles:
             return String(localized: "surfaceTabBar.menu.rightSidebarFiles", defaultValue: "Files")
+        case .rightSidebarNotes:
+            return String(localized: "surfaceTabBar.menu.rightSidebarNotes", defaultValue: "Notes")
         case .rightSidebarFind:
             return String(localized: "surfaceTabBar.menu.rightSidebarFind", defaultValue: "Find")
         case .rightSidebarVault:
@@ -176,6 +183,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         switch self {
+        case .rightSidebarNotes:
+            return RightSidebarMode.notes.isAvailable(defaults: defaults)
         case .rightSidebarFeed:
             return RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults)
         case .rightSidebarDock:
@@ -194,7 +203,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .cloudVM, .mobileConnect, .newNote, .more, .rightSidebarFiles, .rightSidebarFind,
+        case .newWorkspace, .cloudVM, .mobileConnect, .newNote, .more, .rightSidebarFiles,
+             .rightSidebarNotes, .rightSidebarFind,
              .rightSidebarVault, .rightSidebarFeed, .rightSidebarDock, .filesPane,
              .findPane, .vaultPane, .diffViewer, .revealCurrentDirectoryInFinder,
              .customizeSurfaceTabBar:

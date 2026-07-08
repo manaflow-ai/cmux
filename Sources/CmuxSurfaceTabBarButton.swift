@@ -46,6 +46,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         .actionReference(CmuxSurfaceTabBarBuiltInAction.filesPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.findPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.rightSidebarNotes.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.newNote.configID),
     ]
 

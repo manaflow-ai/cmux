@@ -38,6 +38,9 @@ let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cm
 extension CommandPaletteContextKeys {
     /// Whether the Notes beta surface is enabled.
     static let notesBetaEnabled = CommandPaletteContextKeys(rawValue: "notes.betaEnabled")
+
+    /// Whether the selected workspace directory has staged or unstaged git changes.
+    static let workspaceHasDisplayableDiff = CommandPaletteContextKeys(rawValue: "workspace.hasDisplayableDiff")
 }
 
 @MainActor
@@ -6324,6 +6327,11 @@ struct ContentView: View {
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
             snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasDisplayableDiff,
+                workspace.resolvedWorkingDirectory()
+                    .map { CmuxGitDiffAvailability.hasDisplayableDiff(in: $0) } ?? false
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
                 workspace.bonsplitController.allPaneIds.count > 1
             )
@@ -7118,6 +7126,7 @@ struct ContentView: View {
                 keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "agent", "codex", "claude"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    $0.bool(CommandPaletteContextKeys.workspaceHasDisplayableDiff) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
                 }
             )
@@ -7130,6 +7139,7 @@ struct ContentView: View {
                 keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "directory", "cwd", "folder"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    $0.bool(CommandPaletteContextKeys.workspaceHasDisplayableDiff) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
                 }
             )

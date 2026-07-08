@@ -13626,6 +13626,8 @@ extension Workspace: BonsplitDelegate {
         guard let builtInAction = executable.builtInAction else { return true }
         guard builtInAction.isAvailable() else { return false }
         switch builtInAction {
+        case .rightSidebarNotes:
+            return RightSidebarMode.notes.isAvailable()
         case .rightSidebarFeed:
             return RightSidebarMode.feed.isAvailable()
         case .rightSidebarDock:
@@ -13636,6 +13638,7 @@ extension Workspace: BonsplitDelegate {
             return !bonsplitController.allPaneIds.isEmpty
         case .diffViewer:
             return owningTabManager != nil
+                && CmuxGitDiffAvailability.hasDisplayableDiff(in: surfaceTabBarBaseCwd(inPane: pane))
         case .newWorkspace, .cloudVM, .mobileConnect, .newTerminal, .newBrowser, .newNote, .splitRight, .splitDown,
              .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
              .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
@@ -13692,6 +13695,16 @@ extension Workspace: BonsplitDelegate {
         case .rightSidebarFiles:
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: .files,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarNotes:
+            guard RightSidebarMode.notes.isAvailable() else {
+                NSSound.beep()
+                return
+            }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .notes,
                 focusFirstItem: true,
                 preferredWindow: presentingWindow
             )

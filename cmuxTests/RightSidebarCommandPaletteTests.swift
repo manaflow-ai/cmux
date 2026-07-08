@@ -115,6 +115,17 @@ struct RightSidebarCommandPaletteTests {
         }
     }
 
+    @Test func testRightSidebarNotesBuiltInActionFollowsNotesSidebarBeta() {
+        withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            #expect(!CmuxSurfaceTabBarBuiltInAction.rightSidebarNotes.isAvailable(defaults: defaults))
+
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            #expect(CmuxSurfaceTabBarBuiltInAction.rightSidebarNotes.isAvailable(defaults: defaults))
+        }
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)

@@ -3631,6 +3631,39 @@ final class FilePreviewPanelTextSavingTests {
         XCTAssertEqual(textView.backgroundColor.alphaComponent, 1)
     }
 
+    @Test func testTextEditorLineNumberRulerCanBeEnabledForMarkdownEditors() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.configureLineNumberRuler(
+            on: scrollView,
+            textView: textView,
+            showsLineNumbers: true,
+            backgroundColor: .black,
+            foregroundColor: .white,
+            drawsBackground: true
+        )
+
+        XCTAssertTrue(scrollView.hasVerticalRuler)
+        XCTAssertTrue(scrollView.rulersVisible)
+        XCTAssertTrue(scrollView.verticalRulerView is FilePreviewLineNumberRulerView)
+
+        FilePreviewTextEditor<FilePreviewPanel>.configureLineNumberRuler(
+            on: scrollView,
+            textView: textView,
+            showsLineNumbers: false,
+            backgroundColor: .black,
+            foregroundColor: .white,
+            drawsBackground: true
+        )
+
+        XCTAssertFalse(scrollView.hasVerticalRuler)
+        XCTAssertFalse(scrollView.rulersVisible)
+        XCTAssertNil(scrollView.verticalRulerView)
+    }
+
     @Test func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)

@@ -20,9 +20,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
-    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
-    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    let showsLineNumbers: Bool
     let onPointerDown: (() -> Void)?
 
     init(
@@ -32,6 +31,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         themeForegroundColor: NSColor,
         drawsBackground: Bool,
         wordWrap: Bool,
+        showsLineNumbers: Bool = false,
         onPointerDown: (() -> Void)? = nil
     ) {
         self.panel = panel
@@ -40,6 +40,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         self.themeForegroundColor = themeForegroundColor
         self.drawsBackground = drawsBackground
         self.wordWrap = wordWrap
+        self.showsLineNumbers = showsLineNumbers
         self.onPointerDown = onPointerDown
     }
 
@@ -66,6 +67,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         scrollView.documentView = textView
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
@@ -89,10 +91,12 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.onPointerDown = onPointerDown
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true
         textView.string = panel.textContent
+        textView.invalidateFilePreviewLineNumberRuler()
         context.coordinator.isApplyingPanelUpdate = false
     }
 
@@ -118,6 +122,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
         }
+        Self.updateLineNumberRulerTheme(
+            on: scrollView,
+            backgroundColor: resolvedBackgroundColor,
+            foregroundColor: foregroundColor
+        )
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -133,6 +142,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
+            textView.invalidateFilePreviewLineNumberRuler()
             panel.updateTextContent(textView.string)
         }
     }
@@ -141,6 +151,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 enum FilePreviewTextEditorLayout {
     static let textContainerInset = NSSize(width: 12, height: 10)
     static let lineFragmentPadding: CGFloat = 0
+    static let minimumLineNumberGutterWidth: CGFloat = 42
+    static let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 }
 
 extension SavingTextView {

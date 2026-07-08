@@ -435,7 +435,7 @@ struct CmuxConfigDecodingTests {
                   "title": "Workspace Tools",
                   "icon": { "type": "symbol", "name": "ellipsis.circle" },
                   "menu": [
-                    "vault",
+                    "vaultPane",
                     { "builtin": "finder" },
                     {
                       "id": "git-status",
@@ -473,7 +473,7 @@ struct CmuxConfigDecodingTests {
     @Test func testDefaultSurfaceTabBarButtonsIncludeMoreMenu() throws {
         try withSavedRightSidebarBetaFeatureDefaults {
             let defaults = UserDefaults.standard
-            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
@@ -505,12 +505,13 @@ struct CmuxConfigDecodingTests {
                 CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.findPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.rightSidebarNotes.configID,
                 CmuxSurfaceTabBarBuiltInAction.newNote.configID,
             ])
         }
     }
 
-    @Test func testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled() throws {
+    @Test func testDefaultSurfaceTabBarMoreMenuIncludesNewNoteWhenSidebarBetaDisabled() throws {
         try withSavedRightSidebarBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
@@ -563,7 +564,7 @@ struct CmuxConfigDecodingTests {
                   "buttons": [
                     {
                       "action": "more",
-                      "menu": ["diff", "note", "feed", "dock", "vaultPane"]
+                      "menu": ["diff", "notes", "note", "feed", "dock", "vaultPane"]
                     }
                   ]
                 }
@@ -704,7 +705,7 @@ struct CmuxConfigDecodingTests {
                 {
                   "action": "more",
                   "title": "Tools",
-                  "menu": ["vault"]
+                  "menu": ["vaultPane"]
                 },
                 { "action": "newBrowser" }
               ]
@@ -2746,4 +2747,3 @@ struct CmuxLayoutEncodingTests {
         }
     }
 }
-

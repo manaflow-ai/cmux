@@ -6182,6 +6182,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
                 snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
             )
+            guard CmuxGitDiffAvailability.hasDisplayableDiff(in: snapshotWorkingDirectory ?? fallbackCwd) else {
+                return false
+            }
             let storeURL = Self.agentTurnDiffBaselineStoreURL()
             let workspaceId = workspace.id
             let originWindowId = tabManager.flatMap { manager in
@@ -6215,10 +6218,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for: workspace, surfaceId: surfaceOverride ?? workspace.focusedPanelId
             )
             : nil
+        let launchCwd = agentDiffContext?.cwd ?? fallbackCwd
+        guard CmuxGitDiffAvailability.hasDisplayableDiff(in: launchCwd) else {
+            return false
+        }
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
-            cwd: agentDiffContext?.cwd ?? fallbackCwd,
+            cwd: launchCwd,
             workspaceId: workspace.id,
             surfaceId: surfaceOverride ?? workspace.focusedPanelId,
             useLastTurnSource: false,
@@ -15640,6 +15647,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .rightSidebarFiles:
                 let didFocus = focusRightSidebarInActiveMainWindow(
                     mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarNotes:
+                guard RightSidebarMode.notes.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .notes,
                     focusFirstItem: true,
                     preferredWindow: preferredWindow
                 )
