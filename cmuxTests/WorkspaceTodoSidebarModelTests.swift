@@ -44,8 +44,8 @@ struct WorkspaceTodoSidebarModelTests {
 
     @Test
     func tooltipDistinguishesManualFromInferred() {
-        let manual = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review)
-        let inferred = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review)
+        let manual = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review, hasOverride: true)
+        let inferred = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review, hasOverride: false)
         #expect(manual != inferred)
         #expect(manual.contains(WorkspaceTaskStatus.review.displayName))
         #expect(inferred.contains(WorkspaceTaskStatus.review.displayName))
