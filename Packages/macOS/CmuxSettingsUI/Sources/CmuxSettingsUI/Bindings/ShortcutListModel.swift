@@ -67,9 +67,23 @@ final class ShortcutListModel {
     private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
     private func ingestBindings(_ dictionary: [String: StoredShortcut]) {
-        let changedActionIds = Set(bindings.keys).union(dictionary.keys)
-            .filter { bindings[$0] != dictionary[$0] }
-        bindings = dictionary
+        // Only surface bindings the runtime will actually honor. A modifier-less
+        // ("bare") first stroke is honored only for actions that allow it (or
+        // for Space) — mirror that action-aware rule from the runtime reader so
+        // a hand-authored bare binding on a modifier-required action isn't
+        // presented as the active shortcut while the app ignores it and falls
+        // back to the default. The raw entry still stays in cmux.json (merge-on-
+        // save never drops untouched keys); it is just not shown as loaded.
+        let loadable = dictionary.filter { key, shortcut in
+            guard let action = ShortcutAction(rawValue: key) else { return true }
+            if shortcut.isUnbound { return true }
+            return action.allowsBareFirstStroke
+                || shortcut.first.hasAnyModifier
+                || shortcut.first.key == "space"
+        }
+        let changedActionIds = Set(bindings.keys).union(loadable.keys)
+            .filter { bindings[$0] != loadable[$0] }
+        bindings = loadable
         pruneRestoreShortcuts()
         pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))

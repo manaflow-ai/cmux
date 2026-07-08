@@ -505,4 +505,31 @@ import CmuxSettings
                 == StoredShortcut(first: ShortcutStroke(key: "↓", command: true, shift: true))
         )
     }
+
+    @Test func bareFirstStrokeBindingIsNotPresentedForModifierRequiredAction() async throws {
+        // Match the runtime's first-stroke rule: a modifier-less binding on an
+        // action that requires a modifier must not appear as loaded (the app
+        // ignores it and falls back to the default). A valid sibling still loads,
+        // proving ingest ran.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shortcut-bare-filter-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let fileURL = tempDir.appendingPathComponent("cmux.json")
+        let seed = """
+        { "shortcuts": { "bindings": {
+            "openSettings": "a",
+            "closeWindow": "ctrl+alt+shift+cmd+j"
+        } } }
+        """
+        try Data(seed.utf8).write(to: fileURL)
+
+        let store = JSONConfigStore(fileURL: fileURL)
+        let model = ShortcutListModel(jsonStore: store, catalog: SettingCatalog(), errorLog: SettingsErrorLog())
+        model.startObserving()
+        await spin(until: { model.bindings["closeWindow"] != nil })
+        #expect(
+            model.bindings["openSettings"] == nil,
+            "a bare stroke on a modifier-required action must not be presented as loaded"
+        )
+    }
 }
