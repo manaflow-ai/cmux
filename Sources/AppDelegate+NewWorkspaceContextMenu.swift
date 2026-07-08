@@ -4,7 +4,7 @@ import Foundation
 // MARK: - New-workspace plus-button context menu
 
 @MainActor
-private final class NewWorkspaceContextMenuActionBox: NSObject {
+final class NewWorkspaceContextMenuActionBox: NSObject {
     let windowId: UUID
     let action: CmuxResolvedConfigAction
 
@@ -15,8 +15,8 @@ private final class NewWorkspaceContextMenuActionBox: NSObject {
 }
 
 private enum NewWorkspaceContextMenuSection {
-    case custom
-    case cloudVM
+    case customAndAgentChat
+    case cloud
 }
 
 extension AppDelegate {
@@ -73,28 +73,26 @@ extension AppDelegate {
         return true
     }
 
-    private func makeNewWorkspaceContextMenu(
+    func makeNewWorkspaceContextMenu(
         context: MainWindowContext,
         cmuxConfigStore: CmuxConfigStore
     ) -> NSMenu? {
         let menu = NSMenu()
-        let sections: [NewWorkspaceContextMenuSection]
-        switch cmuxConfigStore.newWorkspaceMenuSectionOrder {
+        let sections: [NewWorkspaceContextMenuSection] = switch cmuxConfigStore.newWorkspaceMenuSectionOrder {
         case .customFirst:
-            sections = [.custom, .cloudVM]
+            [.customAndAgentChat, .cloud]
         case .cloudFirst:
-            sections = [.cloudVM, .custom]
+            [.cloud, .customAndAgentChat]
         }
-
         for section in sections {
             switch section {
-            case .custom:
-                let customItems = makeConfiguredNewWorkspaceMenuItems(
+            case .customAndAgentChat:
+                appendCustomAndAgentChatMenuSection(
                     context: context,
-                    cmuxConfigStore: cmuxConfigStore
+                    cmuxConfigStore: cmuxConfigStore,
+                    to: menu
                 )
-                appendNewWorkspaceMenuSection(customItems, to: menu)
-            case .cloudVM:
+            case .cloud:
                 let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
                 appendNewWorkspaceMenuSection(cloudMenu.items, to: menu)
             }
@@ -109,6 +107,25 @@ extension AppDelegate {
         trimTrailingNewWorkspaceMenuSeparators(menu)
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return nil }
         return menu
+    }
+
+    private func appendCustomAndAgentChatMenuSection(
+        context: MainWindowContext,
+        cmuxConfigStore: CmuxConfigStore,
+        to menu: NSMenu
+    ) {
+        let customItems = makeConfiguredNewWorkspaceMenuItems(
+            context: context,
+            cmuxConfigStore: cmuxConfigStore
+        )
+        appendNewWorkspaceMenuSection(customItems, to: menu)
+        appendNewWorkspaceMenuSection(
+            makeBuiltInNewAgentChatMenuItems(
+                context: context,
+                cmuxConfigStore: cmuxConfigStore
+            ),
+            to: menu
+        )
     }
 
     private func makeConfiguredNewWorkspaceMenuItems(
@@ -170,6 +187,56 @@ extension AppDelegate {
         }
         guard menuItems.contains(where: { !$0.isSeparatorItem }) else { return [] }
         return menuItems
+    }
+
+    private func makeBuiltInNewAgentChatMenuItems(
+        context: MainWindowContext,
+        cmuxConfigStore: CmuxConfigStore
+    ) -> [NSMenuItem] {
+        // Agent chat opens a browser surface; hide it when browser surfaces
+        // are disabled, matching the command palette's browserDisabled gate.
+        guard BrowserAvailabilitySettings.isEnabled() else { return [] }
+        let actionID = CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
+        let action = cmuxConfigStore.resolvedAction(id: actionID)
+            ?? .builtIn(.newAgentChat)
+        guard shouldAppendBuiltInNewAgentChatMenuItem(
+            action,
+            actionID: actionID,
+            cmuxConfigStore: cmuxConfigStore
+        ) else {
+            return []
+        }
+        let item = NSMenuItem(
+            title: action.title,
+            action: #selector(performNewWorkspaceContextMenuItem(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = NewWorkspaceContextMenuActionBox(
+            windowId: context.windowId,
+            action: action
+        )
+        item.toolTip = action.tooltip
+        item.image = action.icon?.contextMenuImage(
+            configSourcePath: action.iconSourcePath,
+            globalConfigPath: cmuxConfigStore.globalConfigPath
+        )
+        return [item]
+    }
+
+    private func shouldAppendBuiltInNewAgentChatMenuItem(
+        _ action: CmuxResolvedConfigAction,
+        actionID: String,
+        cmuxConfigStore: CmuxConfigStore
+    ) -> Bool {
+        if action.newWorkspaceMenu == false { return false }
+        let configuredActionIDs = Set(cmuxConfigStore.newWorkspaceContextMenuItems.compactMap { item -> String? in
+            guard case .action(let menuAction) = item else { return nil }
+            return menuAction.action.id
+        })
+        if configuredActionIDs.contains(actionID) { return false }
+        if action.newWorkspaceMenu == true { return true }
+        return !cmuxConfigStore.newWorkspaceContextMenuIsConfigured
     }
 
     private func appendNewWorkspaceMenuSection(_ items: [NSMenuItem], to menu: NSMenu) {

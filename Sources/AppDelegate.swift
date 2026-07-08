@@ -7777,7 +7777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
+    func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
     }
 
@@ -7815,8 +7815,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var asyncObserverId: UUID?
         // Named workspace commands and inline workspace actions both create a
         // workspace, so both must retire the throwaway initial workspace.
-        let actionCreatesWorkspace = action.workspaceCommandName != nil
-            || action.action.inlineWorkspace != nil
+        let actionCreatesWorkspace = action.workspaceCommandName != nil || action.action.inlineWorkspace != nil || action.action == .builtIn(.newAgentChat)
         let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
             if let context,
                let workspaceGroupTarget,
@@ -15488,6 +15487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.addWorkspace()
                 onExecuted?()
                 return true
+            case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .cloudVM:
                 let didStart = performCloudVMAction(
                     tabManager: context.tabManager,

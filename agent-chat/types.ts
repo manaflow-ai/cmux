@@ -11,6 +11,7 @@ export type AgentEvent =
   | { kind: "tool-start"; toolId: string; name: string; detail?: string }
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
+  | { kind: "files-changed"; files: ChangedFile[] }
   | { kind: "error"; message: string };
 
 export type SessionStatus = "idle" | "running" | "exited" | "error";
@@ -50,6 +51,13 @@ export interface ProviderCapabilities {
 
 export interface SessionActions {
   fork?: boolean;
+}
+
+export interface ChangedFile {
+  path: string;
+  adds: number;
+  dels: number;
+  status: string;
 }
 
 export interface SessionCtx {
