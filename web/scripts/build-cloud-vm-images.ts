@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -142,15 +142,19 @@ async function main(): Promise<void> {
   const tag = (argValue("--tag") ?? defaultTag()).trim();
   const skipCache = hasFlag("--skip-cache");
   const binaryPath = path.join(buildRoot, tag, "cmuxd-remote-linux-amd64");
+  const muxBinaryPath = path.join(buildRoot, tag, "cmux-mux-linux-amd64");
 
   mkdirSync(path.dirname(binaryPath), { recursive: true });
 
   await buildRemoteDaemon(binaryPath);
+  await buildMuxBinary(muxBinaryPath);
   const agentTools = cloudAgentToolPackageSpecs();
   const imageMetadata = {
     builtAt: new Date().toISOString(),
     cmuxdRemoteCommit: await gitRevParse(path.join(repoRoot, "daemon/remote")),
     binarySha256: sha256File(binaryPath),
+    muxCommit: await gitRevParse(path.join(repoRoot, "mux")),
+    muxBinarySha256: sha256File(muxBinaryPath),
     builderScriptVersion: sha256File(fileURLToPath(import.meta.url)),
     nodeMajor: NODE_MAJOR,
     agentToolPackageSpecs: agentTools.map((tool) => tool.packageSpec),
@@ -168,17 +172,17 @@ async function main(): Promise<void> {
   };
 
   if (target === "e2b" || target === "all") {
-    const e2b = await buildE2BTemplate(tag, binaryPath, skipCache, imageMetadata);
+    const e2b = await buildE2BTemplate(tag, binaryPath, muxBinaryPath, skipCache, imageMetadata);
     output.e2b = e2b;
     (output.manifestEntries as unknown[]).push(e2b.manifestEntry);
   }
   if (target === "freestyle" || target === "all") {
-    const freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    const freestyle = await buildFreestyleSnapshot(tag, binaryPath, muxBinaryPath, skipCache, imageMetadata);
     output.freestyle = freestyle;
     (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
   }
   if (target === "daytona" || target === "all") {
-    const daytona = await buildDaytonaSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    const daytona = await buildDaytonaSnapshot(tag, binaryPath, muxBinaryPath, skipCache, imageMetadata);
     output.daytona = daytona;
     (output.manifestEntries as unknown[]).push(daytona.manifestEntry);
   }
@@ -197,9 +201,49 @@ async function buildRemoteDaemon(outPath: string): Promise<void> {
   );
 }
 
+// The linux-amd64 target for the cmux-mux binary baked into every Cloud VM.
+const MUX_TARGET_TRIPLE = "x86_64-unknown-linux-gnu";
+
+/**
+ * Cross-compile the cmux-mux terminal multiplexer for linux-amd64 and copy it to
+ * `outPath`, mirroring buildRemoteDaemon. Uses cargo-zigbuild so the zig-built
+ * libghostty-vt FFI cross-compiles from the build host; the ghostty-vt-sys
+ * build.rs maps the Rust target to a zig target automatically (see mux/README).
+ *
+ * Requirements on the build host (same host that builds cmuxd-remote):
+ *   - the pinned zig 0.15.2 on PATH (scripts/install-zig-ci.sh) and cargo-zigbuild
+ *   - the ghostty submodule initialized (git submodule update --init ghostty)
+ * NOTE: this cross-compile currently fails on macOS 26 due to a zig 0.15.2
+ * libSystem-linking regression; build the snapshot on macOS 15 or Linux.
+ */
+async function buildMuxBinary(outPath: string): Promise<void> {
+  const muxDir = path.join(repoRoot, "mux");
+  await runCommand(
+    "cargo",
+    [
+      "zigbuild",
+      "--target",
+      MUX_TARGET_TRIPLE,
+      "-p",
+      "mux-tui",
+      "--release",
+      "--locked",
+    ],
+    {
+      cwd: muxDir,
+      // Force libghostty-vt's zig build onto a baseline CPU (matches mux CI) so
+      // it doesn't select host-only AVX-512 extensions for the VM's CPU.
+      env: { CMUX_GHOSTTY_VT_ZIG_CPU: "baseline" },
+    },
+  );
+  const built = path.join(muxDir, "target", MUX_TARGET_TRIPLE, "release", "cmux-mux");
+  copyFileSync(built, outPath);
+}
+
 async function buildE2BTemplate(
   tag: string,
   daemonPath: string,
+  muxPath: string,
   skipCache: boolean,
   metadata: ImageBuildMetadata,
 ): Promise<Record<string, unknown>> {
@@ -212,6 +256,10 @@ async function buildE2BTemplate(
     .aptInstall(CLOUD_SHELL_PACKAGES, { noInstallRecommends: true })
     .setEnvs(cloudImageRuntimeEnvironment())
     .copy(path.basename(daemonPath), "/usr/local/bin/cmuxd-remote", {
+      forceUpload: true,
+      mode: 0o755,
+    })
+    .copy(path.basename(muxPath), "/usr/local/bin/cmux-mux", {
       forceUpload: true,
       mode: 0o755,
     })
@@ -253,6 +301,7 @@ async function buildE2BTemplate(
 async function buildFreestyleSnapshot(
   tag: string,
   daemonPath: string,
+  muxPath: string,
   skipCache: boolean,
   metadata: ImageBuildMetadata,
 ): Promise<Record<string, unknown>> {
@@ -260,6 +309,7 @@ async function buildFreestyleSnapshot(
     throw new Error("FREESTYLE_API_KEY is required to build the Freestyle snapshot");
   }
   const daemonURL = await remoteDaemonBuildURL(tag, daemonPath);
+  const muxURL = await muxBuildURL(tag, muxPath);
   const fs = new Freestyle({ fetch: fetchWithTimeout(FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS) });
   const name = `cmuxd-ws-${tag}`;
   const createStartedAt = new Date();
@@ -269,7 +319,7 @@ async function buildFreestyleSnapshot(
       name,
       template: {
         baseImage: {
-          dockerfileContent: freestyleBaseDockerfileContent(daemonURL),
+          dockerfileContent: freestyleBaseDockerfileContent(daemonURL, muxURL),
         },
         discriminator: `cmuxd-ws-${tag}`,
         skipCache,
@@ -321,6 +371,7 @@ async function buildFreestyleSnapshot(
 async function buildDaytonaSnapshot(
   tag: string,
   daemonPath: string,
+  muxPath: string,
   skipCache: boolean,
   metadata: ImageBuildMetadata,
 ): Promise<Record<string, unknown>> {
@@ -338,7 +389,7 @@ async function buildDaytonaSnapshot(
   const snapshot = await daytona.snapshot.create(
     {
       name,
-      image: daytonaSnapshotImage(daemonPath),
+      image: daytonaSnapshotImage(daemonPath, muxPath),
       // Also registered on the snapshot record so sandboxes restart cmuxd-remote on
       // every stop/start cycle without relying on the baked ENTRYPOINT alone.
       entrypoint: [DAYTONA_ENTRYPOINT_PATH],
@@ -376,16 +427,18 @@ async function buildDaytonaSnapshot(
  * Daytona's own token SSH gateway terminates in the runner's injected daemon, not sandbox sshd,
  * so an in-image sshd would be dead weight.
  */
-export function daytonaSnapshotImage(daemonPath: string): Image {
+export function daytonaSnapshotImage(daemonPath: string, muxPath: string): Image {
   return Image.base("ubuntu:24.04")
     .env({ LANG: UTF8_LOCALE, LC_ALL: UTF8_LOCALE, LANGUAGE: UTF8_LOCALE })
     .runCommands(
       `apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
     )
     .addLocalFile(daemonPath, "/usr/local/bin/cmuxd-remote")
+    .addLocalFile(muxPath, "/usr/local/bin/cmux-mux")
     .runCommands(
       ...[
         "chmod 0755 /usr/local/bin/cmuxd-remote",
+        "chmod 0755 /usr/local/bin/cmux-mux",
         ...cloudToolInstallCommands(),
         ...cloudRootSetupCommands(),
         ...cloudShellProfileCommands(),
@@ -740,13 +793,14 @@ function freestylePythonOpenSSLCommands(): string[] {
   ];
 }
 
-export function freestyleBaseDockerfileContent(daemonURL: string): string {
+export function freestyleBaseDockerfileContent(daemonURL: string, muxURL: string): string {
   return [
     "FROM ubuntu:24.04",
     dockerEnvLine(cloudImageRuntimeEnvironment()),
     `RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
     ...freestylePythonOpenSSLCommands().map((command) => `RUN ${command}`),
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
+    `RUN curl -fsSL ${shellQuote(muxURL)} -o /usr/local/bin/cmux-mux && chmod 0755 /usr/local/bin/cmux-mux`,
     ...cloudToolInstallCommands().map((command) => `RUN ${command}`),
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
     ...cloudShellProfileCommands().map((command) => `RUN ${command}`),
@@ -811,7 +865,20 @@ function systemdEnvironmentValue(value: string): string {
 async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<string> {
   const explicit = process.env.CMUX_REMOTE_DAEMON_BUILD_URL?.trim();
   if (explicit) return explicit;
+  return uploadCloudBuildArtifact(tag, daemonPath, "cmuxd-remote-linux-amd64");
+}
 
+async function muxBuildURL(tag: string, muxPath: string): Promise<string> {
+  const explicit = process.env.CMUX_MUX_BUILD_URL?.trim();
+  if (explicit) return explicit;
+  return uploadCloudBuildArtifact(tag, muxPath, "cmux-mux-linux-amd64");
+}
+
+async function uploadCloudBuildArtifact(
+  tag: string,
+  filePath: string,
+  artifactName: string,
+): Promise<string> {
   const required = [
     "R2_ENDPOINT",
     "R2_BUCKET_NAME",
@@ -822,11 +889,11 @@ async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<st
   const missing = required.filter((key) => !process.env[key]?.trim());
   if (missing.length > 0) {
     throw new Error(
-      `Freestyle snapshot build needs CMUX_REMOTE_DAEMON_BUILD_URL or R2 env vars; missing ${missing.join(", ")}`,
+      `Freestyle snapshot build needs R2 env vars; missing ${missing.join(", ")}`,
     );
   }
 
-  const key = `cmux-build-artifacts/cloud-vm/${tag}/cmuxd-remote-linux-amd64`;
+  const key = `cmux-build-artifacts/cloud-vm/${tag}/${artifactName}`;
   const env = {
     AWS_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID!,
     AWS_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY!,
@@ -838,7 +905,7 @@ async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<st
     [
       "s3",
       "cp",
-      daemonPath,
+      filePath,
       `s3://${process.env.R2_BUCKET_NAME!}/${key}`,
       "--endpoint-url",
       process.env.R2_ENDPOINT!,
@@ -984,6 +1051,8 @@ type ImageBuildMetadata = {
   readonly builtAt: string;
   readonly cmuxdRemoteCommit: string;
   readonly binarySha256: string;
+  readonly muxCommit: string;
+  readonly muxBinarySha256: string;
   readonly builderScriptVersion: string;
   readonly nodeMajor: string;
   readonly agentToolPackageSpecs: readonly string[];
