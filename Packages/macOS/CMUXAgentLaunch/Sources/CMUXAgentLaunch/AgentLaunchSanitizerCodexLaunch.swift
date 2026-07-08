@@ -66,12 +66,15 @@ extension AgentLaunchSanitizer {
     /// the per-surface PATH shim and cmux wrapper, so hooks are re-injected fresh
     /// instead of persisting the runtime script path.
     ///
-    /// A basename match alone is not enough: a user's own local script named
-    /// like an agent (`node ./tools/claude.js`) must never be rewritten into a
-    /// different program. Unwrapping therefore also requires the script to live
-    /// under a `node_modules` path component — true for every package-manager
-    /// install (npm, pnpm, yarn, bun, nvm, volta) that produces these runtime
-    /// wrappers. Anything else keeps its original argv.
+    /// A basename match alone is not enough: a user's own script named like an
+    /// agent (`node ./tools/claude.js`, or a project-local pinned
+    /// `node_modules` install launched directly) must never be rewritten into
+    /// whatever the bare name resolves to on PATH. The deterministic
+    /// launch-time proof that the cmux wrapper spawned this process is the
+    /// wrapper's own injected hook arguments in the argv: cmux only injects
+    /// them when the user invoked the agent by bare name through the
+    /// per-surface PATH shim, so replaying the bare name reproduces that
+    /// launch exactly. Argv without the marker keeps its original form.
     public static func unwrappedJavaScriptRuntimeAgentArgv(
         _ argv: [String],
         isKnownAgentExecutableName: (String) -> Bool
@@ -79,8 +82,8 @@ extension AgentLaunchSanitizer {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
         guard runtimeName == "node" || runtimeName == "bun",
-              let scriptIndex = javaScriptRuntimeScriptArgumentIndex(argv),
-              isPackageInstalledScriptPath(argv[scriptIndex]) else {
+              containsCmuxWrapperInjectedHookArguments(argv),
+              let scriptIndex = javaScriptRuntimeScriptArgumentIndex(argv) else {
             return nil
         }
         let scriptName = (argv[scriptIndex] as NSString).lastPathComponent
@@ -195,10 +198,38 @@ extension AgentLaunchSanitizer {
         value.hasPrefix("hooks.") && value.contains("cmux-codex-hook")
     }
 
-    /// Whether a JavaScript runtime script path points at a package-manager
-    /// install (a `node_modules` path component) rather than a user's own script.
-    private static func isPackageInstalledScriptPath(_ path: String) -> Bool {
-        path.components(separatedBy: "/").contains("node_modules")
+    /// Whether captured argv carries cmux wrapper-injected hook arguments —
+    /// the deterministic signal that cmux's PATH shim wrapper spawned this
+    /// process from a bare agent name (vs the user launching a script or
+    /// explicit path directly).
+    static func containsCmuxWrapperInjectedHookArguments(_ argv: [String]) -> Bool {
+        if containsCmuxInjectedCodexHookConfig(argv) { return true }
+        return containsCmuxInjectedClaudeHookSettings(argv)
+    }
+
+    private static func containsCmuxInjectedClaudeHookSettings(_ argv: [String]) -> Bool {
+        var index = 0
+        while index < argv.count {
+            let arg = argv[index]
+            if arg == "--settings", index + 1 < argv.count {
+                if isCmuxInjectedClaudeHookSettingsValue(argv[index + 1]) { return true }
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--settings="),
+               isCmuxInjectedClaudeHookSettingsValue(String(arg.dropFirst("--settings=".count))) {
+                return true
+            }
+            index += 1
+        }
+        return false
+    }
+
+    /// Mirrors the claude wrapper's injected-settings markers used by
+    /// `AgentLaunchSanitizer`'s hook-settings replacement (`claude-hook`
+    /// script paths / `hooks claude` subcommands).
+    private static func isCmuxInjectedClaudeHookSettingsValue(_ value: String) -> Bool {
+        value.contains("claude-hook") || value.contains("hooks claude")
     }
 
     private static func javaScriptRuntimeScriptArgumentIndex(_ argv: [String]) -> Int? {
