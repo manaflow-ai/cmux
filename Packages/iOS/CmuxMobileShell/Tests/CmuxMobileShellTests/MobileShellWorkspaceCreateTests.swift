@@ -51,6 +51,20 @@ import Testing
         #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
 
+    @Test func createWorkspaceRequestFailureDoesNotSetGlobalConnectionError() async throws {
+        let router = RoutingHostRouter()
+        await router.setRejectWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest()
+
+        guard case .failure(.rejected) = result else {
+            return #expect(Bool(false), "request create should return the host rejection")
+        }
+        #expect(store.connectionError == nil)
+        #expect(store.connectionErrorGuidance == nil)
+    }
+
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)

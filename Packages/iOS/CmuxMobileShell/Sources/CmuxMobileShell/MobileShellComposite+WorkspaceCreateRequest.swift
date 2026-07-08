@@ -28,7 +28,10 @@ extension MobileShellComposite {
         let task = Task<Result<Void, MobileWorkspaceMutationFailure>, Never> { @MainActor [weak self] in
             defer { self?.clearCreateWorkspaceTask(id: taskID) }
             guard let self else { return .success(()) }
-            return await self.createRemoteWorkspace(inGroup: groupID)
+            return await self.createRemoteWorkspace(
+                inGroup: groupID,
+                appliesOperationalError: false
+            )
         }
         createWorkspaceTask = task
         createWorkspaceTaskGroupID = groupID
@@ -36,7 +39,8 @@ extension MobileShellComposite {
     }
 
     func createRemoteWorkspace(
-        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
+        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        appliesOperationalError: Bool = true
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard let client = remoteClient else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
@@ -79,7 +83,9 @@ extension MobileShellComposite {
                 return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
             }
             markMacConnectionUnavailableIfNeeded(after: error)
-            applyOperationalError(error)
+            if appliesOperationalError {
+                applyOperationalError(error)
+            }
             if let connectionError = error as? MobileShellConnectionError {
                 switch connectionError {
                 case .connectionClosed:
