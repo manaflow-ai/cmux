@@ -23,15 +23,18 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
       setPresent(true);
       return;
     }
+    if (!present) return;
     const timeout = window.setTimeout(() => setPresent(false), DISCLOSURE_COLLAPSE_MS);
     return () => window.clearTimeout(timeout);
-  }, [open]);
-
-  if (!shouldRender) return null;
+  }, [open, present]);
 
   return (
-    <div className={"disclosure-motion" + (className ? ` ${className}` : "")} data-open={open ? "true" : "false"}>
-      <div className="disclosure-motion-inner">{children()}</div>
+    <div
+      className={"disclosure-motion" + (className ? ` ${className}` : "")}
+      data-open={open ? "true" : "false"}
+      aria-hidden={shouldRender ? undefined : true}
+    >
+      <div className="disclosure-motion-inner">{shouldRender ? children() : null}</div>
     </div>
   );
 }
@@ -97,10 +100,6 @@ const turnActionButtonsStyle: CSSProperties = {
   gap: 4,
 };
 
-const turnDurationRightStyle: CSSProperties = {
-  marginLeft: "auto",
-};
-
 export function TurnActions({
   stats,
   text,
@@ -151,8 +150,8 @@ export function TurnActions({
             </Popover.Positioner>
           </Popover.Portal>
         </Popover.Root>
+        {duration ? <span className="turn-duration tabular-nums">{duration}</span> : null}
       </div>
-      {duration ? <span className="turn-duration tabular-nums" style={turnDurationRightStyle}>{duration}</span> : null}
     </div>
   );
 }
