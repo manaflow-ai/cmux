@@ -199,6 +199,12 @@ public struct GitDiffService: Sendable {
         acceptedTerminationStatuses: Set<Int32> = [0],
         maxOutputBytes: Int? = nil
     ) -> GitProcessResult {
+        // A cancelled surrounding task (e.g. a timed-out mobile RPC whose
+        // cancellation is forwarded into the detached git work) must not
+        // spawn further subprocesses; outside any task this reads false.
+        guard !Task.isCancelled else {
+            return GitProcessResult(output: nil)
+        }
         let process = Process()
         process.executableURL = gitExecutableURL
         process.arguments = arguments

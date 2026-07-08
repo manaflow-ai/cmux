@@ -59,15 +59,37 @@ extension TerminalController {
     }
 
     private nonisolated static func mobileWorkspaceDiffStatusResult(directory: String) async -> MobileWorkspaceDiffStatusResult {
-        await Task.detached(priority: .utility) {
+        await detachedCancellable {
             mobileWorkspaceDiffStatusResultSync(directory: directory)
-        }.value
+        }
     }
 
     private nonisolated static func mobileWorkspaceDiffFileResult(directory: String, path: String) async -> MobileWorkspaceDiffFileResult {
-        await Task.detached(priority: .utility) {
+        await detachedCancellable {
             mobileWorkspaceDiffFileResultSync(directory: directory, path: path)
-        }.value
+        }
+    }
+
+    /// Runs blocking git work off the main actor while keeping it tied to the
+    /// caller's cancellation: `Task.detached` alone severs it, so an RPC
+    /// timeout (`v2AsyncResultCall`'s `task.cancel()`) would leave the whole
+    /// multi-subprocess pipeline running to completion. The handler forwards
+    /// cancellation into the detached task, and `GitDiffService` bails between
+    /// subprocess invocations when its task is cancelled, so a timed-out
+    /// request stops at the next process boundary instead of running the full
+    /// sequence (each process is separately deadline-bounded by the service's
+    /// watchdog).
+    private nonisolated static func detachedCancellable<Result: Sendable>(
+        _ work: @escaping @Sendable () -> Result
+    ) async -> Result {
+        let task = Task.detached(priority: .utility) {
+            work()
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     private nonisolated static func mobileWorkspaceDiffStatusResultSync(directory: String) -> MobileWorkspaceDiffStatusResult {

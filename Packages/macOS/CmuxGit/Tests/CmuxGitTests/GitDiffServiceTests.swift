@@ -177,6 +177,28 @@ import Testing
         #expect(bounded.files.allSatisfy { $0.path.hasSuffix(".txt") })
     }
 
+    @Test func cancelledTaskSpawnsNoGitWork() async throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data("x\n".utf8).write(to: repo.appendingPathComponent("a.txt"))
+
+        let service = GitDiffService()
+        let sendableRepoPath = repo.path
+        let task = Task.detached {
+            // Wait until cancelled before starting, so every runGit sees the
+            // cancelled task and bails instead of spawning a subprocess.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            return service.changedFiles(repoRoot: sendableRepoPath)
+        }
+        task.cancel()
+        let result = await task.value
+
+        // Without the cancellation bail this repo reports its untracked file.
+        #expect(result.files.isEmpty)
+    }
+
     @Test func stalledGitProcessIsTerminatedAtTheDeadline() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
