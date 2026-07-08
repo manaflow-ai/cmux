@@ -1299,7 +1299,7 @@ export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
   if (fontSize !== null && (typeof fontSize !== "number" || !Number.isFinite(fontSize) || fontSize <= 0)) throw new Error("theme fontSize must be positive or null");
   const opacity = obj.opacity;
   const blur = obj.blur;
-  if (typeof opacity !== "number" || !Number.isFinite(opacity) || opacity <= 0 || opacity > 1) throw new Error("theme opacity must be 0-1");
+  if (typeof opacity !== "number" || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) throw new Error("theme opacity must be 0-1");
   if (typeof blur !== "number" || !Number.isFinite(blur) || blur < 0) throw new Error("theme blur must be non-negative");
   if (typeof obj.isLight !== "boolean") throw new Error("theme isLight must be boolean");
   if (obj.fontFamily !== null && typeof obj.fontFamily !== "string") throw new Error("theme fontFamily must be string or null");
