@@ -9,12 +9,11 @@ private func cmuxDisplayReconfigurationCallback(
     _ userInfo: UnsafeMutableRawPointer?
 ) {
     guard let userInfo else { return }
+    guard flags.contains(.beginConfigurationFlag) else { return }
     let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
-    let isBeginning = flags.contains(.beginConfigurationFlag)
     NotificationCenter.default.post(
         name: Notification.Name("com.cmuxterm.app.displayReconfiguration"),
-        object: appDelegate,
-        userInfo: ["isBeginning": isBeginning]
+        object: appDelegate
     )
 }
 
@@ -104,17 +103,8 @@ extension AppDelegate {
         didRegisterDisplayReconfigurationCallback = false
     }
 
-    func handleDisplayReconfiguration(isBeginning: Bool) {
-        if isBeginning {
-            activeDisplayReconfigurationDepth += 1
-            beginScreenChangeCaptureSuppression()
-            return
-        }
-
-        activeDisplayReconfigurationDepth = max(0, activeDisplayReconfigurationDepth - 1)
-        if !isDisplayReconfigurationActive {
-            scheduleScreenChangeReconcileWhenIdle()
-        }
+    func handleDisplayReconfigurationDidBegin() {
+        beginScreenChangeCaptureSuppression()
     }
 
     func reconcileMainWindowFramesAfterScreenChange() {
@@ -123,7 +113,6 @@ extension AppDelegate {
         // mid-teardown geometry. Leaving suppression armed fails closed; restore
         // completion reruns this pass if a screen change was skipped.
         guard !isApplyingSessionRestore, !isTerminatingApp else { return }
-        guard !isDisplayReconfigurationActive else { return }
         let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else {
             requeueScreenChangeReconcileIfPossible()
@@ -379,8 +368,7 @@ extension AppDelegate {
 
     func shouldReleaseScreenChangeCaptureSuppression(for signature: String) -> Bool {
         guard isScreenChangeCaptureSuppressed else { return true }
-        return !isDisplayReconfigurationActive
-            && screenChangeCaptureSuppressionSignature == signature
+        return screenChangeCaptureSuppressionSignature == signature
     }
 
     func requeueScreenChangeReconcileIfPossible() {
