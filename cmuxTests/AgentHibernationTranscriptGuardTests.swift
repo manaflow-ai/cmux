@@ -127,13 +127,13 @@ struct AgentHibernationTranscriptGuardTests {
             ) == accountTranscript.path
         )
 
-        let snapshot = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let capturedSnapshot = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: accountAgent,
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
         )))
-        #expect(snapshot.transcriptPath == accountTranscript.path)
-        #expect(try String(contentsOfFile: snapshot.snapshotPath, encoding: .utf8) == populatedTranscript)
+        #expect(capturedSnapshot.transcriptPath == accountTranscript.path)
+        #expect(try String(contentsOfFile: capturedSnapshot.snapshotPath, encoding: .utf8) == populatedTranscript)
 
         let defaultSessionId = "session-default"
         let defaultTranscript = transcriptURL(home: home, cwd: cwd, sessionId: defaultSessionId)
@@ -228,13 +228,43 @@ struct AgentHibernationTranscriptGuardTests {
                 homeDirectory: home.path
             ) == recordedTranscript.path
         )
-        let protected = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let protected = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
             agent: claudeAgent,
             homeDirectory: home.path,
             snapshotDirectory: snapshots
         )))
         #expect(protected.transcriptPath == recordedTranscript.path)
         #expect(try String(contentsOfFile: protected.snapshotPath, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
+    func snapshotBeforeTeardownPrefersPopulatedCandidateOverEarlierStubs() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let cwd = "/tmp/repo"
+        let recordedSession = "recorded-stub"
+        let recordedStub = home.appendingPathComponent("outside/recorded-stub.jsonl")
+        try writeFile(metadataStub, to: recordedStub)
+        let recordedDerived = transcriptURL(home: home, cwd: cwd, sessionId: recordedSession)
+        try writeFile(populatedTranscript, to: recordedDerived)
+        try writeFile(
+            #"{"version":1,"sessions":{"hook-key":{"sessionId":"recorded-stub","transcriptPath":""# + recordedStub.path + #""}}}"#,
+            to: RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        )
+        let recorded = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent(sessionId: recordedSession, workingDirectory: cwd), homeDirectory: home.path, snapshotDirectory: snapshots)))
+        #expect(recorded.transcriptPath == recordedDerived.path)
+        let nestedSession = "nested-populated"
+        let directStub = transcriptURL(home: home, cwd: cwd, sessionId: nestedSession)
+        let nestedPopulated = nestedTranscriptURL(home: home, cwd: cwd, sessionId: nestedSession)
+        try writeFile(metadataStub, to: directStub)
+        try writeFile(populatedTranscript, to: nestedPopulated)
+        let nested = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent(sessionId: nestedSession, workingDirectory: cwd), homeDirectory: home.path, snapshotDirectory: snapshots)))
+        #expect(nested.transcriptPath == nestedPopulated.path)
+        let stubsSession = "all-stubs"
+        try writeFile(metadataStub, to: transcriptURL(home: home, cwd: cwd, sessionId: stubsSession))
+        try writeFile(metadataStub, to: nestedTranscriptURL(home: home, cwd: cwd, sessionId: stubsSession))
+        #expect(outcomeIsNothingToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent(sessionId: stubsSession, workingDirectory: cwd), homeDirectory: home.path, snapshotDirectory: snapshots)))
     }
 
     @Test
@@ -251,7 +281,7 @@ struct AgentHibernationTranscriptGuardTests {
         let oldDate = Date(timeIntervalSinceNow: -15 * 24 * 60 * 60)
         try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: live.path)
 
-        let first = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let first = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: sessionId, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
@@ -264,7 +294,7 @@ struct AgentHibernationTranscriptGuardTests {
         let peerLive = transcriptURL(home: home, cwd: "/tmp/repo", sessionId: peerSessionId)
         try populatedTranscript.write(to: peerLive, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: peerLive.path)
-        let peer = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let peer = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: peerSessionId, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
@@ -274,7 +304,7 @@ struct AgentHibernationTranscriptGuardTests {
 
         let secondContent = populatedTranscript + #"{"type":"assistant","message":{"content":"again"}}"# + "\n"
         try secondContent.write(to: live, atomically: true, encoding: .utf8)
-        let second = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let second = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: sessionId, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
@@ -421,26 +451,13 @@ struct AgentHibernationTranscriptGuardTests {
             .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
     }
 
-    private func snapshot(
-        from outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome
-    ) -> AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot? {
-        guard case .snapshot(let snapshot) = outcome else { return nil }
-        return snapshot
-    }
+    private func snapshotOutcomeValue(from outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome) -> AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot? { guard case .snapshot(let snapshot) = outcome else { return nil }; return snapshot }
 
-    private func outcomeIsNothingToProtect(
-        _ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome
-    ) -> Bool {
-        guard case .nothingToProtect = outcome else { return false }
-        return true
-    }
+    private func outcomeIsNothingToProtect(_ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome) -> Bool { guard case .nothingToProtect = outcome else { return false }; return true }
 
-    private func outcomeIsUnableToProtect(
-        _ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome
-    ) -> Bool {
-        guard case .unableToProtect = outcome else { return false }
-        return true
-    }
+    private func outcomeIsUnableToProtect(_ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome) -> Bool { guard case .unableToProtect = outcome else { return false }; return true }
+
+    private func writeFile(_ content: String, to url: URL) throws { try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true); try content.write(to: url, atomically: true, encoding: .utf8) }
 
     private func agent(
         kind: RestorableAgentKind = .claude,

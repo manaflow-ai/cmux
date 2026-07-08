@@ -63,26 +63,28 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> String? {
-        guard agent.kind == .claude else {
-            return nil
-        }
+        guard agent.kind == .claude else { return nil }
 
+        var candidates: [String] = []
         if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
-            return recordedPath
+            candidates.append(recordedPath)
         }
 
-        guard let workingDirectory = normalized(agent.workingDirectory) else { return nil }
-
-        for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
-            let projectRoot = ((configRoot as NSString).appendingPathComponent("projects") as NSString)
-                .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
-            for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
-                if isRegularFile(atPath: candidate, fileManager: fileManager) {
-                    return candidate
+        if let workingDirectory = normalized(agent.workingDirectory) {
+            for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+                let projectRoot = ((configRoot as NSString).appendingPathComponent("projects") as NSString)
+                    .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                    if isRegularFile(atPath: candidate, fileManager: fileManager) {
+                        candidates.append(candidate)
+                    }
                 }
             }
         }
-        return nil
+
+        return candidates.first { candidate in
+            transcriptHasConversationTurns(atPath: candidate, fileManager: fileManager)
+        } ?? candidates.first
     }
 
     static func transcriptHasConversationTurns(
