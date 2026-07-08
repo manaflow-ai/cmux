@@ -3,14 +3,12 @@ import {
   DEFAULT_NATIVE_CALLBACK_SCHEME,
   isAllowedNativeReturnTo,
 } from "../../lib/native-callback";
-import { requestIsExternallySecure } from "../../lib/request-scheme";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 
 const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
 const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
-const STACK_ACCESS_COOKIE_NAMES = ["hexclave-access", "stack-access"] as const;
 
 type AfterSignInMessages = {
   title: string;
@@ -54,20 +52,18 @@ type AfterSignInHandlerDependencies = {
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
-  baseNames: readonly string[]
+  baseName: string
 ): string | undefined {
   const all = cookieStore.getAll();
-  for (const baseName of baseNames) {
-    for (const prefix of ["__Host-", "__Secure-", ""]) {
-      const withBranch = all.find(
-        (c) => c.name.startsWith(`${prefix}${baseName}--`) && c.value
-      );
-      if (withBranch) return withBranch.value;
-      const exact = all.find(
-        (c) => c.name === `${prefix}${baseName}` && c.value
-      );
-      if (exact) return exact.value;
-    }
+  for (const prefix of ["__Host-", "__Secure-", ""]) {
+    const withBranch = all.find(
+      (c) => c.name.startsWith(`${prefix}${baseName}--`) && c.value
+    );
+    if (withBranch) return withBranch.value;
+    const exact = all.find(
+      (c) => c.name === `${prefix}${baseName}` && c.value
+    );
+    if (exact) return exact.value;
   }
   return undefined;
 }
@@ -185,8 +181,7 @@ function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
   autoOpen: boolean,
-  switchAccountHref: string | null,
-  secureCookie: boolean
+  switchAccountHref: string | null
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
@@ -274,13 +269,13 @@ ${autoOpenScript}
       },
     }
   );
-  if (autoOpen || switchAccountHref !== null) {
+  if (autoOpen) {
     response.cookies.set(NATIVE_HANDOFF_COOKIE, "", {
       httpOnly: true,
       maxAge: 0,
       path: "/handler/after-sign-in",
       sameSite: "lax",
-      secure: secureCookie,
+      secure: requestIsSecure(),
     });
   }
   return response;
@@ -303,20 +298,21 @@ function switchAccountHref(request: NextRequest): string | null {
   return `${signOut.pathname}${signOut.search}`;
 }
 
+function requestIsSecure(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
 export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependencies) {
   return async function GET(request: NextRequest) {
     const projectId = dependencies.projectId;
     const authApp = dependencies.stackServerApp;
-    if (!projectId) return NextResponse.redirect(new URL("/", request.url));
+    if (!authApp || !projectId) return NextResponse.redirect(new URL("/", request.url));
     const localizedMessages = await afterSignInMessages(request);
 
     const stackCookies = await dependencies.getCookieStore();
-    const rawRefreshCookie = findStackCookie(stackCookies, [
-      `hexclave-refresh-${projectId}`,
-      `stack-refresh-${projectId}`,
-      "stack-refresh",
-    ]);
-    const rawAccessCookie = findStackCookie(stackCookies, STACK_ACCESS_COOKIE_NAMES);
+    const refreshBaseName = `stack-refresh-${projectId}`;
+    const rawRefreshCookie = findStackCookie(stackCookies, refreshBaseName);
+    const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
     const parsedAccess = decodeAccessCookie(rawAccessCookie);
     const parsedRefresh = decodeRefreshCookie(rawRefreshCookie);
 
@@ -324,20 +320,18 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     let accessToken = parsedAccess.accessToken;
     let accessCookie = decodeCookieValue(rawAccessCookie);
 
-    if (authApp) {
-      try {
-        const user =
-          (await authApp.getUser({ or: "return-null" })) ??
-          (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
-        if (user) {
-          const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
-          const tokens = await session.getTokens();
-          if (tokens.refreshToken) refreshToken = tokens.refreshToken;
-          if (tokens.accessToken) accessToken = tokens.accessToken;
-        }
-      } catch (error) {
-        console.error("[After Sign In] Failed to create fresh session", error);
+    try {
+      const user =
+        (await authApp.getUser({ or: "return-null" })) ??
+        (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
+      if (user) {
+        const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
+        const tokens = await session.getTokens();
+        if (tokens.refreshToken) refreshToken = tokens.refreshToken;
+        if (tokens.accessToken) accessToken = tokens.accessToken;
       }
+    } catch (error) {
+      console.error("[After Sign In] Failed to create fresh session", error);
     }
 
     if (refreshToken && accessToken) {
@@ -352,17 +346,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     ) {
       if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-        const accountSwitchHref = switchAccountHref(request);
-        const autoOpen =
-          accountSwitchHref === null && verifiedAutoOpen(request, stackCookies, nativeReturnTo);
+        const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(
-            href,
-            localizedMessages,
-            autoOpen,
-            accountSwitchHref,
-            requestIsExternallySecure(request)
-          );
+          return nativeReturnResponse(href, localizedMessages, autoOpen, switchAccountHref(request));
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
@@ -375,15 +361,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) {
-        return nativeReturnResponse(
-          fallback,
-          localizedMessages,
-          false,
-          null,
-          requestIsExternallySecure(request)
-        );
-      }
+      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false, switchAccountHref(request));
     }
 
     return NextResponse.redirect(new URL("/", request.url));
