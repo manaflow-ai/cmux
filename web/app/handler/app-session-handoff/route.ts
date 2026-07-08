@@ -132,7 +132,15 @@ export function makeAppSessionHandoffHandler(dependencies: AppSessionHandoffDepe
   return async function POST(request: NextRequest) {
     const projectId = dependencies.projectId;
     const app = dependencies.stackServerApp;
-    const formData = await request.formData();
+    // A malformed POST (wrong/absent Content-Type) makes formData() throw; the
+    // app always sends application/x-www-form-urlencoded, so treat anything
+    // else as an unauthenticated request rather than a 500.
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.redirect(new URL("/", request.url), 302);
+    }
     const afterPath = sanitizedAfterPath(formData.get("after")?.toString() ?? null);
     if (!afterPath) return NextResponse.redirect(new URL("/", request.url), 302);
     if (!projectId || !app) return signInRedirect(request, afterPath);
