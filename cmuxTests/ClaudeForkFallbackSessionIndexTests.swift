@@ -49,6 +49,120 @@ struct ClaudeForkFallbackSessionIndexTests {
         #expect(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == [fixture.forkProcessID])
     }
 
+    @Test func forkParentFallbackIgnoresNonClaudeProcessWithInheritedLaunchEnvironment() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        // A tool spawned inside a claude pane inherits CMUX_AGENT_LAUNCH_* but is not
+        // the launched claude executable; ambient environment alone must not mint a
+        // fork fallback for the pane.
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/usr/local/bin/some-tool", "--resume", fixture.parentSessionId, "--fork-session"],
+            extraEnvironment: ["CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude"],
+            processName: "some-tool",
+            processPath: "/usr/local/bin/some-tool"
+        )
+
+        #expect(detected[RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceId,
+            panelId: fixture.forkPanelId
+        )] == nil)
+    }
+
+    @Test func forkParentFallbackAcceptsCustomClaudeBinaryMatchingLaunchExecutable() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        // A custom claude binary (CMUX_CUSTOM_CLAUDE_PATH) has a non-"claude" basename;
+        // the launch-kind token plus the recorded launch executable identify it.
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/opt/tools/claude-custom", "--resume", fixture.parentSessionId, "--fork-session"],
+            extraEnvironment: ["CMUX_AGENT_LAUNCH_EXECUTABLE": "/opt/tools/claude-custom"],
+            processName: "claude-custom",
+            processPath: "/opt/tools/claude-custom"
+        )
+
+        let entry = try #require(detected[RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceId,
+            panelId: fixture.forkPanelId
+        )])
+        #expect(entry.snapshot.sessionId == fixture.parentSessionId)
+    }
+
+    @Test func forkParentFallbackIgnoresExplicitlyDisabledForkSessionFlag() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        // Mirrors the hook CLI: --fork-session=off is an explicit false value, so a
+        // resumed pane must not be treated as an unprompted fork.
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session=off"]
+        )
+
+        #expect(detected[RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceId,
+            panelId: fixture.forkPanelId
+        )] == nil)
+    }
+
+    @Test func staleSamePaneHookRecordDoesNotCaptureForkLaunchedAfterIt() throws {
+        // The fork pane reuses a terminal whose older claude session (updatedAt 10)
+        // is still in the hook store, and the fork process started later
+        // (startSeconds 15): the stale record must not absorb the fork's live
+        // process evidence; the pane resolves to the parent-session fallback.
+        let fixture = try makeFixture(
+            forkedSessionId: "dddddddd-4444-4444-4444-dddddddddddd",
+            forkPaneRecordUpdatedAt: 10
+        )
+        defer { fixture.cleanup() }
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        )
+        let index = loadIndex(
+            fixture: fixture,
+            detectedSnapshots: detected,
+            processIdentityProvider: { pid in
+                pid == fixture.forkProcessID
+                    ? AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 15, startMicroseconds: 0)
+                    : nil
+            }
+        )
+
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        #expect(forkSnapshot.sessionId == fixture.parentSessionId)
+    }
+
+    @Test func mintedForkChildRecordUpdatedAfterProcessStartStillWins() throws {
+        // Same shape as the stale-record case, but the pane record (updatedAt 20)
+        // was written after the fork process started (startSeconds 15): it is the
+        // fork's own minted child session and keeps the pane.
+        let fixture = try makeFixture(forkedSessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")
+        defer { fixture.cleanup() }
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        )
+        let index = loadIndex(
+            fixture: fixture,
+            detectedSnapshots: detected,
+            processIdentityProvider: { pid in
+                pid == fixture.forkProcessID
+                    ? AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 15, startMicroseconds: 0)
+                    : nil
+            }
+        )
+
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkedSessionId = try #require(fixture.forkedSessionId)
+        #expect(forkSnapshot.sessionId == forkedSessionId)
+    }
+
     @Test func forkParentFallbackIgnoresWrapperInjectedSessionID() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
@@ -136,7 +250,10 @@ struct ClaudeForkFallbackSessionIndexTests {
         }
     }
 
-    private func makeFixture(forkedSessionId: String? = nil) throws -> Fixture {
+    private func makeFixture(
+        forkedSessionId: String? = nil,
+        forkPaneRecordUpdatedAt: TimeInterval = 20
+    ) throws -> Fixture {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-claude-fork-fallback-\(UUID().uuidString)", isDirectory: true)
@@ -174,7 +291,7 @@ struct ClaudeForkFallbackSessionIndexTests {
                 panelId: forkPanelId,
                 cwd: cwd.path,
                 configDir: configDir.path,
-                updatedAt: 20
+                updatedAt: forkPaneRecordUpdatedAt
             )
         }
         try writeHookStore(root: root, sessions: sessions)
@@ -195,13 +312,20 @@ struct ClaudeForkFallbackSessionIndexTests {
 
     private func detectedSnapshots(
         fixture: Fixture,
-        argv: [String]
+        argv: [String],
+        extraEnvironment: [String: String] = [:],
+        processName: String = "claude",
+        processPath: String? = "/usr/local/bin/claude"
     ) -> [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] {
-        let processArguments = claudeProcessArguments(fixture: fixture, argv: argv)
+        let processArguments = claudeProcessArguments(
+            fixture: fixture,
+            argv: argv,
+            extraEnvironment: extraEnvironment
+        )
         return RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: CmuxVaultAgentRegistry(registrations: []),
             fileManager: fixture.fileManager,
-            processSnapshot: snapshot(fixture: fixture),
+            processSnapshot: snapshot(fixture: fixture, processName: processName, processPath: processPath),
             capturedAt: 42,
             processArgumentsProvider: { $0 == fixture.forkProcessID ? processArguments : nil }
         )
@@ -209,25 +333,31 @@ struct ClaudeForkFallbackSessionIndexTests {
 
     private func loadIndex(
         fixture: Fixture,
-        detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry]
+        detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry],
+        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = { _ in nil }
     ) -> RestorableAgentSessionIndex {
         RestorableAgentSessionIndex.load(
             homeDirectory: fixture.root.path,
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: detectedSnapshots,
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: processIdentityProvider
         )
     }
 
-    private func snapshot(fixture: Fixture) -> CmuxTopProcessSnapshot {
+    private func snapshot(
+        fixture: Fixture,
+        processName: String = "claude",
+        processPath: String? = "/usr/local/bin/claude"
+    ) -> CmuxTopProcessSnapshot {
         CmuxTopProcessSnapshot(
             processes: [
                 CmuxTopProcessInfo(
                     pid: fixture.forkProcessID,
                     parentPID: 1,
-                    name: "claude",
-                    path: "/usr/local/bin/claude",
+                    name: processName,
+                    path: processPath,
                     ttyDevice: nil,
                     cmuxWorkspaceID: fixture.workspaceId,
                     cmuxSurfaceID: fixture.forkPanelId,
@@ -245,18 +375,23 @@ struct ClaudeForkFallbackSessionIndexTests {
         )
     }
 
-    private func claudeProcessArguments(fixture: Fixture, argv: [String]) -> CmuxTopProcessArguments {
-        CmuxTopProcessArguments(
-            arguments: argv,
-            environment: [
-                "CMUX_AGENT_LAUNCH_KIND": "claude",
-                "CMUX_AGENT_LAUNCH_CWD": fixture.cwd.path,
-                "CMUX_WORKSPACE_ID": fixture.workspaceId.uuidString,
-                "CMUX_SURFACE_ID": fixture.forkPanelId.uuidString,
-                "CLAUDE_CONFIG_DIR": fixture.configDir.path,
-                "PWD": fixture.cwd.path,
-            ]
-        )
+    private func claudeProcessArguments(
+        fixture: Fixture,
+        argv: [String],
+        extraEnvironment: [String: String] = [:]
+    ) -> CmuxTopProcessArguments {
+        var environment = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_CWD": fixture.cwd.path,
+            "CMUX_WORKSPACE_ID": fixture.workspaceId.uuidString,
+            "CMUX_SURFACE_ID": fixture.forkPanelId.uuidString,
+            "CLAUDE_CONFIG_DIR": fixture.configDir.path,
+            "PWD": fixture.cwd.path,
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+        return CmuxTopProcessArguments(arguments: argv, environment: environment)
     }
 
     private func hookRecord(

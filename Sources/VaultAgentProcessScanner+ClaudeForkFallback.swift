@@ -70,13 +70,6 @@ extension RestorableAgentSessionIndex {
         arguments: [String],
         environment: [String: String]
     ) -> Bool {
-        if normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?.compare(
-            "claude",
-            options: [.caseInsensitive, .literal]
-        ) == .orderedSame {
-            return true
-        }
-
         let executableCandidates = [
             arguments.first,
             processPath,
@@ -89,12 +82,32 @@ extension RestorableAgentSessionIndex {
             return true
         }
 
-        return executableCandidates.contains { executable in
+        if executableCandidates.contains(where: { executable in
             CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(
                 kind: .claude,
                 liveExecutable: executableBasename(executable),
                 arguments: arguments
             )
+        }) {
+            return true
+        }
+
+        // `CMUX_AGENT_LAUNCH_KIND` is cmux's own launch token, but descendants of a
+        // claude launch inherit it, so ambient environment alone is not process
+        // identity. Trust it only when this process runs the executable the launcher
+        // recorded (covers custom claude binaries whose basename is not "claude"),
+        // never for a child that merely inherited the launch environment.
+        guard normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?.compare(
+            "claude",
+            options: [.caseInsensitive, .literal]
+        ) == .orderedSame,
+              let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
+            return false
+        }
+        let launchBasename = executableBasename(launchExecutable)
+        let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
+        return launchCandidates.contains { candidate in
+            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
         }
     }
 
@@ -206,15 +219,18 @@ private extension Array where Element == String {
     }
 
     private var hasClaudeForkSessionFlag: Bool {
+        // Mirrors `claudeLaunchArgumentsContainForkSession` in CLI/cmux.swift so the
+        // scanner and the hook CLI agree on which launches count as forks.
         contains { argument in
             if argument == "--fork-session" {
                 return true
             }
             let prefix = "--fork-session="
             guard argument.hasPrefix(prefix) else { return false }
-            let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { return false }
-            return !["0", "false", "no"].contains(value.lowercased())
+            let value = String(argument.dropFirst(prefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return !["false", "0", "no", "off"].contains(value)
         }
     }
 
