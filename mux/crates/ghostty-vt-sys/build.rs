@@ -90,6 +90,13 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
         "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
+        // Cross-compiling libghostty-vt for the release distribution targets
+        // (npm/PyPI `cmux` binaries). zig cross-compiles these cleanly and
+        // pairs with cargo-zigbuild for the Rust link step.
+        "x86_64-apple-darwin" => Some("x86_64-macos"),
+        "aarch64-apple-darwin" => Some("aarch64-macos"),
+        "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
+        "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
         _ => None,
     }
 }

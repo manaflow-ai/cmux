@@ -1,0 +1,114 @@
+name: mux tui release binaries
+
+# Builds the cmux-mux TUI binary for every distribution target (npm/PyPI `cmux`).
+# Dispatch-only until wired to a tag; uploads one artifact per target so the
+# npm/PyPI wrapper-packaging jobs can bundle them.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "cmux-tui-v*"
+
+permissions: {}
+
+concurrency:
+  group: mux-tui-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+            cross: false
+            ext: ""
+          - target: x86_64-apple-darwin
+            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+            cross: true
+            ext: ""
+          - target: x86_64-unknown-linux-gnu
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            cross: false
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            cross: true
+            ext: ""
+          - target: x86_64-pc-windows-gnu
+            runner: windows-latest
+            cross: true
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup target add ${{ matrix.target }}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Install cargo-zigbuild
+        if: matrix.cross == true && runner.os != 'Windows'
+        shell: bash
+        run: cargo install --locked cargo-zigbuild@0.20.0
+
+      - name: Build cmux-mux (native)
+        if: matrix.cross == false
+        working-directory: mux
+        shell: bash
+        run: cargo build -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
+
+      - name: Build cmux-mux (cross, non-Windows)
+        if: matrix.cross == true && runner.os != 'Windows'
+        working-directory: mux
+        shell: bash
+        run: cargo zigbuild -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
+
+      - name: Build libghostty-vt + cmux-mux (Windows GNU)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd ghostty
+          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
+          cd ../mux
+          cargo build -p mux-tui --bin cmux-mux --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "mux/target/${{ matrix.target }}/release/cmux-mux${{ matrix.ext }}" "dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}"
+          ls -la dist
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-mux-${{ matrix.target }}
+          path: dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}
+          if-no-files-found: error
