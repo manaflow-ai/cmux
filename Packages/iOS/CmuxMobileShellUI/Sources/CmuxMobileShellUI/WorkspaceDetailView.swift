@@ -75,7 +75,6 @@ struct WorkspaceDetailView: View {
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
-
     var body: some View {
         let content = Group { detailSurfaceContent }
 
@@ -159,7 +158,6 @@ struct WorkspaceDetailView: View {
             toolbarTitleLabel
         }
     }
-
     @ViewBuilder
     private var toolbarTitleLabel: some View {
         if isChatMode,
@@ -200,7 +198,6 @@ struct WorkspaceDetailView: View {
         detailContent()
         #endif
     }
-
     #if os(iOS)
     /// The browser pane shown when this workspace has an active browser surface.
     /// It carries its own navigation chrome, so it does not get the terminal's

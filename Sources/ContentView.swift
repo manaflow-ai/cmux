@@ -6053,21 +6053,6 @@ struct ContentView: View {
         return commands
     }
 
-    private func commandPaletteConfigActionID(for commandId: String) -> String? {
-        switch commandId {
-        case "palette.newTerminalTab":
-            return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
-        case "palette.newBrowserTab":
-            return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
-        case "palette.terminalSplitRight":
-            return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
-        case "palette.terminalSplitDown":
-            return CmuxSurfaceTabBarBuiltInAction.splitDown.configID
-        default:
-            return nil
-        }
-    }
-
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -6345,6 +6330,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
+        contributions.append(Self.commandPaletteNewAgentChatContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
@@ -7573,6 +7559,7 @@ struct ContentView: View {
                 )
             }
         }
+        registerAgentChatCommandPaletteHandler(&registry)
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
@@ -9567,6 +9554,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
+    let loadingSpinnerPosition: SidebarIndicatorPosition
+    let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -9623,6 +9612,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
 
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
+        loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
+        notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -10036,6 +10027,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
+    @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
@@ -10064,6 +10056,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -10566,126 +10559,124 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
-        return GeometryReader { geometryProxy in
-            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
-                viewportHeight: geometryProxy.size.height,
-                insets: scrollInsets
+        return ScrollViewReader { scrollProxy in
+            ScrollView(.vertical) {
+                workspaceScrollContent(renderContext: renderContext, minHeight: workspaceScrollContentMinHeight)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                SidebarScrollViewResolver { scrollView in
+                    configureSidebarScrollView(scrollView)
+                    dragAutoScrollController.attach(scrollView: scrollView)
+                }
+                .frame(width: 0, height: 0)
             )
-            ScrollViewReader { scrollProxy in
-                ScrollView(.vertical) {
-                    workspaceScrollContent(
-                        renderContext: renderContext,
-                        minHeight: contentMinHeight
-                    )
-                }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        configureSidebarScrollView(scrollView)
-                        dragAutoScrollController.attach(scrollView: scrollView)
-                    }
-                    .frame(width: 0, height: 0)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: scrollInsets.top).allowsHitTesting(false)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: scrollInsets.bottom).allowsHitTesting(false)
+            }
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: sidebarTopScrimHeight,
+                    bottomHeight: sidebarBottomScrimHeight
                 )
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.top)
-                        .allowsHitTesting(false)
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.bottom)
-                        .allowsHitTesting(false)
-                }
-                .mask(
-                    SidebarWorkspaceScrollEdgeFadeMask(
-                        topHeight: sidebarTopScrimHeight,
-                        bottomHeight: sidebarBottomScrimHeight
-                    )
+            )
+            .overlay(alignment: .top) {
+                // The sidebar top strip remains draggable and handles
+                // double-clicks with the standard titlebar action.
+                WindowDragHandleView()
+                    .frame(height: sidebarTitlebarInteractionHeight)
+                    .background(TitlebarDoubleClickMonitorView())
+            }
+            .overlay(alignment: .topLeading) {
+                minimalModeSidebarTitlebarControlsOverlay()
+            }
+            .overlay(alignment: .top) {
+                workspaceReorderDropOverlay(
+                    renderContext: renderContext,
+                    pointOffset: CGSize(width: 0, height: -scrollInsets.top)
                 )
-                .overlay(alignment: .top) {
-                    // The sidebar top strip remains draggable and handles
-                    // double-clicks with the standard titlebar action.
-                    WindowDragHandleView()
-                        .frame(height: sidebarTitlebarInteractionHeight)
-                        .background(TitlebarDoubleClickMonitorView())
+                .frame(maxWidth: .infinity)
+                .frame(height: scrollInsets.top)
+            }
+            .background(Color.clear)
+            .modifier(ClearScrollBackground())
+            .onGeometryChange(for: CGFloat.self) {
+                SidebarWorkspaceScrollLayout.contentMinHeight(viewportHeight: $0.size.height, insets: scrollInsets)
+            } action: { updateWorkspaceScrollContentMinHeight($0) }
+            .onAppear {
+                requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+            }
+            .onChange(of: tabManager.selectedTabId) { _, _ in
+                requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+            }
+            .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
+                guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
+                    from: oldWorkspaceIds,
+                    to: newWorkspaceIds
+                ) else {
+                    flushPendingSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+                    return
                 }
-                .overlay(alignment: .topLeading) {
-                    minimalModeSidebarTitlebarControlsOverlay()
-                }
-                .overlay(alignment: .top) {
-                    workspaceReorderDropOverlay(
-                        renderContext: renderContext,
-                        pointOffset: CGSize(width: 0, height: -scrollInsets.top)
-                    )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: scrollInsets.top)
-                }
-                .background(Color.clear)
-                .modifier(ClearScrollBackground())
-                .onAppear {
-                    requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                }
-                .onChange(of: tabManager.selectedTabId) { _, _ in
-                    requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                }
-                .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
-                    guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
-                        from: oldWorkspaceIds,
-                        to: newWorkspaceIds
-                    ) else {
-                        flushPendingSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                        return
-                    }
-                    requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
-                    requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
-                    // Drive a revision counter that the group-header resolver
-                    // reads. Forces SwiftUI to re-invoke `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`
-                    // when the anchor's cwd changes while the anchor is not
-                    // the selected workspace — otherwise group color/icon/menu
-                    // and `+` placement reflect the previous cwd until some
-                    // unrelated sidebar event fires.
-                    anchorCwdRevision &+= 1
-                }
-                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
-                    // Group collapse hides some workspaces without changing
-                    // focus or wiping the rest of the multi-selection. Strip
-                    // only the hidden ids; if focus moved, make sure the new
-                    // focused id is still represented.
-                    guard let model = notification.object as? SidebarMultiSelectionModel,
-                          model === tabManager.sidebarMultiSelection,
-                          let event = SidebarMultiSelectionDidHideEvent(notification) else { return }
-                    var next = selectedTabIds.subtracting(event.hiddenWorkspaceIds)
-                    if let movedFocus = event.focusedWorkspaceId {
-                        next.insert(movedFocus)
-                        if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
-                            lastSidebarSelectionIndex = index
-                        }
-                    }
-                    if next != selectedTabIds {
-                        selectedTabIds = next
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionShouldCollapseEvent.notificationName)) { notification in
-                    // Keyboard nav (selectNextTab/selectPreviousTab) posts
-                    // this so any stale Shift-click range in the sidebar's
-                    // SwiftUI selectedTabIds collapses to just the newly-
-                    // focused workspace. Without this, batch context-menu /
-                    // shortcut actions would still target the stale range.
-                    guard let model = notification.object as? SidebarMultiSelectionModel,
-                          model === tabManager.sidebarMultiSelection,
-                          let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
-                    let focusedId = event.focusedWorkspaceId
-                    let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
-                    if selectedTabIds != next {
-                        selectedTabIds = next
-                    }
-                    if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
+                requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+                requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
+                // Drive a revision counter that the group-header resolver
+                // reads. Forces SwiftUI to re-invoke `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`
+                // when the anchor's cwd changes while the anchor is not
+                // the selected workspace — otherwise group color/icon/menu
+                // and `+` placement reflect the previous cwd until some
+                // unrelated sidebar event fires.
+                anchorCwdRevision &+= 1
+            }
+            .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
+                // Group collapse hides some workspaces without changing
+                // focus or wiping the rest of the multi-selection. Strip
+                // only the hidden ids; if focus moved, make sure the new
+                // focused id is still represented.
+                guard let model = notification.object as? SidebarMultiSelectionModel,
+                      model === tabManager.sidebarMultiSelection,
+                      let event = SidebarMultiSelectionDidHideEvent(notification) else { return }
+                var next = selectedTabIds.subtracting(event.hiddenWorkspaceIds)
+                if let movedFocus = event.focusedWorkspaceId {
+                    next.insert(movedFocus)
+                    if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
                         lastSidebarSelectionIndex = index
                     }
                 }
+                if next != selectedTabIds {
+                    selectedTabIds = next
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionShouldCollapseEvent.notificationName)) { notification in
+                // Keyboard nav (selectNextTab/selectPreviousTab) posts
+                // this so any stale Shift-click range in the sidebar's
+                // SwiftUI selectedTabIds collapses to just the newly-
+                // focused workspace. Without this, batch context-menu /
+                // shortcut actions would still target the stale range.
+                guard let model = notification.object as? SidebarMultiSelectionModel,
+                      model === tabManager.sidebarMultiSelection,
+                      let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
+                let focusedId = event.focusedWorkspaceId
+                let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
+                if selectedTabIds != next {
+                    selectedTabIds = next
+                }
+                if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
+                    lastSidebarSelectionIndex = index
+                }
             }
         }
+    }
+    private func updateWorkspaceScrollContentMinHeight(_ contentMinHeight: CGFloat) {
+        guard workspaceScrollContentMinHeight != contentMinHeight else { return }
+        var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
+        withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
     }
 
     // Applies one stable overlay/autohide scroller config and never toggles it.
@@ -12372,6 +12363,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            showsAgentActivity: showAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -13140,6 +13132,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
+        let showsAgentActivity: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -13177,6 +13170,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
+        let activeCodingAgentCount: Int
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]
         let compactBranchDirectoryCandidates: [String]
@@ -13209,6 +13203,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.showsAgentActivity == rhs.showsAgentActivity &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -13253,6 +13248,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13606,7 +13602,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
+        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids, resolvingStableIdsFrom: tabManager.tabs)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
@@ -13619,6 +13615,7 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -13659,17 +13656,22 @@ struct TabItemView: View, Equatable {
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
             scaledCloseButtonHitSize
         )
+
+        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
+        let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
+        let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
+        let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
+        let leadingSlotActive = badgeOnLeading || spinnerOnLeading
+        let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
+        let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
+        let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
+        let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
+        let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
         let rowView = VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
-                    }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+            HStack(alignment: .top, spacing: titleRowSpacing) {
+                if leadingSlotActive {
+                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: scaledUnreadBadgeSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13752,28 +13754,8 @@ struct TabItemView: View, Equatable {
                         .layoutPriority(1)
                 }
 
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        CmuxSystemSymbolImage(magnified: "xmark", pointSize: scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                if trailingStatusActive || canCloseWorkspace {
+                    SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: { tabManager.closeWorkspaceWithConfirmation(tab) })
                 }
             }
 
@@ -14197,7 +14179,7 @@ struct TabItemView: View, Equatable {
         observedIsActive = isActive
     }
 
-    private func refreshWorkspaceSnapshot(force: Bool = false) {
+    func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: workspaceSnapshotStorage,
@@ -14490,8 +14472,8 @@ struct TabItemView: View, Equatable {
         }
         .disabled(!hasLatestNotifications(in: targetIds))
 
+        workspaceNotificationsContextMenu(targetIds)
         Divider()
-
         Button(copyWorkspaceIDLabel) {
             copyWorkspaceIdsToPasteboard(targetIds)
         }
@@ -14829,6 +14811,10 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
+            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: showsAgentActivity,
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

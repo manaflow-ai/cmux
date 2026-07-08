@@ -21,10 +21,12 @@ mock.module("next/navigation", () => ({
   permanentRedirect: redirect,
 }));
 
+let acceptLanguage = "en";
+
 mock.module("next/headers", () => ({
   headers: async () =>
     new Headers({
-      "accept-language": "en",
+      "accept-language": acceptLanguage,
       host: "cmux.test",
       "x-forwarded-proto": "https",
     }),
@@ -56,6 +58,20 @@ mock.module("../services/billing/purchase", () => ({
 const { default: BillingSuccessPage } = await import("../app/billing/success/page");
 
 describe("billing success page", () => {
+  test("falls back to English copy for a locale without billingSuccess", async () => {
+    acceptLanguage = "fr";
+    try {
+      const element = await BillingSuccessPage({
+        searchParams: Promise.resolve({ session_id: "cs_123" }),
+      });
+      const html = renderToStaticMarkup(element);
+      expect(html).toContain("cmux Pro is active");
+      expect(html).toContain("What you unlocked");
+    } finally {
+      acceptLanguage = "en";
+    }
+  });
+
   test("renders welcome sections and links after an active purchase", async () => {
     const element = await BillingSuccessPage({
       searchParams: Promise.resolve({ session_id: "cs_123" }),

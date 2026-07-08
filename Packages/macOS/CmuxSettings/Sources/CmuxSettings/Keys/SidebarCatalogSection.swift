@@ -110,6 +110,32 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowProgress"
     )
 
+    /// Whether sidebar workspace rows show the loading spinner for running
+    /// coding agents and manual `cmux workspace loading` loaders
+    /// (`sidebar.showAgentActivity`). Defaults to on.
+    public let showAgentActivity = DefaultsKey<Bool>(
+        id: "sidebar.showAgentActivity",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentActivity"
+    )
+
+    /// Which side of the workspace row the loading spinner appears on
+    /// (`sidebar.loadingSpinnerPosition`). Defaults to leading (left), sharing
+    /// the unread-badge slot.
+    public let loadingSpinnerPosition = DefaultsKey<SidebarIndicatorPosition>(
+        id: "sidebar.loadingSpinnerPosition",
+        defaultValue: .leading,
+        userDefaultsKey: "sidebarLoadingSpinnerPosition"
+    )
+
+    /// Which side of the workspace row the unread notification badge appears on
+    /// (`sidebar.notificationBadgePosition`). Defaults to leading (left).
+    public let notificationBadgePosition = DefaultsKey<SidebarIndicatorPosition>(
+        id: "sidebar.notificationBadgePosition",
+        defaultValue: .leading,
+        userDefaultsKey: "sidebarNotificationBadgePosition"
+    )
+
     public let showCustomMetadata = DefaultsKey<Bool>(
         id: "sidebar.showCustomMetadata",
         defaultValue: true,

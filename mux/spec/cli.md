@@ -51,7 +51,13 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | Verb | Status | Required flags/args | Optional flags | Human stdout |
 | --- | --- | --- | --- | --- |
 | `identify` | implemented | none | global flags | one metadata line |
+| `ping` | implemented | none | global flags | one liveness line |
+| `reload-config` | implemented | none | global flags | none |
+| `set-window-title` | implemented | `--title <title>` | global flags | none |
+| `clear-window-title` | implemented | none | global flags | none |
 | `list-workspaces` | implemented | none | global flags | tree lines |
+| `export-layout` | implemented | none | `--screen <id>` | JSON result object |
+| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>` | screen and pane/surface lines |
 | `send` | implemented | `--surface <id>` | `--text <text>`, `--bytes <base64>` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
@@ -61,6 +67,11 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
+| `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
+| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
+| `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
+| `process-info` | implemented | `--surface <id>` | none | process metadata line |
 | `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |
 | `close-surface` | implemented | `--surface <id>` | none | none |
 | `close-pane` | implemented | `--pane <id>` | none | none |
@@ -80,14 +91,14 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
 | `subscribe` | implemented | none | none in v5 | event JSON lines |
 | `attach-surface` | implemented | `--surface <id>` | none | event JSON lines |
-| `wait-for` | proposed | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
-| `run` | proposed | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
-| `send-key` | proposed | `--surface <id> <key>...` | none | none |
-| `copy` | proposed | `--surface <id> --mode screen|selection|scrollback` | none | text |
-| `ids` | proposed | none | `--kind workspace|screen|pane|surface` | id lines |
-| `notify` | proposed | `--title <title> --body <body>` | `--level info|warning|error`, `--surface <id>` | notification id |
-| `list-agents` | proposed | none | `--surface <id>`, `--state <state>` | agent lines |
-| `report-agent` | proposed | `--surface <id> --state <state> --source socket|hook` | `--session <id>` | none |
+| `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
+| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
+| `send-key` | implemented | `--surface <id> <key>...` | none | none |
+| `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
+| `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |
+| `notify` | implemented | `--title <title> --body <body>` | `--level info\|warning\|error`, `--surface <id>` | notification id |
+| `list-agents` | implemented | none | `--surface <id>`, `--state <state>` | agent lines |
+| `report-agent` | implemented | `--surface <id> --state <state> --source socket\|hook` | `--session <id>` | none |
 
 ## Worked Examples
 

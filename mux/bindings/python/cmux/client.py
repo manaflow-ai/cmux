@@ -48,6 +48,19 @@ class IdentifyResult:
 
 
 @dataclass(frozen=True)
+class PingResult:
+    ok: bool
+    version: str
+    protocol: int
+
+
+@dataclass(frozen=True)
+class ReloadConfigResult:
+    reloaded: bool
+    path: Optional[str]
+
+
+@dataclass(frozen=True)
 class SurfaceResult:
     surface: int
 
@@ -136,6 +149,8 @@ class Event:
     rows: Optional[int] = None
     data: Optional[str] = None
     replay: Optional[str] = None
+    offset: Optional[int] = None
+    at_bottom: Optional[bool] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -302,8 +317,34 @@ class CmuxClient:
         self._protocol = result.protocol
         return result
 
+    def ping(self) -> PingResult:
+        data = self._request("ping")
+        return PingResult(
+            ok=bool(data["ok"]),
+            version=str(data["version"]),
+            protocol=int(data["protocol"]),
+        )
+
+    def reload_config(self) -> ReloadConfigResult:
+        data = self._request("reload-config")
+        return ReloadConfigResult(
+            reloaded=bool(data.get("reloaded", False)),
+            path=data.get("path"),
+        )
+
     def list_workspaces(self) -> Tree:
         return _parse_tree(self._request("list-workspaces"))
+
+    def export_layout(self, screen: Optional[int] = None) -> Dict[str, Any]:
+        return self._request("export-layout", screen=screen)
+
+    def apply_layout(
+        self,
+        layout: Dict[str, Any],
+        workspace: Optional[int] = None,
+        name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._request("apply-layout", workspace=workspace, name=name, layout=layout)
 
     def send(
         self,
@@ -374,8 +415,37 @@ class CmuxClient:
         self._request("set-ratio", pane=pane, dir=dir, ratio=ratio)
         return EmptyResult()
 
+    def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
+        return self._request("pane-neighbor", pane=pane, dir=dir)
+
+    def focus_direction(self, dir: str, pane: Optional[int] = None) -> Dict[str, Any]:
+        return self._request("focus-direction", pane=pane, dir=dir)
+
+    def swap_pane(
+        self,
+        pane: int,
+        dir: Optional[str] = None,
+        target: Optional[int] = None,
+    ) -> EmptyResult:
+        self._request("swap-pane", pane=pane, dir=dir, target=target)
+        return EmptyResult()
+
+    def zoom_pane(self, pane: Optional[int] = None, mode: Optional[str] = None) -> Dict[str, Any]:
+        return self._request("zoom-pane", pane=pane, mode=mode)
+
+    def process_info(self, surface: int) -> Dict[str, Any]:
+        return self._request("process-info", surface=surface)
+
     def set_default_colors(self, fg: Optional[str] = None, bg: Optional[str] = None) -> EmptyResult:
         self._request("set-default-colors", fg=fg, bg=bg)
+        return EmptyResult()
+
+    def set_window_title(self, title: str) -> EmptyResult:
+        self._request("set-window-title", title=title)
+        return EmptyResult()
+
+    def clear_window_title(self) -> EmptyResult:
+        self._request("clear-window-title")
         return EmptyResult()
 
     def close_surface(self, surface: int) -> EmptyResult:
@@ -538,4 +608,6 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         rows=value.get("rows"),
         data=value.get("data"),
         replay=value.get("replay"),
+        offset=value.get("offset"),
+        at_bottom=value.get("at_bottom"),
     )

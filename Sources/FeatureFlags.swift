@@ -38,6 +38,13 @@ final class CmuxFeatureFlags {
     #endif
 
     private static let mobileConnectButtonDefault = true
+
+    #if DEBUG
+    private static let cloudVMUIDefault = true
+    #else
+    private static let cloudVMUIDefault = false
+    #endif
+
     private static let overrideKeyPrefix = "cmux.flags.override."
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
@@ -74,6 +81,23 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: Self.mobileConnectButtonDefault
             ),
+
+            // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the Cloud VM entrypoints: the new-workspace dropdown section
+            // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
+            // VM menu, and the command-palette Cloud VM commands. Release builds
+            // hide them until the PostHog flag is enabled; DEBUG keeps them
+            // visible for dogfood.
+            CmuxFeatureFlagDefinition(
+                key: "cloud-vm-ui-enabled-release",
+                title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
+                flagDescription: String(
+                    localized: "featureFlags.cloudVM.description",
+                    defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
+                ),
+                defaultWhenUnavailable: Self.cloudVMUIDefault
+            ),
         ]
     }
 
@@ -83,6 +107,10 @@ final class CmuxFeatureFlags {
 
     var isMobileConnectButtonEnabled: Bool {
         effectiveValue(for: Self.allFlags[1])
+    }
+
+    var isCloudVMUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[2])
     }
 
     @ObservationIgnored

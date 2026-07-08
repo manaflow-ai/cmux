@@ -189,7 +189,13 @@ def check_requires(fixture: Dict[str, Any], socket_path: str) -> None:
 def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
     mapping = {
         "identify": client.identify,
+        "ping": client.ping,
+        "reload-config": client.reload_config,
+        "set-window-title": client.set_window_title,
+        "clear-window-title": lambda **kw: client.clear_window_title(),
         "list-workspaces": client.list_workspaces,
+        "export-layout": client.export_layout,
+        "apply-layout": client.apply_layout,
         "send": lambda **kw: client.send(kw["surface"], text=kw.get("text"), bytes_data=kw.get("bytes")),
         "read-screen": client.read_screen,
         "vt-state": client.vt_state,
@@ -199,6 +205,11 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "new-screen": client.new_screen,
         "split": client.split,
         "set-ratio": client.set_ratio,
+        "pane-neighbor": client.pane_neighbor,
+        "focus-direction": client.focus_direction,
+        "swap-pane": client.swap_pane,
+        "zoom-pane": client.zoom_pane,
+        "process-info": client.process_info,
         "set-default-colors": client.set_default_colors,
         "close-surface": client.close_surface,
         "close-pane": client.close_pane,
@@ -216,6 +227,14 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "move-tab": client.move_tab,
         "move-workspace": client.move_workspace,
         "scroll-surface": client.scroll_surface,
+        "wait-for": lambda **kw: client._request("wait-for", **kw),
+        "run": lambda **kw: client._request("run", **kw),
+        "send-key": lambda **kw: client._request("send-key", **kw),
+        "copy": lambda **kw: client._request("copy", **kw),
+        "ids": lambda **kw: client._request("ids", **kw),
+        "notify": lambda **kw: client._request("notify", **kw),
+        "list-agents": lambda **kw: client._request("list-agents", **kw),
+        "report-agent": lambda **kw: client._request("report-agent", **kw),
     }
     if cmd not in mapping:
         raise FixtureFailure(f"unsupported fixture command {cmd}")

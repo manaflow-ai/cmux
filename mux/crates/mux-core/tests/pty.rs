@@ -351,6 +351,53 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
 }
 
 #[test]
+fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
+    let mux = Mux::new(
+        unique_session("test-wait-for-one-shot"),
+        shell_opts("printf 'one-shot-ready\\n'; sleep 30"),
+    );
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+
+    let appeared = wait_for(
+        || {
+            line.clear();
+            writeln!(writer, r#"{{"id":1,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
+            reader.read_line(&mut line).unwrap();
+            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(value["ok"], true, "read-screen failed: {line}");
+            value["data"]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("one-shot-ready")
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    );
+    assert!(appeared.is_some(), "one-shot output never appeared");
+
+    line.clear();
+    writeln!(
+        writer,
+        r#"{{"id":2,"cmd":"wait-for","surface":{},"pattern":"one-shot-ready","timeout_ms":1000}}"#,
+        surface.id
+    )
+    .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(value["ok"], true, "wait-for failed after one-shot output: {line}");
+    assert_eq!(value["data"]["matched"], true);
+
+    mux.close_surface(surface.id);
+    mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
 fn control_socket_set_default_colors_merges_fields() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new(format!("test-colors-{}", std::process::id()), opts);
