@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
@@ -38,6 +38,8 @@ import { destroyVm, listUserVms, runVmWorkflow } from "../../../services/vms/wor
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
+
 type DeletableStackUser = {
   readonly id: string;
   readonly delete: () => Promise<void>;
@@ -51,10 +53,10 @@ export async function DELETE(request: Request): Promise<Response> {
   if (!stackUser || stackUser.id !== user.id) return unauthorized();
 
   try {
+    await resolveUserBillingForAccountDeletion(user.id);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultObjectsForAccount(user.id);
-    await resolveUserBillingForAccountDeletion(user.id);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -107,47 +109,70 @@ async function destroyPersonalCloudVms(userId: string): Promise<number> {
 
 async function deleteVaultObjectsForAccount(userId: string): Promise<void> {
   const db = cloudDb();
-  const objectKeys = new Set<string>();
 
-  const sessions = await db
-    .select({ latestObjectKey: vaultSessions.latestObjectKey })
-    .from(vaultSessions)
-    .where(eq(vaultSessions.userId, userId));
-  for (const session of sessions) objectKeys.add(session.latestObjectKey);
-
-  const snapshots = await db
-    .select({ objectKey: vaultSnapshots.objectKey })
-    .from(vaultSnapshots)
-    .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
-    .where(eq(vaultSessions.userId, userId));
-  for (const snapshot of snapshots) objectKeys.add(snapshot.objectKey);
-
-  const grants = await db
-    .select({
-      objectKey: vaultUploadGrants.objectKey,
-      uploadObjectKey: vaultUploadGrants.uploadObjectKey,
-    })
-    .from(vaultUploadGrants)
-    .where(eq(vaultUploadGrants.userId, userId));
-  for (const grant of grants) {
-    objectKeys.add(grant.objectKey);
-    objectKeys.add(grant.uploadObjectKey);
+  for (let offset = 0; ; offset += VAULT_OBJECT_DELETE_BATCH_SIZE) {
+    const sessions = await db
+      .select({ latestObjectKey: vaultSessions.latestObjectKey })
+      .from(vaultSessions)
+      .where(eq(vaultSessions.userId, userId))
+      .orderBy(asc(vaultSessions.id))
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
+      .offset(offset);
+    if (sessions.length === 0) break;
+    for (const session of sessions) await deleteObject(session.latestObjectKey);
+    if (sessions.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
-  const tombstones = await db
-    .select({
-      objectKey: vaultUploadTombstones.objectKey,
-      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
-    })
-    .from(vaultUploadTombstones)
-    .where(eq(vaultUploadTombstones.userId, userId));
-  for (const tombstone of tombstones) {
-    objectKeys.add(tombstone.objectKey);
-    objectKeys.add(tombstone.uploadObjectKey);
+  for (let offset = 0; ; offset += VAULT_OBJECT_DELETE_BATCH_SIZE) {
+    const snapshots = await db
+      .select({ objectKey: vaultSnapshots.objectKey })
+      .from(vaultSnapshots)
+      .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
+      .where(eq(vaultSessions.userId, userId))
+      .orderBy(asc(vaultSnapshots.id))
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
+      .offset(offset);
+    if (snapshots.length === 0) break;
+    for (const snapshot of snapshots) await deleteObject(snapshot.objectKey);
+    if (snapshots.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
-  for (const objectKey of objectKeys) {
-    await deleteObject(objectKey);
+  for (let offset = 0; ; offset += VAULT_OBJECT_DELETE_BATCH_SIZE) {
+    const grants = await db
+      .select({
+        objectKey: vaultUploadGrants.objectKey,
+        uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+      })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.userId, userId))
+      .orderBy(asc(vaultUploadGrants.id))
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
+      .offset(offset);
+    if (grants.length === 0) break;
+    for (const grant of grants) {
+      await deleteObject(grant.objectKey);
+      await deleteObject(grant.uploadObjectKey);
+    }
+    if (grants.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
+  }
+
+  for (let offset = 0; ; offset += VAULT_OBJECT_DELETE_BATCH_SIZE) {
+    const tombstones = await db
+      .select({
+        objectKey: vaultUploadTombstones.objectKey,
+        uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+      })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.userId, userId))
+      .orderBy(asc(vaultUploadTombstones.id))
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
+      .offset(offset);
+    if (tombstones.length === 0) break;
+    for (const tombstone of tombstones) {
+      await deleteObject(tombstone.objectKey);
+      await deleteObject(tombstone.uploadObjectKey);
+    }
+    if (tombstones.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 }
 

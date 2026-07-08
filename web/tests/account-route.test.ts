@@ -124,6 +124,12 @@ type ReturningDeleteResult = Promise<void> & {
   readonly returning: (shape: unknown) => Promise<unknown[]>;
 };
 
+type SelectResult = Promise<unknown[]> & {
+  readonly orderBy: (order: unknown) => SelectResult;
+  readonly limit: (limit: number) => SelectResult;
+  readonly offset: (offset: number) => SelectResult;
+};
+
 type TransactionVaultRows = {
   readonly sessions: unknown[];
   readonly deletedSessions: unknown[];
@@ -151,6 +157,16 @@ const mockTransaction: MockTransaction = {
 
 function nextSelectResult(): unknown[] {
   return selectResults.shift() ?? [];
+}
+
+function chainableSelectResult(rows: unknown[]): SelectResult {
+  const result = Promise.resolve(rows) as SelectResult;
+  Object.defineProperties(result, {
+    orderBy: { value: () => result },
+    limit: { value: () => result },
+    offset: { value: () => result },
+  });
+  return result;
 }
 
 function emptyTransactionVaultRows(): TransactionVaultRows {
@@ -187,9 +203,9 @@ function deletedRowsForTransactionTable(table: unknown): unknown[] {
 const mockDb = {
   select: mock(() => ({
     from: () => ({
-      where: async () => nextSelectResult(),
+      where: () => chainableSelectResult(nextSelectResult()),
       innerJoin: () => ({
-        where: async () => nextSelectResult(),
+        where: () => chainableSelectResult(nextSelectResult()),
       }),
     }),
   })),
@@ -306,12 +322,12 @@ describe("account deletion route", () => {
 
   test("destroys personal VMs, deletes cmux rows, then deletes the Stack user", async () => {
     selectResults = [
+      [{ id: "sub_user_active" }],
+      [{ id: "cus_user" }],
       [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
       [{ objectKey: "vault/u/account-user-1/snapshot.jsonl.zst" }],
       [{ objectKey: "vault/u/account-user-1/grant.jsonl.zst", uploadObjectKey: "vault/uploads/grant" }],
       [{ objectKey: "vault/u/account-user-1/tombstone.jsonl.zst", uploadObjectKey: "vault/uploads/tombstone" }],
-      [{ id: "sub_user_active" }],
-      [{ id: "cus_user" }],
     ];
 
     const response = await DELETE(accountDeletionRequest());
@@ -340,6 +356,8 @@ describe("account deletion route", () => {
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(routeEvents).toEqual([
+      "stripe-cancel",
+      "stripe-delete-customer",
       "metadata-update",
       "list-vms",
       "destroy-vm",
@@ -350,8 +368,6 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "vault-delete",
-      "stripe-cancel",
-      "stripe-delete-customer",
       "transaction",
       "stack-delete",
       "transaction",
@@ -394,9 +410,9 @@ describe("account deletion route", () => {
 
   test("does not delete rows or Stack user when vault object cleanup fails", async () => {
     selectResults = [
+      [],
+      [],
       [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
-      [],
-      [],
       [],
       [],
       [],
@@ -413,11 +429,11 @@ describe("account deletion route", () => {
 
   test("does not delete rows or Stack user when active billing cleanup cannot run", async () => {
     selectResults = [
-      [],
-      [],
-      [],
-      [],
       [{ id: "sub_user_active" }],
+      [],
+      [],
+      [],
+      [],
       [],
     ];
     stripeConfigured = false;
@@ -487,12 +503,12 @@ describe("account deletion route", () => {
 
   test("continues when Stripe resources are already in the deletion target state", async () => {
     selectResults = [
-      [],
-      [],
-      [],
-      [],
       [{ id: "sub_user_active" }],
       [{ id: "cus_user" }],
+      [],
+      [],
+      [],
+      [],
     ];
     stripeCancelError = new Error("This subscription has already been canceled");
     stripeDeleteCustomerError = { statusCode: 404, message: "No such customer" };
