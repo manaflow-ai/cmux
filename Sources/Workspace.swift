@@ -7919,6 +7919,8 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: trimmedCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
+        // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
+        replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
         configureNewTerminalPanel(replacementPanel)
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
