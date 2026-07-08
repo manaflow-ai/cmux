@@ -268,6 +268,37 @@ struct PerAgentSidebarStatusRowTests {
     }
 
     @Test
+    func testBareKeyExitHookFromNonOwnerPaneClearsOnlyThatPanesRow() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        // Real bare-key hook sequence: both panes report the shared
+        // `claude_code` key, ownership migrates to the last reporter.
+        workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: firstPanelId)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: firstPanelId, lifecycle: .running)
+
+        workspace.recordAgentPID(key: "claude_code", pid: 222, panelId: secondPanelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Waiting"), panelId: secondPanelId)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: secondPanelId, lifecycle: .needsInput)
+
+        // Pane A exits: its hook sends `clear_agent_pid claude_code --panel=A
+        // --clear-status` although pane B now owns the key. The clear must
+        // drop A's own row state without touching B's runtime.
+        #expect(workspace.clearAgentPID(key: "claude_code", panelId: firstPanelId, clearStatus: true, refreshPorts: false))
+
+        let rows = workspace.sidebarAgentStatusRows()
+        #expect(rows.map(\.panelId) == [secondPanelId])
+        #expect(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[firstPanelId]?["claude_code"] == nil)
+        #expect(workspace.agentPIDs["claude_code"] == 222)
+        #expect(workspace.agentPIDPanelIdsByKey["claude_code"] == secondPanelId)
+        #expect(workspace.statusEntriesByPanelId[secondPanelId]?["claude_code"]?.value == "Waiting")
+    }
+
+    @Test
     func testClosingPanelWithoutPIDClearsSoleOwnerWorkspaceStatus() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)

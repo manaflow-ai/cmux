@@ -261,7 +261,20 @@ extension Workspace {
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
-            return false
+            // Bare shared keys migrate ownership to the last reporting pane,
+            // so an earlier pane's exit hook arrives with a panel that no
+            // longer owns the PID key. Never touch the current owner's
+            // runtime, but still drop the exiting pane's own panel-scoped row
+            // state or its sidebar row would stay stale until the pane closes.
+            var didChange = false
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            if clearAgentLifecycle(key: statusKey, panelId: panelId) {
+                didChange = true
+            }
+            if clearStatus, clearPanelStatusEntry(statusKey: statusKey, panelId: panelId) {
+                didChange = true
+            }
+            return didChange
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
 
