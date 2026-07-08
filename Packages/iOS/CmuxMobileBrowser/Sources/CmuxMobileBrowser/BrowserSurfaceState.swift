@@ -86,8 +86,23 @@ public final class BrowserSurfaceState: Identifiable {
     /// the user toggles the desktop-site menu item.
     public var contentModePreference: ContentModePreference
 
-    /// Whether subsequent page loads request the desktop site.
-    public var prefersDesktopSite: Bool { contentModePreference == .desktop }
+    /// Whether this device's recommended WebKit content mode is desktop
+    /// (true on iPad, false on iPhone). Injected by the hosting view when the
+    /// web view attaches, so this package stays UIKit-free and the toggle's
+    /// label and first action are correct on iPads, whose default
+    /// ``ContentModePreference/recommended`` mode already loads desktop sites.
+    public var recommendedContentModeIsDesktop: Bool
+
+    /// Whether subsequent page loads request the desktop site, resolving
+    /// ``ContentModePreference/recommended`` to the device default. Drives the
+    /// menu label and the toggle direction.
+    public var prefersDesktopSite: Bool {
+        switch contentModePreference {
+        case .recommended: recommendedContentModeIsDesktop
+        case .mobile: false
+        case .desktop: true
+        }
+    }
 
     /// Whether a navigation is in flight. Drives the progress indicator and the
     /// reload/stop button affordance.
@@ -131,6 +146,7 @@ public final class BrowserSurfaceState: Identifiable {
         self.currentURL = initialURL
         self.savedInteractionState = nil
         self.contentModePreference = .recommended
+        self.recommendedContentModeIsDesktop = false
         self.isLoading = false
         self.estimatedProgress = 0
         self.canGoBack = false
@@ -171,10 +187,11 @@ public final class BrowserSurfaceState: Identifiable {
         }
     }
 
-    /// Flip the desktop-site preference. The first toggle forces the desktop
-    /// site; toggling back forces the mobile site (not the device default, so
-    /// "Request Mobile Site" is honored on iPads whose recommended mode is
-    /// desktop).
+    /// Flip the desktop-site preference relative to the current effective
+    /// mode. On iPhone the first toggle forces the desktop site; on iPad
+    /// (where ``recommendedContentModeIsDesktop`` is true) it forces the
+    /// mobile site. Explicit modes are forced, never the device default, so
+    /// the request is honored regardless of device.
     public func togglePrefersDesktopSite() {
         setContentModePreference(prefersDesktopSite ? .mobile : .desktop)
     }
