@@ -16,6 +16,7 @@ import {
 } from "./session";
 import { renderMd } from "./md";
 import { KEYMAP, MENU_KEYMAP, actionForKey, menuActionForKey, type KeyAction } from "./keymap";
+import { activityIndicatorState, activityTailKey } from "./activity";
 
 // One WebSocket-backed session state, created once in App and shared.
 const Ctx = createContext<SessionState | null>(null);
@@ -501,15 +502,43 @@ function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChang
   );
 }
 
-function StaticProvider({ provider }: { provider: Provider }) {
+function StaticProvider({ provider, running = false }: { provider: Provider; running?: boolean }) {
   return (
     <HintTooltip label="Provider">
-      <span className="row-control static-provider">
+      <span className={"row-control static-provider" + (running ? " provider-running" : "")}>
         <ProviderIcon provider={provider} />
         <span className="row-value">{provider.label}</span>
       </span>
     </HintTooltip>
   );
+}
+
+function useTicker(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+function useActivityStartedAt(active: boolean, key: string): number {
+  const [startedAt, setStartedAt] = useState(() => Date.now());
+  useEffect(() => {
+    if (active) setStartedAt(Date.now());
+  }, [active, key]);
+  return startedAt;
+}
+
+function useStartPendingReset(error: string, connectionEpoch: number, setStarting: Dispatch<SetStateAction<boolean>>) {
+  useEffect(() => {
+    if (error) setStarting(false);
+  }, [error, setStarting]);
+  useEffect(() => {
+    setStarting(false);
+  }, [connectionEpoch, setStarting]);
 }
 
 function StaticCwd({ cwd }: { cwd: string }) {
@@ -609,6 +638,7 @@ function HarnessModelPicker({
   open,
   onOpenChange,
   onSelect,
+  running = false,
 }: {
   provider: string;
   providers: Provider[];
@@ -617,6 +647,7 @@ function HarnessModelPicker({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (provider: string, model: string) => void;
+  running?: boolean;
 }) {
   const installed = providers.filter((p) => p.installed !== false);
   const missing = providers.filter((p) => p.installed === false);
@@ -690,7 +721,7 @@ function HarnessModelPicker({
     }
   }, [activeIndex, activeProvider, choose, installed, listItems, onOpenChange, q, setActiveIndex]);
   const trigger = (
-    <button ref={triggerRef} type="button" className="row-control provider-model-trigger select-trigger" aria-label="Switch harness or model">
+    <button ref={triggerRef} type="button" className={"row-control provider-model-trigger select-trigger" + (running ? " provider-running" : "")} aria-label="Switch harness or model">
       <ProviderIcon provider={currentProvider} />
       <span className="row-value">{label}</span>
       <span className="chev"><Chevron /></span>
@@ -832,6 +863,7 @@ function StatusRow({
   openOptionId,
   setOpenOptionId,
   trailing,
+  running = false,
 }: {
   provider: string;
   providers?: Provider[];
@@ -845,6 +877,7 @@ function StatusRow({
   openOptionId: string | null;
   setOpenOptionId: (id: string | null) => void;
   trailing?: ReactNode;
+  running?: boolean;
 }) {
   const effortLike = options.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
   const context = options.find((o) => o.id === "context" && o.kind === "select");
@@ -866,9 +899,10 @@ function StatusRow({
             open={openOptionId === "modelPicker"}
             onOpenChange={(open) => setOpenOptionId(open ? "modelPicker" : null)}
             onSelect={onProviderModelChange}
+            running={running}
           />
         )
-        : <StaticProvider provider={providerInfo} />}
+        : <StaticProvider provider={providerInfo} running={running} />}
       {fast ? (
         <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
           <button
@@ -1455,6 +1489,7 @@ function Composer() {
   }));
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
   const taRef = useAutoGrow(prompt, 300);
   const baseOptions = providerOptions[provider]?.length ? providerOptions[provider] : capabilities[provider]?.options ?? [];
   const allProviderOptions = providerOptionMap(providers, providerOptions, capabilities);
@@ -1469,6 +1504,7 @@ function Composer() {
   useFileCatalog(ready, connectionEpoch, committedCwd, requestFiles);
   useCwdValidation(ready, connectionEpoch, committedCwd, defaultCwd, cwdChecks, checkCwd, setCwd, setCommittedCwd);
   useCwdErrorFallback(lastError, defaultCwd, setCwd, setCommittedCwd);
+  useStartPendingReset(lastError, connectionEpoch, setStarting);
 
   const setLocalOption = useCallback((id: string, value: OptionValue) => {
     setStartOptionsByProvider((all) => {
@@ -1496,11 +1532,13 @@ function Composer() {
 
   const submit = () => {
     const text = prompt.trim();
-    if (!text) return;
+    if (!text || starting || !ready) return;
     const runCwd = cwd.trim();
+    const sent = start({ provider, cwd: runCwd, prompt: text, options: sanitizeStartOptions(startOptions, options) });
+    if (!sent) return;
+    setStarting(true);
     localStorage.setItem("agentui.provider", provider);
     localStorage.setItem("agentui.cwd", runCwd);
-    start({ provider, cwd: runCwd, prompt: text, options: sanitizeStartOptions(startOptions, options) });
     setPrompt("");
   };
   const changeCwd = (v: string) => { setCwd(v); };
@@ -1537,6 +1575,7 @@ function Composer() {
             data-primary-textarea="true"
             placeholder="Describe a task or ask a question…"
             value={prompt}
+            disabled={starting}
             autoFocus
             onChange={(e) => setPrompt(e.target.value)}
             onSelect={commandMenu.onSelect}
@@ -1565,8 +1604,8 @@ function Composer() {
           openOptionId={openOptionId}
           setOpenOptionId={setOpenOptionId}
           trailing={(
-            <button className="send" type="button" aria-label="Start" disabled={!prompt.trim()} onClick={submit}>
-              <ArrowUp />
+            <button className="send" type="button" aria-label="Start" disabled={!prompt.trim() || starting || !ready} onClick={submit}>
+              {starting ? <span className="send-spinner" /> : <ArrowUp />}
             </button>
           )}
         />
@@ -1595,11 +1634,23 @@ function ToolBlock({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
+function ActivityIndicatorBlock({ label, startedAt }: { label: "Thinking" | "Reasoning"; startedAt: number }) {
+  const now = useTicker(true);
+  const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return (
+    <div className="activity-indicator" aria-live="polite">
+      <span className="activity-label">{label}</span>
+      {elapsed >= 3 ? <span className="activity-elapsed"> · {elapsed}s</span> : null}
+      <span className="activity-hint">esc to interrupt</span>
+    </div>
+  );
+}
+
 function durationText(stats: string): string {
   return stats.split(" · ").find((part) => /^\d+(\.\d+)?s$/.test(part.trim())) ?? "";
 }
 
-function TurnActions({ stats, text, actions, onFork }: { stats: string; text: string; actions: SessionActions; onFork: () => void }) {
+function TurnActions({ stats, text, actions, onFork, forkPending }: { stats: string; text: string; actions: SessionActions; onFork: () => void; forkPending: boolean }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard?.writeText(text).then(() => {
@@ -1623,7 +1674,12 @@ function TurnActions({ stats, text, actions, onFork }: { stats: string; text: st
           <Popover.Positioner sideOffset={6} align="start">
             <Popover.Popup className="turn-menu menu" data-agent-popup="true">
               {stats ? <div className="turn-menu-stats">{stats}</div> : null}
-              {actions.fork ? <button className="turn-menu-item" type="button" onClick={onFork}>Fork chat</button> : null}
+              {actions.fork ? (
+                <button className="turn-menu-item" type="button" disabled={forkPending} onClick={onFork}>
+                  {forkPending ? <span className="fork-spinner" /> : null}
+                  <span>Fork chat</span>
+                </button>
+              ) : null}
             </Popover.Popup>
           </Popover.Positioner>
         </Popover.Portal>
@@ -1632,8 +1688,11 @@ function TurnActions({ stats, text, actions, onFork }: { stats: string; text: st
   );
 }
 
-function Blocks({ blocks, actions, onFork }: { blocks: Block[]; actions: SessionActions; onFork: () => void }) {
+function Blocks({ blocks, status, actions, onFork, forkPending }: { blocks: Block[]; status?: string; actions: SessionActions; onFork: () => void; forkPending: boolean }) {
   let lastAssistant = "";
+  const activity = activityIndicatorState(status, blocks);
+  const activityKey = `${status}:${activity.label}:${activityTailKey(blocks)}`;
+  const activityStartedAt = useActivityStartedAt(activity.show, activityKey);
   return (
     <>
       {blocks.map((b, i) => {
@@ -1657,15 +1716,16 @@ function Blocks({ blocks, actions, onFork }: { blocks: Block[]; actions: Session
           case "error":
             return <div className="error-block-wrap" key={i}><div className="error-block">{b.text}</div></div>;
           case "footer":
-            return <TurnActions key={i} stats={b.text} text={lastAssistant} actions={actions} onFork={onFork} />;
+            return <TurnActions key={i} stats={b.text} text={lastAssistant} actions={actions} onFork={onFork} forkPending={forkPending} />;
         }
       })}
+      {activity.show ? <ActivityIndicatorBlock key={activityKey} label={activity.label} startedAt={activityStartedAt} /> : null}
     </>
   );
 }
 
 function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, providerCommands, session, blocks, options, actions, commands, filesByCwd, ctrlJ, reply, stop, setOption, fork, compose, requestProviderOptions, requestProviderCommands, requestFiles } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, providerCommands, session, blocks, options, actions, commands, filesByCwd, ctrlJ, forkPending, reply, stop, setOption, fork, compose, requestProviderOptions, requestProviderCommands, requestFiles } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1683,7 +1743,7 @@ function Chat() {
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [blocks]);
+  }, [blocks, running]);
   useKeymap({
     options,
     setOption,
@@ -1732,7 +1792,7 @@ function Chat() {
   return (
     <section id="chat-view">
       <div id="messages" ref={scrollRef} onScroll={onScroll}>
-        <Blocks blocks={blocks} actions={actions} onFork={fork} />
+        <Blocks blocks={blocks} status={session?.status} actions={actions} onFork={fork} forkPending={forkPending} />
       </div>
       <div id="chat-input-row">
         <div id="chat-card">
@@ -1766,6 +1826,7 @@ function Chat() {
             onChange={setOption}
             openOptionId={openOptionId}
             setOpenOptionId={setOpenOptionId}
+            running={running}
             trailing={(
               <div className="chat-actions">
               {running ? <button id="stop-btn" type="button" onClick={stop}>Stop</button> : null}

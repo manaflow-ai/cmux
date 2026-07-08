@@ -68,6 +68,7 @@ body {
   min-height: 76px; max-height: 300px;
 }
 #prompt-input::placeholder { color: var(--text-faint); }
+#prompt-input:disabled, #chat-input:disabled { opacity: .58; cursor: progress; }
 
 .input-wrap { position: relative; }
 
@@ -87,6 +88,12 @@ body {
 .provider-icon { display: inline-block; }
 .provider-icon-img {
   display: inline-block; background: center / contain no-repeat;
+}
+.provider-running .provider-icon,
+.provider-running .provider-icon-img { animation: harnessPulse 2s ease-in-out infinite; }
+@keyframes harnessPulse {
+  0%, 100% { opacity: .58; }
+  50% { opacity: 1; }
 }
 .row-value, .cwd-label { overflow: hidden; text-overflow: ellipsis; }
 .cwd-label { font-family: var(--mono); font-size: 11.5px; }
@@ -111,6 +118,11 @@ body {
 }
 .send:hover { background: var(--accent-fg); }
 .send:disabled { background: var(--bg-hover); color: var(--text-faint); cursor: default; }
+.send-spinner, .fork-spinner {
+  width: 13px; height: 13px; border: 1.5px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: spin .8s linear infinite; flex: none;
+}
+.fork-spinner { width: 11px; height: 11px; opacity: .7; }
 
 /* Base UI Select / Popover popups */
 .menu {
@@ -287,6 +299,28 @@ details.thinking { margin: 0 auto 12px; max-width: 760px; padding: 0 24px; color
 details.thinking summary { cursor: pointer; font-size: 12px; user-select: none; }
 details.thinking .t-body { white-space: pre-wrap; font-size: 12.5px; font-style: italic; padding: 6px 0 0; overflow-wrap: break-word; }
 
+.activity-indicator {
+  max-width: 760px; margin: 0 auto 16px; padding: 0 24px; display: flex; align-items: baseline; gap: 0;
+  color: var(--text-faint); font: 400 13px var(--sans);
+}
+.activity-label {
+  color: transparent;
+  background: linear-gradient(100deg,
+    color-mix(in srgb, var(--fg) 36%, var(--bg)) 0%,
+    color-mix(in srgb, var(--fg) 76%, var(--bg)) 45%,
+    color-mix(in srgb, var(--fg) 36%, var(--bg)) 90%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: thinkingShimmer 1.6s ease-in-out infinite;
+}
+.activity-elapsed { color: var(--text-faint); }
+.activity-hint { margin-left: 10px; color: color-mix(in srgb, var(--fg) 26%, var(--bg)); font-size: 12px; }
+@keyframes thinkingShimmer {
+  0% { background-position: 140% 0; }
+  100% { background-position: -80% 0; }
+}
+
 .tool { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; }
 .tool details { border: 0; border-radius: 8px; background: var(--bg-raised); overflow: hidden; }
 .tool summary {
@@ -322,8 +356,10 @@ details.thinking .t-body { white-space: pre-wrap; font-size: 12.5px; font-style:
 .turn-menu-item {
   border: 0; border-radius: 8px; background: transparent; color: var(--text-dim); cursor: pointer;
   padding: 8px 9px; text-align: left; font: 400 13px var(--sans);
+  display: flex; align-items: center; gap: 8px; width: 100%;
 }
 .turn-menu-item:hover { background: var(--bg-hover); color: var(--text); }
+.turn-menu-item:disabled { opacity: .58; cursor: progress; }
 .error-block { padding: 8px 14px; color: var(--red); font-size: 12.5px; border-left: 2px solid var(--red); }
 .error-block-wrap { max-width: 760px; margin: 0 auto 14px; padding: 0 24px; }
 .status-line { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; font-size: 11.5px; color: var(--text-faint); }
@@ -345,6 +381,21 @@ details.thinking .t-body { white-space: pre-wrap; font-size: 12.5px; font-style:
   color: var(--red); font: 400 12.5px var(--sans); cursor: pointer;
 }
 #stop-btn:hover { background: var(--bg-hover); }
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-label {
+    color: color-mix(in srgb, var(--fg) 52%, var(--bg));
+    background: none;
+    animation: none;
+  }
+  .provider-running .provider-icon,
+  .provider-running .provider-icon-img,
+  .send-spinner,
+  .fork-spinner,
+  .tool .spinner {
+    animation: none;
+  }
+}
 
 .shortcut-backdrop {
   position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;

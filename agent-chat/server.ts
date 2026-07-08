@@ -697,10 +697,16 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "fork": {
       const sess = sessions.get(String(msg.sessionId));
-      if (!sess) return;
+      if (!sess) {
+        sendWsError(ws, "fork", `no session: ${msg.sessionId}`);
+        return;
+      }
       Promise.resolve(forkSession(sess))
         .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
-        .catch((err) => sess.emit({ kind: "error", message: String(err) }));
+        .catch((err) => {
+          sess.emit({ kind: "error", message: String(err) });
+          sendWsError(ws, "fork", err);
+        });
       break;
     }
     case "list-options": {

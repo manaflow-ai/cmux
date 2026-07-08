@@ -116,7 +116,8 @@ export interface SessionState {
   filesByCwd: Record<string, string[]>;
   cwdChecks: Record<string, { ok: boolean; message?: string }>;
   lastError: string;
-  start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): void;
+  forkPending: boolean;
+  start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
   reply(text: string): void;
   stop(): void;
@@ -149,12 +150,17 @@ export function useSession(): SessionState {
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
   const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
   const [lastError, setLastError] = useState("");
+  const [forkPending, setForkPending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
 
   const sendRaw = useCallback((obj: unknown) => {
     const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+      return true;
+    }
+    return false;
   }, []);
 
   useEffect(() => {
@@ -220,9 +226,11 @@ export function useSession(): SessionState {
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
+              if (evt.kind === "error") setForkPending(false);
             }
             break;
           case "session-forked":
+            setForkPending(false);
             window.open("/s/" + msg.session.id, "_blank");
             break;
           case "options-list":
@@ -239,6 +247,7 @@ export function useSession(): SessionState {
             break;
           case "error":
             if (msg.op === "start") setLastError(String(msg.message ?? ""));
+            if (msg.op === "fork") setForkPending(false);
             break;
         }
       };
@@ -249,7 +258,7 @@ export function useSession(): SessionState {
   }, [sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
-    sendRaw({ op: "start", ...opts });
+    return sendRaw({ op: "start", ...opts });
   }, [sendRaw]);
   const compose = useCallback(() => {
     history.replaceState(null, "", "/");
@@ -263,7 +272,11 @@ export function useSession(): SessionState {
     setPhase("composer");
   }, []);
   const reply = useCallback((text: string) => {
-    if (sessionIdRef.current) sendRaw({ op: "send", sessionId: sessionIdRef.current, prompt: text });
+    if (sessionIdRef.current) {
+      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, prompt: text })) {
+        setSession((s) => (s ? { ...s, status: "running" } : s));
+      }
+    }
   }, [sendRaw]);
   const stop = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
@@ -272,7 +285,9 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);
   const fork = useCallback(() => {
-    if (sessionIdRef.current) sendRaw({ op: "fork", sessionId: sessionIdRef.current });
+    if (sessionIdRef.current) {
+      if (sendRaw({ op: "fork", sessionId: sessionIdRef.current })) setForkPending(true);
+    }
   }, [sendRaw]);
   const requestProviderOptions = useCallback((provider: string, cwd: string) => {
     sendRaw({ op: "list-options", provider, cwd });
@@ -306,6 +321,7 @@ export function useSession(): SessionState {
     filesByCwd,
     cwdChecks,
     lastError,
+    forkPending,
     start,
     compose,
     reply,

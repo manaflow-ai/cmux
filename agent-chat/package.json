@@ -5,7 +5,7 @@
   "scripts": {
     "start": "bun server.ts",
     "build": "bun run build.ts",
-    "check": "bun x tsc --noEmit && bun test/model-label.test.ts"
+    "check": "bun x tsc --noEmit && bun test/model-label.test.ts && bun test/activity.test.ts"
   },
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",
