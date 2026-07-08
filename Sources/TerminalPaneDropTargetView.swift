@@ -30,13 +30,11 @@ final class PaneDropTargetView: NSView {
         nil
     }
 
-    deinit { dropRoutingRegistration.clear() }
-
-    override func willMove(toSuperview newSuperview: NSView?) {
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
         }
-        super.willMove(toSuperview: newSuperview)
+        super.viewWillMove(toSuperview: newSuperview)
     }
 
     override func layout() {
