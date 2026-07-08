@@ -11,5 +11,6 @@ struct SidebarWorkspaceRowHoverReconciler: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarWorkspaceRowHoverReconcilerView, context: Context) {
         nsView.onPointerHoverChanged = onPointerHoverChanged
+        nsView.reconcileCurrentPointerLocation()
     }
 }
