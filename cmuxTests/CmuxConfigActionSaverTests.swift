@@ -7,9 +7,6 @@ import Testing
 @testable import cmux
 #endif
 
-/// "Save as Workspace Layout" persistence (JSONC upsert/removal into
-/// cmux.json) and the foreground-command capture that feeds saved terminal
-/// surfaces.
 struct CmuxConfigActionSaverTests {
 
     private func temporaryRoot(_ label: String) throws -> URL {
@@ -310,7 +307,6 @@ struct CmuxConfigActionSaverTests {
     }
 
     @Test func commandLineStripsAgentResumeArtifacts() {
-        // Agent detection works on the basename; the invocation form is kept.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "/opt/homebrew/bin/claude", "--resume", "abc-123", "--dangerously-skip-permissions",
@@ -321,13 +317,11 @@ struct CmuxConfigActionSaverTests {
                 "codex", "resume", "0199d9c1", "--yolo",
             ]) == "codex --yolo"
         )
-        // Unknown executables keep their flags untouched.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "mytool", "--resume", "state.bin",
             ]) == "mytool --resume state.bin"
         )
-        // Alias basenames sanitize through their real agent kind.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "agy", "--continue", "old-conversation", "--sandbox", "danger-full-access",
