@@ -48,7 +48,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
@@ -76,7 +75,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == nil)
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
         let current = Self.snapshot(
             remoteConnectionStatusText: "Connected",
@@ -105,7 +103,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
