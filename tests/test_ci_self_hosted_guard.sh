@@ -207,34 +207,55 @@ check_release_build_disk_cleanup() {
   echo "PASS: release-build reclaims runner disk before large cache restores"
 }
 
-check_release_helper_upload_retry() {
+check_release_helper_built_inline() {
   if ! awk '
-    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /- name: Upload universal Ghostty CLI helper/ { in_upload=1; next }
-    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
-    in_upload && /id:[[:space:]]*upload-ghostty-cli-helper/ { upload_id=1 }
-    in_upload && /continue-on-error:[[:space:]]*true/ { upload_continue=1 }
-    in_upload && /uses: actions\/upload-artifact@/ { upload_action=1 }
-    in_upload && /if-no-files-found:[[:space:]]*error/ { upload_required=1 }
-
-    in_job && /- name: Retry universal Ghostty CLI helper upload/ { in_retry=1; retry_step=1; next }
-    in_retry && /^[[:space:]]*- name:/ { in_retry=0 }
-    in_retry && index($0, "steps.upload-ghostty-cli-helper.outcome == '\''failure'\''") { retry_if=1 }
-    in_retry && /uses: actions\/upload-artifact@/ { retry_action=1 }
-    in_retry && /if-no-files-found:[[:space:]]*error/ { retry_required=1 }
-    in_retry && /overwrite:[[:space:]]*true/ { retry_overwrite=1 }
+    in_job && /- name: Build universal Ghostty CLI helper/ { saw_build_step=1; next }
+    in_job && /\.\/scripts\/build-ghostty-cli-helper\.sh --universal --output ghostty-cli-helper\/ghostty/ { saw_build=1 }
+    in_job && /lipo ghostty-cli-helper\/ghostty -verify_arch arm64 x86_64/ { saw_lipo=1 }
+    in_job && /- name: Install universal Ghostty CLI helper/ { saw_install_step=1; next }
+    in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
+    in_job && /actions\/download-artifact@/ { saw_download=1 }
 
     END {
-      exit !(upload_id && upload_continue && upload_action && upload_required && retry_step && retry_if && retry_action && retry_required && retry_overwrite)
+      exit !(saw_build_step && saw_build && saw_lipo && saw_install_step && saw_install && !saw_download)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: release-ghostty-cli-helper must retry required Ghostty helper artifact uploads instead of failing on a single transient upload error"
+    echo "FAIL: release-build must build and install the universal Ghostty helper inline without a separate CI artifact job"
     exit 1
   fi
 
-  echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
+  if grep -Fq "release-ghostty-cli-helper:" "$CI_FILE"; then
+    echo "FAIL: CI must not queue a separate release-ghostty-cli-helper job"
+    exit 1
+  fi
+
+  echo "PASS: release-build builds and installs the universal Ghostty helper inline"
+}
+
+check_runtime_regressions_collapsed() {
+  if grep -Fq "ui-regressions:" "$CI_FILE"; then
+    echo "FAIL: CI must not queue a separate ui-regressions job"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
+    in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
+
+    END { exit !(saw_build_for_testing && saw_ui_script && saw_timeout) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag must build once for testing and run the display UI regressions from that DerivedData"
+    exit 1
+  fi
+
+  echo "PASS: runtime display regressions are collapsed into tests-build-and-lag"
 }
 
 check_signing_intermediate_imports() {
@@ -796,12 +817,9 @@ check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
-check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
-check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
@@ -817,7 +835,8 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_release_build_disk_cleanup
-check_release_helper_upload_retry
+check_release_helper_built_inline
+check_runtime_regressions_collapsed
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability

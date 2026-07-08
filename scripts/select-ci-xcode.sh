@@ -16,6 +16,60 @@ set -euo pipefail
 
 APPLICATIONS_DIR="${CMUX_XCODE_APPLICATIONS_DIR:-/Applications}"
 
+select_developer_dir() {
+  local selected_dir="$1" sdk_version="$2" label="$3"
+
+  echo "$label (DEVELOPER_DIR): $selected_dir (macOS SDK $sdk_version)"
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "DEVELOPER_DIR=$selected_dir" >> "$GITHUB_ENV"
+  fi
+  export DEVELOPER_DIR="$selected_dir"
+
+  # Also point the *system* xcode-select default at the selected toolchain. Tools
+  # that ignore DEVELOPER_DIR resolve `xcodebuild` via the xcode-select default,
+  # notably Apple's `/usr/bin/git` shim (`xcodebuild -find git`). The xctest host
+  # spawns git subprocesses that do NOT inherit our DEVELOPER_DIR, so on runner VMs
+  # whose default is the old Xcode symlink, `git` runs the old `xcodebuild`, which
+  # dlopen()s a libxcodebuildLoader ABI-incompatible with the newer-Xcode-built test
+  # host and crashes ("Symbol not found"), failing git-shell-out tests
+  # (e.g. ExtensionWorktreePrototypeTests) before they can assert - nondeterministic
+  # per which VM a shard lands on. Aligning the default removes that divergence.
+  # Best-effort: never hard-fail a runner that disallows the switch.
+  if xcode-select -s "$selected_dir" 2>/dev/null; then
+    echo "xcode-select default -> $selected_dir"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n xcode-select -s "$selected_dir" 2>/dev/null; then
+    echo "xcode-select default (via sudo) -> $selected_dir"
+  else
+    echo "WARN: could not switch xcode-select default to $selected_dir (continuing; DEVELOPER_DIR is still set for steps that honor it)" >&2
+  fi
+
+  xcodebuild -version
+  # Diagnostic: resolve the SDK with DEVELOPER_DIR set in-process. The workflow
+  # step that calls this script gets DEVELOPER_DIR only via GITHUB_ENV, which
+  # applies to *later* steps, not the current shell, so a bare `xcrun` on the
+  # next line of the same step would still resolve the old xcode-select default.
+  xcrun --sdk macosx --show-sdk-path
+}
+
+PINNED_DEVELOPER_DIR="${CMUX_CI_DEVELOPER_DIR:-}"
+if [ -z "$PINNED_DEVELOPER_DIR" ] && [ -n "${CMUX_CI_XCODE_APP:-}" ]; then
+  PINNED_DEVELOPER_DIR="${CMUX_CI_XCODE_APP%/}/Contents/Developer"
+fi
+
+if [ -n "$PINNED_DEVELOPER_DIR" ]; then
+  if [ ! -d "$PINNED_DEVELOPER_DIR" ]; then
+    echo "Pinned Xcode developer dir does not exist: $PINNED_DEVELOPER_DIR" >&2
+    exit 1
+  fi
+  PINNED_SDK_VER="$(DEVELOPER_DIR="$PINNED_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+  if [ -z "$PINNED_SDK_VER" ]; then
+    echo "Pinned Xcode developer dir has no usable macOS SDK: $PINNED_DEVELOPER_DIR" >&2
+    exit 1
+  fi
+  select_developer_dir "$PINNED_DEVELOPER_DIR" "$PINNED_SDK_VER" "Selected pinned Xcode"
+  exit 0
+fi
+
 # Rank by macOS SDK as maj*1000+min so 26.2 (26002) outranks 15.5 (15005).
 sdk_rank() {
   local v="$1" maj min
@@ -80,33 +134,4 @@ if [ -z "$BEST_DIR" ]; then
   exit 1
 fi
 
-echo "Selected Xcode (DEVELOPER_DIR): $BEST_DIR (macOS SDK $BEST_VER)"
-if [ -n "${GITHUB_ENV:-}" ]; then
-  echo "DEVELOPER_DIR=$BEST_DIR" >> "$GITHUB_ENV"
-fi
-export DEVELOPER_DIR="$BEST_DIR"
-
-# Also point the *system* xcode-select default at the selected toolchain. Tools
-# that ignore DEVELOPER_DIR resolve `xcodebuild` via the xcode-select default,
-# notably Apple's `/usr/bin/git` shim (`xcodebuild -find git`). The xctest host
-# spawns git subprocesses that do NOT inherit our DEVELOPER_DIR, so on runner VMs
-# whose default is the old Xcode symlink, `git` runs the old `xcodebuild`, which
-# dlopen()s a libxcodebuildLoader ABI-incompatible with the newer-Xcode-built test
-# host and crashes ("Symbol not found"), failing git-shell-out tests
-# (e.g. ExtensionWorktreePrototypeTests) before they can assert — nondeterministic
-# per which VM a shard lands on. Aligning the default removes that divergence.
-# Best-effort: never hard-fail a runner that disallows the switch.
-if xcode-select -s "$BEST_DIR" 2>/dev/null; then
-  echo "xcode-select default -> $BEST_DIR"
-elif command -v sudo >/dev/null 2>&1 && sudo -n xcode-select -s "$BEST_DIR" 2>/dev/null; then
-  echo "xcode-select default (via sudo) -> $BEST_DIR"
-else
-  echo "WARN: could not switch xcode-select default to $BEST_DIR (continuing; DEVELOPER_DIR is still set for steps that honor it)" >&2
-fi
-
-xcodebuild -version
-# Diagnostic: resolve the SDK with DEVELOPER_DIR set in-process. The workflow
-# step that calls this script gets DEVELOPER_DIR only via GITHUB_ENV, which
-# applies to *later* steps, not the current shell, so a bare `xcrun` on the
-# next line of the same step would still resolve the old xcode-select default.
-xcrun --sdk macosx --show-sdk-path
+select_developer_dir "$BEST_DIR" "$BEST_VER" "Selected Xcode"
