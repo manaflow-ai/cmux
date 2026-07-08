@@ -33,12 +33,12 @@
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3323	Sources/CmuxConfig.swift
 3124	Sources/Update/UpdateTitlebarAccessory.swift
-2882	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
 2611	Sources/KeyboardShortcutSettings.swift
 2563	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
+2507	cmuxTests/CMUXOpenCommandTests.swift
 2404	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
