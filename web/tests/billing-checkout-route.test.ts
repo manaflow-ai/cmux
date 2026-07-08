@@ -61,6 +61,7 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
+  stackHandlerApp: null,
 }));
 
 // Keep the real Pro resolver on the no-Stripe-subscription path regardless of

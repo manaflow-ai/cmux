@@ -24,6 +24,7 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser, listProducts: appListProducts }),
   isStackConfigured: () => true,
   stackServerApp: { getUser, listProducts: appListProducts },
+  stackHandlerApp: null,
 }));
 
 // bun's mock.module replaces the module for the whole test process, so keep

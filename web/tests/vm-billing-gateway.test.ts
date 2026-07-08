@@ -23,6 +23,7 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getItem }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: { getItem, getUser: async () => null },
+  stackHandlerApp: null,
 }));
 
 beforeEach(() => {

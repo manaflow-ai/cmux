@@ -37,6 +37,7 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
+  stackHandlerApp: null,
 }));
 
 mock.module("@vercel/firewall", () => ({
