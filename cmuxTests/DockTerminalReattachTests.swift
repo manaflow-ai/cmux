@@ -15,6 +15,7 @@ import Testing
 @Observable
 private final class DockTransferTestPanel: Panel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType
     var displayTitle: String
     let displayIcon: String?

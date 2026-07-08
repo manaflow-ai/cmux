@@ -17,6 +17,7 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 @Observable
 final class MarkdownPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
 
     /// Absolute path to the markdown file being displayed.

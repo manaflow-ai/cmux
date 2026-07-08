@@ -59,6 +59,7 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
 @Observable
 public final class ProjectPanel: NSObject, Panel {
     public let id = UUID()
+    public let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     public let panelType: PanelType = .project
 
     public private(set) var projectURL: URL

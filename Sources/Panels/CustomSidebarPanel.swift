@@ -6,6 +6,7 @@ import Combine
 @Observable
 final class CustomSidebarPanel: Panel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .customSidebar
     let name: String
     let fileURL: URL

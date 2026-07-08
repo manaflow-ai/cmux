@@ -29,6 +29,7 @@ final class RightSidebarToolPanel: Panel {
     }
 
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 

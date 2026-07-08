@@ -77,8 +77,7 @@ struct FileExternalOpenApplicationResolver: Sendable {
 
     private static func liveDisplayName(for applicationURL: URL) -> String {
         let bundle = Bundle(url: applicationURL)
-        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
         var name = bundleName ?? FileManager.default.displayName(atPath: applicationURL.path)
         if name.lowercased().hasSuffix(".app") {
             name = String(name.dropLast(4))
@@ -981,6 +980,7 @@ enum FilePreviewTextSaver {
 @Observable
 final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID

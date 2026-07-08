@@ -44,6 +44,7 @@ final class TerminalPanel: Panel {
     }
 
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
 
     /// The underlying terminal surface
@@ -311,7 +312,6 @@ final class TerminalPanel: Panel {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
-
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {

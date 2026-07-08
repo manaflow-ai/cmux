@@ -41,6 +41,15 @@ struct ProUpgradeCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .onHover { hovering in
+            // Warm the pricing destination while the pointer is over the row
+            // so clicking "Upgrade…" opens an already-loaded page. Managed
+            // subscribers get the Stripe portal instead, which the host does
+            // not prewarm.
+            if hovering, flow?.canManageBilling != true {
+                flow?.prefetchProUpgrade()
+            }
+        }
         .task(id: flow?.currentIdentity?.id ?? "") {
             await flow?.refreshBillingPlan()
         }
