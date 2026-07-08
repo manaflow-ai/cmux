@@ -286,6 +286,55 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(!restoredWorkspace.panels.values.contains { $0.stableSurfaceId == liveStableSurfaceId })
     }
 
+    @Test func closedWindowRestoreWithLiveIdentityMintsFreshStableIds() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            ClosedItemHistoryStore.shared.removeAll()
+            defer {
+                for context in Array(appDelegate.mainWindowContexts.values) {
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+                }
+                ClosedItemHistoryStore.shared.removeAll()
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let liveManager = TabManager()
+            let liveWorkspace = try #require(liveManager.selectedWorkspace)
+            let livePanelId = try #require(liveWorkspace.focusedPanelId)
+            let liveStableWorkspaceId = liveWorkspace.stableId
+            let liveStableSurfaceId = try #require(liveWorkspace.panels[livePanelId]).stableSurfaceId
+            let liveWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: liveManager)
+            let recordId = UUID()
+            let snapshot = SessionWindowSnapshot(
+                windowId: UUID(),
+                frame: nil,
+                display: nil,
+                tabManager: liveManager.sessionSnapshot(includeScrollback: false),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: recordId,
+                closedAt: Date(),
+                entry: .window(ClosedWindowHistoryEntry(
+                    windowId: snapshot.windowId,
+                    snapshot: snapshot,
+                    workspaceIds: [liveWorkspace.id]
+                ))
+            ))
+
+            #expect(appDelegate.reopenClosedHistoryItem(id: recordId, shouldActivate: false))
+
+            let restoredContext = try #require(
+                appDelegate.mainWindowContexts.values.first { $0.windowId != liveWindowId }
+            )
+            let restoredWorkspace = try #require(restoredContext.tabManager.tabs.first)
+            #expect(restoredWorkspace.stableId != liveStableWorkspaceId)
+            #expect(!restoredWorkspace.panels.values.contains { $0.stableSurfaceId == liveStableSurfaceId })
+        }
+    }
+
     @Test func legacySnapshotWithoutStableIdsRestoresWithFreshOnes() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

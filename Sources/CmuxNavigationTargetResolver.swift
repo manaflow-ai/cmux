@@ -14,41 +14,9 @@ import Foundation
 /// The type is a plain value over snapshot descriptors so the resolution rules
 /// are unit-testable without launching the app.
 struct CmuxNavigationTargetResolver {
-    /// One tab (panel) inside a workspace, described by both of its identities.
-    struct SurfaceDescriptor: Equatable {
-        /// Session-scoped panel identifier (`Panel.id`).
-        let panelId: UUID
-        /// Restart-stable surface identifier (`Panel.stableSurfaceId`).
-        let stableSurfaceId: UUID
-    }
-
-    /// One workspace, described by both of its identities plus its child targets.
-    struct WorkspaceDescriptor: Equatable {
-        /// Session-scoped workspace identifier (`Workspace.id`).
-        let workspaceId: UUID
-        /// Restart-stable workspace identifier (`Workspace.stableId`).
-        let stableId: UUID
-        /// Session-scoped bonsplit pane identifiers. Panes are layout nodes with
-        /// no persisted identity, so pane routes resolve by exact match only.
-        let paneIds: [UUID]
-        let surfaces: [SurfaceDescriptor]
-    }
-
-    /// A resolved navigation target, expressed in current-session identifiers.
-    enum Resolution: Equatable {
-        case workspace(workspaceId: UUID)
-        case pane(workspaceId: UUID, paneId: UUID)
-        case surface(workspaceId: UUID, panelId: UUID)
-
-        var workspaceId: UUID {
-            switch self {
-            case .workspace(let workspaceId),
-                 .pane(let workspaceId, _),
-                 .surface(let workspaceId, _):
-                return workspaceId
-            }
-        }
-    }
+    typealias SurfaceDescriptor = CmuxNavigationSurfaceDescriptor
+    typealias WorkspaceDescriptor = CmuxNavigationWorkspaceDescriptor
+    typealias Resolution = CmuxNavigationResolution
 
     let workspaces: [WorkspaceDescriptor]
     private let workspaceByRuntimeId: [UUID: WorkspaceDescriptor]

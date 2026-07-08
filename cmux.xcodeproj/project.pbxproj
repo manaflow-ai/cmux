@@ -418,8 +418,11 @@
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
+		C54860110000000000000001 /* CmuxNavigationResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860110000000000000002 /* CmuxNavigationResolution.swift */; };
+		C54860120000000000000001 /* CmuxNavigationSurfaceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860120000000000000002 /* CmuxNavigationSurfaceDescriptor.swift */; };
 		C54860010000000000000001 /* CmuxNavigationTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860010000000000000002 /* CmuxNavigationTargetResolver.swift */; };
 		C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860030000000000000002 /* CmuxNavigationTargetResolverTests.swift */; };
+		C54860130000000000000001 /* CmuxNavigationWorkspaceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860130000000000000002 /* CmuxNavigationWorkspaceDescriptor.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */; };
@@ -1903,8 +1906,11 @@
 		D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowConstrainFrameTests.swift; sourceTree = "<group>"; };
 		D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowFullScreenCapabilityTests.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
+		C54860110000000000000002 /* CmuxNavigationResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationResolution.swift; sourceTree = "<group>"; };
+		C54860120000000000000002 /* CmuxNavigationSurfaceDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationSurfaceDescriptor.swift; sourceTree = "<group>"; };
 		C54860010000000000000002 /* CmuxNavigationTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationTargetResolver.swift; sourceTree = "<group>"; };
 		C54860030000000000000002 /* CmuxNavigationTargetResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationTargetResolverTests.swift; sourceTree = "<group>"; };
+		C54860130000000000000002 /* CmuxNavigationWorkspaceDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationWorkspaceDescriptor.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
@@ -3609,7 +3615,10 @@
 				C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */,
 				C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */,
 				C3677002000000000000002 /* CmuxSSHURLRequest.swift */,
+				C54860110000000000000002 /* CmuxNavigationResolution.swift */,
+				C54860120000000000000002 /* CmuxNavigationSurfaceDescriptor.swift */,
 				C54860010000000000000002 /* CmuxNavigationTargetResolver.swift */,
+				C54860130000000000000002 /* CmuxNavigationWorkspaceDescriptor.swift */,
 				C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */,
 				C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */,
 				C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */,
@@ -5085,7 +5094,10 @@
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
+				C54860110000000000000001 /* CmuxNavigationResolution.swift in Sources */,
+				C54860120000000000000001 /* CmuxNavigationSurfaceDescriptor.swift in Sources */,
 				C54860010000000000000001 /* CmuxNavigationTargetResolver.swift in Sources */,
+				C54860130000000000000001 /* CmuxNavigationWorkspaceDescriptor.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
