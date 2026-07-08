@@ -1204,6 +1204,39 @@ describe("VM REST auth", () => {
     expect(getUser).toHaveBeenCalledTimes(1);
   });
 
+  test("blocks authenticated writes while account deletion is in progress", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+    });
+
+    const user = await verifyRequest(
+      new Request("https://cmux.test/api/vm", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+      { allowCookie: false },
+    );
+    expect(user).toBeNull();
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          origin: "https://cmux.test",
+        },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("blocks VM create kill switch before workflow", async () => {
     process.env.CMUX_VM_CREATE_ENABLED = "0";
     getUser.mockResolvedValue(authedStackUser());

@@ -51,7 +51,11 @@ export async function POST(request: Request): Promise<Response> {
   // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
   // downstream PostHog quota risk is no worse than the already-public direct
   // r.cmux.com path.
+  const hasNativeAuth = request.headers.get("authorization")?.toLowerCase().startsWith("bearer ") === true;
   const user = await verifyRequest(request, { allowCookie: false });
+  if (!user && hasNativeAuth) {
+    return jsonResponse({ ok: true, forwarded: 0 });
+  }
 
   const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
   if (!body.ok) {
