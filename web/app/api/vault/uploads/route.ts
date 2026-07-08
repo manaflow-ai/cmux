@@ -209,8 +209,11 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .from(vaultUploadGrants)
         .where(eq(vaultUploadGrants.objectKey, objectKey))
         .limit(1);
+      const reusePreviousUploadKey = previousGrant && previousGrant.expiresAt > now;
       const grantReservationToken = randomUUID();
-      const uploadObjectKey = buildUploadObjectKey(objectKey, grantReservationToken);
+      const uploadObjectKey = reusePreviousUploadKey
+        ? previousGrant.uploadObjectKey
+        : buildUploadObjectKey(objectKey, grantReservationToken);
       const [grant] = await lockedDb
         .insert(vaultUploadGrants)
         .values({

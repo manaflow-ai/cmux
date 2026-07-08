@@ -128,7 +128,7 @@ describe("Vault uploads route", () => {
         compressedSizeBytes: 123,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
         expiresAt: new Date("2030-01-02T00:00:00.000Z"),
-    });
+      });
 
     beforeNextPresignFailure = async () => {
       const [staleReservation] = await db
@@ -162,6 +162,39 @@ describe("Vault uploads route", () => {
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(rows).toHaveLength(1);
     expect(rows[0].compressedSizeBytes).toBe(789);
+  });
+
+  dbTest("reuses the active staging key when retrying an existing grant", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    const uploadObjectKey = `${objectKey}.active-upload`;
+    const [originalGrant] = await db
+      .insert(vaultUploadGrants)
+      .values({
+        userId,
+        objectKey,
+        uploadObjectKey,
+        compressedSizeBytes: 123,
+        createdAt: new Date("2030-01-01T00:00:00.000Z"),
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({ reservationToken: vaultUploadGrants.reservationToken });
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).items[0].status).toBe("upload");
+    expect(presignPut).toHaveBeenCalledWith(uploadObjectKey, 456);
+    const rows = await db
+      .select({
+        uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+        reservationToken: vaultUploadGrants.reservationToken,
+      })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].uploadObjectKey).toBe(uploadObjectKey);
+    expect(rows[0].reservationToken).not.toBe(originalGrant!.reservationToken);
   });
 
   dbTest("removes a newly-created upload grant when presign fails", async () => {
