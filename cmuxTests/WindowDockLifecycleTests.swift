@@ -288,6 +288,38 @@ struct WindowDockLifecycleTests {
         #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
     }
 
+    @Test("External drop clears remote tmux mirror state before replacing last main panel")
+    @MainActor
+    func externalDropIntoOwnWindowDockDetachesRemoteTmuxMirrorLocally() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        workspace.isRemoteTmuxMirror = true
+        let panelId = try #require(workspace.panels.keys.first)
+        let bonsplitTabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+        let sourcePane = try #require(workspace.paneId(forPanelId: panelId))
+        let dock = appDelegate.windowDock(forWindowId: windowId)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        let moved = dock.bonsplitController.onExternalTabDrop?(.init(
+            tabId: bonsplitTabId,
+            sourcePaneId: sourcePane,
+            destination: .insert(targetPane: dockPane, targetIndex: nil)
+        )) ?? false
+
+        #expect(moved)
+        #expect(dock.containsPanel(panelId))
+        #expect(workspace.panels[panelId] == nil)
+        #expect(!workspace.isRemoteTmuxMirror)
+        #expect(workspace.panels.count == 1)
+    }
+
     @Test("Docks in two windows render simultaneously without render-host gating")
     @MainActor
     func windowDocksRenderSimultaneouslyInBothWindows() throws {
