@@ -6744,7 +6744,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
-        sourcePanelId: UUID?
+        sourcePanelId: UUID?, inheritedWorkingDirectory: String? = nil
     ) -> String? {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
@@ -6754,6 +6754,7 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
+            inheritedWorkingDirectory,
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
@@ -7161,15 +7162,14 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        // Explicit caller cwd is intent; Ghostty inherited cwd only outranks cached Workspace fallback.
-        let requestedWorkingDirectory = Self.normalizedTerminalWorkingDirectory(workingDirectory)
-        let ghosttyInheritedWorkingDirectory = Self.normalizedTerminalWorkingDirectory(inheritedConfig?.workingDirectory)
-        let splitWorkingDirectory = requestedWorkingDirectory
-            ?? ghosttyInheritedWorkingDirectory
-            ?? resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory: nil, sourcePanelId: panelId)
+        let ghosttyInheritedWorkingDirectory = terminalPanel(for: panelId)?.surface.surface == nil || restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning ? nil : Self.normalizedTerminalWorkingDirectory(inheritedConfig?.workingDirectory)
+        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
+            inheritedWorkingDirectory: ghosttyInheritedWorkingDirectory
+        )
 #if DEBUG
         cmuxDebugLog(
-            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) requested=\(requestedWorkingDirectory ?? "nil") inherited=\(ghosttyInheritedWorkingDirectory ?? "nil") resolved=\(splitWorkingDirectory ?? "nil")"
+            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) requested=\(Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? "nil") inherited=\(ghosttyInheritedWorkingDirectory ?? "nil") resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
 
