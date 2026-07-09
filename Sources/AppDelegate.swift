@@ -11984,30 +11984,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // so opening a notification must switch it back to the terminal UI.
                     window2.sidebarSelectionState.selection = .notifications
 
-                    let workspaceTitle1 = "Notification Workspace One"
-                    let workspaceTitle2 = "Notification Workspace Two"
-                    window1.tabManager.setCustomTitle(
-                        tabId: tabId1,
-                        title: workspaceTitle1,
-                        propagateToRemoteTmux: false
+                    let fixture = self.makeMultiWindowNotificationUITestFixture(
+                        first: (window1.tabManager, tabId1),
+                        second: (window2.tabManager, tabId2),
+                        store: store
                     )
-                    window2.tabManager.setCustomTitle(
-                        tabId: tabId2,
-                        title: workspaceTitle2,
-                        propagateToRemoteTmux: false
-                    )
-
-                    // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
-                    let prevOverride = AppFocusState.overrideIsFocused
-                    AppFocusState.overrideIsFocused = false
-                    store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
-                    AppFocusState.overrideIsFocused = prevOverride
-
-                    // Insert after W2 so it becomes "latest unread" (first in list).
-                    store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
-
-                    let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
-                    let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
 
                     self.writeMultiWindowNotificationTestData([
                         "window1Id": window1.windowId.uuidString,
@@ -12017,10 +11998,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "tabId2": tabId2.uuidString,
                         "surfaceId1": surfaceId1.uuidString,
                         "surfaceId2": surfaceId2.uuidString,
-                        "notifId1": notif1?.id.uuidString ?? "",
-                        "notifId2": notif2?.id.uuidString ?? "",
-                        "workspaceTitle1": workspaceTitle1,
-                        "workspaceTitle2": workspaceTitle2,
+                        "notifId1": fixture.notification1?.id.uuidString ?? "",
+                        "notifId2": fixture.notification2?.id.uuidString ?? "",
+                        "workspaceTitle1": fixture.workspaceTitle1,
+                        "workspaceTitle2": fixture.workspaceTitle2,
                         "expectedLatestWindowId": window1.windowId.uuidString,
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)

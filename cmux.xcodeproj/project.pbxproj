@@ -94,6 +94,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
 		A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */; };
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
+		D77690000000000000000001 /* AppDelegate+MultiWindowNotificationUITestFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */; };
 		A5FB1301 /* AppDelegate+NewWorkspaceContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */; };
 		C0DE77060000000000000001 /* AppDelegate+NewWorkspaceMenuRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */; };
 		4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */; };
@@ -883,6 +884,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD3B5F249DECAB446CC71D32 /* MockBridgeInputCapture.swift */; };
 		C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740020000000000000002 /* MouseDownMenuItemView.swift */; };
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
+		D77690000000000000000005 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */; };
 		596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */; };
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
 		A6AC72030000000000000001 /* NativeSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72030000000000000002 /* NativeSpinner.swift */; };
@@ -893,6 +895,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
 		7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */; };
 		D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */; };
+		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
 		C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */; };
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
 		4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */; };
@@ -1783,6 +1786,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
 		A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MonitorMemory.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AppDelegate+MultiWindowNotificationUITestFixture.swift"; sourceTree = "<group>"; };
 		A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewWorkspaceContextMenu.swift"; sourceTree = "<group>"; };
 		C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewWorkspaceMenuRendering.swift"; sourceTree = "<group>"; };
 		4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationDeliverySeams.swift"; sourceTree = "<group>"; };
@@ -2515,6 +2519,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CD3B5F249DECAB446CC71D32 /* MockBridgeInputCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockBridgeInputCapture.swift; sourceTree = "<group>"; };
 		C75740020000000000000002 /* MouseDownMenuItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MouseDownMenuItemView.swift; sourceTree = "<group>"; };
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
+		D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsWorkspaceHeadlineUITests.swift; sourceTree = "<group>"; };
 		596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationDeliveryHooks.swift; sourceTree = "<group>"; };
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		A6AC72030000000000000002 /* NativeSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSpinner.swift; sourceTree = "<group>"; };
@@ -2525,6 +2530,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
 		7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NotificationCacheMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
+		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
 		C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRowSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
@@ -3393,6 +3399,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */,
 				B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */,
 				B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */,
+				D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */,
 				04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */,
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
 				C0DE34020000000000000006 /* HelpMenuUITests.swift */,
@@ -4053,6 +4060,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5F100000000000000000012 /* AppDelegate+NotificationOpen.swift */,
 				A5F100000000000000000004 /* AppDelegate+NotificationScroll.swift */,
 				6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */,
+				D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */,
 				6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */,
 				6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */,
 				C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */,
@@ -4283,6 +4291,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C57B00090000000000000002 /* CustomSidebarPanelView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001223 /* UpdateLogStore.swift */,
+				D77690000000000000000004 /* NotificationPopoverRow.swift */,
 				A5001218 /* UpdateTitlebarAccessory.swift */,
 				C10D00120000000000000012 /* TitlebarCloudVMButton.swift */,
 				C75740020000000000000002 /* MouseDownMenuItemView.swift */,
@@ -5480,6 +5489,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
 				A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */,
 				D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */,
+				D77690000000000000000001 /* AppDelegate+MultiWindowNotificationUITestFixture.swift in Sources */,
 				A5FB1301 /* AppDelegate+NewWorkspaceContextMenu.swift in Sources */,
 				C0DE77060000000000000001 /* AppDelegate+NewWorkspaceMenuRendering.swift in Sources */,
 				4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */,
@@ -5913,6 +5923,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
+				D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
@@ -6529,6 +6540,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
 				E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
 				B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */,
+				D77690000000000000000005 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift in Sources */,
 				8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */,
 				703CAAF15AF4CA4399BDD26B /* RemoteTmuxSizingUITests+Lab.swift in Sources */,
 				08577759CBD4B3C507EBB231 /* RemoteTmuxSizingUITests+Oracle.swift in Sources */,
