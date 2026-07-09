@@ -166,14 +166,9 @@ async function accountDeletionTeamScope(user: StackAccountDeletionUser): Promise
       ownedTeamIds.push(team.id);
       continue;
     }
-    if (!memberIds.includes(user.id)) continue;
-    const replacementOwnerId = memberIds.find((memberId) => memberId !== user.id);
-    if (replacementOwnerId) {
-      retainedTeamBillingOwners.push({
-        stackTeamId: team.id,
-        stackUserId: replacementOwnerId,
-      });
-    }
+    // Stack team membership has no stable owner/admin field here. Do not infer
+    // a retained billing owner from member order; local billing cleanup fails
+    // closed when a shared-team Stripe row needs an explicit replacement.
   }
   return { ownedTeamIds, retainedTeamBillingOwners };
 }

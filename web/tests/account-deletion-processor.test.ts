@@ -57,7 +57,7 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("passes owned team ids and retained team billing owners into cmux cleanup", async () => {
+  test("passes owned team ids into cmux cleanup without inferring shared-team billing owners", async () => {
     const personalTeam = stackTeam("team-personal", ["user-1"]);
     const sharedTeam = stackTeam("team-shared", ["user-1", "user-2"]);
 
@@ -78,7 +78,8 @@ describe("account deletion processor", () => {
     }));
 
     expect(result).toBe("processed");
-    expect(calls).toContain("cleanup:user-1:owned=team-personal:retained=team-shared->user-2");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal");
+    expect(calls).not.toContain("cleanup:user-1:owned=team-personal:retained=team-shared->user-2");
   });
 
   test("pages through Stack teams before selecting owned-team cleanup scope", async () => {
@@ -108,21 +109,21 @@ describe("account deletion processor", () => {
 
     expect(result).toBe("processed");
     expect(requestedCursors).toEqual([undefined, "page-2"]);
-    expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2:retained=team-shared->user-2");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2");
   });
 
-  test("pages through Stack team members before selecting retained-team cleanup scope", async () => {
+  test("pages through Stack team members before selecting owned-team cleanup scope", async () => {
     const requestedCursors: Array<string | undefined> = [];
     const requestedLimits: Array<number | undefined> = [];
-    const sharedTeam = {
-      id: "team-shared-page-2",
-      displayName: "team-shared-page-2",
+    const personalTeam = {
+      id: "team-personal-member-page-2",
+      displayName: "team-personal-member-page-2",
       listUsers: async (options?: { readonly cursor?: string; readonly limit?: number }) => {
         requestedCursors.push(options?.cursor);
         requestedLimits.push(options?.limit);
         return options?.cursor === "members-page-2"
-          ? stackUserPage(["user-1", "user-2"], null)
-          : stackUserPage(["user-3"], "members-page-2");
+          ? stackUserPage(["user-1"], null)
+          : stackUserPage([], "members-page-2");
       },
     };
 
@@ -132,7 +133,7 @@ describe("account deletion processor", () => {
         return {
           id: userId,
           clientReadOnlyMetadata: {},
-          listTeams: async () => [sharedTeam],
+          listTeams: async () => [personalTeam],
           update: async () => {},
           delete: async () => {
             calls.push(`stack-delete:${userId}`);
@@ -144,7 +145,7 @@ describe("account deletion processor", () => {
     expect(result).toBe("processed");
     expect(requestedCursors).toEqual([undefined, "members-page-2"]);
     expect(requestedLimits).toEqual([100, 100]);
-    expect(calls).toContain("cleanup:user-1:retained=team-shared-page-2->user-3");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal-member-page-2");
   });
 
   test("keeps cleanup-started failures blocking so the durable job can retry", async () => {
