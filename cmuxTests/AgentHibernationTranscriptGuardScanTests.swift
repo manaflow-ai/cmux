@@ -86,6 +86,43 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
+    func postTeardownRestoreChecksContinueAfterEarlyRestore() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"before"}}"# + "\n"
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+
+        let task = Task {
+            await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+                snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+                processIDs: [],
+                initialRetryDelaysNanoseconds: [0, 500_000_000],
+                backstopDelaysSeconds: []
+            )
+        }
+
+        try await waitUntilRestored(live: live, snapshotContent: snapshotContent)
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+        await task.value
+
+        #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
+    }
+
+    private func waitUntilRestored(live: URL, snapshotContent: String) async throws {
+        for _ in 0..<200 {
+            if try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        Issue.record("expected transcript restore before reclobbering")
+    }
+
+    @Test
     func postTeardownRestoreChecksRunsImmediatePassBeforeBackstop() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -99,7 +136,8 @@ struct AgentHibernationTranscriptGuardScanTests {
         await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
             snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
             processIDs: [],
-            initialRetryDelaysNanoseconds: [0]
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: []
         )
 
         #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))

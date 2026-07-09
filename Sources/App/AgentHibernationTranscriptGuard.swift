@@ -30,6 +30,7 @@ enum AgentHibernationTranscriptGuard {
         snapshot: TeardownTranscriptSnapshot,
         processIDs: Set<Int>,
         initialRetryDelaysNanoseconds: [UInt64] = [0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000],
+        backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
         fileManager: FileManager = .default
     ) async {
         if !processIDs.isEmpty {
@@ -47,16 +48,14 @@ enum AgentHibernationTranscriptGuard {
         // Check at once, then retry rapidly through the exit-path rewrite window.
         for delayNanoseconds in initialRetryDelaysNanoseconds {
             if delayNanoseconds > 0 { try? await Task.sleep(nanoseconds: delayNanoseconds) }
-            if restoreIfClobbered(snapshot, fileManager: fileManager) { return }
+            _ = restoreIfClobbered(snapshot, fileManager: fileManager)
         }
 
         // Backstop for SIGHUP-only teardowns with no tracked pid, and for
         // stragglers past the bounded process-exit window.
-        for delaySeconds in restoreCheckDelaysSeconds {
+        for delaySeconds in backstopDelaysSeconds {
             try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
-            if restoreIfClobbered(snapshot, fileManager: fileManager) {
-                return
-            }
+            _ = restoreIfClobbered(snapshot, fileManager: fileManager)
         }
     }
 
