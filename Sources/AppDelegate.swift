@@ -11984,6 +11984,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // so opening a notification must switch it back to the terminal UI.
                     window2.sidebarSelectionState.selection = .notifications
 
+                    let workspaceTitle1 = "Notification Workspace One"
+                    let workspaceTitle2 = "Notification Workspace Two"
+                    window1.tabManager.setCustomTitle(
+                        tabId: tabId1,
+                        title: workspaceTitle1,
+                        propagateToRemoteTmux: false
+                    )
+                    window2.tabManager.setCustomTitle(
+                        tabId: tabId2,
+                        title: workspaceTitle2,
+                        propagateToRemoteTmux: false
+                    )
+
                     // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
                     let prevOverride = AppFocusState.overrideIsFocused
                     AppFocusState.overrideIsFocused = false
@@ -12006,6 +12019,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "surfaceId2": surfaceId2.uuidString,
                         "notifId1": notif1?.id.uuidString ?? "",
                         "notifId2": notif2?.id.uuidString ?? "",
+                        "workspaceTitle1": workspaceTitle1,
+                        "workspaceTitle2": workspaceTitle2,
                         "expectedLatestWindowId": window1.windowId.uuidString,
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)
