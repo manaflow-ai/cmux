@@ -176,6 +176,7 @@ extension Workspace {
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
         var didMutateTitleDerivedAgent = false
+        var didPruneStaleAgentRuntime = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -183,22 +184,27 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if panels[panelId] is TerminalPanel,
-           updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
-            didMutate = true
-            didMutateTitleDerivedAgent = true
+        if panels[panelId] is TerminalPanel {
+            if updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
+                didMutate = true
+                didMutateTitleDerivedAgent = true
+            }
+            if clearStaleAgentPIDs(panelId: panelId, refreshPorts: false) {
+                didMutate = true
+                didPruneStaleAgentRuntime = true
+            }
         }
 
         // Update bonsplit tab title only when this panel's title changed, and
-        // update the icon when the title-derived agent fallback changes.
-        if (didMutatePanelTitle || didMutateTitleDerivedAgent),
+        // update the icon when the current agent signal changes.
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime),
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
+            let iconAssetUpdate: String?? = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime
                 ? .some(terminalTabAgentIconAsset(forPanelId: panelId))
                 : nil
             bonsplitController.updateTab(
