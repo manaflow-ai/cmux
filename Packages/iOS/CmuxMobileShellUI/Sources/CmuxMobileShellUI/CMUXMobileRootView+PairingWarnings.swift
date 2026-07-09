@@ -17,17 +17,23 @@ extension CMUXMobileRootView {
 
     func acceptPairingVersionWarning() async {
         let result = await store.acceptPairingVersionWarning()
-        clearAttachTicketAuthentication(after: result)
-        if result == .connected {
-            dismissAddDeviceSheet()
-        }
+        finishPairingPresentation(after: result)
     }
 
     func acceptManualHostTrustWarning() async {
         let result = await store.acceptManualHostTrustWarning()
+        finishPairingPresentation(after: result)
+    }
+
+    func finishPairingPresentation(after result: MobilePairingURLConnectionResult) {
         clearAttachTicketAuthentication(after: result)
-        if result == .connected {
+        switch result {
+        case .connected:
             dismissAddDeviceSheet()
+        case .needsUserApproval:
+            showAddDevice()
+        case .failed, .superseded:
+            break
         }
     }
 }

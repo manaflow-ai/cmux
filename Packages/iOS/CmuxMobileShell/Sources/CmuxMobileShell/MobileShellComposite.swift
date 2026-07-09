@@ -1535,26 +1535,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Connect using the current pairing input, accepting either a code or pairing URL.
-    public func connectPairingInput() async {
+    @discardableResult
+    public func connectPairingInput() async -> MobilePairingURLConnectionResult {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {
-            return
+            return .failed
         }
         if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
-            await connectPairingURL(trimmedCode)
-            return
+            return await connectPairingURLResult(trimmedCode)
         }
         connectPreviewHost()
+        return connectionState == .connected ? .connected : .failed
     }
 
     /// Connect to a manually-entered Mac host and optionally associate the
     /// resulting session with an existing paired-Mac device id.
+    @discardableResult
     public func connectManualHost(
         name: String,
         host: String,
         port: Int,
         pairedMacDeviceID: String? = nil
-    ) async {
+    ) async -> MobilePairingURLConnectionResult {
         await connectManualHost(
             name: name,
             host: host,
@@ -1596,7 +1598,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
         route: CmxAttachRoute? = nil,
-        approvedManualRouteID: String? = nil,
         pendingMacSwitchAttemptID: UUID? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> MobilePairingURLConnectionResult {
@@ -1628,12 +1629,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let directRoute = try? routeSelection.manualHostRoute(host: normalizedHost, port: port, preserving: route)
-        let directRouteIsApproved = approvedManualRouteID != nil && directRoute?.id == approvedManualRouteID
         let approvalAttemptID = beginPairingValidationAttempt()
         if let directRoute {
             let needsApproval = await manualHostRouteNeedsApproval(directRoute)
             guard isCurrentPairingAttempt(approvalAttemptID) else { return .superseded }
-            if needsApproval && !directRouteIsApproved {
+            if needsApproval {
                 queueManualHostTrustWarning(
                     route: directRoute,
                     displayHost: normalizedHost,
@@ -1673,9 +1673,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             guard ifStillCurrent?() != false else { return .superseded }
-            let manualHostTrusted = directRouteIsApproved
-                ? true
-                : await manualHostStackAuthTrusted(for: directRoute)
+            let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
             guard isCurrentPairingAttempt(attemptID), ifStillCurrent?() != false else { return .superseded }
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -3485,7 +3483,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             route: route,
             ticket: ticket,
             allowsStackAuthFallback: true,
-            allowsTrustedManualHostStackAuth: manualHostTrusted,
+            manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(for: route),
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -5058,7 +5056,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ticket: ticket,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
                     ?? routeAllowsStackAuth,
-                allowsTrustedManualHostStackAuth: manualHostTrusted,
+                manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(for: route),
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate

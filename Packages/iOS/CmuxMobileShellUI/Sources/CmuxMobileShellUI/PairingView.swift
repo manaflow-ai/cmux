@@ -293,15 +293,24 @@ struct PairingView: View {
 
     private var cancelButton: some View {
         Button {
-            pairingTask?.cancel()
-            pairingTaskID = nil
-            pairingTask = nil
-            isPairing = false
-            cancelPairing()
-            cancel()
+            cancelAndDismiss()
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
+    }
+
+    func cancelAndDismiss() {
+        let shouldCancelStoreAttempt = pairingTask != nil
+            || versionWarning != nil
+            || manualHostTrustWarning != nil
+        pairingTask?.cancel()
+        pairingTaskID = nil
+        pairingTask = nil
+        isPairing = false
+        if shouldCancelStoreAttempt {
+            cancelPairing()
+        }
+        cancel()
     }
 
     private var errorText: String? {

@@ -163,7 +163,8 @@ struct CMUXMobileRootView: View {
                 return
             }
             Task {
-                await store.connectPairingURL(rawURL)
+                let result = await store.connectPairingURLResult(rawURL)
+                finishPairingPresentation(after: result)
             }
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
@@ -267,12 +268,14 @@ struct CMUXMobileRootView: View {
             versionWarning: store.pairingVersionWarning,
             manualHostTrustWarning: store.manualHostTrustWarning,
             connectPairingCode: {
-                await store.connectPairingInput()
+                let result = await store.connectPairingInput()
+                finishPairingPresentation(after: result)
             },
             acceptVersionWarning: acceptPairingVersionWarning,
             acceptManualHostTrustWarning: acceptManualHostTrustWarning,
             connectManualHost: { name, host, port in
-                await store.connectManualHost(name: name, host: host, port: port)
+                let result = await store.connectManualHost(name: name, host: host, port: port)
+                finishPairingPresentation(after: result)
             },
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
@@ -399,10 +402,7 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
-            if result == .needsUserApproval {
-                isShowingAddDeviceSheet = true
-            }
-            clearAttachTicketAuthentication(after: result)
+            finishPairingPresentation(after: result)
         }
     }
 
@@ -418,7 +418,8 @@ struct CMUXMobileRootView: View {
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
         Task {
-            await store.connectPairingURL(rawURL)
+            let result = await store.connectPairingURLResult(rawURL)
+            finishPairingPresentation(after: result)
         }
         return true
     }
@@ -508,7 +509,8 @@ struct CMUXMobileRootView: View {
         }
         didConsumeUITestAttachURL = true
         Task {
-            await store.connectPairingURL(attachURL)
+            let result = await store.connectPairingURLResult(attachURL)
+            finishPairingPresentation(after: result)
         }
         return true
         #else

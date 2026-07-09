@@ -15,7 +15,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
-    private let allowsTrustedManualHostStackAuth: Bool
+    private let manualHostStackAuthTrustProvider: @Sendable () async -> Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -29,15 +29,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
-    ///   - allowsTrustedManualHostStackAuth: When `true`, this client may send
-    ///     Stack auth over its exact `.manualHost` route because the shell has
-    ///     verified a persisted user approval for that host and port.
+    ///   - manualHostStackAuthTrustProvider: Revalidates whether this client's
+    ///     exact `.manualHost` route may carry Stack auth. The provider is called
+    ///     for every token-bearing request so approval expiry or revocation takes
+    ///     effect without replacing the client.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
-        allowsTrustedManualHostStackAuth: Bool = false,
+        manualHostStackAuthTrustProvider: @escaping @Sendable () async -> Bool = { false },
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -49,7 +50,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
-        self.allowsTrustedManualHostStackAuth = allowsTrustedManualHostStackAuth
+        self.manualHostStackAuthTrustProvider = manualHostStackAuthTrustProvider
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -141,6 +142,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// not trip the re-auth prompt; a definitive failure surfaces as
     /// `.authorizationFailed` to drive re-auth.
     private func forceRefreshStackTokenForRetry(deadline: RPCRequestDeadline) async throws {
+        guard allowsStackAuthFallback,
+              await routeAllowsStackAuth() else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
         do {
             _ = try await stackTokenForceRefreshGate.token(
                 timeoutNanoseconds: try deadline.remainingNanoseconds()
@@ -223,7 +228,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // expiry), so they never reach this branch.
             if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !routeAllowsStackAuth {
+            } else if !allowsStackAuthFallback {
+                throw MobileShellConnectionError.attachTicketExpired
+            } else if !(await routeAllowsStackAuth()) {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
@@ -238,11 +245,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
-                  routeAllowsStackAuth else {
+                  await routeAllowsStackAuth() else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
-                auth["stack_access_token"] = try await stackAccessToken(deadline: deadline)
+                let stackAccessToken = try await stackAccessToken(deadline: deadline)
+                guard await routeAllowsStackAuth() else {
+                    throw MobileShellConnectionError.insecureManualRoute
+                }
+                auth["stack_access_token"] = stackAccessToken
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session
@@ -267,8 +278,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
-           routeAllowsStackAuth,
-           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
+           await routeAllowsStackAuth(),
+           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline),
+           await routeAllowsStackAuth() {
             auth["stack_access_token"] = stackAccessToken
         }
         if !auth.isEmpty {
@@ -277,10 +289,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return try JSONSerialization.data(withJSONObject: request)
     }
 
-    private var routeAllowsStackAuth: Bool {
-        MobileShellRouteAuthPolicy().routeAllowsStackAuth(
+    private func routeAllowsStackAuth() async -> Bool {
+        let policy = MobileShellRouteAuthPolicy()
+        guard policy.routeRequiresManualHostTrust(route) else {
+            return policy.routeAllowsStackAuth(route)
+        }
+        return policy.routeAllowsStackAuth(
             route,
-            manualHostTrusted: allowsTrustedManualHostStackAuth
+            manualHostTrusted: await manualHostStackAuthTrustProvider()
         )
     }
 

@@ -34,6 +34,18 @@ extension MobileShellComposite {
         return await manualHostTrustStore.isTrusted(scope)
     }
 
+    func manualHostStackAuthTrustProvider(
+        for route: CmxAttachRoute?
+    ) -> @Sendable () async -> Bool {
+        guard let scope = manualHostTrustScope(for: route) else {
+            return { false }
+        }
+        let trustStore = manualHostTrustStore
+        return {
+            await trustStore.isTrusted(scope)
+        }
+    }
+
     func manualHostRouteNeedsApproval(_ route: CmxAttachRoute) async -> Bool {
         guard let scope = manualHostTrustScope(for: route) else {
             return false
@@ -111,7 +123,6 @@ extension MobileShellComposite {
                 pairedMacDeviceID: pairedMacDeviceID,
                 recordsPairingAttempt: recordsPairingAttempt,
                 route: route,
-                approvedManualRouteID: route.id,
                 ifStillCurrent: ifStillCurrent
             )
             finishPendingManualHostSwitchAttempt(pending)
