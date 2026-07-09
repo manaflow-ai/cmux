@@ -4030,6 +4030,40 @@
         }
       }
     },
+    "mobile.settings.deleteAccountFailedRejectedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server rejected the deletion request. Try again later or contact founders@manaflow.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーが削除リクエストを拒否しました。しばらくしてからもう一度お試しください。失敗が続く場合は founders@manaflow.com までお問い合わせください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.deleteAccountFailedSignedOutMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in again, then try deleting your account. If this keeps failing, contact founders@manaflow.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度サインインしてから、アカウントの削除を再試行してください。失敗が続く場合は founders@manaflow.com までお問い合わせください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountFailedTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -4043,6 +4077,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "アカウントを削除できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.settings.deleteAccountFailedUnexpectedResponseMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux received an unexpected account deletion response. Try again later or contact founders@manaflow.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がアカウント削除で予期しない応答を受信しました。しばらくしてからもう一度お試しください。失敗が続く場合は founders@manaflow.com までお問い合わせください。"
           }
         }
       }

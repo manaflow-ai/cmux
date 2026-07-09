@@ -79,6 +79,7 @@ struct MobileSettingsView: View {
                             )
                         }
                         .accessibilityIdentifier("MobileSettingsSignOut")
+                        .disabled(isDeletingAccount)
                     }
 
                     if authManager.currentUser != nil, accountDeletionClient != nil {
