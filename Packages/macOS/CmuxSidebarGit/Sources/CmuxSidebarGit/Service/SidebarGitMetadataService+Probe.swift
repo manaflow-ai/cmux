@@ -166,7 +166,9 @@ extension SidebarGitMetadataService {
 
         let reader = workspaceGitMetadataReader
         let probeLimiter = probeLimiter
+        let taskID = UUID()
         workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] = taskContext
+        workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] = taskID
         workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task.detached(priority: .utility) { [weak self] in
             let didAcquirePermit = await probeLimiter.acquire()
             guard didAcquirePermit else { return }
@@ -185,9 +187,31 @@ extension SidebarGitMetadataService {
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard !Task.isCancelled else { return }
-                self?.applyWorkspaceGitMetadataSnapshotBatch(
+                self?.enqueueWorkspaceGitMetadataSnapshotBatch(
                     snapshot,
+                    taskID: taskID,
                     expectedDirectory: expectedDirectory
+                )
+            }
+        }
+    }
+
+    private func enqueueWorkspaceGitMetadataSnapshotBatch(
+        _ snapshot: InitialWorkspaceGitMetadataSnapshot,
+        taskID: UUID,
+        expectedDirectory: String
+    ) {
+        let apply = WorkspaceGitSnapshotApply(taskID: taskID, snapshot: snapshot)
+        workspaceGitSnapshotApplyBatcher.submit(apply, for: expectedDirectory) { [weak self] snapshots in
+            guard let self else { return }
+            // Stable ordering keeps state-machine transitions and test traces
+            // deterministic when multiple repositories finish in one frame.
+            for directory in snapshots.keys.sorted() {
+                guard let apply = snapshots[directory] else { continue }
+                self.applyWorkspaceGitMetadataSnapshotBatch(
+                    apply.snapshot,
+                    taskID: apply.taskID,
+                    expectedDirectory: directory
                 )
             }
         }
@@ -195,10 +219,15 @@ extension SidebarGitMetadataService {
 
     private func applyWorkspaceGitMetadataSnapshotBatch(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot,
+        taskID: UUID,
         expectedDirectory: String
     ) {
+        guard workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] == taskID else {
+            return
+        }
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
         workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
+        workspaceGitSnapshotTaskIDByDirectory.removeValue(forKey: expectedDirectory)
         let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
         for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)

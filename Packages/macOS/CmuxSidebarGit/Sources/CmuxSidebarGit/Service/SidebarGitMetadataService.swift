@@ -74,7 +74,12 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitSnapshotRequestsByDirectory: [String: [WorkspaceGitProbeKey: WorkspaceGitSnapshotProbeRequest]] = [:]
     var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
     var workspaceGitSnapshotTaskContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
+    var workspaceGitSnapshotTaskIDByDirectory: [String: UUID] = [:]
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
+    let workspaceGitSnapshotApplyBatcher = LatestWinsBatcher<String, WorkspaceGitSnapshotApply>(
+        quietDelay: 0.016,
+        maximumDelay: 0.05
+    )
     var workspaceGitMetadataFallbackTask: Task<Void, Never>?
     private var lastSidebarGitMetadataWatchEnabled = false
 

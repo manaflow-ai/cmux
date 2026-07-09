@@ -1,4 +1,5 @@
 import AppKit
+internal import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -7,6 +8,10 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
 
     private let center: NotificationCenter
     private var observers: [NSObjectProtocol] = []
+    private let batcher = LatestWinsBatcher<Bool, Bool>(
+        quietDelay: 0.04,
+        maximumDelay: 0.12
+    )
 
     init(center: NotificationCenter = .default) {
         self.center = center
@@ -16,7 +21,7 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.revision &+= 1
+                self?.invalidate()
             }
         })
         observers.append(center.addObserver(
@@ -25,7 +30,7 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.revision &+= 1
+                self?.invalidate()
             }
         })
     }
@@ -33,6 +38,12 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
     deinit {
         for observer in observers {
             center.removeObserver(observer)
+        }
+    }
+
+    private func invalidate() {
+        batcher.submit(true, for: true) { [weak self] _ in
+            self?.revision &+= 1
         }
     }
 }

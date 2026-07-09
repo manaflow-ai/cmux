@@ -13,6 +13,7 @@ extension SidebarGitMetadataService {
         if requests.isEmpty {
             workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
             workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: directory)
+            workspaceGitSnapshotTaskIDByDirectory.removeValue(forKey: directory)
             workspaceGitSnapshotTasksByDirectory.removeValue(forKey: directory)?.cancel()
         } else {
             workspaceGitSnapshotRequestsByDirectory[directory] = requests
@@ -20,11 +21,13 @@ extension SidebarGitMetadataService {
     }
 
     func cancelAllWorkspaceGitSnapshotTasks() {
+        workspaceGitSnapshotApplyBatcher.cancel()
         for task in workspaceGitSnapshotTasksByDirectory.values {
             task.cancel()
         }
         workspaceGitSnapshotTasksByDirectory.removeAll()
         workspaceGitSnapshotTaskContextByDirectory.removeAll()
+        workspaceGitSnapshotTaskIDByDirectory.removeAll()
         workspaceGitSnapshotRequestsByDirectory.removeAll()
         workspaceGitSnapshotDirectoryByProbeKey.removeAll()
     }
