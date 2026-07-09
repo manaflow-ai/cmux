@@ -29,7 +29,7 @@ import {
   turnBaselineKeysForTest,
   validateCmuxThemePayload,
 } from "../server";
-import { applyManagedThemeOverrideForTest, resolveThemeNameForTest, type GhosttyTheme } from "../theme";
+import { applyManagedThemeOverrideForTest, pickAccentColor, resolveThemeNameForTest, type GhosttyTheme } from "../theme";
 import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -97,10 +97,23 @@ assert(themeVars["--bg-body"] === "rgba(17, 34, 51, 0.72)", `transparent theme v
 assert(themeVars["--ansi-bright-blue"] === "#0000ff", "theme vars should include named ANSI colors");
 assert(themeCssVars(fakeTheme).includes("--font-mono"), "theme CSS should include resolved font variables");
 const themeMsg = JSON.parse(themeMessageForTest(fakeTheme));
-assert(themeMsg.kind === "theme" && themeMsg.vars["--accent"] === "#0000ff", "theme WS message should carry the resolved variable map");
+assert(themeMsg.kind === "theme" && themeMsg.vars["--accent"] === "#000011", "theme WS message should carry the resolved variable map");
+const monokaiTheme = {
+  ...fakeTheme,
+  foreground: "#f8f8f2",
+  palette: [
+    "#272822", "#f92672", "#a6e22e", "#f4bf75", "#fd971f", "#ae81ff", "#66d9ef", "#f8f8f2",
+    "#75715e", "#f92672", "#a6e22e", "#f4bf75", "#fd971f", "#ae81ff", "#66d9ef", "#f9f8f5",
+  ],
+};
+assert(pickAccentColor(monokaiTheme) !== "#fd971f", "Monokai's warm blue slot should not be selected as accent");
+assert(pickAccentColor(monokaiTheme) === "#66d9ef", `Monokai should pick the first cyan/violet candidate, got ${pickAccentColor(monokaiTheme)}`);
+assert(pickAccentColor(fakeTheme) === "#000011", "normal blue slot should remain the accent");
+assert(pickAccentColor({ ...fakeTheme, accent: "#123456" }) === "#123456", "explicit accent override should win");
 const { sources: _sources, ...postTheme } = fakeTheme;
-const cmuxTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux" });
+const cmuxTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux", accent: "#123456" });
 assert(cmuxTheme.source === "cmux" && cmuxTheme.palette.length === 16, "valid cmux theme POST payload should normalize");
+assert(themeVarMap(cmuxTheme)["--accent"] === "#123456", "cmux POST accent override should drive --accent");
 // background-opacity = 0 is legal ghostty config; Swift encoders may omit nil optionals entirely.
 const { selectionBackground: _sb, cursorColor: _cc, fontFamily: _ff, fontSize: _fs, ...sparseTheme } = postTheme;
 const sparse = validateCmuxThemePayload({ ...sparseTheme, source: "cmux", opacity: 0 });

@@ -15,7 +15,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
+import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -1225,7 +1225,7 @@ export function themeVarMap(theme: GhosttyTheme, opts: { transparent?: boolean; 
     "--fg": theme.foreground,
     "--bg-body": `rgba(${rgb}, ${opacity})`,
     "--bg-html": transparent ? "transparent" : theme.background,
-    "--accent": theme.palette[12],
+    "--accent": pickAccentColor(theme),
     "--green": theme.palette[2],
     "--red": theme.palette[1],
     "--amber": theme.palette[3],
@@ -1265,6 +1265,7 @@ const THEME_POST_KEYS = [
   "isLight",
   "source",
 ] as const;
+const THEME_POST_OPTIONAL_KEYS = ["accent"] as const;
 
 function isColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
@@ -1292,7 +1293,9 @@ export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
   }
   const keys = Object.keys(obj).sort();
   const expected = [...THEME_POST_KEYS].sort();
-  if (keys.length !== expected.length || keys.some((key, i) => key !== expected[i])) throw new Error("theme payload has unexpected keys");
+  const allowed = new Set<string>([...THEME_POST_KEYS, ...THEME_POST_OPTIONAL_KEYS]);
+  if (keys.some((key) => !allowed.has(key))) throw new Error("theme payload has unexpected keys");
+  if (expected.some((key) => !(key in obj))) throw new Error("theme payload is missing required keys");
   if (obj.source !== "cmux") throw new Error("theme source must be cmux");
   if (!Array.isArray(obj.palette) || obj.palette.length !== 16 || !obj.palette.every(isColor)) throw new Error("theme palette must contain 16 colors");
   const fontSize = obj.fontSize;
@@ -1314,6 +1317,7 @@ export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
     opacity,
     blur,
     isLight: Boolean(obj.isLight),
+    accent: "accent" in obj ? nullableColor(obj.accent) : null,
     source: "cmux",
     sources: [],
   };

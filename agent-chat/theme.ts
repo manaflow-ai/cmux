@@ -17,6 +17,7 @@ export interface GhosttyTheme {
   opacity: number; // background-opacity, 1 = opaque
   blur: number; // background-blur-radius
   isLight: boolean;
+  accent?: string | null;
   source: string;
   sources: string[];
 }
@@ -162,9 +163,21 @@ function finish(bg: string, fg: string, kv: Map<string, string>, source: string,
     opacity: !Number.isNaN(op) && op > 0 && op <= 1 ? op : 1,
     blur: Number.isNaN(bl) ? 0 : bl,
     isLight: luminance(bg) > 0.5,
+    accent: normalizeColor(kv.get("agent-chat-accent")),
     source,
     sources,
   };
+}
+
+export function pickAccentColor(theme: Pick<GhosttyTheme, "foreground" | "palette" | "accent">): string {
+  if (theme.accent) return theme.accent;
+  for (const slot of [4, 12, 6, 14, 5, 13, 2, 10]) {
+    const color = theme.palette[slot];
+    if (!color) continue;
+    const { hue, saturation } = hsl(color);
+    if (saturation >= 0.22 && hue >= 180 && hue <= 290) return color;
+  }
+  return theme.foreground;
 }
 
 function parseKVs(text: string): Map<string, string> {
@@ -332,4 +345,24 @@ function luminance(hex: string): number {
   const n = parseInt(hex.slice(1), 16);
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+function hsl(hex: string): { hue: number; saturation: number; lightness: number } {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  if (delta === 0) return { hue: 0, saturation: 0, lightness };
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  let hue = 0;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  hue *= 60;
+  if (hue < 0) hue += 360;
+  return { hue, saturation, lightness };
 }

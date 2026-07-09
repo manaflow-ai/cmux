@@ -254,11 +254,12 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .model-row-tooltip-wrap { display: block; }
 .model-picker-empty { padding: 20px 10px; color: var(--text-faint); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans); text-align: center; }
 .select-positioner, .menu { z-index: 30; }
+.tooltip-positioner { z-index: 90; }
 .option-menu { max-width: min(520px, 92vw); max-height: 320px; overflow-y: auto; }
 .tooltip {
   display: flex; align-items: center; gap: 18px; min-height: 28px; padding: 6px 9px;
   border-radius: 8px; background: rgba(20,20,24,.96); color: #f3f3f5;
-  box-shadow: 0 8px 24px rgba(0,0,0,.45); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans); z-index: 80;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans); z-index: 90;
   transform-origin: var(--transform-origin);
   transition: opacity 80ms ease-in, transform 80ms ease-in;
   will-change: opacity, transform;
