@@ -89,6 +89,9 @@
 //! keys.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mux_core::SidebarPluginOptions;
@@ -96,7 +99,7 @@ use mux_core::SurfaceOptions;
 use mux_core::platform;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -736,6 +739,12 @@ pub struct Config {
     pub keys: Keys,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarPluginConfig {
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+}
+
 /// Load the config: defaults, overlaid with the user's Ghostty selection
 /// colors, overlaid with `mux.json`.
 pub fn load() -> Config {
@@ -915,6 +924,81 @@ fn load_raw_config() -> RawConfig {
             RawConfig::default()
         }
     }
+}
+
+pub fn config_path() -> anyhow::Result<PathBuf> {
+    platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
+}
+
+pub fn write_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> anyhow::Result<PathBuf> {
+    let path = config_path()?;
+    write_sidebar_plugin_at_path(&path, plugin)?;
+    Ok(path)
+}
+
+pub fn write_sidebar_plugin_at_path(
+    path: &Path,
+    plugin: Option<&SidebarPluginConfig>,
+) -> anyhow::Result<()> {
+    let mut root = read_config_value(path)?;
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    };
+    match plugin {
+        Some(plugin) => {
+            let sidebar = root_object.entry("sidebar").or_insert_with(|| json!({}));
+            if !sidebar.is_object() {
+                *sidebar = json!({});
+            }
+            let sidebar_object = sidebar.as_object_mut().expect("sidebar was just made an object");
+            let mut plugin_value = json!({ "command": &plugin.command });
+            if let Some(cwd) = &plugin.cwd {
+                plugin_value["cwd"] = json!(cwd);
+            }
+            sidebar_object.insert("plugin".to_string(), plugin_value);
+        }
+        None => {
+            if let Some(sidebar) = root_object.get_mut("sidebar")
+                && let Some(sidebar_object) = sidebar.as_object_mut()
+            {
+                sidebar_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic(path, &root)
+}
+
+fn read_config_value(path: &Path) -> anyhow::Result<Value> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(json!({})),
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(err) => Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
+    }
+}
+
+fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("mux.json");
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
+    let result = (|| -> anyhow::Result<()> {
+        let mut file = std::fs::File::create(&tmp_path)?;
+        serde_json::to_writer_pretty(&mut file, value)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
 }
 
 /// `#rrggbb`, `#rgb`, or an xterm-256 index in a string.
@@ -1241,5 +1325,47 @@ mod tests {
             Browser::default().max_capture_megapixels
         );
         assert_eq!(config.browser.capture_scale, None);
+    }
+
+    #[test]
+    fn sidebar_plugin_write_preserves_unrelated_config_keys() {
+        let dir = std::env::temp_dir().join(format!(
+            "mux-config-write-test-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "theme": {"sidebar_rail": 42},
+                "sidebar": {"width": 31},
+                "future": {"unknown": true}
+            }"#,
+        )
+        .unwrap();
+
+        write_sidebar_plugin_at_path(
+            &path,
+            Some(&SidebarPluginConfig {
+                command: vec!["/tmp/plugin".to_string(), "--mode".to_string(), "test".to_string()],
+                cwd: Some("/tmp".to_string()),
+            }),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["theme"]["sidebar_rail"], json!(42));
+        assert_eq!(value["sidebar"]["width"], json!(31));
+        assert_eq!(value["future"]["unknown"], json!(true));
+        assert_eq!(value["sidebar"]["plugin"]["command"][0], json!("/tmp/plugin"));
+        assert_eq!(value["sidebar"]["plugin"]["cwd"], json!("/tmp"));
+
+        write_sidebar_plugin_at_path(&path, None).unwrap();
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["sidebar"]["width"], json!(31));
+        assert!(value["sidebar"].get("plugin").is_none());
+        assert_eq!(value["future"]["unknown"], json!(true));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

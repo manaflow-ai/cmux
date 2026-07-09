@@ -73,10 +73,31 @@ command = ["target/release/cmux-sidebar-fzf"]
 command = ["cargo", "build", "--release"]
 ```
 
-The host reads the already-installed command from `mux.json` in this round. Plugin manager install/build verbs are separate follow-up work. The install-directory convention for that follow-up is:
+The host reads the already-installed command from `mux.json`. The plugin
+manager installs sidebar plugins from git repositories and writes the resolved
+command into `mux.json`.
+
+## Install Layout
+
+Installed plugins live under:
 
 ```text
 ~/.local/share/cmux/mux-plugins/<name>
 ```
 
-Relative manifest commands are resolved by the plugin manager before it writes the runnable command into `mux.json`.
+When `$XDG_DATA_HOME` is set, the equivalent directory is:
+
+```text
+$XDG_DATA_HOME/cmux/mux-plugins/<name>
+```
+
+`<name>` is either `[plugin].name` from `cmux-plugin.toml` or the
+`cmux-mux plugin install --name <override>` value. Names must match
+`[a-z0-9-_]+`; path traversal and mixed-case names are rejected. Install clones
+to a temporary directory first, validates the manifest, runs `[build].command`
+when present, verifies the resolved `[run].command[0]` exists and is
+executable, then moves the directory into place. Existing installs are refused
+unless `--force` is supplied.
+
+Relative manifest run commands are resolved to absolute paths under the plugin
+directory before `plugin use` writes the runnable command into `mux.json`.

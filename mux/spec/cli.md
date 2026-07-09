@@ -99,6 +99,18 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `notify` | implemented | `--title <title> --body <body>` | `--level info\|warning\|error`, `--surface <id>` | notification id |
 | `list-agents` | implemented | none | `--surface <id>`, `--state <state>` | agent lines |
 | `report-agent` | implemented | `--surface <id> --state <state> --source socket\|hook` | `--session <id>` | none |
+| `plugin install` | implemented, CLI-only | `<git-url>` | `--name <name>`, `--force` | install summary and next step |
+| `plugin list` | implemented, CLI-only | none | `--json` | installed plugin lines |
+| `plugin use` | implemented, CLI-only | `<name>` or `--builtin` | global socket flags for best-effort reload | config write and reload status |
+| `plugin disable` | implemented, CLI-only | none | global socket flags for best-effort reload | config write and reload status |
+| `plugin update` | implemented, CLI-only | `<name>` | none | update summary |
+| `plugin remove` | implemented, CLI-only | `<name>` | global socket flags for best-effort reload when selected | removal summary |
+
+The grouped `plugin ...` verbs run entirely in the `cmux-mux` CLI process. They
+do not send plugin-specific socket commands and do not change the protocol.
+`plugin use`, `plugin use --builtin`, `plugin disable`, and selected-plugin
+removal edit `mux.json` locally, then best-effort send the existing
+`reload-config` command to the resolved session socket.
 
 ## Worked Examples
 

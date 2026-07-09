@@ -45,6 +45,30 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
+### Sidebar plugins
+
+Sidebar plugins can be installed from git repositories:
+
+```bash
+cmux-mux plugin install https://github.com/manaflow-ai/cmux-sidebar-fzf
+cmux-mux plugin use fzf
+```
+
+`plugin install` clones into `~/.local/share/cmux/mux-plugins/<name>` (or
+`$XDG_DATA_HOME/cmux/mux-plugins/<name>`), validates `cmux-plugin.toml`, runs
+the optional build command, and verifies the resolved run command is
+executable. `plugin use <name>` writes `sidebar.plugin.command` as an absolute
+argv and `sidebar.plugin.cwd` as the plugin directory, preserving unrelated
+`mux.json` keys. A running TUI applies it after `reload-config`; `plugin use`
+sends that reload automatically when the resolved session socket is reachable.
+
+Return to the built-in sidebar with either command:
+
+```bash
+cmux-mux plugin use --builtin
+cmux-mux plugin disable
+```
+
 ## Browser
 
 | Key | Type | Default | Effect |
