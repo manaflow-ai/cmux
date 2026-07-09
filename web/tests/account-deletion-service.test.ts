@@ -491,14 +491,12 @@ describe("account deletion cleanup", () => {
       ownedTeamIds: ["team-owned-1"],
     }, fakeRuntime());
 
-    expect(updateSets).toContainEqual({
-      label: "anonymize-owned-team-stripe-customers",
-      values: expect.objectContaining({ stackTeamId: null }),
-    });
-    expect(updateSets).toContainEqual({
-      label: "anonymize-owned-team-stripe-subscriptions",
-      values: expect.objectContaining({ stackTeamId: null }),
-    });
+    const customerUpdate = updateSets.find((entry) => entry.label === "anonymize-owned-team-stripe-customers");
+    const subscriptionUpdate = updateSets.find((entry) => entry.label === "anonymize-owned-team-stripe-subscriptions");
+
+    expect(customerUpdate?.values.stackTeamId).toMatch(/^deleted_team_[0-9a-f]{24}$/);
+    expect(customerUpdate?.values.stackTeamId).not.toBe("team-owned-1");
+    expect(subscriptionUpdate?.values.stackTeamId).toBe(customerUpdate?.values.stackTeamId);
   });
 });
 

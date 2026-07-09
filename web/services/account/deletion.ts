@@ -488,9 +488,16 @@ export async function deleteCmuxAccountData(
     await tx.update(stripeCustomers)
       .set({ stackUserId: anonymizedUserId, email: null, updatedAt: now })
       .where(eq(stripeCustomers.stackUserId, input.userId));
-    await tx.update(stripeCustomers)
-      .set({ stackUserId: anonymizedUserId, stackTeamId: null, email: null, updatedAt: now })
-      .where(inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds));
+    for (const teamId of scope.ownedBillingTeamIds) {
+      await tx.update(stripeCustomers)
+        .set({
+          stackUserId: anonymizedUserId,
+          stackTeamId: deletedOwnedTeamId(teamId),
+          email: null,
+          updatedAt: now,
+        })
+        .where(eq(stripeCustomers.stackTeamId, teamId));
+    }
     await tx.update(stripeSubscriptions)
       .set({ status: "canceled", cancelAtPeriodEnd: false, raw: null, updatedAt: now })
       .where(or(
@@ -506,9 +513,16 @@ export async function deleteCmuxAccountData(
     await tx.update(stripeSubscriptions)
       .set({ stackUserId: anonymizedUserId, raw: null, updatedAt: now })
       .where(eq(stripeSubscriptions.stackUserId, input.userId));
-    await tx.update(stripeSubscriptions)
-      .set({ stackUserId: anonymizedUserId, stackTeamId: null, raw: null, updatedAt: now })
-      .where(inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds));
+    for (const teamId of scope.ownedBillingTeamIds) {
+      await tx.update(stripeSubscriptions)
+        .set({
+          stackUserId: anonymizedUserId,
+          stackTeamId: deletedOwnedTeamId(teamId),
+          raw: null,
+          updatedAt: now,
+        })
+        .where(eq(stripeSubscriptions.stackTeamId, teamId));
+    }
     await tx.update(billingEmailClaims)
       .set({ stackUserId: anonymizedUserId, email: anonymizedEmail })
       .where(eq(billingEmailClaims.stackUserId, input.userId));
@@ -1005,6 +1019,10 @@ async function retrieveStripeSubscriptionForAccountDeletion(
 
 function deletedAccountId(userId: string): string {
   return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
+}
+
+function deletedOwnedTeamId(teamId: string): string {
+  return `deleted_team_${accountDeletionUserHash(teamId).slice(0, 24)}`;
 }
 
 function accountDeletionErrorMessage(error: unknown): string {
