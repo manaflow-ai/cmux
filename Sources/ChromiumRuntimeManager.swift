@@ -9,7 +9,6 @@ final class ChromiumRuntimeManager {
 
     // Chromium cannot be unloaded; the runtime lives for the process.
     private var runtime: ChromiumRuntime?
-    private(set) var lastStartError: String?
 
     func isRuntimeAvailable() -> Bool {
         (try? ChromiumRuntimeLocator().locate()) != nil
@@ -24,21 +23,15 @@ final class ChromiumRuntimeManager {
             runtime = ChromiumRuntime(bundle: bundle)
             self.runtime = runtime
         }
-        do {
-            try await runtime.start()
-            let session = try await runtime.openSession(
-                initialURL: initialURL,
-                userDataDirectory: surfaceDataDirectory(profileID: profileID),
-                enableDevTools: true
-            )
-            let model = ChromiumBrowserModel()
-            let webView = ChromiumWebView(session: session, model: model)
-            lastStartError = nil
-            return (session, model, webView)
-        } catch {
-            lastStartError = error.localizedDescription
-            throw error
-        }
+        try await runtime.start()
+        let session = try await runtime.openSession(
+            initialURL: initialURL,
+            userDataDirectory: surfaceDataDirectory(profileID: profileID),
+            enableDevTools: true
+        )
+        let model = ChromiumBrowserModel()
+        let webView = ChromiumWebView(session: session, model: model)
+        return (session, model, webView)
     }
 
     /// Per-surface directory: one Content Shell process per surface cannot share
