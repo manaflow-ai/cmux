@@ -38,6 +38,23 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
 }
+# BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
+# app host on CI runners (its detached-inspector tests kill the host mid-run;
+# see the "Restarting after unexpected exit" storms in app-host shard logs on
+# main and PR runs alike). Live-WKWebView navigation tests that run behind
+# that storm in the same shard time out with thrown errors, which count as
+# unexpected failures and fail the shard. Count-based packing happened to
+# keep the pair below apart; time-weighted packing co-located them and both
+# attempts of https://github.com/manaflow-ai/cmux/pull/7687 failed shard 3
+# the same way. Keep each group's suites on different shards.
+SEPARATED_SUITES: tuple[frozenset[str], ...] = (
+    frozenset(
+        {
+            "cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests",
+            "cmuxTests/BrowserSessionHistoryRestoreTests",
+        }
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -244,8 +261,15 @@ def shard_selectors(
     if shard_index < 1 or shard_index > shard_total:
         raise SystemExit("--shard-index must be between 1 and --shard-total")
 
+    group_by_suite: dict[str, int] = {}
+    for group_index, group in enumerate(SEPARATED_SUITES):
+        for suite in group:
+            group_by_suite[suite] = group_index
+
     buckets: list[list[TestSelector]] = [[] for _ in range(shard_total)]
     bucket_weights = [0 for _ in range(shard_total)]
+    # Which separated suites each bucket already holds, as (group, suite).
+    bucket_separated: list[set[tuple[int, str]]] = [set() for _ in range(shard_total)]
     ordered = sorted(
         selectors,
         key=lambda selector: (
@@ -255,7 +279,26 @@ def shard_selectors(
         ),
     )
     for selector in ordered:
-        bucket_index = min(range(shard_total), key=lambda index: (bucket_weights[index], index))
+        suite = "/".join(selector.identifier.split("/")[:2])
+        group_index = group_by_suite.get(suite)
+        candidates = list(range(shard_total))
+        if group_index is not None:
+            allowed = [
+                index
+                for index in candidates
+                if all(
+                    held_suite == suite
+                    for held_group, held_suite in bucket_separated[index]
+                    if held_group == group_index
+                )
+            ]
+            # With more group members than shards, separation is impossible;
+            # fall back to plain min-weight packing for the overflow.
+            if allowed:
+                candidates = allowed
+        bucket_index = min(candidates, key=lambda index: (bucket_weights[index], index))
+        if group_index is not None:
+            bucket_separated[bucket_index].add((group_index, suite))
         buckets[bucket_index].append(selector)
         bucket_weights[bucket_index] += selector.weight
 
