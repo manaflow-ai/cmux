@@ -1511,7 +1511,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         ),
       ),
     );
-    yield* repo.recordUsageEvent({
+    const recordedUsage = yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -1525,7 +1525,11 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
-    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll(() => Effect.succeed(true)));
+    if (!recordedUsage) {
+      yield* revokeEndpointIdentity(vm.provider, endpoint);
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     const session = endpoint.transport === "websocket"
       ? yield* repo.upsertVmSession({
         vmId: vm.id,

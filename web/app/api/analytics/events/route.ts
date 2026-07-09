@@ -36,6 +36,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const POSTHOG_FORWARD_TIMEOUT_MS = 5_000;
+
 type IncomingEvent = {
   readonly event: string;
   readonly distinctID?: string;
@@ -128,6 +130,9 @@ export async function postAnalyticsEvents(
     try {
       forwarded = await dependencies.runAuthenticatedAnalytics(user.id, async (tx) => {
         const eventsForForwarding = await prepareAuthenticatedEvents(accepted, user.id, dependencies, tx);
+        // Keep authenticated forwarding inside the deletion lock so a concurrent
+        // delete cannot erase PostHog data and then have this request recreate it.
+        // `forwardToPostHog` aborts quickly, bounding the held DB transaction.
         return await dependencies.forwardToPostHog(eventsForForwarding, user.id);
       });
     } catch (error) {
@@ -301,11 +306,14 @@ async function forwardToPostHog(
     timestamp: event.timestamp,
   }));
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), POSTHOG_FORWARD_TIMEOUT_MS);
   try {
     const response = await fetch(`${POSTHOG_HOST}/batch/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: POSTHOG_PROJECT_KEY, batch }),
+      signal: controller.signal,
     });
     if (!response.ok) {
       // PostHog 4xx is a permanent client problem; 5xx is transient. Surface the
@@ -315,5 +323,7 @@ async function forwardToPostHog(
     return { ok: true };
   } catch {
     return { ok: false, status: 502 };
+  } finally {
+    clearTimeout(timeout);
   }
 }

@@ -564,7 +564,10 @@ describe("recordCheckoutCompletion", () => {
       subscriptionId: "sub_team",
     });
 
-    expect(updateCustomer).not.toHaveBeenCalled();
+    const customerUpdate = mockCall(updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_team");
+    expectDeletedAccountEmail((customerUpdate[1] as { email?: unknown }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: false });
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: false });
@@ -617,7 +620,10 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
-    expect(updateCustomer).not.toHaveBeenCalled();
+    const customerUpdate = mockCall(updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_team");
+    expectDeletedAccountEmail((customerUpdate[1] as { email?: unknown }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: false });
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: false });
