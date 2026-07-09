@@ -67,6 +67,10 @@ extension AppDelegate {
         preferredWindow: NSWindow?,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
+            NSSound.beep()
+            return false
+        }
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSSound.beep()
             return false

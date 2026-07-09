@@ -101,6 +101,7 @@ extension AppDelegate {
     ) -> CmuxResolvedConfigAction? {
         // Agent chat opens a browser surface; hide it when browser surfaces
         // are disabled, matching the command palette's browserDisabled gate.
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else { return nil }
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         let actionID = CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
         let action = cmuxConfigStore.resolvedAction(id: actionID)
