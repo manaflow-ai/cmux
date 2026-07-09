@@ -55,5 +55,12 @@ import Testing
             #expect(line.hasSuffix("\n"))
         }
     }
+
+    @Test func previousSignalActionStorageHasOneSlotPerSignal() {
+        #expect(
+            MobileDebugLogCrashCapture.preparedPreviousSignalActionSlotCount()
+                == MobileDebugLogCrashCapture.signalRecordDefinitions.count
+        )
+    }
 }
 #endif

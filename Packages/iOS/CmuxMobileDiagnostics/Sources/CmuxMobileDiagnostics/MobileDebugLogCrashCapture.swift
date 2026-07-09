@@ -3,6 +3,10 @@ import Darwin
 import Foundation
 
 /// Crash-time writer for the DEBUG iOS durable debug log.
+///
+/// Signal crashes are written to the log, then the previously installed signal
+/// action is restored and the signal is re-raised so earlier crash reporters
+/// still observe the crash.
 final class MobileDebugLogCrashCapture {
     private init() {}
 
@@ -26,6 +30,8 @@ final class MobileDebugLogCrashCapture {
     nonisolated(unsafe) private static var signalEntryPointer: UnsafeMutablePointer<SignalEntry>?
     nonisolated(unsafe) private static var signalEntryCount: Int32 = 0
     nonisolated(unsafe) private static var signalBytePointer: UnsafeMutablePointer<UInt8>?
+    nonisolated(unsafe) private static var previousSignalActionPointer: UnsafeMutablePointer<sigaction>?
+    nonisolated(unsafe) private static var previousSignalActionCount: Int32 = 0
 
     static let signalRecordDefinitions: [(signo: Int32, name: String)] = [
         (SIGABRT, "SIGABRT"),
@@ -45,6 +51,7 @@ final class MobileDebugLogCrashCapture {
         let fd = MobileDebugLogCrashCapture.logFileDescriptor
         let entries = MobileDebugLogCrashCapture.signalEntryPointer
         let bytes = MobileDebugLogCrashCapture.signalBytePointer
+        let previousActions = MobileDebugLogCrashCapture.previousSignalActionPointer
         let count = MobileDebugLogCrashCapture.signalEntryCount
         if fd >= 0, let entries, let bytes {
             var index: Int32 = 0
@@ -56,7 +63,14 @@ final class MobileDebugLogCrashCapture {
                         bytes.advanced(by: Int(entry.offset)),
                         Int(entry.length)
                     )
-                    break
+                    if let previousActions {
+                        var previousAction = previousActions.advanced(by: Int(index)).pointee
+                        _ = sigaction(signo, &previousAction, nil)
+                    } else {
+                        _ = Darwin.signal(signo, SIG_DFL)
+                    }
+                    _ = Darwin.raise(signo)
+                    return
                 }
                 index += 1
             }
@@ -75,6 +89,7 @@ final class MobileDebugLogCrashCapture {
         }
 
         prepareSignalRecordStorage()
+        preparePreviousSignalActionStorage()
         Self.logFileDescriptor = duplicatedDescriptor
         previousExceptionHandler = NSGetUncaughtExceptionHandler()
         NSSetUncaughtExceptionHandler(exceptionHandler)
@@ -122,6 +137,11 @@ final class MobileDebugLogCrashCapture {
         return nil
     }
 
+    static func preparedPreviousSignalActionSlotCount() -> Int {
+        preparePreviousSignalActionStorage()
+        return Int(previousSignalActionCount)
+    }
+
     private static func handleUncaughtException(_ exception: NSException) {
         let record = exceptionRecord(
             name: exception.name.rawValue,
@@ -133,12 +153,26 @@ final class MobileDebugLogCrashCapture {
     }
 
     private static func installSignalHandlers() {
-        for record in signalRecordDefinitions {
+        preparePreviousSignalActionStorage()
+        guard let previousActions = previousSignalActionPointer else {
+            return
+        }
+
+        for index in signalRecordDefinitions.indices {
+            var previousAction = sigaction()
+            _ = sigaction(signalRecordDefinitions[index].signo, nil, &previousAction)
+            previousActions.advanced(by: index).pointee = previousAction
+        }
+
+        for index in signalRecordDefinitions.indices {
+            let record = signalRecordDefinitions[index]
             var action = sigaction()
             sigemptyset(&action.sa_mask)
             action.sa_flags = 0
             action.__sigaction_u.__sa_handler = signalHandler
-            _ = sigaction(record.signo, &action, nil)
+            var previousAction = previousActions.advanced(by: index).pointee
+            _ = sigaction(record.signo, &action, &previousAction)
+            previousActions.advanced(by: index).pointee = previousAction
         }
     }
 
@@ -185,6 +219,22 @@ final class MobileDebugLogCrashCapture {
         signalBytePointer = bytes
         signalEntryPointer = entries
         signalEntryCount = Int32(signalRecordDefinitions.count)
+    }
+
+    private static func preparePreviousSignalActionStorage() {
+        guard previousSignalActionPointer == nil else {
+            return
+        }
+
+        let actions = UnsafeMutablePointer<sigaction>.allocate(
+            capacity: signalRecordDefinitions.count
+        )
+        for index in signalRecordDefinitions.indices {
+            actions.advanced(by: index).initialize(to: sigaction())
+        }
+
+        previousSignalActionPointer = actions
+        previousSignalActionCount = Int32(signalRecordDefinitions.count)
     }
 }
 #endif
