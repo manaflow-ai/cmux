@@ -1,4 +1,5 @@
 import CmuxMobileBrowser
+import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
@@ -6,6 +7,16 @@ extension WorkspaceDetailView {
     var detailSurfaceContent: some View {
         #if os(iOS)
         let surface = activeSurface
+        // Captured at body time (the same evaluation as `shouldAutoFocus` in
+        // `detailContent()`), so a chrome-driven terminal switch — which
+        // suppresses the target's autofocus until the remount's `onAppear`
+        // consumes the suppression — cannot race that consumption and pop
+        // the keyboard anyway.
+        let refocusTerminalID = WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
+            selectedTerminalID: selectedTerminal?.id.rawValue,
+            shouldAutoFocusTerminal: { store.shouldAutoFocusTerminalSurface($0) },
+            isComposerPresented: store.isComposerPresented
+        )
         ZStack {
             detailContent()
                 .opacity(surface == .terminal ? 1 : 0)
@@ -20,7 +31,13 @@ extension WorkspaceDetailView {
             }
         }
         .onChange(of: surface) { _, newSurface in
-            if newSurface != .terminal {
+            if newSurface == .terminal {
+                // The surface stayed mounted under the chrome, so no attach
+                // autofocus fires on return; refocus explicitly.
+                if let refocusTerminalID {
+                    GhosttySurfaceView.focusInput(surfaceID: refocusTerminalID)
+                }
+            } else {
                 dismissTerminalKeyboardForChrome()
             }
         }
