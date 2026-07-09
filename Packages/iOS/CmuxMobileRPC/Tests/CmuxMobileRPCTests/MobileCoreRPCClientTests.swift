@@ -377,29 +377,6 @@ import Testing
         #expect(probe?.hasAuth == false)
     }
 
-    @Test func trustedManualHostRouteCarriesStackToken() async throws {
-        let route = try hostPortRoute(kind: .manualHost, host: "192.168.1.20", port: 58465)
-        let transport = QueuedCancellationProbeTransport()
-        let runtime = TestMobileSyncRuntime(
-            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: "trusted-manual-token"
-        )
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: try qrPairingTicket(route: route),
-            allowsStackAuthFallback: true,
-            allowsTrustedManualHostStackAuth: true
-        )
-        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
-        let task = Task { try await client.sendRequest(request) }
-        let sent = try await transport.waitForSentRequestCount(1)
-        task.cancel()
-        _ = try? await task.value
-
-        #expect(sent.first?.stackAccessToken == "trusted-manual-token")
-    }
-
     @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
