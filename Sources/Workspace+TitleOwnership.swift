@@ -45,6 +45,17 @@ extension Workspace {
             "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
         )
 #endif
+        applyAutomaticTitle(title)
+    }
+
+    /// The single write path for automatic (non-user) workspace titles.
+    /// Every mutation of `title` that does not come from a custom-title edit
+    /// must go through here: the sidebar's settled observation stream only
+    /// sees changes signaled at this chokepoint, and a writer that sets
+    /// `title` directly leaves rows permanently stale (updatePanelTitle's
+    /// single-panel branch did exactly that).
+    func applyAutomaticTitle(_ title: String) {
+        guard self.title != title else { return }
         self.title = title
         sidebarProcessTitleObservation.processTitleDidChange()
     }

@@ -212,7 +212,7 @@ extension Workspace {
         // If this is the only panel and no custom title, update workspace title
         if panels.count == 1, customTitle == nil {
             if self.title != trimmed {
-                self.title = trimmed
+                applyAutomaticTitle(trimmed)
                 didMutate = true
                 didMutateWorkspaceTitle = true
             }
