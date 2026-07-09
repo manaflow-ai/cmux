@@ -188,7 +188,7 @@ enum AgentChatThemeSync {
     static func themeURL(for agentChat: CmuxAgentChatConfiguration) -> URL {
         if !agentChat.hasExplicitURL,
            agentChat.startCommand != nil,
-           let session = AgentChatOwnedServerRuntime.shared.session {
+           let session = AgentChatActionInFlightGate.ownedServerSession() {
             return session.themeURL
         }
         return themeURL(for: agentChat.url)

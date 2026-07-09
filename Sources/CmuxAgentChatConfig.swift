@@ -84,6 +84,12 @@ enum CmuxAgentChatConfigurationSource: Sendable, Hashable {
     }
 }
 
+enum AgentChatServerMode: Sendable, Hashable {
+    case explicitURL
+    case appOwned
+    case legacyDefaultURL
+}
+
 struct CmuxAgentChatConfiguration: Sendable, Hashable {
     static let defaultURLString = "http://127.0.0.1:7739"
     static let `default` = CmuxAgentChatConfiguration(
@@ -100,6 +106,16 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
 
     var startCommandRequiresTrust: Bool {
         source.isLocal && startCommand != nil
+    }
+
+    var serverMode: AgentChatServerMode {
+        if hasExplicitURL {
+            return .explicitURL
+        }
+        if startCommand != nil {
+            return .appOwned
+        }
+        return .legacyDefaultURL
     }
 
     var healthURL: URL {
@@ -190,5 +206,88 @@ struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
 
     static func parse(_ data: Data, token: String) throws -> AgentChatOwnedServerSession? {
         try JSONDecoder().decode(Self.self, from: data).session(token: token)
+    }
+}
+
+enum AgentChatSidecarStateFileStore {
+    static func stateFileURL() -> URL? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        return appSupport
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("agent-chat", isDirectory: true)
+            .appendingPathComponent("state.json")
+    }
+
+    static func prepareStateFileURL() async -> URL? {
+        await Task.detached(priority: .utility) {
+            guard let stateFileURL = Self.stateFileURL() else { return nil }
+            let directoryURL = stateFileURL.deletingLastPathComponent()
+            let fileManager = FileManager.default
+            do {
+                try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                try Self.sweepStaleStateFiles(in: directoryURL, keeping: stateFileURL)
+                try? fileManager.removeItem(at: stateFileURL)
+                _ = fileManager.createFile(atPath: stateFileURL.path, contents: nil)
+                return stateFileURL
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
+    static func removeStateFile() async {
+        await Task.detached(priority: .utility) {
+            guard let stateFileURL = Self.stateFileURL() else { return }
+            try? FileManager.default.removeItem(at: stateFileURL)
+        }.value
+    }
+
+    static func waitForSession(
+        stateFileURL: URL,
+        token: String
+    ) async -> AgentChatOwnedServerSession? {
+        await Task.detached(priority: .utility) {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(10))
+            while !Task.isCancelled, clock.now < deadline {
+                if let data = try? Data(contentsOf: stateFileURL),
+                   let session = try? AgentChatSidecarStateFile.parse(data, token: token) {
+                    return session
+                }
+                do {
+                    // Bounded, cancellable polling for the sidecar readiness state file.
+                    try await clock.sleep(for: .milliseconds(250))
+                } catch {
+                    return nil
+                }
+            }
+            return nil
+        }.value
+    }
+
+    private static func sweepStaleStateFiles(
+        in directoryURL: URL,
+        keeping currentStateFileURL: URL
+    ) throws {
+        let fileManager = FileManager.default
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        let stateFiles = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+        for fileURL in stateFiles where fileURL != currentStateFileURL {
+            guard fileURL.pathExtension == "json" else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+            if (values?.contentModificationDate ?? .distantPast) < cutoff {
+                try? fileManager.removeItem(at: fileURL)
+            }
+        }
     }
 }

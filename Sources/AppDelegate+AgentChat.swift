@@ -6,6 +6,7 @@ import Security
 nonisolated struct AgentChatActionInFlightGate {
     private struct State {
         var isRunning = false
+        var ownedServerSession: AgentChatOwnedServerSession?
     }
 
     private nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
@@ -23,25 +24,24 @@ nonisolated struct AgentChatActionInFlightGate {
             state.isRunning = false
         }
     }
-}
 
-@MainActor
-final class AgentChatOwnedServerRuntime {
-    static let shared = AgentChatOwnedServerRuntime()
-
-    private(set) var session: AgentChatOwnedServerSession?
-
-    func update(session: AgentChatOwnedServerSession) {
-        self.session = session
+    static func ownedServerSession() -> AgentChatOwnedServerSession? {
+        lock.withLock { state in
+            state.ownedServerSession
+        }
     }
 
-    func clearSession(matching candidate: AgentChatOwnedServerSession) {
-        guard session == candidate else { return }
-        session = nil
+    static func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
+        lock.withLock { state in
+            state.ownedServerSession = session
+        }
     }
 
-    func resetForTesting() {
-        session = nil
+    static func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
+        lock.withLock { state in
+            if let candidate, state.ownedServerSession != candidate { return }
+            state.ownedServerSession = nil
+        }
     }
 }
 
@@ -215,35 +215,41 @@ extension AppDelegate {
         globalConfigPath: String?,
         preferredWindow: NSWindow?
     ) async -> AgentChatServerAvailability {
-        if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-            return AgentChatServerAvailability(isReachable: true, browserURL: agentChat.url)
-        }
-        guard let startCommand = agentChat.startCommand else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
-        }
-        if agentChat.hasExplicitURL {
+        switch agentChat.serverMode {
+        case .explicitURL:
             return await ensureExplicitAgentChatServerAvailable(
+                agentChat,
+                startCommand: agentChat.startCommand,
+                globalConfigPath: globalConfigPath,
+                preferredWindow: preferredWindow
+            )
+        case .appOwned:
+            guard let startCommand = agentChat.startCommand else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            }
+            return await ensureOwnedAgentChatServerAvailable(
                 agentChat,
                 startCommand: startCommand,
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
+        case .legacyDefaultURL:
+            let isHealthy = await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5)
+            return AgentChatServerAvailability(isReachable: isHealthy, browserURL: agentChat.url)
         }
-        return await ensureOwnedAgentChatServerAvailable(
-            agentChat,
-            startCommand: startCommand,
-            globalConfigPath: globalConfigPath,
-            preferredWindow: preferredWindow
-        )
     }
 
     private func ensureExplicitAgentChatServerAvailable(
         _ agentChat: CmuxAgentChatConfiguration,
-        startCommand: String,
+        startCommand: String?,
         globalConfigPath: String?,
         preferredWindow: NSWindow?
     ) async -> AgentChatServerAvailability {
+        if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
+            return AgentChatServerAvailability(isReachable: true, browserURL: agentChat.url)
+        }
         let unavailable = AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        guard let startCommand else { return unavailable }
         guard await authorizeAgentChatStartCommandIfNeeded(
             agentChat,
             command: startCommand,
@@ -281,22 +287,18 @@ extension AppDelegate {
         globalConfigPath: String?,
         preferredWindow: NSWindow?
     ) async -> AgentChatServerAvailability {
-        if let session = AgentChatOwnedServerRuntime.shared.session {
+        if let session = AgentChatActionInFlightGate.ownedServerSession() {
             if await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5) {
                 return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
             }
-            AgentChatOwnedServerRuntime.shared.clearSession(matching: session)
+            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+            await AgentChatSidecarStateFileStore.removeStateFile()
         }
 
         guard let token = Self.generateAgentChatToken(),
-              let stateFileURL = Self.agentChatStateFileURL() else {
+              let stateFileURL = await AgentChatSidecarStateFileStore.prepareStateFileURL() else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        try? FileManager.default.removeItem(at: stateFileURL)
-        try? FileManager.default.createDirectory(
-            at: stateFileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
 
         guard await authorizeAgentChatStartCommandIfNeeded(
             agentChat,
@@ -318,13 +320,13 @@ extension AppDelegate {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
-        guard let session = await Self.waitForOwnedAgentChatSession(
+        guard let session = await AgentChatSidecarStateFileStore.waitForSession(
             stateFileURL: stateFileURL,
             token: token
         ) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        AgentChatOwnedServerRuntime.shared.update(session: session)
+        AgentChatActionInFlightGate.updateOwnedServerSession(session)
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
         return AgentChatServerAvailability(isReachable: isHealthy, browserURL: session.browserURL)
     }
@@ -456,38 +458,4 @@ extension AppDelegate {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    nonisolated private static func agentChatStateFileURL() -> URL? {
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
-        return appSupport
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("AgentChat", isDirectory: true)
-            .appendingPathComponent("sidecar-\(UUID().uuidString).json")
-    }
-
-    nonisolated private static func waitForOwnedAgentChatSession(
-        stateFileURL: URL,
-        token: String
-    ) async -> AgentChatOwnedServerSession? {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
-        while !Task.isCancelled, clock.now < deadline {
-            if let data = try? Data(contentsOf: stateFileURL),
-               let session = try? AgentChatSidecarStateFile.parse(data, token: token) {
-                return session
-            }
-            do {
-                // Bounded, cancellable polling for the sidecar readiness state file.
-                try await clock.sleep(for: .milliseconds(250))
-            } catch {
-                return nil
-            }
-        }
-        return nil
-    }
 }
