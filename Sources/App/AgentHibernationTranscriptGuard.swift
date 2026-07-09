@@ -30,12 +30,12 @@ enum AgentHibernationTranscriptGuard {
         fileManager: FileManager = .default
     ) async {
         var canDeleteSnapshot = false
-        defer { if !Task.isCancelled, canDeleteSnapshot { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
         func markSnapshotDeletableIfSafe() {
             let restored = restoreIfClobbered(snapshot, fileManager: fileManager)
             let safe = transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager)
             canDeleteSnapshot = restored || safe
         }
+        defer { if Task.isCancelled { markSnapshotDeletableIfSafe() } else if canDeleteSnapshot { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
         if !processIDs.isEmpty {
             let deadline = ContinuousClock.now.advanced(by: .seconds(30))
             while ContinuousClock.now < deadline {
@@ -89,14 +89,14 @@ enum AgentHibernationTranscriptGuard {
             if let workingDirectory = normalized(agent.workingDirectory) {
                 let projectRoot = (projectsRoot as NSString)
                     .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
-                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) + workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
                     appendCandidate(candidate)
                 }
             }
             guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
             for projectDir in projectDirs.sorted() {
                 let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
-                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) + workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
                     appendCandidate(candidate)
                 }
             }
