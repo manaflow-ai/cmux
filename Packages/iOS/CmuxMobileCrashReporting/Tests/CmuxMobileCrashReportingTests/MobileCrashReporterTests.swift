@@ -103,17 +103,38 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(crashCount == 0)
     }
 
-    @Test func testHostEnvironmentDoesNotStart() {
+    @Test(arguments: [
+        ["XCTestConfigurationFilePath": "/tmp/cfg.xctestconfiguration"],
+        ["XCTestBundlePath": "/tmp/tests.xctest"],
+        ["XCTestSessionIdentifier": "ABC-123"],
+        ["XCInjectBundleInto": "/tmp/host.app"],
+        ["CMUX_UITEST_MOCK_MAC": "1"],
+    ])
+    func testRunEnvironmentDoesNotStart(environment: [String: String]) {
         var startCount = 0
 
         MobileCrashReporter.startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
-            environment: ["XCTestConfigurationFilePath": "/tmp/cfg.xctestconfiguration"],
+            environment: environment,
             start: { _ in startCount += 1 },
             crash: {}
         )
 
         #expect(startCount == 0)
+    }
+
+    @Test func nonTestEnvironmentStarts() {
+        var startCount = 0
+
+        MobileCrashReporter.startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: ["PATH": "/usr/bin", "HOME": "/var/mobile"],
+            start: { _ in startCount += 1 },
+            crash: {}
+        )
+
+        #expect(startCount == 1)
     }
 }

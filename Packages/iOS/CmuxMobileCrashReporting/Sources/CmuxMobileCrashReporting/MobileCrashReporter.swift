@@ -68,10 +68,12 @@ public struct MobileCrashReporter {
         crash: () -> Void = { SentrySDK.crash() }
     ) {
         guard consent.isTelemetryEnabled else { return }
-        // Never report from test hosts: XCTest/Swift Testing runs would send
-        // CI sessions and deliberate test crashes to the shared Sentry project
-        // and add background SDK work to timing-sensitive tests.
-        guard environment[Self.xcTestConfigurationKey] == nil else { return }
+        // Never report from test runs: unit-test hosts, XCUITest
+        // app-under-test launches (which do NOT get XCTestConfigurationFilePath;
+        // they carry other XCTest markers or this repo's CMUX_UITEST_ keys),
+        // and CI sessions would all send deliberate crashes and hangs to the
+        // shared Sentry project.
+        guard !Self.isTestRun(environment: environment) else { return }
 
         start(makeOptions())
 
@@ -123,7 +125,24 @@ public struct MobileCrashReporter {
         return options
     }
 
+    static func isTestRun(environment: [String: String]) -> Bool {
+        for key in Self.testEnvironmentKeys where environment[key] != nil {
+            return true
+        }
+        return environment.keys.contains { key in
+            Self.testEnvironmentKeyPrefixes.contains { key.hasPrefix($0) }
+        }
+    }
+
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
     private static let debugCrashArgument = "--cmux-test-crash"
-    private static let xcTestConfigurationKey = "XCTestConfigurationFilePath"
+    private static let testEnvironmentKeys = [
+        "XCTestConfigurationFilePath",
+        "XCTestBundlePath",
+        "XCTestSessionIdentifier",
+    ]
+    private static let testEnvironmentKeyPrefixes = [
+        "XCInjectBundle",
+        "CMUX_UITEST_",
+    ]
 }
