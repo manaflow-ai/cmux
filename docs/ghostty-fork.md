@@ -12,51 +12,62 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `cc31d54ee`, a merge of upstream
-`ghostty-org/ghostty` `main` (`d560c645`, 2026-07-03, ~271 first-parent
-commits) onto the previous pin `541e5e89d`. Published via
-manaflow-ai/ghostty#93.
+Current cmux pinned fork head: `870ed36f9`. It combines the previous cmux pin
+`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
+`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09). Published via
+https://github.com/manaflow-ai/ghostty/pull/96.
 
-### Upstream TLDR (`541e5e89d..d560c645`)
+### Upstream TLDR (`d560c645..7e02af879`)
 
-- Terminal: click/drag selection extracted into a `SelectionGesture` API with a
-  new `selection_changed` notification (`GHOSTTY_ACTION_SELECTION_CHANGED`
-  enum value added, additively); `click_events=2` support; OSC 7/9/1337
-  `pwd_changed` callback; glyph-protocol glossary; configurable default cursor
-  style/blink in libghostty-vt; prompt preservation on resize by default.
-- Correctness: fixes for `Surface.setSelection` use-after-free, resize/scrollback
-  wrap-count overflow, `resizeCols` cursor saturation, and utf-8 grapheme length
-  overflow.
-- macOS/platform: tab-bar appearance sync, macOS 27 beta tab-frame fix,
-  notification retain-cycle fix, kitty-graphics generation stamps; plus routine
-  i18n/colorscheme/dependency churn.
+- Terminal memory: idle renderer work now compresses cold scrollback pages,
+  typically cutting their resident memory by 70% to 90%; unused page-pool
+  backing is returned to the OS; the default logical scrollback limit rises
+  from 10 MB to 50 MB.
+- Terminal performance: pipelined PTY reads improve measured IO throughput by
+  25% to 55%, parser/VT processing is substantially faster, and renderer-state
+  lock hold time is reduced.
+- libghostty-vt: adds compression scheduling APIs, color query/report APIs,
+  Unicode width helpers, absolute-row viewport scrolling, and tracked grid
+  references.
+- Protocols and correctness: adds Kitty drag-and-drop parsing and fixes PageList
+  capacity, ownership, bitmap allocator, cursor-height, and link-allocation
+  edge cases.
+- macOS: fixes IME preedit commits, quick-terminal sizing after display
+  reconnects, and pasteboard handling for file URLs and multiple items.
 
-### Conflict notes (`src/Surface.zig`, resolved in the merge)
+### Fork integration and conflict notes
 
-1. `mouseButtonCallback` link-click handling. Upstream refactored the
-   left-release block to hold the renderer lock for the whole block and to pass
-   a cached `release_pos` plus a `selection_gesture.left_click_dragged` guard.
-   Resolution keeps the fork's latched ctrl/super link-click semantics
-   (`link_click_active` / `link_press_over_link` / `armed_off_link`,
-   manaflow-ai/cmux#5128), drops the fork's now-double-locking
-   `renderer_state.mutex.lock()` (it would deadlock against the lock taken at
-   the top of the block), reuses upstream's `release_pos`, and AND-s in
-   upstream's `!left_click_dragged` guard.
-2. Selection tests. Upstream removed the `mouseSelection` helper in favor of the
-   new `SelectionGesture` API, so the fork's `testMouseSelection`-based
-   `"Surface: selection logic"` / `"Surface: rectangle selection logic"` tests
-   referenced deleted code. Those two tests were dropped; the fork-only
-   `"Surface: mouseLinkRefreshAllowedState honors ctrl/super under mouse
-   reporting"` test was kept (its target fn still exists).
+1. `src/Surface.zig`: kept the fork's latched Ctrl/Cmd-click semantics while
+   adopting upstream's cached release position, drag guard, and renderer-lock
+   ownership. The obsolete selection tests were dropped; the fork link-click
+   regression test remains.
+2. `src/renderer/Thread.zig`: kept cmux's iOS external-drain ownership and
+   combined it with upstream's visibility refresh and idle compression
+   scheduler. Desktop embedded surfaces therefore get automatic compression
+   without a cmux-side timer.
+3. `src/terminal/stream_terminal.zig`: used upstream's color-query response
+   implementation because it supersedes the fork-only `a78fe53ef` patch while
+   retaining terminal-stream APC handling.
+4. `src/apprt/embedded.zig`: render-grid JSON snapshots now decode compressed
+   nodes through `pagePreservingState`, reuse one temporary decode per page,
+   and leave the original scrollback compressed. This prevents iOS snapshot
+   streaming from undoing desktop memory savings.
+5. Fork CI keeps the `ubuntu-latest` aggregate-test fallback and skips
+   upstream-only Vouch jobs outside `ghostty-org/ghostty`.
 
-Verified: `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh` built
-GhosttyKit cleanly from the merge; cmux's ghostty C ABI surface (51 called
-`ghostty_*` functions) is unchanged in `include/ghostty.h` across the range
-(only the additive `GHOSTTY_ACTION_SELECTION_CHANGED` enum value); tagged cmux
-reload `gtyup`. Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cc31d54eef285de2f73b17a2aeafc24904722131-crashsubdir-cmux-crash-v1
+Verified with Zig 0.15.2: compression and libghostty-vt compression tests,
+the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
+build, and a clean universal GhosttyKit build. Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-870ed36f9623377b41e03bbebdb034ccb8a80fa3-crashsubdir-cmux-crash-v1
 
 ### Previous pin
+
+The previous cmux pin was `dd726a9a6`, carrying the iOS external renderer-drain
+mode and IOSurface detach fixes on top of `a78fe53ef`. The fork's prior `main`
+head was `cc31d54ee`, which merged upstream through `d560c645`; both histories
+are ancestors of `870ed36f9`.
+
+### Earlier pin
 
 Previous cmux pinned fork head: `541e5e89d`, which merges the render-grid span
 preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the
