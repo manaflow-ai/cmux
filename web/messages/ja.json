@@ -54,7 +54,8 @@
       "subrouterOverview": "概要",
       "accountGroup": "アカウント",
       "billing": "請求",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "team": "チーム"
     },
     "home": {
       "title": "ダッシュボード",
@@ -219,6 +220,63 @@
       "cancelAction": "キャンセル",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "team": {
+      "eyebrow": "チーム",
+      "title": "チーム",
+      "description": "メンバーを招待し、チームのメンバーシップを管理します。",
+      "joinedBanner": "チームに参加しました。",
+      "seatSummary": "{members}人のメンバー · {seats}シート",
+      "seatNudge": "有料シート数よりメンバーが多くなっています。シートを追加してください。",
+      "create": {
+        "title": "チームを作成",
+        "body": "メンバーを招待する前に共有チームを作成します。",
+        "placeholder": "チーム名",
+        "submit": "チームを作成"
+      },
+      "rename": {
+        "label": "チーム名",
+        "save": "保存"
+      },
+      "invite": {
+        "title": "メンバーを招待",
+        "placeholder": "name@example.com, teammate@example.com",
+        "send": "招待を送信",
+        "copyLink": "招待リンクをコピー",
+        "copied": "コピーしました",
+        "copyUnavailable": "共有リンクを作成するには、まず招待を送信してください。",
+        "pending": "送信中",
+        "sent": "送信済み",
+        "failed": "失敗"
+      },
+      "pending": {
+        "title": "保留中の招待",
+        "empty": "保留中の招待はありません。",
+        "unknownDate": "最近送信",
+        "resend": "再送信",
+        "revoke": "取り消し"
+      },
+      "members": {
+        "title": "メンバー",
+        "you": "あなた",
+        "noEmail": "メールなし",
+        "remove": "削除",
+        "removeConfirm": "このチームメンバーを削除しますか？"
+      },
+      "accept": {
+        "badCodeTitle": "招待リンクが無効です",
+        "badCodeBody": "チームメンバーに新しい招待を送ってもらってください。",
+        "emailMismatchTitle": "招待されたメールアドレスを使用してください",
+        "emailMismatchBody": "この招待は別のメールアドレスに紐づいています。アカウントを切り替えるか、新しい招待を依頼してください。",
+        "switchAccount": "アカウントを切り替え"
+      },
+      "errors": {
+        "createFailed": "チームを作成できませんでした。",
+        "inviteFailed": "招待を送信できませんでした。",
+        "revokeFailed": "招待を取り消せませんでした。",
+        "resendFailed": "招待を再送信できませんでした。",
+        "removeFailed": "メンバーを削除できませんでした。"
+      }
     }
   },
   "vault": {

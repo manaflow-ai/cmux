@@ -48,6 +48,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           active: pathname.startsWith("/dashboard/billing"),
         },
         {
+          href: "/dashboard/team",
+          label: t("team"),
+          active: pathname.startsWith("/dashboard/team"),
+        },
+        {
           href: "/dashboard/testflight",
           label: t("testflight"),
           active: pathname.startsWith("/dashboard/testflight"),

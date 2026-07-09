@@ -54,7 +54,8 @@
       "subrouterOverview": "overview",
       "accountGroup": "account",
       "billing": "billing",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "team": "team"
     },
     "home": {
       "title": "dashboard",
@@ -219,6 +220,63 @@
       "cancelAction": "Cancel",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "team": {
+      "eyebrow": "team",
+      "title": "team",
+      "description": "invite people and manage team membership.",
+      "joinedBanner": "You've joined the team.",
+      "seatSummary": "{members} members · {seats} seats",
+      "seatNudge": "You have more members than paid seats. Add seats.",
+      "create": {
+        "title": "Create a team",
+        "body": "Create a shared team before inviting members.",
+        "placeholder": "Team name",
+        "submit": "Create team"
+      },
+      "rename": {
+        "label": "Team name",
+        "save": "Save"
+      },
+      "invite": {
+        "title": "Invite people",
+        "placeholder": "name@example.com, teammate@example.com",
+        "send": "Send invites",
+        "copyLink": "Copy invite link",
+        "copied": "Copied",
+        "copyUnavailable": "Send an invite first to create a shareable link.",
+        "pending": "Sending",
+        "sent": "Sent",
+        "failed": "Failed"
+      },
+      "pending": {
+        "title": "Pending invites",
+        "empty": "No pending invites.",
+        "unknownDate": "Sent recently",
+        "resend": "Resend",
+        "revoke": "Revoke"
+      },
+      "members": {
+        "title": "Members",
+        "you": "You",
+        "noEmail": "No email",
+        "remove": "Remove",
+        "removeConfirm": "Remove this team member?"
+      },
+      "accept": {
+        "badCodeTitle": "Invite link is invalid",
+        "badCodeBody": "Ask a team member to send a new invite.",
+        "emailMismatchTitle": "Use the invited email address",
+        "emailMismatchBody": "This invite belongs to a different email. Switch accounts or ask for a new invite.",
+        "switchAccount": "Switch account"
+      },
+      "errors": {
+        "createFailed": "Team could not be created.",
+        "inviteFailed": "Invite could not be sent.",
+        "revokeFailed": "Invite could not be revoked.",
+        "resendFailed": "Invite could not be resent.",
+        "removeFailed": "Member could not be removed."
+      }
     }
   },
   "vault": {
