@@ -69,11 +69,51 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 
 // runOMORelay implements `cmux omo` on the remote side.
 func runOMORelay(socketPath string, args []string, refreshAddr func() string) int {
+	return runOpenCodeRelay(socketPath, args, refreshAddr, opencodeRelayConfig{
+		commandName:    "cmux omo",
+		createShimDir:  createOMOShimDir,
+		pluginSetup:    omoEnsurePlugin,
+		defaultPort:    "4096",
+		tmuxPathPrefix: "cmux-omo",
+		cmuxBinEnvVar:  "CMUX_OMO_CMUX_BIN",
+		termEnvVar:     "CMUX_OMO_TERM",
+		extraEnv:       map[string]string{},
+	})
+}
+
+// runOMOSlimRelay implements `cmux omo-slim` on the remote side.
+func runOMOSlimRelay(socketPath string, args []string, refreshAddr func() string) int {
+	return runOpenCodeRelay(socketPath, args, refreshAddr, opencodeRelayConfig{
+		commandName:    "cmux omo-slim",
+		createShimDir:  createOMOSlimShimDir,
+		pluginSetup:    omoSlimEnsurePlugin,
+		defaultPort:    "4097",
+		tmuxPathPrefix: "cmux-omo-slim",
+		cmuxBinEnvVar:  "CMUX_OMO_SLIM_CMUX_BIN",
+		termEnvVar:     "CMUX_OMO_SLIM_TERM",
+		extraEnv: map[string]string{
+			"OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS": "true",
+		},
+	})
+}
+
+type opencodeRelayConfig struct {
+	commandName    string
+	createShimDir  func() (string, error)
+	pluginSetup    func(searchPath string) error
+	defaultPort    string
+	tmuxPathPrefix string
+	cmuxBinEnvVar  string
+	termEnvVar     string
+	extraEnv       map[string]string
+}
+
+func runOpenCodeRelay(socketPath string, args []string, refreshAddr func() string, cfg opencodeRelayConfig) int {
 	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
 
-	shimDir, err := createOMOShimDir()
+	shimDir, err := cfg.createShimDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux omo: failed to create shim directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: failed to create launcher shim: %v\n", cfg.commandName, err)
 		return 1
 	}
 
@@ -81,14 +121,12 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	originalPath := os.Getenv("PATH")
 	opencodePath := findExecutableInPath("opencode", originalPath, shimDir)
 	if opencodePath == "" {
-		fmt.Fprintf(os.Stderr, "cmux omo: opencode not found in PATH\n"+
-			"Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n")
+		fmt.Fprintf(os.Stderr, "%s: required agent executable not found. Install the agent CLI and retry.\n", cfg.commandName)
 		return 1
 	}
 
-	// Ensure oh-my-opencode plugin is set up
-	if err := omoEnsurePlugin(originalPath); err != nil {
-		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
+	if err := cfg.pluginSetup(originalPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: launcher plugin setup failed. Check the plugin installation and retry.\n", cfg.commandName)
 		return 1
 	}
 
@@ -98,38 +136,58 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 		shimDir:        shimDir,
 		socketPath:     socketPath,
 		focused:        focused,
-		tmuxPathPrefix: "cmux-omo",
-		cmuxBinEnvVar:  "CMUX_OMO_CMUX_BIN",
-		termEnvVar:     "CMUX_OMO_TERM",
-		extraEnv:       map[string]string{},
+		tmuxPathPrefix: cfg.tmuxPathPrefix,
+		cmuxBinEnvVar:  cfg.cmuxBinEnvVar,
+		termEnvVar:     cfg.termEnvVar,
+		extraEnv:       cfg.extraEnv,
 	})
 
-	// Set OPENCODE_PORT if not already set
-	if os.Getenv("OPENCODE_PORT") == "" {
-		os.Setenv("OPENCODE_PORT", "4096")
-	}
-
-	// Build launch arguments
-	launchArgs := args
-	hasPort := false
-	for _, arg := range launchArgs {
-		if arg == "--port" || strings.HasPrefix(arg, "--port=") {
-			hasPort = true
-			break
-		}
-	}
-	if !hasPort {
-		port := os.Getenv("OPENCODE_PORT")
-		if port == "" {
-			port = "4096"
-		}
-		launchArgs = append([]string{"--port", port}, launchArgs...)
-	}
+	os.Setenv("OPENCODE_PORT", openCodeRelayEffectivePort(args, cfg.defaultPort))
+	launchArgs := openCodeRelayLaunchArgs(args, cfg.defaultPort)
 
 	launchPath, launchArgv := resolveNodeScriptExec(opencodePath, launchArgs, originalPath, shimDir)
 	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
-	fmt.Fprintf(os.Stderr, "cmux omo: exec failed: %v\n", execErr)
+	fmt.Fprintf(os.Stderr, "%s: exec failed: %v\n", cfg.commandName, execErr)
 	return 1
+}
+
+func openCodeRelayLaunchArgs(args []string, defaultPort string) []string {
+	launchArgs := args
+	for _, arg := range launchArgs {
+		if arg == "--port" || strings.HasPrefix(arg, "--port=") {
+			return launchArgs
+		}
+	}
+	port := os.Getenv("OPENCODE_PORT")
+	if port == "" {
+		port = openCodeRelayDefaultPort(defaultPort)
+	}
+	return append([]string{"--port", port}, launchArgs...)
+}
+
+func openCodeRelayEffectivePort(args []string, defaultPort string) string {
+	for i, arg := range args {
+		if arg == "--port" && i+1 < len(args) && strings.TrimSpace(args[i+1]) != "" {
+			return args[i+1]
+		}
+		if strings.HasPrefix(arg, "--port=") {
+			port := strings.TrimSpace(strings.TrimPrefix(arg, "--port="))
+			if port != "" {
+				return port
+			}
+		}
+	}
+	if port := strings.TrimSpace(os.Getenv("OPENCODE_PORT")); port != "" {
+		return port
+	}
+	return openCodeRelayDefaultPort(defaultPort)
+}
+
+func openCodeRelayDefaultPort(defaultPort string) string {
+	if strings.TrimSpace(defaultPort) == "" {
+		return "4096"
+	}
+	return defaultPort
 }
 
 // runOMXRelay implements `cmux omx` on the remote side.
@@ -228,6 +286,14 @@ esac
 exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
 `
 
+const omoSlimTmuxShimScript = `#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -V|-v) echo "tmux 3.4"; exit 0 ;;
+esac
+exec "${CMUX_OMO_SLIM_CMUX_BIN:-cmux}" __tmux-compat "$@"
+`
+
 const omxShimScript = `#!/usr/bin/env bash
 set -euo pipefail
 case "${1:-}" in
@@ -257,6 +323,19 @@ done
 exec "${CMUX_OMO_CMUX_BIN:-cmux}" notify --title "${TITLE:-OpenCode}" --body "${BODY:-}"
 `
 
+const omoSlimNotifierShimScript = `#!/usr/bin/env bash
+# Intercept terminal-notifier calls and route through cmux notify.
+TITLE="" BODY=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -title)   TITLE="$2"; shift 2 ;;
+    -message) BODY="$2"; shift 2 ;;
+    *)        shift ;;
+  esac
+done
+exec "${CMUX_OMO_SLIM_CMUX_BIN:-cmux}" notify --title "${TITLE:-OpenCode}" --body "${BODY:-}"
+`
+
 func createTmuxShimDir(dirName string, tmuxScript string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -280,6 +359,18 @@ func createOMOShimDir() (string, error) {
 	}
 	notifierPath := filepath.Join(dir, "terminal-notifier")
 	if err := writeShimIfChanged(notifierPath, omoNotifierShimScript); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func createOMOSlimShimDir() (string, error) {
+	dir, err := createTmuxShimDir("omo-slim-bin", omoSlimTmuxShimScript)
+	if err != nil {
+		return "", err
+	}
+	notifierPath := filepath.Join(dir, "terminal-notifier")
+	if err := writeShimIfChanged(notifierPath, omoSlimNotifierShimScript); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -577,6 +668,7 @@ func configureAgentEnvironment(cfg agentConfig) {
 // --- oh-my-opencode plugin setup ---
 
 const omoPluginName = "oh-my-opencode"
+const omoSlimPluginName = "oh-my-opencode-slim"
 
 func omoUserConfigDir() string {
 	home, _ := os.UserHomeDir()
@@ -588,12 +680,27 @@ func omoShadowConfigDir() string {
 	return filepath.Join(home, ".cmuxterm", "omo-config")
 }
 
-// omoEnsurePlugin creates a shadow config directory that layers the
-// oh-my-opencode plugin on top of the user's opencode config, installs
-// the plugin if needed, and sets OPENCODE_CONFIG_DIR.
-func omoEnsurePlugin(searchPath string) error {
+func omoSlimShadowConfigDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cmuxterm", "omo-slim-config")
+}
+
+type opencodePluginSetup struct {
+	pluginName                  string
+	shadowDir                   string
+	configFilenames             []string
+	removePluginPackages        []string
+	isolatedPackageManifestName string
+	configurePlugin             func(shadowDir string) error
+	installHint                 string
+	installingLabel             string
+	installedLabel              string
+	installFailLabel            string
+}
+
+func ensureOpencodePlugin(searchPath string, setup opencodePluginSetup) error {
 	userDir := omoUserConfigDir()
-	shadowDir := omoShadowConfigDir()
+	shadowDir := setup.shadowDir
 
 	if err := os.MkdirAll(shadowDir, 0755); err != nil {
 		return fmt.Errorf("create shadow config dir: %w", err)
@@ -612,24 +719,26 @@ func omoEnsurePlugin(searchPath string) error {
 		config = map[string]any{}
 	}
 
-	// Add oh-my-opencode to the plugins list
+	// Add the requested OpenCode plugin to the plugins list.
 	var plugins []string
 	if raw, ok := config["plugin"].([]any); ok {
 		for _, p := range raw {
 			if s, ok := p.(string); ok {
-				plugins = append(plugins, s)
+				if !openCodePluginSpecMatchesAnyPackage(s, setup.removePluginPackages) {
+					plugins = append(plugins, s)
+				}
 			}
 		}
 	}
 	alreadyPresent := false
 	for _, p := range plugins {
-		if p == omoPluginName || strings.HasPrefix(p, omoPluginName+"@") {
+		if p == setup.pluginName || strings.HasPrefix(p, setup.pluginName+"@") {
 			alreadyPresent = true
 			break
 		}
 	}
 	if !alreadyPresent {
-		plugins = append(plugins, omoPluginName)
+		plugins = append(plugins, setup.pluginName)
 	}
 	config["plugin"] = plugins
 
@@ -652,17 +761,29 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Symlink package.json and bun.lock
-	for _, filename := range []string{"package.json", "bun.lock"} {
-		userFile := filepath.Join(userDir, filename)
-		shadowFile := filepath.Join(shadowDir, filename)
-		if fileExists(userFile) && !fileExists(shadowFile) {
-			os.Symlink(userFile, shadowFile)
+	if setup.isolatedPackageManifestName != "" {
+		if err := ensureOpencodeShadowPackageManifest(shadowDir, setup.pluginName, setup.isolatedPackageManifestName); err != nil {
+			return err
+		}
+		bunLockPath := filepath.Join(shadowDir, "bun.lock")
+		if target, err := os.Readlink(bunLockPath); err == nil && target != "" {
+			if err := os.Remove(bunLockPath); err != nil {
+				return fmt.Errorf("remove shadow bun.lock symlink: %w", err)
+			}
+		}
+	} else {
+		// Symlink package.json and bun.lock
+		for _, filename := range []string{"package.json", "bun.lock"} {
+			userFile := filepath.Join(userDir, filename)
+			shadowFile := filepath.Join(shadowDir, filename)
+			if fileExists(userFile) && !fileExists(shadowFile) {
+				os.Symlink(userFile, shadowFile)
+			}
 		}
 	}
 
-	// Symlink oh-my-opencode config files
-	for _, filename := range []string{"oh-my-opencode.json", "oh-my-opencode.jsonc"} {
+	// Symlink plugin config files.
+	for _, filename := range setup.configFilenames {
 		userFile := filepath.Join(userDir, filename)
 		shadowFile := filepath.Join(shadowDir, filename)
 		if fileExists(userFile) && !fileExists(shadowFile) {
@@ -671,10 +792,13 @@ func omoEnsurePlugin(searchPath string) error {
 	}
 
 	// Install the plugin if not available
-	pluginPackageDir := filepath.Join(shadowNodeModules, omoPluginName)
+	pluginPackageDir := filepath.Join(shadowNodeModules, setup.pluginName)
 	if !dirExists(pluginPackageDir) {
 		installDir := userDir
-		if !dirExists(userNodeModules) {
+		if setup.isolatedPackageManifestName != "" {
+			installDir = shadowDir
+			os.Remove(shadowNodeModules)
+		} else if !dirExists(userNodeModules) {
 			installDir = shadowDir
 			os.Remove(shadowNodeModules) // Remove symlink so we can install directly
 		}
@@ -683,23 +807,23 @@ func omoEnsurePlugin(searchPath string) error {
 		bunPath := findExecutableInPath("bun", searchPath, "")
 		npmPath := findExecutableInPath("npm", searchPath, "")
 		if bunPath == "" && npmPath == "" {
-			return fmt.Errorf("neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+			return fmt.Errorf("neither bun nor npm found in PATH. %s", setup.installHint)
 		}
 
-		fmt.Fprintf(os.Stderr, "Installing oh-my-opencode plugin...\n")
+		fmt.Fprintf(os.Stderr, "%s\n", setup.installingLabel)
 		var cmd *exec.Cmd
 		if bunPath != "" {
-			cmd = exec.Command(bunPath, "add", omoPluginName)
+			cmd = exec.Command(bunPath, "add", setup.pluginName)
 		} else {
-			cmd = exec.Command(npmPath, "install", omoPluginName)
+			cmd = exec.Command(npmPath, "install", setup.pluginName)
 		}
 		cmd.Dir = installDir
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to install oh-my-opencode: %v\nTry manually: npm install -g oh-my-opencode", err)
+			return fmt.Errorf("%s: %v\n%s", setup.installFailLabel, err, setup.installHint)
 		}
-		fmt.Fprintf(os.Stderr, "oh-my-opencode plugin installed\n")
+		fmt.Fprintf(os.Stderr, "%s\n", setup.installedLabel)
 
 		// Re-create symlink if we installed into user dir
 		if installDir == userDir && !fileExists(shadowNodeModules) {
@@ -707,19 +831,99 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Configure oh-my-opencode.json with tmux settings
+	if setup.configurePlugin != nil {
+		if err := setup.configurePlugin(shadowDir); err != nil {
+			return err
+		}
+	}
+
+	os.Setenv("OPENCODE_CONFIG_DIR", shadowDir)
+	return nil
+}
+
+func ensureOpencodeShadowPackageManifest(shadowDir string, pluginName string, manifestName string) error {
+	packagePath := filepath.Join(shadowDir, "package.json")
+	if target, err := os.Readlink(packagePath); err == nil && target != "" {
+		if err := os.Remove(packagePath); err != nil {
+			return fmt.Errorf("remove shadow package.json symlink: %w", err)
+		}
+	}
+	manifest := map[string]any{
+		"name":    manifestName,
+		"private": true,
+		"dependencies": map[string]string{
+			pluginName: "latest",
+		},
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal shadow package.json: %w", err)
+	}
+	existing, _ := os.ReadFile(packagePath)
+	if string(existing) == string(data) {
+		return nil
+	}
+	if err := os.WriteFile(packagePath, data, 0644); err != nil {
+		return fmt.Errorf("write shadow package.json: %w", err)
+	}
+	return nil
+}
+
+func openCodePluginSpecMatchesAnyPackage(spec string, packageNames []string) bool {
+	for _, packageName := range packageNames {
+		if spec == packageName || strings.HasPrefix(spec, packageName+"@") {
+			return true
+		}
+	}
+	return false
+}
+
+// omoEnsurePlugin creates a shadow config directory that layers the
+// oh-my-opencode plugin on top of the user's opencode config, installs
+// the plugin if needed, and sets OPENCODE_CONFIG_DIR.
+func omoEnsurePlugin(searchPath string) error {
+	return ensureOpencodePlugin(searchPath, opencodePluginSetup{
+		pluginName:      omoPluginName,
+		shadowDir:       omoShadowConfigDir(),
+		configFilenames: []string{"oh-my-opencode.json", "oh-my-opencode.jsonc"},
+		removePluginPackages: []string{
+			omoSlimPluginName,
+		},
+		configurePlugin:  configureOMOPlugin,
+		installHint:      "Install oh-my-opencode manually: bunx oh-my-opencode install",
+		installingLabel:  "Installing oh-my-opencode plugin...",
+		installedLabel:   "oh-my-opencode plugin installed",
+		installFailLabel: "failed to install oh-my-opencode",
+	})
+}
+
+func omoSlimEnsurePlugin(searchPath string) error {
+	return ensureOpencodePlugin(searchPath, opencodePluginSetup{
+		pluginName:      omoSlimPluginName,
+		shadowDir:       omoSlimShadowConfigDir(),
+		configFilenames: []string{"oh-my-opencode-slim.json", "oh-my-opencode-slim.jsonc"},
+		removePluginPackages: []string{
+			omoPluginName,
+			"oh-my-openagent",
+		},
+		isolatedPackageManifestName: "cmux-omo-slim-shadow",
+		configurePlugin:             configureOMOSlimPlugin,
+		installHint:                 "Install oh-my-opencode-slim manually: bunx oh-my-opencode-slim@latest install",
+		installingLabel:             "Installing oh-my-opencode-slim plugin...",
+		installedLabel:              "oh-my-opencode-slim plugin installed",
+		installFailLabel:            "failed to install oh-my-opencode-slim",
+	})
+}
+
+func configureOMOPlugin(shadowDir string) error {
 	omoConfigPath := filepath.Join(shadowDir, "oh-my-opencode.json")
 	var omoConfig map[string]any
-	if data, err := os.ReadFile(omoConfigPath); err == nil {
-		json.Unmarshal(data, &omoConfig)
+	omoConfig, _ = readJSONConfigFile(omoConfigPath, false)
+	if omoConfig == nil {
+		omoConfig, _ = readJSONConfigFile(filepath.Join(omoUserConfigDir(), "oh-my-opencode.json"), false)
 	}
 	if omoConfig == nil {
-		// Check if user had one we symlinked
-		userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
-		if data, err := os.ReadFile(userOmoConfig); err == nil {
-			json.Unmarshal(data, &omoConfig)
-			os.Remove(omoConfigPath) // Remove symlink so we can write our own copy
-		}
+		omoConfig, _ = readJSONConfigFile(filepath.Join(omoUserConfigDir(), "oh-my-opencode.jsonc"), true)
 	}
 	if omoConfig == nil {
 		omoConfig = map[string]any{}
@@ -750,14 +954,147 @@ func omoEnsurePlugin(searchPath string) error {
 		omoConfig["tmux"] = tmuxConfig
 		// Remove symlink if it exists
 		if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
-			os.Remove(omoConfigPath)
+			if err := os.Remove(omoConfigPath); err != nil {
+				return fmt.Errorf("replace symlinked omo config: %w", err)
+			}
 		}
-		data, _ := json.MarshalIndent(omoConfig, "", "  ")
-		os.WriteFile(omoConfigPath, data, 0644)
+		data, err := json.MarshalIndent(omoConfig, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal omo config: %w", err)
+		}
+		if err := os.WriteFile(omoConfigPath, data, 0644); err != nil {
+			return fmt.Errorf("write omo config: %w", err)
+		}
 	}
 
-	os.Setenv("OPENCODE_CONFIG_DIR", shadowDir)
 	return nil
+}
+
+func configureOMOSlimPlugin(shadowDir string) error {
+	configPath := filepath.Join(shadowDir, "oh-my-opencode-slim.json")
+	var slimConfig map[string]any
+	slimConfig, _ = readJSONConfigFile(configPath, false)
+	if slimConfig == nil {
+		userDir := omoUserConfigDir()
+		candidates := []struct {
+			path          string
+			allowComments bool
+		}{
+			{filepath.Join(userDir, "oh-my-opencode-slim.json"), false},
+			{filepath.Join(shadowDir, "oh-my-opencode-slim.jsonc"), true},
+			{filepath.Join(userDir, "oh-my-opencode-slim.jsonc"), true},
+		}
+		for _, candidate := range candidates {
+			if existing, _ := readJSONConfigFile(candidate.path, candidate.allowComments); existing != nil {
+				slimConfig = existing
+				break
+			}
+		}
+	}
+	if slimConfig == nil {
+		slimConfig = map[string]any{}
+	}
+
+	muxConfig, _ := slimConfig["multiplexer"].(map[string]any)
+	if muxConfig == nil {
+		muxConfig = map[string]any{}
+	}
+	needsWrite := false
+	if muxConfig["type"] != "tmux" {
+		muxConfig["type"] = "tmux"
+		needsWrite = true
+	}
+	if muxConfig["layout"] == nil {
+		muxConfig["layout"] = "main-vertical"
+		needsWrite = true
+	}
+	if muxConfig["main_pane_size"] == nil {
+		muxConfig["main_pane_size"] = 60
+		needsWrite = true
+	}
+	if needsWrite {
+		slimConfig["multiplexer"] = muxConfig
+		if target, err := os.Readlink(configPath); err == nil && target != "" {
+			if err := os.Remove(configPath); err != nil {
+				return fmt.Errorf("replace symlinked omo-slim config: %w", err)
+			}
+		}
+		data, err := json.MarshalIndent(slimConfig, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal omo-slim config: %w", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			return fmt.Errorf("write omo-slim config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func readJSONConfigFile(path string, allowComments bool) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	text := string(data)
+	if allowComments {
+		text = stripJSONComments(text)
+	}
+	var config map[string]any
+	if err := json.Unmarshal([]byte(text), &config); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+func stripJSONComments(input string) string {
+	var b strings.Builder
+	inString := false
+	escaping := false
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if inString {
+			b.WriteByte(ch)
+			if escaping {
+				escaping = false
+			} else if ch == '\\' {
+				escaping = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		if ch == '"' {
+			inString = true
+			b.WriteByte(ch)
+			continue
+		}
+		if ch == '/' && i+1 < len(input) {
+			next := input[i+1]
+			if next == '/' {
+				i += 2
+				for i < len(input) && input[i] != '\n' {
+					i++
+				}
+				if i < len(input) {
+					b.WriteByte(input[i])
+				}
+				continue
+			}
+			if next == '*' {
+				i += 2
+				for i+1 < len(input) && !(input[i] == '*' && input[i+1] == '/') {
+					i++
+				}
+				if i+1 < len(input) {
+					i++
+				}
+				continue
+			}
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
 }
 
 func fileExists(path string) bool {

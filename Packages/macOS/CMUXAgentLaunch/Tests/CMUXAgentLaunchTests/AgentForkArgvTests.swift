@@ -150,6 +150,22 @@ struct AgentForkArgvTests {
         )
         #expect(
             AgentForkArgv().launcherResolution(
+                launcher: "omo-slim",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "omo-slim", "--model", "zhipu/glm-5.2"]
+            ) == .resolved(["cmux", "omo-slim", "--session", "SID", "--fork", "--model", "zhipu/glm-5.2"])
+        )
+        #expect(
+            AgentForkArgv().launcherResolution(
+                launcher: "omos",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "omos", "--model", "zhipu/glm-5.2"]
+            ) == .resolved(["cmux", "omos", "--session", "SID", "--fork", "--model", "zhipu/glm-5.2"])
+        )
+        #expect(
+            AgentForkArgv().launcherResolution(
                 launcher: "omx",
                 sessionId: "SID",
                 executablePath: nil,

@@ -228,6 +228,16 @@ struct AgentResumeArgvTests {
                 launcher: "omo", sessionId: "SID", executablePath: nil, arguments: ["cmux", "omo"]
             ) == .resolved(["cmux", "omo", "--session", "SID"])
         )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "omo-slim", sessionId: "SID", executablePath: nil, arguments: ["cmux", "omo-slim"]
+            ) == .resolved(["cmux", "omo-slim", "--session", "SID"])
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "omos", sessionId: "SID", executablePath: nil, arguments: ["cmux", "omos"]
+            ) == .resolved(["cmux", "omos", "--session", "SID"])
+        )
         // One-shot wrappers have no resumable form (omx and omc share an arm; exercise each).
         #expect(
             AgentResumeArgv().launcherResolution(

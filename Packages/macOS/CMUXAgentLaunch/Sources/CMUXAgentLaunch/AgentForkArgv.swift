@@ -40,14 +40,15 @@ public struct AgentForkArgv: Sendable, Equatable {
                 return .resolved(nil)
             }
             return .resolved([parts.executable, "codex-teams", "fork", sessionId] + preserved)
-        case "omo":
+        case "omo", "omo-slim", "omos":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
-            if tail.first == "omo" { tail.removeFirst() }
+            let command = launcher ?? "omo"
+            if tail.first == command { tail.removeFirst() }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail) else {
                 return .resolved(nil)
             }
-            return .resolved([parts.executable, "omo", "--session", sessionId, "--fork"] + preserved)
+            return .resolved([parts.executable, command, "--session", sessionId, "--fork"] + preserved)
         case "omx", "omc":
             return .resolved(nil)
         default:

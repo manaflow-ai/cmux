@@ -64,12 +64,13 @@ public enum AgentLaunchSanitizer {
             }
             guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
             return [executable, "codex-teams"] + preserved
-        case "omo":
-            if tail.first == "omo" {
+        case "omo", "omo-slim", "omos":
+            let command = launcher
+            if tail.first == command {
                 tail.removeFirst()
             }
             guard let preserved = preservedArguments(kind: "opencode", args: tail) else { return nil }
-            return [executable, "omo"] + preserved
+            return [executable, command] + preserved
         case "omx", "omc":
             return nil
         default:

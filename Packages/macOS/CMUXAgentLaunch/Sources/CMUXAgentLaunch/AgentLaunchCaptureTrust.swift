@@ -14,7 +14,7 @@ public enum AgentLaunchCaptureTrust {
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
         "claude": ["claudeteams"],
         "codex": ["codexteams"],
-        "opencode": ["omo", "omx", "omc"],
+        "opencode": ["omo", "omo-slim", "omos", "omx", "omc"],
         "pi": ["omp"],
     ]
 
@@ -30,11 +30,23 @@ public enum AgentLaunchCaptureTrust {
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "kiro": ["kiro", "kiro-cli"],
         "omp": ["omp"],
-        "opencode": ["opencode", "omo", "omx", "omc"],
+        "opencode": ["opencode", "omo", "omo-slim", "omos", "omx", "omc"],
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
+
+    private static let openCodeSessionWrapperLaunchers: Set<String> = ["omo", "omo-slim", "omos"]
+
+    /// True when `launcher` is a cmux OpenCode wrapper that owns session
+    /// restore/fork behavior and should not require a direct OpenCode probe.
+    public static func launcherIsOpenCodeSessionWrapper(_ launcher: String?) -> Bool {
+        guard let launcher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !launcher.isEmpty else {
+            return false
+        }
+        return openCodeSessionWrapperLaunchers.contains(launcher.lowercased())
+    }
 
     /// True when `launcher` plausibly describes a launch of agent `kind`.
     /// A nil/empty launcher is trusted: hooks fall back to their own kind.

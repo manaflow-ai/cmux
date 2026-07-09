@@ -5589,7 +5589,10 @@ struct ContentView: View {
         case .claude, .codex:
             return .supportedWithoutProbe
         case .opencode:
-            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+            let isWrappedOpenCodeLauncher = AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(
+                snapshot.launchCommand?.launcher
+            )
+            return (isWrappedOpenCodeLauncher || isRemoteTerminal) ? .supportedWithoutProbe : .requiresProbe
         case .custom:
             return .supportedWithoutProbe
         default:

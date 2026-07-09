@@ -17,9 +17,20 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "claude"))
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("codexTeams", kind: "codex"))
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omo", kind: "opencode"))
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omo-slim", kind: "opencode"))
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omos", kind: "opencode"))
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omx", kind: "opencode"))
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omc", kind: "opencode"))
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omp", kind: "pi"))
+    }
+
+    func testOpenCodeSessionWrapperLaunchers() {
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("omo"))
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("omo-slim"))
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("omos"))
+        XCTAssertFalse(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("opencode"))
+        XCTAssertFalse(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("omx"))
+        XCTAssertFalse(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(nil))
     }
 
     func testCrossAgentLauncherIsDistrusted() {
