@@ -17,7 +17,7 @@ struct TerminalDisconnectedOverlay: View {
         ZStack {
             // Sits over the (black) terminal; the white content is what the user
             // sees instead of an unexplained black screen.
-            Rectangle().fill(.black.opacity(0.6)).ignoresSafeArea()
+            Rectangle().fill(.black.opacity(0.35)).ignoresSafeArea()
             VStack(spacing: 14) {
                 if status == .reconnecting {
                     ProgressView().controlSize(.large).tint(.white)

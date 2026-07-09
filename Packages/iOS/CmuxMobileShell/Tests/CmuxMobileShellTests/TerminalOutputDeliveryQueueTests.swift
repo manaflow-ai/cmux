@@ -350,7 +350,7 @@ import Testing
 }
 
 @MainActor
-@Test func terminalReplayBarrierStaysActiveAfterRetryExhaustionWithoutDroppedOutput() async throws {
+@Test func terminalReplayBarrierFailsOpenAfterRetryExhaustionWithoutDroppedOutput() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -370,30 +370,29 @@ import Testing
     let stalledChunk = try #require(await iterator.next())
     store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
 
-    let exhaustedRetries = await waitForReplayRequestCount(
-        router,
-        atLeast: replayCountAfterMount + 3
-    )
+    let exhaustedRetries = await waitForReplayRequestCount(router, atLeast: replayCountAfterMount + 3)
     #expect(exhaustedRetries, "reset replay should exhaust the initial request plus two retries")
 
     let failureSettled = await waitForReplayBarrierFailureToSettle {
         !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
     }
     #expect(failureSettled)
-    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
-    let acceptedAfterExhaustion = store.deliverTerminalBytes(
+    #expect(store.deliverTerminalBytes(
         Data("live-after-exhausted-replay".utf8),
         surfaceID: surfaceID
-    )
-    #expect(acceptedAfterExhaustion == false)
+    ))
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-exhausted-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveChunk.streamToken)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
     let replayRestartedAfterExhaustion = await waitForReplayRequestCount(
         router,
         atLeast: replayCountAfterExhaustion + 1
     )
-    #expect(!replayRestartedAfterExhaustion, "dropped live output must not bypass the replay retry cap")
+    #expect(!replayRestartedAfterExhaustion, "fail-open live output must not restart an exhausted barrier replay")
 }
 
 @MainActor
@@ -478,7 +477,7 @@ import Testing
 }
 
 @MainActor
-@Test func genericReplayRequestReusesPreservedBarrierAfterRetryExhaustion() async throws {
+@Test func genericReplayRequestAfterRetryExhaustionUsesFreshUnbarrieredReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -508,22 +507,19 @@ import Testing
         !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
     }
     #expect(failureSettled)
-    let preservedBarrierToken = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
     await router.enqueueReplayTexts(["resync-replay"])
     store.requestTerminalReplay(surfaceID: surfaceID)
 
-    let genericReplayRequested = await waitForReplayRequestCount(
-        router,
-        atLeast: replayCountAfterExhaustion + 1
-    )
-    #expect(genericReplayRequested, "generic resync must not be blocked by a preserved barrier")
+    let genericReplayRequested = await waitForReplayRequestCount(router, atLeast: replayCountAfterExhaustion + 1)
+    #expect(genericReplayRequested, "generic resync must still work after fail-open clears the barrier")
 
     if genericReplayRequested {
         let replayChunk = try #require(await iterator.next())
         #expect(String(data: replayChunk.data, encoding: .utf8) == "resync-replay")
-        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == preservedBarrierToken)
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
         store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
         #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
     }

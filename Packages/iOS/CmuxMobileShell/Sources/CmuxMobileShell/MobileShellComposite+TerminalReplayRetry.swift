@@ -31,6 +31,12 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted_after_drop source=\(source) surface=\(surfaceID)"
             )
+            // Same fail-open invariant as failOpenTerminalReplayBarrier: once
+            // retry budget is exhausted, the pending-input gate must not keep
+            // live output suppressed forever.
+            pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
         requestTerminalReplay(surfaceID: surfaceID)

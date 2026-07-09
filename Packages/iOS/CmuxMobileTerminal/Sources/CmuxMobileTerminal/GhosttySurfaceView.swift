@@ -18,7 +18,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
-    private weak var delegate: GhosttySurfaceViewDelegate?
+    weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
@@ -64,11 +64,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
-    private var bridge = GhosttySurfaceBridge()
+    var bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
-    private var displayLink: CADisplayLink?
+    var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
@@ -77,7 +77,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the last applied state from the byte stream and hide the overlay to
     /// match. Defaults to visible (a normal shell shows its cursor).
     private var hostCursorVisible: Bool = true
-    private var needsDraw: Bool = false
+    var needsDraw: Bool = false
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
     /// settled layer size rather than leaving a stale mid-animation surface.
@@ -91,9 +91,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// when zoom stopped and the backlog drained — the "frozen, no updates"
     /// symptom. Coalescing caps the backlog: while a render is in flight, mark
     /// `needsAnotherRender` and re-enqueue exactly one when it completes.
-    private var renderInFlight: Bool = false
-    private var renderInFlightSince: CFTimeInterval?
-    private var needsAnotherRender: Bool = false
+    var renderInFlight: Bool = false
+    var renderInFlightSince: CFTimeInterval?
+    var needsAnotherRender: Bool = false
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
     /// swap-chain frame slot from libghostty; if the app is backgrounded while
@@ -124,8 +124,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingGeometryReassert: Bool = false
     /// Last content scale pushed to libghostty; used to skip redundant
     /// per-frame `set_content_scale` pushes (the screen scale is constant).
-    private var lastAppliedContentScale: CGFloat = 0
-    private var surfaceHasReceivedOutput: Bool = false
+    var lastAppliedContentScale: CGFloat = 0
+    var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
@@ -134,20 +134,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `GhosttySurfaceCopyableText.swift` can enqueue its surface read with
     /// the same FIFO-before-dispose ordering discipline.
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
-    private var outputQueueGeneration: UInt64 = 0
-    private var pendingSurfaceFreeCount = 0
-    private var renderPipelineRecoveryPaused = false
-    private var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
-    private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
-    private static let outputApplyTimeout: CFTimeInterval = 2.0
-    private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
-    private static let copyableTextTimeout: CFTimeInterval = 2.0
-    private static let maxPendingSurfaceFrees = 1
-    private var nextSurfaceOperationID: UInt64 = 0
-    private var pendingOutputApply: PendingSurfaceOperation?
-    private var pendingGeometryApply: PendingSurfaceOperation?
-    private var pendingVisibleSnapshot: PendingVisibleSnapshot?
-    private var pendingCopyableTextRead: PendingCopyableTextRead?
+    var outputQueueGeneration: UInt64 = 0
+    var pendingSurfaceFreeCount = 0
+    var renderPipelineRecoveryPaused = false
+    var renderPipelineRecoveryResumeTimer: (any DispatchSourceTimer)?
+    var renderPipelineRecoveryPausedAt: CFTimeInterval?
+    var consecutiveOutputTimeoutRecoveries = 0
+    var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
+    static let renderPipelineStallDeadline: CFTimeInterval = 2.0
+    static let outputApplyTimeout: CFTimeInterval = 2.0
+    static let maxOutputApplyTimeout: CFTimeInterval = 16.0
+    static let renderPipelineRecoveryResumeInterval: TimeInterval = 5.0
+    static let visibleSnapshotTimeout: CFTimeInterval = 0.6
+    static let copyableTextTimeout: CFTimeInterval = 2.0
+    static let maxPendingSurfaceFrees = 4
+    var nextSurfaceOperationID: UInt64 = 0
+    var pendingOutputApply: PendingSurfaceOperation?
+    var pendingGeometryApply: PendingSurfaceOperation?
+    var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    var pendingCopyableTextRead: PendingCopyableTextRead?
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
             || pendingCopyableTextRead != nil
@@ -302,8 +307,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return view
     }()
 
-    private(set) var surface: ghostty_surface_t?
-    private var surfaceGeneration: UInt64 = 0
+    var surface: ghostty_surface_t?
+    var surfaceGeneration: UInt64 = 0
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -346,7 +351,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
-    private var cellPixelSize: CGSize = .zero
+    var cellPixelSize: CGSize = .zero
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
@@ -354,9 +359,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
-    private var lastRenderRect: CGRect = .zero
-    private var lastRenderLayoutViewportHeight: CGFloat?
-    private var lastRenderHasSourceLayoutViewport = false
+    var lastRenderRect: CGRect = .zero
+    var lastRenderLayoutViewportHeight: CGFloat?
+    var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
@@ -1892,54 +1897,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func checkSurfaceOperationDeadlines(now: CFTimeInterval) -> Bool {
-        if let pending = pendingOutputApply,
-           now - pending.startedAt >= Self.outputApplyTimeout {
-            pendingOutputApply = nil
-            let elapsedMs = Int((now - pending.startedAt) * 1000)
-            MobileDebugLog.anchormux(
-                "output.apply.TIMEOUT bytes=\(pending.byteCount ?? 0) elapsedMs=\(elapsedMs)"
-            )
-            let recovered = recoverRenderPipeline(
-                reason: "output_timeout",
-                stalledMs: elapsedMs,
-                replay: .callerWillRequestReplay
-            )
-            pending.continuation.resume(returning: false)
-            return recovered
-        }
-
-        if let pending = pendingGeometryApply,
-           now - pending.startedAt >= Self.outputApplyTimeout {
-            pendingGeometryApply = nil
-            let elapsedMs = Int((now - pending.startedAt) * 1000)
-            MobileDebugLog.anchormux("geometry.apply.TIMEOUT elapsedMs=\(elapsedMs)")
-            let recovered = recoverRenderPipeline(
-                reason: "geometry_timeout",
-                stalledMs: elapsedMs,
-                replay: .callerWillRequestReplay
-            )
-            pending.continuation.resume(returning: false)
-            return recovered
-        }
-
-        if let pending = pendingVisibleSnapshot,
-           now - pending.startedAt >= Self.visibleSnapshotTimeout {
-            pendingVisibleSnapshot = nil
-            pending.continuation.resume(returning: nil)
-        }
-
-        if let pending = pendingCopyableTextRead,
-           now - pending.startedAt >= Self.copyableTextTimeout {
-            pendingCopyableTextRead = nil
-            pending.cancel()
-            pending.continuation.resume(returning: nil)
-        }
-        return false
-    }
-
-    @discardableResult
-    private func completePendingSurfaceOperations(returning result: Bool) -> Bool {
+    func completePendingSurfaceOperations(returning result: Bool) -> Bool {
         var completed = false
         if let pending = pendingOutputApply {
             pendingOutputApply = nil
@@ -2060,6 +2018,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     completion?(false)
                     return
                 }
+                self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
@@ -2127,7 +2086,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// True while a `scroll_to_bottom` binding action is queued or running on
     /// the serial surface queue. Cleared on the reset path alongside the queue
     /// regeneration so a wedged surface cannot permanently disable the snap.
-    private var scrollToBottomInFlight = false
+    var scrollToBottomInFlight = false
 
     static func forwardDaemonOutputBytes(_ data: Data) -> Data {
         // The daemon owns terminal byte semantics. iOS must feed Ghostty the
@@ -2188,6 +2147,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         completePendingSurfaceOperations(returning: false)
+        cancelRenderPipelineRecoveryResumeTimer()
+        renderPipelineRecoveryPaused = false
+        renderPipelineRecoveryPausedAt = nil
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
@@ -2365,6 +2327,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func disposeSurface() {
         stopDisplayLink()
+        cancelRenderPipelineRecoveryResumeTimer()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2384,7 +2347,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         enqueueSurfaceFree(surface, bridge: currentBridge, on: currentQueue)
     }
 
-    private func enqueueSurfaceFree(
+    func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         bridge: GhosttySurfaceBridge,
         on queue: GhosttySurfaceWorkQueue,
@@ -2398,113 +2361,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 Task { @MainActor in completion() }
             }
         }
-    }
-
-    private func logRecoveryPausedDrop(kind: String, byteCount: Int? = nil) {
-        let now = CACurrentMediaTime()
-        guard now - lastRecoveryPausedDropLogTime >= 1 else { return }
-        lastRecoveryPausedDropLogTime = now
-        MobileDebugLog.anchormux(
-            "render.recover.paused_drop kind=\(kind) bytes=\(byteCount ?? 0) pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-    }
-
-    @discardableResult
-    private func pauseRenderPipelineRecovery(
-        reason: String,
-        stalledMs: Int
-    ) -> Bool {
-        MobileDebugLog.anchormux(
-            "render.recover.paused reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-        renderPipelineRecoveryPaused = true
-        stopDisplayLink()
-        _ = completePendingSurfaceOperations(returning: false)
-        renderInFlight = false
-        renderInFlightSince = nil
-        needsAnotherRender = false
-        needsDraw = false
-        return true
-    }
-
-    private func resumePausedRenderPipelineRecoveryIfPossible() {
-        guard renderPipelineRecoveryPaused,
-              !isDismantled,
-              surface != nil,
-              pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else { return }
-        MobileDebugLog.anchormux(
-            "render.recover.resuming pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-        renderPipelineRecoveryPaused = false
-        _ = recoverRenderPipeline(
-            reason: "free_drained",
-            stalledMs: 0,
-            replay: .delegateWhenNoCaller
-        )
-    }
-
-    @discardableResult
-    private func recoverRenderPipeline(
-        reason: String,
-        stalledMs: Int,
-        replay: RenderPipelineRecoveryReplay
-    ) -> Bool {
-        guard !isDismantled,
-              surface != nil else {
-            return false
-        }
-        guard !renderPipelineRecoveryPaused else {
-            return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
-        }
-        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
-            return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
-        }
-        MobileDebugLog.anchormux(
-            "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-        let completedFailedOperation = completePendingSurfaceOperations(returning: false)
-
-        stopDisplayLink()
-        let oldSurface = surface
-        let oldBridge = bridge
-        let oldQueue = outputQueue
-        oldBridge.detach()
-        if let oldSurface {
-            GhosttySurfaceView.unregister(surface: oldSurface)
-            pendingSurfaceFreeCount += 1
-            enqueueSurfaceFree(oldSurface, bridge: oldBridge, on: oldQueue) { [weak self] in
-                guard let self else { return }
-                self.pendingSurfaceFreeCount = max(0, self.pendingSurfaceFreeCount - 1)
-                MobileDebugLog.anchormux(
-                    "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
-                )
-                self.resumePausedRenderPipelineRecoveryIfPossible()
-            }
-        }
-
-        surface = nil
-        renderInFlight = false
-        renderInFlightSince = nil
-        needsAnotherRender = false
-        needsDraw = true
-        cellPixelSize = .zero
-        lastRenderRect = .zero
-        lastRenderLayoutViewportHeight = nil
-        lastRenderHasSourceLayoutViewport = false
-        lastAppliedContentScale = 0
-
-        surfaceGeneration &+= 1
-        outputQueueGeneration &+= 1
-        outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
-        scrollToBottomInFlight = false
-        bridge = GhosttySurfaceBridge()
-        bridge.attach(to: self)
-
-        initializeSurface()
-        if replay == .delegateWhenNoCaller && !completedFailedOperation {
-            delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
-        }
-        return true
     }
 
     private var preferredScreenScale: CGFloat {
@@ -2535,7 +2391,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func initializeSurface() {
+    func initializeSurface() {
         guard let app = runtime?.app else { return }
         surface = makeSurface(app: app)
         if let surface {
@@ -2563,7 +2419,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateCursorOverlay()
     }
 
-    private func stopDisplayLink() {
+    func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
         cursorOverlayLayer?.isHidden = true

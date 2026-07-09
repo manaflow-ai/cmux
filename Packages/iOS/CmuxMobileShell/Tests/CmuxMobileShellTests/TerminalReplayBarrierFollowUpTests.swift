@@ -61,3 +61,31 @@ import Testing
     let afterBoundedReplay = try #require(await iterator.next())
     #expect(String(data: afterBoundedReplay.data, encoding: .utf8) == "after-bounded-replay")
 }
+
+@MainActor
+@Test func terminalReplayBarrierFailsOpenAfterDroppedOutputCap() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+    _ = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+
+    for index in 0..<Int(MobileShellComposite.maxTerminalReplayBarrierDroppedOutputBeforeFailOpen) {
+        _ = store.deliverTerminalBytes(Data("drop-\(index)".utf8), surfaceID: surfaceID)
+    }
+
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    let deliveredAfterCap = try #require(await iterator.next())
+    #expect(String(data: deliveredAfterCap.data, encoding: .utf8)?.hasPrefix("drop-") == true)
+}
