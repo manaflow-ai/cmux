@@ -192,40 +192,40 @@ enum AgentHibernationTranscriptGuard {
         _ snapshot: TeardownTranscriptSnapshot,
         fileManager: FileManager = .default
     ) -> Bool {
-        guard transcriptHasConversationTurns(atPath: snapshot.snapshotPath, fileManager: fileManager),
-              !transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager) else {
-            return false
-        }
-        guard !fileManager.fileExists(atPath: snapshot.transcriptPath) ||
-            transcriptContainsOnlyNonProtectiveMetadata(atPath: snapshot.transcriptPath, fileManager: fileManager) else { return false }
-
         let transcriptURL = URL(fileURLWithPath: snapshot.transcriptPath)
-        let directoryURL = transcriptURL.deletingLastPathComponent()
-        let tempURL = directoryURL.appendingPathComponent(
-            ".\(transcriptURL.lastPathComponent).restore-\(UUID().uuidString).tmp",
-            isDirectory: false
-        )
+        let protectedExists = fileManager.fileExists(atPath: transcriptURL.path)
         let protectedAttributes = try? fileManager.attributesOfItem(atPath: transcriptURL.path)
         let protectedFile = (protectedAttributes?[.systemFileNumber] as? NSNumber)?.uint64Value
         let protectedSize = (protectedAttributes?[.size] as? NSNumber)?.uint64Value
         let protectedModificationDate = protectedAttributes?[.modificationDate] as? Date
+        guard transcriptHasConversationTurns(atPath: snapshot.snapshotPath, fileManager: fileManager),
+              !transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager) else {
+            return false
+        }
+        guard !protectedExists || transcriptContainsOnlyNonProtectiveMetadata(atPath: snapshot.transcriptPath, fileManager: fileManager) else { return false }
+        let classifiedAttributes = try? fileManager.attributesOfItem(atPath: transcriptURL.path)
+        guard fileManager.fileExists(atPath: transcriptURL.path) == protectedExists,
+              (classifiedAttributes?[.systemFileNumber] as? NSNumber)?.uint64Value == protectedFile,
+              (classifiedAttributes?[.size] as? NSNumber)?.uint64Value == protectedSize,
+              (classifiedAttributes?[.modificationDate] as? Date) == protectedModificationDate else { return false }
+
+        let directoryURL = transcriptURL.deletingLastPathComponent()
+        let tempURL = directoryURL.appendingPathComponent(".\(transcriptURL.lastPathComponent).restore-\(UUID().uuidString).tmp", isDirectory: false)
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             try? fileManager.removeItem(at: tempURL)
             try fileManager.copyItem(atPath: snapshot.snapshotPath, toPath: tempURL.path)
-            try appendLiveStubIfPresent(
-                from: transcriptURL,
-                toRestoreFile: tempURL,
-                fileManager: fileManager
-            )
+            try appendLiveStubIfPresent(from: transcriptURL, toRestoreFile: tempURL, fileManager: fileManager)
             let currentAttributes = try? fileManager.attributesOfItem(atPath: transcriptURL.path)
-            guard (currentAttributes?[.systemFileNumber] as? NSNumber)?.uint64Value == protectedFile,
+            guard fileManager.fileExists(atPath: transcriptURL.path) == protectedExists,
+                  (currentAttributes?[.systemFileNumber] as? NSNumber)?.uint64Value == protectedFile,
                   (currentAttributes?[.size] as? NSNumber)?.uint64Value == protectedSize,
-                  (currentAttributes?[.modificationDate] as? Date) == protectedModificationDate else {
+                  (currentAttributes?[.modificationDate] as? Date) == protectedModificationDate,
+                  !protectedExists || transcriptContainsOnlyNonProtectiveMetadata(atPath: transcriptURL.path, fileManager: fileManager) else {
                 try? fileManager.removeItem(at: tempURL)
                 return false
             }
-            if fileManager.fileExists(atPath: transcriptURL.path) {
+            if protectedExists {
                 _ = try fileManager.replaceItemAt(transcriptURL, withItemAt: tempURL)
             } else {
                 try fileManager.moveItem(at: tempURL, to: transcriptURL)
