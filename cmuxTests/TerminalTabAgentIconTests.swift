@@ -306,14 +306,20 @@ struct TerminalTabAgentIconTests {
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
 
         workspace.recordAgentPID(key: stalePIDKey, pid: 0, panelId: panel.id, refreshPorts: false)
+        let staleAgentPort = 54_321
+        workspace.agentListeningPorts = [staleAgentPort]
+        workspace.recomputeListeningPorts()
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == staleAsset)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == staleAsset)
+        #expect(workspace.listeningPorts.contains(staleAgentPort))
 
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == expectedAsset)
         #expect(workspace.agentPIDs[stalePIDKey] == nil)
         #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
+        #expect(workspace.agentListeningPorts.isEmpty)
+        #expect(!workspace.listeningPorts.contains(staleAgentPort))
     }
 }
