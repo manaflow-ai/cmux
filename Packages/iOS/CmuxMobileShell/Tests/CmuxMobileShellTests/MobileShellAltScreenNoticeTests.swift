@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileShell
 
@@ -31,6 +32,48 @@ import Testing
             activeScreen: .primary
         ))
         #expect(store.isAlternateScreen(surfaceID: "surface-a") == false)
+    }
+
+    @Test func sameActiveScreenRenderGridDoesNotNotifyAlternateScreenObservers() async throws {
+        let suiteName = "altscreen-observation-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = Self.makeStore(defaults: defaults)
+        let surfaceID = "surface-a"
+
+        store.recordTerminalRenderGridDelivery(try Self.renderGridFrame(
+            surfaceID: surfaceID,
+            seq: 1,
+            activeScreen: .alternate
+        ))
+
+        try await confirmation("same active screen does not notify", expectedCount: 0) { didChange in
+            withObservationTracking {
+                _ = store.isAlternateScreen(surfaceID: surfaceID)
+            } onChange: {
+                didChange()
+            }
+            store.recordTerminalRenderGridDelivery(try Self.renderGridFrame(
+                surfaceID: surfaceID,
+                seq: 2,
+                activeScreen: .alternate
+            ))
+        }
+
+        try await confirmation("different active screen notifies") { didChange in
+            withObservationTracking {
+                _ = store.isAlternateScreen(surfaceID: surfaceID)
+            } onChange: {
+                didChange()
+            }
+            store.recordTerminalRenderGridDelivery(try Self.renderGridFrame(
+                surfaceID: surfaceID,
+                seq: 3,
+                activeScreen: .primary
+            ))
+        }
     }
 
     private static func makeStore(defaults: UserDefaults) -> MobileShellComposite {
