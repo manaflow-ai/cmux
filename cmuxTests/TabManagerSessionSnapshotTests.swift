@@ -62,6 +62,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testSessionSnapshotLayoutPreservesPanelIdsFromBonsplitTabs() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        guard case .pane(let paneSnapshot) = snapshot.layout else {
+            return XCTFail("Expected single-pane session layout")
+        }
+        XCTAssertEqual(Set(paneSnapshot.panelIds), Set([firstPanelId, secondPanelId]))
+        XCTAssertEqual(paneSnapshot.selectedPanelId, secondPanelId)
+    }
+
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
