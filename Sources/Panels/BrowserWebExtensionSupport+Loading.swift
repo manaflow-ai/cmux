@@ -36,16 +36,34 @@ extension BrowserWebExtensionSupport {
     }
 
     func rebuildActionSnapshots() {
-        actionSnapshots = loadedRecordsInOrder.map { record in
-            BrowserWebExtensionActionSnapshot(
-                id: record.entryID,
-                displayName: record.context.webExtension.displayName ?? String(
-                    localized: "browser.webExtension.action.help",
-                    defaultValue: "Extension"
-                ),
-                icon: record.context.webExtension.icon(for: CGSize(width: 32, height: 32))
-            )
+        actionSnapshots = loadedRecordsInOrder.map { actionSnapshot(for: $0) }
+    }
+
+    func refreshActionSnapshot(for context: WKWebExtensionContext) {
+        guard let record = loadedRecordsInOrder.first(where: { $0.context === context }) else { return }
+        var snapshots = actionSnapshots
+        guard let index = snapshots.firstIndex(where: { $0.id == record.entryID }) else {
+            rebuildActionSnapshots()
+            return
         }
+        snapshots[index] = actionSnapshot(for: record)
+        actionSnapshots = snapshots
+    }
+
+    private func actionSnapshot(for record: BrowserWebExtensionLoadedRecord) -> BrowserWebExtensionActionSnapshot {
+        let action = record.context.action(for: activeTabAdapter)
+        return BrowserWebExtensionActionSnapshot(
+            id: record.entryID,
+            displayName: action?.label ?? record.context.webExtension.displayName ?? String(
+                localized: "browser.webExtension.action.help",
+                defaultValue: "Extension"
+            ),
+            icon: action?.icon(for: CGSize(width: 32, height: 32))
+                ?? record.context.webExtension.icon(for: CGSize(width: 32, height: 32)),
+            isEnabled: action?.isEnabled ?? true,
+            badgeText: action?.badgeText ?? "",
+            hasUnreadBadgeText: action?.hasUnreadBadgeText ?? false
+        )
     }
 
     private func unload(entryID: String) {

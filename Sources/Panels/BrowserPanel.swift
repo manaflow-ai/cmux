@@ -3541,14 +3541,13 @@ final class BrowserPanel: Panel, ObservableObject {
     static func makeWebView(
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
-        let config = WKWebViewConfiguration()
-        configureWebViewConfiguration(
-            config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
-            browserWebExtensionHost: browserWebExtensionHost
-        )
+        let config = webViewConfiguration ?? WKWebViewConfiguration()
+        if webViewConfiguration == nil {
+            configureWebViewConfiguration(config, websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID), browserWebExtensionHost: browserWebExtensionHost)
+        }
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -3954,7 +3953,8 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3979,7 +3979,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserWebExtensionHost = browserWebExtensionHost
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
+        if webViewConfiguration == nil, let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -3994,7 +3994,8 @@ final class BrowserPanel: Panel, ObservableObject {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
                 websiteDataStore: websiteDataStore,
-                browserWebExtensionHost: browserWebExtensionHost
+                browserWebExtensionHost: browserWebExtensionHost,
+                webViewConfiguration: webViewConfiguration
             )
         }
         self.webView = webView

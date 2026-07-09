@@ -127,6 +127,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         if let adapter = tabAdapters[panelID] {
             controller.didActivateTab(adapter, previousActiveTab: previous)
         }
+        rebuildActionSnapshots()
     }
 
     func noteTabMetadataChanged(panelID: UUID) {
