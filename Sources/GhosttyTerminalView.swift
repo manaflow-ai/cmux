@@ -1761,7 +1761,6 @@ class GhosttyApp {
         }
         reloadConfigurationDepth += 1
         defer { reloadConfigurationDepth -= 1 }
-
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
