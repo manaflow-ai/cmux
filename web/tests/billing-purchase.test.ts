@@ -151,6 +151,39 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("blocks checkout completion while account deletion is in progress", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: null,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update,
+    };
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      }),
+    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("does not recreate checkout billing rows after the Stack user is gone", async () => {
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => null } as never,
+      }),
+    ).rejects.toThrow("Stack user not found for Stripe purchase: user_123");
+
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {
     const update = mock(async () => undefined);
     const listUsers = mock(async () => [

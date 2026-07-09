@@ -120,8 +120,13 @@ export async function recordCheckoutCompletion(
     throw new Error("Stripe checkout session is missing stackUserId");
   }
 
-  const email = checkoutEmail(input.session, input.customer);
   const db = dependencies.db ?? cloudDb();
+  const user = await loadStackUser(stackUserId, dependencies.stackApp);
+  if (isAccountDeletionInProgress(user)) {
+    throw new Error("Billing writes are disabled while account deletion is in progress.");
+  }
+
+  const email = checkoutEmail(input.session, input.customer);
   await upsertStripeCustomer(db, {
     customerId,
     stackUserId,
@@ -134,7 +139,6 @@ export async function recordCheckoutCompletion(
     scope: "user",
   });
 
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
   if (email) {
     await attachPurchaseEmailOrRecordClaim(db, {
       user,
