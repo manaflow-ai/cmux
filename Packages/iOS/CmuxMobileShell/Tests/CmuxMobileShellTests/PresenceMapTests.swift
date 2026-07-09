@@ -11,14 +11,18 @@ import Testing
         deviceId: String,
         tag: String = "default",
         online: Bool = true,
-        lastSeenAt: Double = 1_000
+        lastSeenAt: Double = 1_000,
+        bundleID: String? = nil,
+        routes: [CmxAttachRoute]? = nil
     ) -> PresenceInstance {
         PresenceInstance(
             deviceId: deviceId,
             tag: tag,
             platform: "mac",
+            bundleId: bundleID,
             online: online,
-            lastSeenAt: lastSeenAt
+            lastSeenAt: lastSeenAt,
+            routes: routes
         )
     }
 
@@ -115,5 +119,54 @@ import Testing
         map.apply(.seen(deviceId: "mac-z", tag: "default", lastSeenAt: 8_000))
         #expect(map.instance(deviceId: "mac-a", tag: "ghost") == nil)
         #expect(map.deviceSummary(deviceId: "mac-z") == nil)
+    }
+
+    @Test func taggedBuildIgnoresOtherTagsAcrossSnapshotsAndLaterEvents() throws {
+        let scope = try #require(MobileIOSBuildScope("build-a"))
+        let routeA = try CmxAttachRoute(
+            id: "a",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.1", port: 1001)
+        )
+        let routeB = try CmxAttachRoute(
+            id: "b",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.2", port: 2002)
+        )
+        var map = PresenceMap(buildScope: scope)
+        map.apply(snapshot([
+            instance(
+                deviceId: "shared-device",
+                tag: "build-a",
+                lastSeenAt: 1_000,
+                bundleID: "com.cmuxterm.app.debug.build-a",
+                routes: [routeA]
+            ),
+            instance(
+                deviceId: "shared-device",
+                tag: "build-b",
+                lastSeenAt: 9_000,
+                bundleID: "com.cmuxterm.app.debug.build-b",
+                routes: [routeB]
+            ),
+        ]))
+
+        #expect(map.instance(deviceId: "shared-device", tag: "build-b") == nil)
+        #expect(map.deviceSummary(deviceId: "shared-device")?.buildLabel == "DEV · build-a")
+        #expect(map.deviceSummary(deviceId: "shared-device")?.lastSeenAt == Date(timeIntervalSince1970: 1))
+        #expect(map.soleRouteAdvertisingInstance(deviceId: "shared-device")?.routes == [routeA])
+
+        map.apply(.routes(instance(
+            deviceId: "shared-device",
+            tag: "build-b",
+            lastSeenAt: 20_000,
+            bundleID: "com.cmuxterm.app.debug.build-b",
+            routes: [routeB]
+        )))
+        map.apply(.seen(deviceId: "shared-device", tag: "build-b", lastSeenAt: 30_000))
+
+        #expect(map.deviceSummary(deviceId: "shared-device")?.buildLabel == "DEV · build-a")
+        #expect(map.deviceSummary(deviceId: "shared-device")?.lastSeenAt == Date(timeIntervalSince1970: 1))
+        #expect(map.soleRouteAdvertisingInstance(deviceId: "shared-device")?.routes == [routeA])
     }
 }

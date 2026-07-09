@@ -596,6 +596,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
     let deviceRegistry: (any DeviceRegistryRefreshing)?
+    /// Strict DEV build identity shared with the matching Mac. `nil` for
+    /// Release, which preserves the existing unscoped behavior.
+    let buildScope: MobileIOSBuildScope?
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
@@ -893,6 +896,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         presence: (any PresenceSubscribing)? = nil,
+        buildScope: MobileIOSBuildScope? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
@@ -917,6 +921,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.presence = presence
+        self.buildScope = buildScope
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
         self.reachability = reachability
@@ -1016,6 +1021,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        self.presenceMap = PresenceMap(buildScope: buildScope)
     }
 
     isolated deinit {
@@ -1205,7 +1211,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
         presenceTask = nil
-        presenceMap = PresenceMap()
+        presenceMap = PresenceMap(buildScope: buildScope)
         evaluatePresenceSubscription()
         // Secondary aggregation: tear down the OTHER Macs' read-only subscriptions
         // and drop their aggregated rows so the old team's Macs stop showing. Keep
@@ -1977,58 +1983,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
-    /// Reload ``registryDevices`` from the team-scoped device registry.
-    ///
-    /// Best-effort and failure-tolerant: a missing registry, an unauthorized
-    /// call, or a malformed response leaves the current list untouched (so a
-    /// transient blip never blanks a populated tree). Devices are sorted with the
-    /// currently-connected one first, then by most-recently-seen, so the tree
-    /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
-    /// out yields an empty list.
-    public func loadRegistryDevices() async {
-        guard let deviceRegistry,
-              let scope = await currentScopeSnapshot() else {
-            registryDevices = []
-            return
-        }
-        let outcome = await deviceRegistry.listDevices()
-        let loaded: [RegistryDevice]
-        switch outcome {
-        case .ok(let devices):
-            loaded = devices
-        case .authRejected:
-            // The registry is team-scoped and rejected the call on auth/scope
-            // grounds (401/403): the cached list may be another scope's data, so
-            // clear it. The tree falls back to local paired Macs via
-            // `deviceTreeDevices`, so the sheet stays usable. Guarded on the
-            // requesting user still being current (mirroring the `.ok` path):
-            // a stale 401 from a signed-out session that lands after a
-            // different user signed in must not blank the new user's tree.
-            if await isScopeCurrent(scope) {
-                registryDevices = []
-            }
-            return
-        case .transientFailure:
-            // Network blip / 5xx / malformed body: keep what we have rather than
-            // blanking a populated tree on a transient failure.
-            return
-        }
-        // The await above suspended the main actor; discard the result unless we
-        // are still in the same signed-in account/team scope, so a slow load can
-        // never repopulate another scope's devices after sign-out, account switch,
-        // or same-account team switch.
-        guard await isScopeCurrent(scope) else { return }
-        let connectedID = connectedMacDeviceID
-        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        guard await isScopeCurrent(scope) else { return }
-        registryDevices = loaded.filter { !forgottenIDs.contains($0.deviceId) }.sorted { lhs, rhs in
-            let lhsConnected = lhs.deviceId == connectedID
-            let rhsConnected = rhs.deviceId == connectedID
-            if lhsConnected != rhsConnected { return lhsConnected }
-            return lhs.lastSeenAt > rhs.lastSeenAt
-        }
-    }
-
     /// The device-tree data source, honoring the registry's best-effort/fallback
     /// contract: the registry list when it loaded, otherwise the locally paired
     /// Macs synthesized into the same two-level shape.
@@ -2085,7 +2039,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             presenceTask?.cancel()
             presenceTask = nil
-            presenceMap = PresenceMap()
+            presenceMap = PresenceMap(buildScope: buildScope)
         }
     }
 
@@ -2128,6 +2082,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presenceMap.apply(update)
         switch update {
         case .routes(let instance), .online(let instance):
+            guard presenceMap.accepts(instance) else { return }
             // Both events can carry fresh attach routes (online = a host that
             // re-announced after moving networks while the phone was watching).
             syncPushedRoutes(from: instance, scope: scope)
@@ -2137,7 +2092,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // one task per instance) so a multi-tag Mac syncs routes in
             // deterministic order and kicks at most one reconnect.
             syncPushedRoutes(from: snapshot.devices.flatMap { device in
-                device.instances.filter(\.online)
+                device.instances.filter { $0.online && presenceMap.accepts($0) }
             }, scope: scope)
         case .offline, .seen:
             break

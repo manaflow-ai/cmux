@@ -121,4 +121,33 @@ import Testing
         #expect(devices.count == 1)
         #expect(devices.first?.deviceId == "DDDD4444-4444-4444-8444-444444444444")
     }
+
+    @MainActor
+    @Test func newTaggedBuildDoesNotDiscoverUnpairedRegistryComputers() async throws {
+        let team = MutableTeamID("team-a")
+        let unpaired = RegistryDevice(
+            deviceId: "mac-from-another-install",
+            platform: "mac",
+            displayName: "Other",
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            instances: []
+        )
+        let registry = DelayedTeamDeviceRegistry(
+            teamIDProvider: { await team.value },
+            devicesByTeam: ["team-a": [unpaired]],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: registry,
+            buildScope: try #require(MobileIOSBuildScope("fresh-tag")),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value }
+        )
+
+        await store.loadRegistryDevices()
+
+        #expect(store.registryDevices.isEmpty)
+        #expect(store.deviceTreeDevices.isEmpty)
+    }
 }

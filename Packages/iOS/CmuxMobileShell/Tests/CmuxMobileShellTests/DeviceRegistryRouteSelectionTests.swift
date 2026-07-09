@@ -122,6 +122,43 @@ import Testing
         ) == nil)
     }
 
+    @Test func taggedBuildSelectsOnlyItsMatchingRegistryInstance() throws {
+        let json = """
+        {
+          "teamId": "team-a",
+          "devices": [
+            {
+              "deviceId": "BBBB2222-2222-4222-8222-222222222222",
+              "platform": "mac",
+              "instances": [
+                { "tag": "build-a", "routes": [
+                  { "id": "a", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "10.0.0.1", "port": 1001 } }
+                ] },
+                { "tag": "build-b", "routes": [
+                  { "id": "b", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "10.0.0.2", "port": 2002 } }
+                ] }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let scope = try #require(MobileIOSBuildScope("build-a"))
+
+        let routes = DeviceRegistryService.routes(
+            forMacDeviceID: "bbbb2222-2222-4222-8222-222222222222",
+            in: json,
+            buildScope: scope
+        )
+        #expect(routes?.map(\.id) == ["a"])
+
+        let parsed = try #require(DeviceRegistryService.parseDeviceList(in: json))
+        let filtered = DeviceRegistryService.filterDevices(parsed, buildScope: scope)
+        #expect(filtered.count == 1)
+        #expect(filtered.first?.instances.map(\.tag) == ["build-a"])
+    }
+
     @Test func singleNonEmptyInstanceAmongEmptyOnesIsUsed() throws {
         // Multiple instances but only one advertising routes (e.g. stable on,
         // a debug build that turned pairing off): use the single non-empty one.

@@ -6,10 +6,9 @@ import os
 private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", category: "MacPairedMacPublish")
 
 /// DEV convenience: publishes THIS Mac's own attach route into the signed-in
-/// user's per-user `pairedMacs` Durable Object backup (`POST /v1/sync/paired-macs`
-/// on the presence worker), so a fresh dev iOS build restores it on sign-in and
-/// the Mac shows up as a saved host with the real host/port — no manual entry
-/// every time a dev build is installed.
+/// user's per-user, per-build `pairedMacs` Durable Object backup (`POST
+/// /v1/sync/paired-macs` on the presence worker), so the matching dev iOS build
+/// restores it on sign-in without seeing routes published by other tags.
 ///
 /// Why a dedicated dev channel: on dev, the device-registry read path points at
 /// localhost and the presence `devices` projection isn't wired into the live iOS
@@ -85,6 +84,10 @@ final class MacPairedMacBackupPublisher {
 
     private func publish(routes: [CmxAttachRoute]) async {
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
+        let clientScope = CmxPairedMacClientScope.currentMac(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
@@ -123,6 +126,9 @@ final class MacPairedMacBackupPublisher {
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         if let teamID, !teamID.isEmpty {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+        if let clientScope {
+            req.setValue(clientScope.serializedScope, forHTTPHeaderField: "X-Cmux-Client-Scope")
         }
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = payload

@@ -33,6 +33,10 @@ import {
 /** Logical collection name the client subscribes to and stores under. */
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
 const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
+/** Shared with `CmxPairedMacClientScope.serializedPrefix`. These scopes are a
+ * strict, versioned namespace: they never seed or merge the legacy unscoped
+ * Release backup. */
+export const STRICT_BUILD_CLIENT_SCOPE_PREFIX = "cmux-dev:v2:";
 export const PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES = [
   `${PAIRED_MACS_COLLECTION}:`,
   `${SCOPED_PAIRED_MACS_COLLECTION}:`,
@@ -158,6 +162,10 @@ export function normalizeClientScope(value: unknown): string | null {
 export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
   const scope = normalizeClientScope(clientScope);
   return scope ? `${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:${scope}` : `${PAIRED_MACS_COLLECTION}:${userId}`;
+}
+
+function isStrictBuildClientScope(clientScope?: string | null): boolean {
+  return trimmedString(clientScope).startsWith(STRICT_BUILD_CLIENT_SCOPE_PREFIX);
 }
 
 function scopedPairedMacCollectionHeadPrefix(userId: string): string {
@@ -356,7 +364,7 @@ export async function applyBackupOps(
   if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
     throw new PairedMacBackupApplyError("too_many_client_scopes");
   }
-  if (scope) {
+  if (scope && !isStrictBuildClientScope(clientScope)) {
     await seedScopedBackupFromUnscopedIfNeeded(storage, userId, collection, nowMs);
   }
   // One listing gives both the live count (cap on visible Macs) AND the total
@@ -380,6 +388,7 @@ export async function applyBackupOps(
       if (
         res.delta === null &&
         scope &&
+        !isStrictBuildClientScope(clientScope) &&
         existing === undefined &&
         totalCount < MAX_PAIRED_MAC_RECORDS_PER_USER
       ) {
@@ -544,6 +553,7 @@ export async function listBackupSnapshotWithUnscopedFallback(
 ): Promise<PairedMacBackupSnapshot> {
   const scoped = await listBackupSnapshot(storage, userId, clientScope);
   if (!normalizeClientScope(clientScope)) return scoped;
+  if (isStrictBuildClientScope(clientScope)) return scoped;
   const unscoped = await listBackupSnapshot(storage, userId);
   const scopedHead = await storage.get<number>(`${SYNC_HEAD_PREFIX}${pairedMacsCollection(userId, clientScope)}`);
   if (scoped.records.length === 0 && scoped.deletedMacDeviceIDs.length === 0 && scopedHead === undefined) {

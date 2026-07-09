@@ -42,6 +42,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let deviceID: String
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
+    private let buildScope: MobileIOSBuildScope?
     private let session: URLSession
     private let requestTimeout: TimeInterval
 
@@ -51,6 +52,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
+    ///   - buildScope: Tagged DEV build whose Mac registry instance is allowed,
+    ///     or `nil` for the existing Release behavior.
     ///   - session: The URLSession used for API calls.
     ///   - requestTimeout: Per-request deadline, bounding the worst-case latency
     ///     of a registry call so it never stalls the reconnect refresh.
@@ -59,6 +62,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         deviceID: String,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
+        buildScope: MobileIOSBuildScope? = nil,
         session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 5
     ) {
@@ -66,6 +70,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         self.deviceID = deviceID
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
+        self.buildScope = buildScope
         self.session = session
         self.requestTimeout = requestTimeout
     }
@@ -152,7 +157,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             deviceRegistryLog.debug("freshRoutes request failed: \(String(describing: error), privacy: .public)")
             return nil
         }
-        return Self.routes(forMacDeviceID: macDeviceID, in: data)
+        return Self.routes(forMacDeviceID: macDeviceID, in: data, buildScope: buildScope)
     }
 
     public func listDevices() async -> DeviceRegistryListOutcome {
@@ -187,7 +192,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let devices = Self.parseDeviceList(in: data) else {
             return .transientFailure
         }
-        return .ok(devices)
+        return .ok(Self.filterDevices(devices, buildScope: buildScope))
     }
 
     // MARK: - Parsing (pure, testable)
@@ -251,6 +256,27 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
     }
 
+    /// Narrow a team registry response to the Mac tag paired with this tagged
+    /// iOS build. A device with no matching instance disappears entirely, and
+    /// its freshness is recomputed from the matching instance so another tag
+    /// cannot reorder the Computers list.
+    static func filterDevices(
+        _ devices: [RegistryDevice],
+        buildScope: MobileIOSBuildScope?
+    ) -> [RegistryDevice] {
+        guard let buildScope else { return devices }
+        return devices.compactMap { device in
+            let instances = device.instances.filter {
+                buildScope.matchesMacInstance(tag: $0.tag, bundleIdentifier: nil)
+            }
+            guard !instances.isEmpty else { return nil }
+            var filtered = device
+            filtered.instances = instances
+            filtered.lastSeenAt = instances.map(\.lastSeenAt).max() ?? device.lastSeenAt
+            return filtered
+        }
+    }
+
     /// Lenient ISO8601 parse for the registry's `lastSeenAt` strings. The server
     /// emits `Date.toISOString()` (always fractional seconds), but tolerate the
     /// non-fractional form too. An absent/unparseable value yields
@@ -280,7 +306,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// from disabling registry refresh for every Mac, and makes old clients
     /// forward-compatible when a newer build advertises a route kind they cannot
     /// decode.
-    static func routes(forMacDeviceID macDeviceID: String, in data: Data) -> [CmxAttachRoute]? {
+    static func routes(
+        forMacDeviceID macDeviceID: String,
+        in data: Data,
+        buildScope: MobileIOSBuildScope? = nil
+    ) -> [CmxAttachRoute]? {
         // Decode each route element through an optional wrapper so a single bad
         // element decodes to `nil` and is dropped, never throwing for the array.
         struct FailableRoute: Decodable {
@@ -290,6 +320,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             }
         }
         struct Instance: Decodable {
+            let tag: String?
             let routes: [FailableRoute]
         }
         struct Device: Decodable {
@@ -306,14 +337,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
             return nil
         }
-        // A Mac may run multiple tagged app instances (stable + a debug build).
-        // The phone's stored routes have no tag to match against in P1, so only
-        // substitute routes when exactly one instance is advertising any (the
-        // single-build common case). With zero or 2+ candidate instances, return
-        // nil and let reconnect fall back to the locally persisted routes, rather
-        // than risk connecting a stable phone to a different tagged build's
-        // workspaces. Tag-aware matching is a follow-up (see key-pinning phase).
-        let nonEmpty = device.instances
+        // A tagged DEV phone first narrows to its exact Mac tag. Release has no
+        // scope, so it retains the legacy ambiguity guard: with zero or 2+
+        // route-bearing instances, use locally persisted routes rather than
+        // choosing another build.
+        let matchingInstances = device.instances.filter { instance in
+            guard let buildScope else { return true }
+            return buildScope.matchesMacInstance(tag: instance.tag ?? "default", bundleIdentifier: nil)
+        }
+        let nonEmpty = matchingInstances
             .map { $0.routes.compactMap(\.value) }
             .filter { !$0.isEmpty }
         return nonEmpty.count == 1 ? nonEmpty[0] : nil
