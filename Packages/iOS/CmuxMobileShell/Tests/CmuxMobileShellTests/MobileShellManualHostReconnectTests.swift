@@ -159,6 +159,58 @@ import Testing
         #expect(await router.count(of: "workspace.list") == 0)
     }
 
+    @Test func approvedTailscaleLookingStoredManualHostKeepsManualRouteKind() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let manualRoute = try hostPortRoute(kind: .manualHost, host: "100.64.0.5")
+        try await pairedMacStore.upsert(
+            macDeviceID: "manual-mac",
+            displayName: "Manual Mac",
+            routes: [manualRoute],
+            markActive: true,
+            stackUserID: "phone-user",
+            teamID: nil,
+            now: Date()
+        )
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let attempts = RouteAttemptRecorder()
+        let runtime = LivenessTestRuntime(
+            transportFactory: ManualFallbackApprovalTransportFactory(router: router, box: box, attempts: attempts),
+            now: { clock.now },
+            supportedRouteKinds: [.manualHost, .tailscale],
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            workspaces: [],
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            reachability: AlwaysOnlineReachability(),
+            manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+        )
+
+        store.signIn()
+        let queued = await store.reconnectActiveMacIfAvailable(stackUserID: "phone-user")
+
+        #expect(!queued)
+        #expect(store.manualHostTrustWarning?.endpoint == "100.64.0.5:58465")
+        #expect(attempts.count(.manualHost) == 0)
+        #expect(attempts.count(.tailscale) == 0)
+
+        let approved = await store.acceptManualHostTrustWarning()
+
+        #expect(approved == .connected)
+        #expect(store.activeRoute?.kind == .manualHost)
+        #expect(attempts.count(.manualHost) >= 1)
+        #expect(attempts.count(.tailscale) == 0)
+    }
+
     private func hostPortRoute(kind: CmxAttachTransportKind, host: String) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: kind.rawValue,

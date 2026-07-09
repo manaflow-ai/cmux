@@ -1639,6 +1639,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         name: name,
                         host: normalizedHost,
                         port: port,
+                        route: directRoute,
                         pairedMacDeviceID: pairedMacDeviceID,
                         recordsPairingAttempt: recordsPairingAttempt,
                         macSwitchAttemptID: pendingMacSwitchAttemptID,
@@ -3302,7 +3303,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingVersionWarning()
         clearManualHostTrustWarning()
         if let pendingSwitchAttemptID { finishMacSwitchAttempt(pendingSwitchAttemptID) }
-        if hadBlockingPrompt { return }
+        if hadBlockingPrompt, hasActiveMacConnection { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()

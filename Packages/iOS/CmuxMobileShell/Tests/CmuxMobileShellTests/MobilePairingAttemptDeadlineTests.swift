@@ -190,6 +190,56 @@ import Testing
         #expect(store.manualHostTrustWarning == nil)
     }
 
+    @Test func manualFallbackCancelClearsDisconnectedStagedContext() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: ManualFallbackApprovalTransportFactory(router: router, box: box),
+            now: { clock.now },
+            supportedRouteKinds: [.tailscale, .manualHost]
+        )
+        let store = makeStore(runtime: runtime)
+        let trustedRoute = try CmxAttachRoute(
+            id: "a-trusted-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 58_465),
+            priority: 0
+        )
+        let manualFallbackRoute = try CmxAttachRoute(
+            id: "b-manual-fallback",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: 58_465),
+            priority: 1
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [trustedRoute, manualFallbackRoute],
+            expiresAt: clock.now.addingTimeInterval(3600),
+            authToken: "ticket-secret"
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .needsUserApproval)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.activeTicket != nil)
+        #expect(store.activeRoute?.kind == .manualHost)
+        #expect(store.hasActiveUnexpiredAttachTicket)
+
+        store.cancelPairing()
+
+        #expect(store.connectionState == .disconnected)
+        #expect(store.manualHostTrustWarning == nil)
+        #expect(store.activeTicket == nil)
+        #expect(store.activeRoute == nil)
+        #expect(!store.hasActiveUnexpiredAttachTicket)
+    }
+
     @Test func failedManualHostAttemptKeepsExistingConnection() async throws {
         let clock = TestClock()
         let oldRouter = LivenessHostRouter()

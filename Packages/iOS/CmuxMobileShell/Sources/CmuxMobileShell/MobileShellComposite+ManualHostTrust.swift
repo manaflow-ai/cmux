@@ -91,13 +91,14 @@ extension MobileShellComposite {
             return .superseded
         }
         switch pending {
-        case let .manual(_, name, host, port, pairedMacDeviceID, recordsPairingAttempt, _, ifStillCurrent):
+        case let .manual(_, name, host, port, route, pairedMacDeviceID, recordsPairingAttempt, _, ifStillCurrent):
             let result = await connectManualHost(
                 name: name,
                 host: host,
                 port: port,
                 pairedMacDeviceID: pairedMacDeviceID,
                 recordsPairingAttempt: recordsPairingAttempt,
+                route: route,
                 ifStillCurrent: ifStillCurrent
             )
             finishPendingManualHostSwitchAttempt(pending)
