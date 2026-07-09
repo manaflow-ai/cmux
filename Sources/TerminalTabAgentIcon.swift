@@ -1,5 +1,12 @@
+import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import Foundation
+
+struct TerminalTabAgentIconPayload: Equatable {
+    let imageData: Data?
+    let assetName: String?
+}
 
 /// Resolves the asset-catalog brand mark shown in a terminal tab's fixed icon
 /// slot from the panel's agent state: live agents win over a restored
@@ -53,6 +60,16 @@ nonisolated struct TerminalTabAgentIconResolver {
         }
         guard let restoredAgent else { return nil }
         return restoredAgent.registrationIconAssetName ?? builtInAssetName(statusKey: restoredAgent.kind)
+    }
+
+    func payload(assetName: String?, imageData: (String) -> Data?) -> TerminalTabAgentIconPayload {
+        guard let assetName else {
+            return TerminalTabAgentIconPayload(imageData: nil, assetName: nil)
+        }
+        if let renderedData = imageData(assetName) {
+            return TerminalTabAgentIconPayload(imageData: renderedData, assetName: nil)
+        }
+        return TerminalTabAgentIconPayload(imageData: nil, assetName: assetName)
     }
 
     /// - Parameter knownStatusKeys: Status keys known to be exact agent ids
@@ -198,13 +215,14 @@ extension Workspace {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
-                ? .some(terminalTabAgentIconAsset(forPanelId: panelId))
+            let iconPayloadUpdate = didMutateTitleDerivedAgent
+                ? terminalTabAgentIconPayload(forPanelId: panelId)
                 : nil
             bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
-                iconAsset: iconAssetUpdate,
+                iconImageData: iconPayloadUpdate.map(\.imageData),
+                iconAsset: iconPayloadUpdate.map(\.assetName),
                 hasCustomTitle: panelCustomTitles[panelId] != nil
             )
         }
@@ -328,15 +346,42 @@ extension Workspace {
         )
     }
 
+    @MainActor
+    func terminalTabAgentIconPayload(forPanelId panelId: UUID) -> TerminalTabAgentIconPayload {
+        TerminalTabAgentIconResolver().payload(
+            assetName: terminalTabAgentIconAsset(forPanelId: panelId),
+            imageData: terminalTabAgentIconImageData(assetName:)
+        )
+    }
+
+    @MainActor
+    func terminalTabAgentIconPayload(forDetached detached: DetachedSurfaceTransfer) -> TerminalTabAgentIconPayload {
+        guard detached.panel is TerminalPanel else {
+            return TerminalTabAgentIconPayload(imageData: detached.iconImageData, assetName: nil)
+        }
+        return terminalTabAgentIconPayload(forPanelId: detached.panelId)
+    }
+
+    @MainActor
+    private func terminalTabAgentIconImageData(assetName: String) -> Data? {
+        CmuxResolvedIconRenderer().pngData(
+            for: CmuxResolvedIconRequest(
+                source: .asset(name: assetName, bundle: .main),
+                size: NSSize(width: 14, height: 14)
+            ),
+            appearance: NSApplication.shared.effectiveAppearance
+        )
+    }
+
     func syncTerminalTabAgentIconAsset(forPanelId panelId: UUID) {
         guard panels[panelId] is TerminalPanel,
               let tabId = surfaceIdFromPanelId(panelId),
               let existing = bonsplitController.tab(tabId) else {
             return
         }
-        let iconAsset = terminalTabAgentIconAsset(forPanelId: panelId)
-        guard existing.iconAsset != iconAsset else { return }
-        bonsplitController.updateTab(tabId, iconAsset: .some(iconAsset))
+        let payload = terminalTabAgentIconPayload(forPanelId: panelId)
+        guard existing.iconImageData != payload.imageData || existing.iconAsset != payload.assetName else { return }
+        bonsplitController.updateTab(tabId, iconImageData: .some(payload.imageData), iconAsset: .some(payload.assetName))
     }
 
     /// Convenience for agent-lifecycle call sites that may touch several
@@ -381,6 +426,25 @@ extension DockSplitStore {
             registrationIconAssetName: { statusKey in
                 registration?.id == statusKey ? registration?.iconAssetName : nil
             }
+        )
+    }
+
+    @MainActor
+    func terminalTabAgentIconPayload(forPanelId panelId: UUID) -> TerminalTabAgentIconPayload {
+        TerminalTabAgentIconResolver().payload(
+            assetName: terminalTabAgentIconAsset(forPanelId: panelId),
+            imageData: terminalTabAgentIconImageData(assetName:)
+        )
+    }
+
+    @MainActor
+    private func terminalTabAgentIconImageData(assetName: String) -> Data? {
+        CmuxResolvedIconRenderer().pngData(
+            for: CmuxResolvedIconRequest(
+                source: .asset(name: assetName, bundle: .main),
+                size: NSSize(width: 14, height: 14)
+            ),
+            appearance: NSApplication.shared.effectiveAppearance
         )
     }
 }

@@ -62,7 +62,9 @@ enum RenderableSystemSymbol {
             return cached
         }
         let resolved = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
-        cacheRenderability(resolved, for: symbol)
+        if resolved {
+            cacheRenderability(true, for: symbol)
+        }
         return resolved
     }
 
@@ -101,11 +103,7 @@ enum RenderableSystemSymbol {
         if let cached = appKitImageCache[cacheKey] {
             return cached
         }
-        if renderabilityCache[systemName] == false {
-            return nil
-        }
         guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
-            cacheRenderability(false, for: systemName)
             return nil
         }
         cacheRenderability(true, for: systemName)

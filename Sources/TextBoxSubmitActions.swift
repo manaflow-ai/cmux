@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -31,13 +32,6 @@ extension TextBoxInputContainer {
         for action in actions.prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount) {
             guard let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !path.isEmpty else {
-                if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !assetName.isEmpty {
-                    let key = "asset:\(assetName)"
-                    if seenKeys.insert(key).inserted {
-                        keys.append(key)
-                    }
-                }
                 continue
             }
             let key = "path:\(expandPath(path))"
@@ -356,12 +350,17 @@ extension TextBoxInputContainer {
     @ViewBuilder
     func submitButtonActionImage(_ action: TextBoxSubmitAction, canSend: Bool) -> some View {
         let iconOpacity = canSend ? 0.86 : 0.76
-        if let image = submitActionNSImage(for: action) {
+        if let assetName = resolvedSubmitActionAssetName(for: action) {
+            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
+                .opacity(iconOpacity)
+                .frame(
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
+                )
+        } else if let image = submitActionNSImage(for: action) {
             Image(nsImage: image)
-                .renderingMode(action.id == "codex" ? .template : .original)
                 .resizable()
                 .scaledToFit()
-                .foregroundStyle(Color.black)
                 .opacity(iconOpacity)
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
@@ -380,7 +379,13 @@ extension TextBoxInputContainer {
 
     @ViewBuilder
     func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
-        if let image = submitActionNSImage(for: action) {
+        if let assetName = resolvedSubmitActionAssetName(for: action) {
+            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
+                .frame(
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
+                )
+        } else if let image = submitActionNSImage(for: action) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
@@ -416,10 +421,6 @@ extension TextBoxInputContainer {
            !path.isEmpty {
             return submitActionImageCache[submitActionPathImageCacheKey(expandedSubmitActionImagePath(path))]
         }
-        if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !assetName.isEmpty {
-            return submitActionImageCache[submitActionAssetImageCacheKey(assetName)]
-        }
         return nil
     }
 
@@ -437,9 +438,6 @@ extension TextBoxInputContainer {
                 if let image {
                     submitActionImageCache[key] = image
                 }
-            } else if let assetName = submitActionAssetName(fromCacheKey: key),
-                      let image = NSImage(named: assetName) {
-                submitActionImageCache[key] = TextBoxSubmitActionImageSupport.fixedSizeImage(image)
             }
         }
     }
@@ -452,18 +450,9 @@ extension TextBoxInputContainer {
         "path:\(path)"
     }
 
-    func submitActionAssetImageCacheKey(_ assetName: String) -> String {
-        "asset:\(assetName)"
-    }
-
     func submitActionPath(fromCacheKey key: String) -> String? {
         guard key.hasPrefix("path:") else { return nil }
         return String(key.dropFirst("path:".count))
-    }
-
-    func submitActionAssetName(fromCacheKey key: String) -> String? {
-        guard key.hasPrefix("asset:") else { return nil }
-        return String(key.dropFirst("asset:".count))
     }
 
     struct SubmitDispatchPlan {
