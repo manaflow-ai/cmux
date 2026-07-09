@@ -69,6 +69,78 @@ struct BrowserWebExtensionReviewRegressionTests {
 
         KeyboardShortcutSettings.setShortcut(.unbound, for: action)
         #expect(appDelegate.shouldOfferBrowserWebExtensionCommand(event))
+
+        let plainTypingEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+        #expect(!appDelegate.shouldOfferBrowserWebExtensionCommand(plainTypingEvent))
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func unchangedMetadataDoesNotInvalidateExtensionActions() async throws {
+        let support = BrowserWebExtensionSupport()
+        let panel = BrowserPanel(workspaceId: UUID(), browserWebExtensionHost: support)
+        support.register(panel: panel)
+        defer {
+            support.unregister(panelID: panel.id)
+            panel.close()
+        }
+        let invalidation = try #require(support.actionSnapshotInvalidationsByPanelID[panel.id])
+        let initialRevision = invalidation.revision
+
+        support.noteTabMetadataChanged(panelID: panel.id)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(invalidation.revision == initialRevision)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func sameExtensionLinkOpensSiblingTabWithOwningContext() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let appDelegate = try #require(AppDelegate.shared)
+        let previousTabManager = appDelegate.tabManager
+        let extensionURL = try #require(URL(string: "webkit-extension://cmux-test/options.html"))
+        let siblingURL = try #require(URL(string: "webkit-extension://cmux-test/vault.html"))
+        let host = BrowserWebExtensionReviewTestHost(extensionHost: extensionURL.host)
+        let tabManager = TabManager(browserWebExtensionHost: host)
+        appDelegate.tabManager = tabManager
+        defer { appDelegate.tabManager = previousTabManager }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        defer { workspace.teardownAllPanels() }
+        let paneID = try #require(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try #require(workspace.newBrowserSurface(
+            inPane: paneID,
+            url: extensionURL,
+            focus: false
+        ))
+        #expect(sourcePanel.webExtensionPageContextIdentifier == host.contextIdentifier)
+
+        sourcePanel.openLinkInNewTab(url: siblingURL)
+
+        let siblingPanel = try #require(
+            workspace.panels.values
+                .compactMap { $0 as? BrowserPanel }
+                .first { $0.id != sourcePanel.id }
+        )
+        #expect(siblingPanel.webExtensionPageContextIdentifier == host.contextIdentifier)
     }
 
     @MainActor
