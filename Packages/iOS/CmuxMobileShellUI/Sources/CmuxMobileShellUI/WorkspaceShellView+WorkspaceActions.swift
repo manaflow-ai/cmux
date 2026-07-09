@@ -58,7 +58,7 @@ extension WorkspaceShellView {
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
         _ movesGroup: Bool
-    ) async -> Void)? {
+    ) async -> Bool)? {
         let store = store
         return { id, groupID, beforeWorkspaceID, movesGroup in
             let result = await store.moveWorkspace(
@@ -70,6 +70,10 @@ extension WorkspaceShellView {
             await MainActor.run {
                 handleWorkspaceActionResult(result, action: .moveWorkspace)
             }
+            if case .success = result {
+                return true
+            }
+            return false
         }
     }
 

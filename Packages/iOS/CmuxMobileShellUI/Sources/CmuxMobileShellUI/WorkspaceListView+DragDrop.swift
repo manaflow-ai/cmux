@@ -9,7 +9,6 @@ extension WorkspaceListView {
 
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
-            && !hasPendingWorkspaceMove
             && canRenderGroupsForSelection
             && trimmedQuery.isEmpty
             && filter.readState == .all
@@ -36,15 +35,28 @@ extension WorkspaceListView {
             && canRenderGroupsForSelection
     }
 
-    func syncOptimisticWorkspaceOrder() {
-        guard optimisticFlatWorkspaces != nil
-            || optimisticGroupedItems != nil
-            || optimisticGroupedWorkspaces != nil else {
-            return
+    func syncOptimisticWorkspaceOrder(moveDidFail: Bool = false) {
+        if !MobileWorkspaceOptimisticOrderReconciler.shouldKeepOptimisticOrder(
+            optimistic: optimisticFlatWorkspaces,
+            authoritative: filteredWorkspaces,
+            previousAuthoritative: optimisticFlatBaseWorkspaces,
+            moveIsPending: hasPendingWorkspaceMove,
+            moveDidFail: moveDidFail
+        ) {
+            optimisticFlatWorkspaces = nil
+            optimisticFlatBaseWorkspaces = nil
         }
-        optimisticFlatWorkspaces = nil
-        optimisticGroupedItems = nil
-        optimisticGroupedWorkspaces = nil
+        if !MobileWorkspaceOptimisticOrderReconciler.shouldKeepOptimisticOrder(
+            optimistic: optimisticGroupedWorkspaces,
+            authoritative: groupedWorkspaces,
+            previousAuthoritative: optimisticGroupedBaseWorkspaces,
+            moveIsPending: hasPendingWorkspaceMove,
+            moveDidFail: moveDidFail
+        ) {
+            optimisticGroupedItems = nil
+            optimisticGroupedWorkspaces = nil
+            optimisticGroupedBaseWorkspaces = nil
+        }
     }
 
     func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
@@ -61,6 +73,7 @@ extension WorkspaceListView {
         }
         var movedWorkspaces = sourceWorkspaces
         movedWorkspaces.move(fromOffsets: sourceOffsets, toOffset: destination)
+        optimisticFlatBaseWorkspaces = sourceWorkspaces
         optimisticFlatWorkspaces = movedWorkspaces
         guard let sourceIndex = sourceOffsets.first,
               case .workspace(let workspace, _) = items[sourceIndex] else {
@@ -68,9 +81,11 @@ extension WorkspaceListView {
         }
         isWorkspaceMovePending = true
         Task { @MainActor in
-            await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
+            let accepted = await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             isWorkspaceMovePending = false
-            syncOptimisticWorkspaceOrder()
+            if !accepted {
+                syncOptimisticWorkspaceOrder(moveDidFail: true)
+            }
         }
     }
 
@@ -100,15 +115,19 @@ extension WorkspaceListView {
         }
         let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
             intent,
-            movedWorkspaceID: movedWorkspaceID
+            movedWorkspaceID: movedWorkspaceID,
+            groups: groups
         )
+        optimisticGroupedBaseWorkspaces = sourceWorkspaces
         optimisticGroupedWorkspaces = movedWorkspaces
         optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
         isWorkspaceMovePending = true
         Task { @MainActor in
-            await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
+            let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             isWorkspaceMovePending = false
-            syncOptimisticWorkspaceOrder()
+            if !accepted {
+                syncOptimisticWorkspaceOrder(moveDidFail: true)
+            }
         }
     }
 }

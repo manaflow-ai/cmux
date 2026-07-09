@@ -276,9 +276,11 @@ import Testing
             workspace("root"),
             workspace("dragged"),
         ]
+        let groups = [group("g", anchor: "anchor")]
         let moved = workspaces.applyingWorkspaceMoveIntent(
             MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "root"),
-            movedWorkspaceID: "dragged"
+            movedWorkspaceID: "dragged",
+            groups: groups
         )
         #expect(moved.map(\.id.rawValue) == ["anchor", "member", "dragged", "root"])
         #expect(moved.first(where: { $0.id == "dragged" })?.groupID == "g")
@@ -291,9 +293,11 @@ import Testing
             workspace("root"),
             workspace("dragged", group: "g"),
         ]
+        let groups = [group("g", anchor: "anchor")]
         let moved = workspaces.applyingWorkspaceMoveIntent(
             MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root"),
-            movedWorkspaceID: "dragged"
+            movedWorkspaceID: "dragged",
+            groups: groups
         )
         #expect(moved.map(\.id.rawValue) == ["anchor", "member", "dragged", "root"])
         #expect(moved.first(where: { $0.id == "dragged" })?.groupID == nil)
@@ -421,7 +425,8 @@ import Testing
         ))
         let moved = workspaces.applyingWorkspaceMoveIntent(
             intent,
-            movedWorkspaceID: "anchor"
+            movedWorkspaceID: "anchor",
+            groups: groups
         )
         #expect(moved.map(\.id) == ["tail", "anchor", "member"])
         #expect(moved.suffix(2).allSatisfy { $0.groupID == "g" })

@@ -80,7 +80,7 @@ struct WorkspaceListView: View {
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?, _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
         _ movesGroup: Bool
-    ) async -> Void)? = nil
+    ) async -> Bool)? = nil
     /// Optional: rename a workspace group on the Mac.
     var renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil
     /// Optional: pin or unpin a workspace group on the Mac.
@@ -120,8 +120,10 @@ struct WorkspaceListView: View {
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     @State var optimisticFlatWorkspaces: [MobileWorkspacePreview]?
+    @State var optimisticFlatBaseWorkspaces: [MobileWorkspacePreview]?
     @State var optimisticGroupedItems: [MobileWorkspaceListItem]?
     @State var optimisticGroupedWorkspaces: [MobileWorkspacePreview]?
+    @State var optimisticGroupedBaseWorkspaces: [MobileWorkspacePreview]?
     @State var isWorkspaceMovePending = false
 
     var trimmedQuery: String {
@@ -318,7 +320,7 @@ struct WorkspaceListView: View {
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
         }
         .onChange(of: filteredWorkspaceOrderKey) { _, _ in
-            if optimisticFlatWorkspaces != nil { optimisticFlatWorkspaces = nil }
+            syncOptimisticWorkspaceOrder()
         }
         .onChange(of: groupedWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
