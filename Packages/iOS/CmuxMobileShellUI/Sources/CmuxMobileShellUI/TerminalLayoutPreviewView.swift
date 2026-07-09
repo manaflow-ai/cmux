@@ -125,7 +125,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         // fixture when a UI test explicitly sets it.
         let fakeKeyboardHeight = ProcessInfo.processInfo.environment["CMUX_UITEST_FAKE_KEYBOARD_HEIGHT"]
             .flatMap(Double.init)
-            .map(CGFloat.init) ?? 0
+            .map { CGFloat($0) } ?? 0
         view.debugSetKeyboardHeightForLayoutPreview(max(0, fakeKeyboardHeight))
         return view
     }
