@@ -286,7 +286,7 @@ private struct WorkspaceTodoPaneContent: View {
     // MARK: Add-item row (pinned at the bottom, always armed)
 
     private var addItemRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
+        HStack(alignment: .center, spacing: 7) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
             CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
@@ -295,8 +295,8 @@ private struct WorkspaceTodoPaneContent: View {
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                 text: $pendingItemText
             )
-            .textFieldStyle(.plain)
             .font(.system(size: Self.itemFontSize))
+            .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
             .onSubmit(commitPendingItem)

@@ -213,7 +213,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             localized: "sidebar.checklist.addItemPlaceholder",
             defaultValue: "New checklist item"
         )
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+        return HStack(alignment: .center, spacing: 6) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
             CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
@@ -222,8 +222,8 @@ struct SidebarWorkspaceChecklistPopover: View {
                 placeholder,
                 text: $pendingItemText
             )
-            .textFieldStyle(.plain)
             .font(.system(size: Self.itemFontSize))
+            .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
             .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
