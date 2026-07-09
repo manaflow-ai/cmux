@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
@@ -303,6 +303,21 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
       eq(stripeCustomers.stackUserId, userId),
       isNull(stripeCustomers.stackTeamId),
     ));
+    await tx
+      .update(stripeSubscriptions)
+      .set({ stackUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+      .where(and(
+        eq(stripeSubscriptions.stackUserId, userId),
+        eq(stripeSubscriptions.scope, "team"),
+        isNotNull(stripeSubscriptions.stackTeamId),
+      ));
+    await tx
+      .update(stripeCustomers)
+      .set({ stackUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+      .where(and(
+        eq(stripeCustomers.stackUserId, userId),
+        isNotNull(stripeCustomers.stackTeamId),
+      ));
 
     await tx.delete(cloudVmBillingGrants).where(and(
       eq(cloudVmBillingGrants.billingCustomerType, "user"),
