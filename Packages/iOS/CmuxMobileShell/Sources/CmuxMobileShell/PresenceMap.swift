@@ -6,6 +6,7 @@ public import Foundation
 /// testable without a socket; the shell store owns one and mutates it on the
 /// main actor as stream frames arrive.
 public struct PresenceMap: Equatable, Sendable {
+    private let buildScope: MobileIOSBuildScope?
     /// Per-device rollup for UI rows: a device is online when any of its
     /// instances is online; `lastSeenAt` is the freshest heartbeat across them.
     public struct DeviceSummary: Equatable, Sendable {
@@ -31,7 +32,16 @@ public struct PresenceMap: Equatable, Sendable {
     /// O(all instances on the team).
     private var instancesByDevice: [String: [String: PresenceInstance]] = [:]
 
-    public init() {}
+    /// Create a presence map optionally restricted to one tagged DEV build.
+    public init(buildScope: MobileIOSBuildScope? = nil) {
+        self.buildScope = buildScope
+    }
+
+    /// Strict tagged iOS builds consume only the matching Mac tag. Release
+    /// builds have no scope and retain the existing all-instance rollup.
+    public func accepts(_ instance: PresenceInstance) -> Bool {
+        buildScope?.matchesMacInstance(tag: instance.tag, bundleIdentifier: instance.bundleId) ?? true
+    }
 
     /// Whether any presence data has been received yet. The device tree only
     /// overrides its registry-derived "last seen" hints once a snapshot exists.
@@ -45,14 +55,19 @@ public struct PresenceMap: Equatable, Sendable {
         case .snapshot(let snapshot):
             var next: [String: [String: PresenceInstance]] = [:]
             for device in snapshot.devices {
-                for instance in device.instances {
+                for instance in device.instances where accepts(instance) {
                     next[instance.deviceId, default: [:]][instance.tag] = instance
                 }
             }
             instancesByDevice = next
         case .online(let instance), .routes(let instance), .offline(let instance, _):
+            guard accepts(instance) else { return }
             instancesByDevice[instance.deviceId, default: [:]][instance.tag] = instance
         case .seen(let deviceId, let tag, let lastSeenAt):
+            if let buildScope,
+               !buildScope.matchesMacInstance(tag: tag, bundleIdentifier: nil) {
+                return
+            }
             guard var instance = instancesByDevice[deviceId]?[tag] else { return }
             instance.lastSeenAt = lastSeenAt
             instancesByDevice[deviceId]?[tag] = instance

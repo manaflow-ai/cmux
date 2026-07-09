@@ -192,10 +192,10 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # sanitize_tag call below.
 # shellcheck source=../../scripts/lib/mobile-attach.sh
 source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
-# Fail closed on tags with no alphanumerics (their slug collapses onto the shared
-# fallback identity), matching the macOS reload's reject-empty behavior.
-if ! cmux_attach_tag_has_alnum "$TAG"; then
-  echo "error: --tag '$TAG' has no letters or digits; pick a tag with at least one alphanumeric character" >&2
+# Fail closed on empty tags and `default`, which registry/presence reserve for
+# untagged and stable instances.
+if ! cmux_attach_tag_is_usable "$TAG"; then
+  echo "error: --tag '$TAG' is empty or uses reserved tag 'default'; pick a non-default tag" >&2
   exit 1
 fi
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"

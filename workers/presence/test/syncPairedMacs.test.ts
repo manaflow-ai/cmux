@@ -10,6 +10,7 @@ import {
   listBackupSnapshot,
   listBackupSnapshotWithUnscopedFallback,
   listLiveBackup,
+  LEGACY_PAIRED_MACS_PATH,
   MAX_BACKUP_OPS,
   MAX_CLIENT_SCOPE_LENGTH,
   MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER,
@@ -20,7 +21,9 @@ import {
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
+  pairedMacBackupPathAcceptsScope,
   parsePairedMacBackup,
+  STRICT_PAIRED_MACS_PATH,
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
 import {
@@ -32,6 +35,18 @@ import {
 } from "../src/syncStorage";
 
 const T0 = 1_750_000_000_000;
+
+describe("paired-Mac backup protocol", () => {
+  const strict = "cmux-dev:v2:ZmVhdHVyZQ";
+
+  it("keeps strict v2 and legacy v1 endpoints disjoint", () => {
+    expect(pairedMacBackupPathAcceptsScope(STRICT_PAIRED_MACS_PATH, strict)).toBe(true);
+    expect(pairedMacBackupPathAcceptsScope(LEGACY_PAIRED_MACS_PATH, strict)).toBe(false);
+    expect(pairedMacBackupPathAcceptsScope(STRICT_PAIRED_MACS_PATH, "ios:legacy")).toBe(false);
+    expect(pairedMacBackupPathAcceptsScope(LEGACY_PAIRED_MACS_PATH, "ios:legacy")).toBe(true);
+    expect(pairedMacBackupPathAcceptsScope(LEGACY_PAIRED_MACS_PATH)).toBe(true);
+  });
+});
 
 class FakeStorage implements SyncStorage {
   private map = new Map<string, unknown>();
@@ -186,6 +201,18 @@ describe("applyBackupOps", () => {
     expect((await listBackupSnapshot(storage, "user-1", "ios:tag-0")).records.map((r) => r.macDeviceID)).toEqual([
       "mac-0",
     ]);
+
+    // A strict build scope that hits the cap must stay empty. It must never
+    // recover by exposing the legacy unscoped Release backup.
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "release-mac", record: record("release-mac", "10.0.0.10", 22) }],
+      T0 + 3000,
+    );
+    expect(
+      (await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "cmux-dev:v2:YmxvY2tlZA")).records,
+    ).toEqual([]);
   });
 
   it("writes the per-user physical collection and relabels frames to the logical name", async () => {
@@ -452,6 +479,84 @@ describe("applyBackupOps", () => {
     const tombstonedScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
     expect(tombstonedScoped.records.map((r) => r.macDeviceID)).toEqual(["mac-seed"]);
     expect(tombstonedScoped.deletedMacDeviceIDs).toEqual(["scoped-mac"]);
+  });
+
+  it("strict v2 build scopes ignore contaminated legacy state and stay independent", async () => {
+    const storage = new FakeStorage();
+    const strictA = "cmux-dev:v2:YnVpbGQtYQ";
+    const strictB = "cmux-dev:v2:YnVpbGQtYg";
+
+    // This is the pre-fix state: the unscoped Mac route was copied into a v1
+    // tagged scope. A v2 install must start clean instead of migrating either
+    // contaminated collection.
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "shared-device", record: record("shared-device", "10.0.0.9", 9009) }],
+      T0,
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "shared-device", record: record("shared-device", "10.0.0.8", 8008) }],
+      T0 + 1,
+      "ios:legacy-build-a",
+    );
+    expect((await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictA)).records).toEqual([]);
+    expect((await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictB)).records).toEqual([]);
+
+    // The physical Mac id is intentionally identical. The build scope, rather
+    // than device id, owns routes, active state, and customization.
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "shared-device", record: record("shared-device", "10.0.0.1", 1001) }],
+      T0 + 10,
+      strictA,
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "shared-device", record: record("shared-device", "10.0.0.2", 2002) }],
+      T0 + 20,
+      strictB,
+    );
+
+    const aBeforeBRefresh = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictA);
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{
+        kind: "upsert",
+        id: "shared-device",
+        record: {
+          ...record("shared-device", "10.0.0.22", 2022),
+          customName: "Build B",
+          isActive: false,
+        },
+      }],
+      T0 + 30,
+      strictB,
+    );
+
+    expect(await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictA)).toEqual(aBeforeBRefresh);
+    const b = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictB);
+    expect(b.records[0]?.routes).toEqual(record("shared-device", "10.0.0.22", 2022).routes);
+    expect(b.records[0]?.customName).toBe("Build B");
+
+    // A same-tag relaunch/reinstall sees its own durable copy, while deleting B
+    // does not remove A. Explicitly pairing the same Mac into both remains valid.
+    expect(
+      (await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictA)).records[0]?.routes,
+    ).toEqual(record("shared-device", "10.0.0.1", 1001).routes);
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "shared-device" }], T0 + 40, strictB);
+    expect((await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictA)).records).toHaveLength(1);
+    expect((await listBackupSnapshotWithUnscopedFallback(storage, "user-1", strictB)).records).toEqual([]);
+
+    // Untagged Release remains on its original unscoped backup.
+    expect((await listBackupSnapshotWithUnscopedFallback(storage, "user-1")).records[0]?.routes).toEqual(
+      record("shared-device", "10.0.0.9", 9009).routes,
+    );
   });
 
   it("first scoped write seeds untouched unscoped backup rows", async () => {

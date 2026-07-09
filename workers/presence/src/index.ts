@@ -25,7 +25,14 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { parseHeartbeat, readBoundedJson } from "./validate";
-import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
+import {
+  LEGACY_PAIRED_MACS_PATH,
+  MAX_PAIRED_MAC_BACKUP_BYTES,
+  normalizeClientScope,
+  pairedMacBackupPathAcceptsScope,
+  parsePairedMacBackup,
+  STRICT_PAIRED_MACS_PATH,
+} from "./syncPairedMacs";
 
 export { TeamPresence };
 
@@ -82,7 +89,7 @@ export default {
       return json(result);
     }
 
-    if (url.pathname === "/v1/sync/paired-macs") {
+    if (url.pathname === LEGACY_PAIRED_MACS_PATH || url.pathname === STRICT_PAIRED_MACS_PATH) {
       // The per-user saved-host backup. Both directions are scoped to the
       // verified user (passed to the DO, never client input):
       //   POST  back up the caller's saved-host list (upsert/delete ops)
@@ -95,6 +102,9 @@ export default {
         return json({ error: "invalid_client_scope" }, 400);
       }
       const clientScope = trimmedClientScope || null;
+      if (!pairedMacBackupPathAcceptsScope(url.pathname, clientScope)) {
+        return json({ error: "client_scope_version_mismatch" }, 400);
+      }
       if (request.method === "GET") {
         return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
       }
