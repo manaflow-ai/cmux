@@ -26,6 +26,9 @@ public final class GhosttySurfaceCallbackContext {
     /// The stable identity of the surface this context was created for.
     public let surfaceId: UUID
 
+    /// Stable, opaque renderer trace identity captured before any runtime recreation.
+    public let rendererProfilingIdentity: TerminalRendererProfilingIdentity
+
     /// Creates the callback userdata for one runtime surface.
     ///
     /// - Parameters:
@@ -38,6 +41,10 @@ public final class GhosttySurfaceCallbackContext {
         self.surfaceHost = surfaceHost
         self.surfaceController = surfaceController
         self.surfaceId = surfaceController.surfaceId
+        self.rendererProfilingIdentity = TerminalRendererProfilingIdentity(
+            workspaceId: surfaceController.owningTabId,
+            surfaceId: surfaceController.surfaceId
+        )
     }
 
     /// The owning workspace tab, read from the model first and the view as a

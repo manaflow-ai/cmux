@@ -136,6 +136,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The owning workspace id.
     public private(set) var tabId: UUID
 
+    /// Stable, opaque identifiers used by renderer profiling across runtime recreation.
+    public var rendererProfilingIdentity: TerminalRendererProfilingIdentity {
+        TerminalRendererProfilingIdentity(workspaceId: tabId, surfaceId: id)
+    }
+
     /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
     /// every runtime startup path uses the same immutable workspace port range.
     let portOrdinal: Int

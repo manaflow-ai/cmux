@@ -3428,6 +3428,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
+    private let rendererProfilingSignposts = TerminalRendererProfilingSignposts()
+    private var rendererProfilingCoalescedUpdateCount = 0
+    private var rendererProfilingUpdateState: OSSignpostIntervalState?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
@@ -3540,9 +3543,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func enqueueRenderedFrameUpdate() {
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        let profilingEnabled = rendererProfilingSignposts.isEnabled
+        guard GhosttyApp.renderedFrameNotificationDemand.isActive || profilingEnabled else { return }
 
         _renderedFrameLock.lock()
+        rendererProfilingCoalescedUpdateCount += 1
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
@@ -3550,6 +3555,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameLock.unlock()
 
         guard needsSchedule else { return }
+        if profilingEnabled, let metadata = rendererProfilingMetadata(coalescedUpdateCount: 1) {
+            rendererProfilingUpdateState = rendererProfilingSignposts.beginUpdate(metadata)
+        }
         DispatchQueue.main.async { [weak self] in
             self?.flushRenderedFrameUpdate()
         }
@@ -3558,12 +3566,45 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushRenderedFrameUpdate() {
         _renderedFrameLock.lock()
         _renderedFrameFlushScheduled = false
+        let coalescedUpdateCount = rendererProfilingCoalescedUpdateCount
+        rendererProfilingCoalescedUpdateCount = 0
+        let profilingState = rendererProfilingUpdateState
+        rendererProfilingUpdateState = nil
         _renderedFrameLock.unlock()
 
+        if let metadata = rendererProfilingMetadata(coalescedUpdateCount: coalescedUpdateCount) {
+            rendererProfilingSignposts.endUpdate(profilingState, metadata)
+        }
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self
+        )
+    }
+
+    private func rendererProfilingMetadata(
+        coalescedUpdateCount: Int
+    ) -> TerminalRendererProfilingMetadata? {
+        guard let terminalSurface else { return nil }
+        return TerminalRendererProfilingMetadata(
+            identity: terminalSurface.rendererProfilingIdentity,
+            visible: isVisibleInUI,
+            focused: desiredFocus,
+            wakeReason: .terminalOutput,
+            coalescedUpdateCount: coalescedUpdateCount,
+            dirtyRowCount: nil,
+            fullRedraw: nil
+        )
+    }
+
+    fileprivate func updateRendererProfilingState(
+        wakeReason: TerminalRendererProfilingWakeReason
+    ) {
+        (layer as? GhosttyMetalLayer)?.setProfilingState(
+            identity: terminalSurface?.rendererProfilingIdentity,
+            visible: isVisibleInUI,
+            focused: desiredFocus,
+            wakeReason: wakeReason
         )
     }
 
@@ -3672,6 +3713,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
+        updateRendererProfilingState(wakeReason: .visibility)
     }
 
     override init(frame frameRect: NSRect) {
@@ -3864,6 +3906,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface = surface
         tabId = surface.tabId
+        updateRendererProfilingState(wakeReason: .terminalOutput)
         if !isAlreadyAttached {
             surface.attachToView(self)
         } else {
@@ -4207,6 +4250,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// reallocate Metal drawables when the pixel size is unchanged.
     @discardableResult
     func forceRefreshSurface() -> Bool {
+        updateRendererProfilingState(wakeReason: .explicitRefresh)
         updateSurfaceSize()
     }
 
@@ -5339,6 +5383,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                    in: window
                ) == false {
                 desiredFocus = false
+                updateRendererProfilingState(wakeReason: .focus)
                 terminalSurface.recordExternalFocusState(false)
                 terminalSurface.hostedView.cancelSuppressedFirstResponderFocusReapply()
 #if DEBUG
@@ -5350,6 +5395,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
             desiredFocus = true
+            updateRendererProfilingState(wakeReason: .focus)
 
             // During programmatic splits, SwiftUI reparents the old NSView which triggers
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
@@ -5432,6 +5478,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             desiredFocus = false
+            updateRendererProfilingState(wakeReason: .focus)
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -10367,6 +10414,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
         surfaceView.desiredFocus = false
+        surfaceView.updateRendererProfilingState(wakeReason: .focus)
         pendingSuppressedFirstResponderFocusReapply = false
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         terminalSurface.setFocus(false)
