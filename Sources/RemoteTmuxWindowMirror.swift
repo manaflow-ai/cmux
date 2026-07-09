@@ -57,11 +57,9 @@ final class RemoteTmuxWindowMirror {
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
 
-    /// Only the visible tab's mirror writes after its initial claim. Tabs stay
-    /// mounted across selection, so a hidden mirror still receives geometry
-    /// callbacks — but its container reports collapsed/stale sizes while hidden.
-    /// The view keeps this current; before it appears, default-hidden prevents
-    /// early surface callbacks from treating an unselected mirror as visible.
+    /// Only the visible tab's mirror writes after its initial claim. Hidden
+    /// tabs stay mounted and still receive geometry callbacks, so default-hidden
+    /// prevents early surface callbacks from treating an unselected mirror as visible.
     @ObservationIgnored var isVisibleForSizing = false
 
     /// ``TerminalPanel`` per tmux pane id. Not observation-tracked: the view
@@ -166,16 +164,14 @@ final class RemoteTmuxWindowMirror {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
-            // The surface reports every applied resize — the one moment the
-            // measured constants (cell size, padding) can change. Ingest the
-            // applied sample into the calibration minimums, then re-run the
-            // deduped push, so sizing converges on a real signal instead of
-            // timers. Feed-forward safe: the push reads only local state, so
-            // an echo of our own imposition dedups to silence.
-            panel.surface.onManualSizeApplied = { [weak self] sample in
-                self?.ingest(sample: sample)
-                self?.updateClientSize()
+            let surface = panel.surface
+            surface.onManualSizeApplied = { [weak self] in self?.handleSizingSample($0) }
+            surface.onRuntimeReady = { [weak self, weak surface] in
+                guard let sample = surface?.rawSizingSample() else { return }
+                self?.handleSizingSample(sample)
             }
+            surface.flushPendingManualSizeReportIfAttached()
+            if let sample = surface.rawSizingSample() { handleSizingSample(sample) }
             // Canonical seed (reflow classification → capture → cwd). The session
             // mirror's cwd observer maps the pane back to this window's tab.
             connection?.seedPane(paneId: paneId)
@@ -184,6 +180,8 @@ final class RemoteTmuxWindowMirror {
             // Use the full panel close (detaches the portal from the registry
             // BEFORE freeing the surface) so a stale portal entry can't be
             // dereferenced by a later Core Animation commit.
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
@@ -239,12 +237,7 @@ final class RemoteTmuxWindowMirror {
         containerScale = scale
     }
 
-    /// Ingests one sizing sample into the min-tracked pad constants and
-    /// refreshes the stored ``geometrySnapshot``. EVENT paths only: the
-    /// applied-resize report delivers the sample it was called with, and the
-    /// push path sweeps live panes via ``refreshGeometryConstants()``. The
-    /// snapshot write is equality-guarded, so re-ingesting settled geometry
-    /// never invalidates the view.
+    /// Ingests one sizing sample into the min-tracked pad constants.
     private func ingest(sample: TerminalSurfaceRawSizingSample) {
         guard sample.cellWidthPx > 0, sample.cellHeightPx > 0,
               sample.columns > 1, sample.rows > 1,
@@ -266,6 +259,11 @@ final class RemoteTmuxWindowMirror {
             scale: scale
         )
         if geometrySnapshot != geometry { geometrySnapshot = geometry }
+    }
+
+    private func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample) {
+        ingest(sample: sample)
+        _ = updateClientSize()
     }
 
     /// Sweeps every pane's current sizing sample through ``ingest(sample:)``
@@ -488,7 +486,11 @@ final class RemoteTmuxWindowMirror {
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for panel in panelsByPaneId.values { panel.close() }
+        for panel in panelsByPaneId.values {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+            panel.close()
+        }
         panelsByPaneId.removeAll()
         syntheticPaneIds.removeAll()
         activePaneId = nil
