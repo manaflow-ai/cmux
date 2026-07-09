@@ -8,7 +8,7 @@ private func makeLanguageScratchDefaults() -> (String, UserDefaults) {
 }
 
 private func makeLanguageSettingsStore(defaults: UserDefaults, suiteName: String) -> LanguageSettingsStore {
-    LanguageSettingsStore(defaults: defaults)
+    LanguageSettingsStore(defaults: defaults, domainName: suiteName)
 }
 
 @Suite("LanguageSettingsStore override ownership")
@@ -36,4 +36,77 @@ struct LanguageSettingsOverrideTests {
         #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] as? [String] == ["fr"])
     }
 
+    @Test func systemSelectionRemovesCmuxOwnedOverride() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        store.applyLanguageOverride(.zhHant)
+        store.applyLanguageOverride(.system)
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] == nil)
+        #expect(defaults.persistentDomain(forName: suiteName)?["appLanguageAppliedOverride"] == nil)
+    }
+
+    @Test func explicitSelectionWritesOverrideAndCompanion() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        store.applyLanguageOverride(.zhHant)
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] as? [String] == ["zh-Hant"])
+        #expect(defaults.persistentDomain(forName: suiteName)?["appLanguageAppliedOverride"] as? String == "zh-Hant")
+    }
+
+    @Test func reconcileRepairsMissingOverrideForExplicitSelection() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        defaults.set("zh-Hant", forKey: "appLanguage")
+        store.reconcileLanguageOverrideAtLaunch()
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] as? [String] == ["zh-Hant"])
+    }
+
+    @Test func reconcileLeavesForeignOverrideUntouched() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        defaults.set("zh-Hant", forKey: "appLanguage")
+        defaults.set(["ja"], forKey: "AppleLanguages")
+        store.reconcileLanguageOverrideAtLaunch()
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] as? [String] == ["ja"])
+        #expect(defaults.persistentDomain(forName: suiteName)?["appLanguageAppliedOverride"] == nil)
+    }
+
+    @Test func reconcileAdoptsPreFixOwnedState() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        defaults.set("zh-Hant", forKey: "appLanguage")
+        defaults.set(["zh-Hant"], forKey: "AppleLanguages")
+        store.reconcileLanguageOverrideAtLaunch()
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["appLanguageAppliedOverride"] as? String == "zh-Hant")
+
+        store.applyLanguageOverride(.system)
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] == nil)
+    }
+
+    @Test func reconcileDoesNothingForSystemSelection() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        defaults.set(["zh-Hant"], forKey: "AppleLanguages")
+        store.reconcileLanguageOverrideAtLaunch()
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] as? [String] == ["zh-Hant"])
+        #expect(defaults.persistentDomain(forName: suiteName)?["appLanguageAppliedOverride"] == nil)
+    }
 }
