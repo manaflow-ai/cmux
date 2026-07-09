@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+RELOAD_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$RELOAD_SCRIPT_DIR/lib/mobile-attach.sh"
+
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
@@ -270,20 +274,11 @@ EOF
 }
 
 sanitize_bundle() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\\.+//; s/\\.+$//; s/\\.+/./g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="agent"
-  fi
-  echo "$cleaned"
+  cmux_attach__bundle_seg "$1"
 }
 
 sanitize_path() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  echo "$cleaned"
+  cmux_attach__slug_raw "$1"
 }
 
 is_valid_port() {

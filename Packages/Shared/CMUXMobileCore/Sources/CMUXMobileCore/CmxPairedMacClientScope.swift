@@ -12,13 +12,23 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// Wire prefix for the strict paired-Mac backup protocol version.
     public static let serializedPrefix = "cmux-dev:v2:"
 
+    /// Worker endpoint that understands strict build scopes without seeding
+    /// them from legacy unscoped state. Older workers do not expose this path,
+    /// so strict clients fail closed with 404 during a staggered rollout.
+    public static let pairedMacBackupPath = "/v2/sync/paired-macs"
+
     /// Canonical tagged-build slug shared by the Mac and iOS bundle.
     public let value: String
 
-    /// Create a scope from a nonempty, non-default tagged-build slug.
+    /// Create a scope from a nonempty tagged-build slug.
+    ///
+    /// `default` is a valid explicit dev tag. Stable builds stay unscoped by
+    /// failing the bundle-family checks in ``currentIOS(devTag:bundleIdentifier:)``
+    /// and ``currentMac(environment:bundleIdentifier:)``, not through a tag-value
+    /// sentinel that could make a tagged build silently share stable state.
     public init?(_ rawValue: String?) {
         let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty, trimmed != "default" else { return nil }
+        guard !trimmed.isEmpty else { return nil }
         self.value = trimmed
     }
 
@@ -26,7 +36,8 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// unscoped so their existing backup behavior is unchanged.
     public static func currentIOS(
         devTag: String?,
-        bundleIdentifier: String?
+        bundleIdentifier: String?,
+        isDebugBuild: Bool = false
     ) -> CmxPairedMacClientScope? {
         let prefix = "dev.cmux.ios."
         if let bundleIdentifier,
@@ -40,7 +51,12 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
             return scope
         }
 
-        return nil
+        // Custom/manual DEBUG bundle identifiers cannot encode the canonical
+        // tag in their suffix. Prefer CMUXDevTag, then use the deterministic
+        // default scope so every DEBUG build remains isolated. Release and
+        // TestFlight callers pass false and therefore stay unscoped.
+        guard isDebugBuild else { return nil }
+        return CmxPairedMacClientScope(devTag) ?? CmxPairedMacClientScope("default")
     }
 
     /// Resolve a tagged Mac DEV bundle. Requiring the debug bundle family keeps

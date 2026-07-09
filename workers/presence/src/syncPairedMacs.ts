@@ -33,6 +33,8 @@ import {
 /** Logical collection name the client subscribes to and stores under. */
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
 const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
+export const LEGACY_PAIRED_MACS_PATH = "/v1/sync/paired-macs";
+export const STRICT_PAIRED_MACS_PATH = "/v2/sync/paired-macs";
 /** Shared with `CmxPairedMacClientScope.serializedPrefix`. These scopes are a
  * strict, versioned namespace: they never seed or merge the legacy unscoped
  * Release backup. */
@@ -164,8 +166,18 @@ export function pairedMacsCollection(userId: string, clientScope?: string | null
   return scope ? `${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:${scope}` : `${PAIRED_MACS_COLLECTION}:${userId}`;
 }
 
-function isStrictBuildClientScope(clientScope?: string | null): boolean {
+export function isStrictBuildClientScope(clientScope?: string | null): boolean {
   return trimmedString(clientScope).startsWith(STRICT_BUILD_CLIENT_SCOPE_PREFIX);
+}
+
+/** Keep rollout protocols disjoint. A strict client sent to v1 could be seeded
+ * by an older worker, while a legacy client on v2 would bypass its migration
+ * behavior. New workers reject both mismatches. */
+export function pairedMacBackupPathAcceptsScope(pathname: string, clientScope?: string | null): boolean {
+  const strict = isStrictBuildClientScope(clientScope);
+  if (pathname === STRICT_PAIRED_MACS_PATH) return strict;
+  if (pathname === LEGACY_PAIRED_MACS_PATH) return !strict;
+  return false;
 }
 
 function scopedPairedMacCollectionHeadPrefix(userId: string): string {

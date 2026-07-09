@@ -1,10 +1,12 @@
+import CMUXMobileCore
 public import Foundation
 import os
 
 private let pairedMacBackupLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacBackup")
 
 /// HTTP client for the per-user paired-Mac backup on the presence worker
-/// (`/v1/sync/paired-macs`). Auth mirrors ``PresenceClient`` /
+/// (`/v1/sync/paired-macs` for Release/legacy clients, and the rollout-safe
+/// `/v2/sync/paired-macs` for strict DEV scopes). Auth mirrors ``PresenceClient`` /
 /// ``DeviceRegistryService``: `Authorization: Bearer <access>` plus optional
 /// `X-Cmux-Team-Id`, with tokens supplied through ``PresenceTokenSource``.
 public actor PairedMacBackupClient: PairedMacBackingUp {
@@ -32,12 +34,12 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         self.requestTimeout = requestTimeout
     }
 
-    private static let path = "/v1/sync/paired-macs"
+    private static let legacyPath = "/v1/sync/paired-macs"
 
     /// Build the paired-Mac backup endpoint from a service base URL. The base
     /// may include or omit a trailing slash, and may include a deployment base
     /// path, but must be an HTTP(S) URL.
-    static func endpointURL(serviceBaseURL: String) -> URL? {
+    static func endpointURL(serviceBaseURL: String, clientScope: String? = nil) -> URL? {
         guard var components = URLComponents(string: serviceBaseURL) else { return nil }
         switch components.scheme?.lowercased() {
         case "http", "https":
@@ -48,7 +50,11 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         let basePath = components.path.hasSuffix("/")
             ? String(components.path.dropLast())
             : components.path
-        components.path = basePath + Self.path
+        let trimmedScope = clientScope?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let path = trimmedScope.hasPrefix(CmxPairedMacClientScope.serializedPrefix)
+            ? CmxPairedMacClientScope.pairedMacBackupPath
+            : Self.legacyPath
+        components.path = basePath + path
         components.query = nil
         components.fragment = nil
         return components.url
@@ -148,8 +154,9 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         teamID: String?,
         expectedUserID: String?
     ) async -> URLRequest? {
+        let scope = await clientScope()
         guard let accessToken = await tokenSource.accessToken(expectedUserID: expectedUserID),
-              let url = Self.endpointURL(serviceBaseURL: serviceBaseURL) else {
+              let url = Self.endpointURL(serviceBaseURL: serviceBaseURL, clientScope: scope) else {
             return nil
         }
         var request = URLRequest(url: url)
@@ -159,7 +166,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
-        if let scope = await clientScope() {
+        if let scope {
             request.setValue(scope, forHTTPHeaderField: "X-Cmux-Client-Scope")
         }
         if let body {
