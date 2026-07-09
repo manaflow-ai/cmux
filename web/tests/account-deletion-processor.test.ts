@@ -38,7 +38,9 @@ describe("account deletion processor", () => {
       "claim:user-1",
       "load-stack:user-1",
       "cleanup:user-1",
-      "posthog:user-1",
+      "list-analytics-identities:user-1",
+      "posthog:user-1:user-1,anon-1",
+      "delete-analytics-identities:user-1",
       "stack-delete-pending:user-1",
       "stack-delete:user-1",
       "completed:user-1",
@@ -71,7 +73,9 @@ describe("account deletion processor", () => {
       "claim:user-1",
       "load-stack:user-1",
       "cleanup:user-1",
-      "posthog:user-1",
+      "list-analytics-identities:user-1",
+      "posthog:user-1:user-1,anon-1",
+      "delete-analytics-identities:user-1",
       "stack-delete-pending:user-1",
       "stack-delete:user-1",
       "stack-delete-pending:user-1:Stack delete failed",
@@ -124,8 +128,15 @@ function dependencies(
       calls.push(`cleanup:${userId}`);
       if (cleanupError) throw cleanupError;
     },
-    deletePostHogPersonData: async (userId) => {
-      calls.push(`posthog:${userId}`);
+    deleteIOSAnalyticsIdentities: async ({ userId }) => {
+      calls.push(`delete-analytics-identities:${userId}`);
+    },
+    deletePostHogPersonData: async (userId, distinctIds) => {
+      calls.push(`posthog:${userId}:${distinctIds.join(",")}`);
+    },
+    listPostHogDeletionDistinctIds: async ({ userId }) => {
+      calls.push(`list-analytics-identities:${userId}`);
+      return [userId, "anon-1"];
     },
     loadStackUser: async (userId) => {
       calls.push(`load-stack:${userId}`);

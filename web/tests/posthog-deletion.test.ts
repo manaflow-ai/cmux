@@ -28,7 +28,7 @@ describe("PostHog account deletion", () => {
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
 
-    await deletePostHogPersonData("stack-user-1");
+    await deletePostHogPersonData("stack-user-1", ["anon-1", "stack-user-1"]);
 
     expect(requests).toHaveLength(1);
     expect(requests[0].url).toBe("https://us.posthog.com/api/environments/env-123/persons/bulk_delete/");
@@ -38,7 +38,7 @@ describe("PostHog account deletion", () => {
       "Content-Type": "application/json",
     });
     expect(JSON.parse(String(requests[0].init?.body))).toEqual({
-      distinct_ids: ["stack-user-1"],
+      distinct_ids: ["stack-user-1", "anon-1"],
       delete_events: true,
       delete_recordings: true,
     });

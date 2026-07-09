@@ -98,6 +98,20 @@ export const accountDeletionTombstones = pgTable(
   ],
 );
 
+export const iosAnalyticsIdentities = pgTable(
+  "ios_analytics_identities",
+  {
+    userId: text("user_id").notNull(),
+    anonymousId: text("anonymous_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("ios_analytics_identities_user_anonymous_unique").on(table.userId, table.anonymousId),
+    index("ios_analytics_identities_user_idx").on(table.userId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {

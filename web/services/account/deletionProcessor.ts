@@ -1,4 +1,8 @@
 import { getStackServerApp } from "../../app/lib/stack";
+import {
+  deleteIOSAnalyticsIdentities,
+  listPostHogDeletionDistinctIds,
+} from "../analytics/iosAnalyticsIdentities";
 import { deletePostHogPersonData } from "../analytics/posthogDeletion";
 import {
   claimAccountDeletionProcessing,
@@ -20,7 +24,12 @@ type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
 export type AccountDeletionProcessorDependencies = {
   readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<AccountDeletionStatus | null>;
   readonly deleteCmuxAccountData: (input: { readonly userId: string }) => Promise<void>;
-  readonly deletePostHogPersonData: (userId: string) => Promise<void>;
+  readonly deleteIOSAnalyticsIdentities: (input: { readonly userId: string }) => Promise<void>;
+  readonly deletePostHogPersonData: (
+    userId: string,
+    distinctIds: readonly string[],
+  ) => Promise<void>;
+  readonly listPostHogDeletionDistinctIds: (input: { readonly userId: string }) => Promise<readonly string[]>;
   readonly loadStackUser: (userId: string) => Promise<StackAccountDeletionUser | null>;
   readonly markAccountDeletionCompleted: (input: { readonly userId: string }) => Promise<void>;
   readonly markAccountDeletionFailed: (
@@ -37,7 +46,9 @@ export type AccountDeletionProcessorDependencies = {
 const defaultAccountDeletionProcessorDependencies: AccountDeletionProcessorDependencies = {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
+  deleteIOSAnalyticsIdentities,
   deletePostHogPersonData,
+  listPostHogDeletionDistinctIds,
   loadStackUser: async (userId) =>
     await getStackServerApp().getUser(userId) as StackAccountDeletionUser | null,
   markAccountDeletionCompleted,
@@ -58,7 +69,9 @@ export async function processAccountDeletionForUser(
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
       await dependencies.deleteCmuxAccountData({ userId: input.userId });
-      await dependencies.deletePostHogPersonData(input.userId);
+      const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
+      await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
+      await dependencies.deleteIOSAnalyticsIdentities({ userId: input.userId });
       await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId });
       stackDeletePending = true;
     }

@@ -6,12 +6,16 @@ export function assertPostHogDeletionConfigured(): void {
   }
 }
 
-export async function deletePostHogPersonData(userId: string): Promise<void> {
+export async function deletePostHogPersonData(
+  userId: string,
+  distinctIds: readonly string[] = [userId],
+): Promise<void> {
   const environmentId = postHogEnvironmentId();
   const personalApiKey = postHogPersonalApiKey();
   if (!environmentId || !personalApiKey) {
     throw new Error("PostHog account deletion is not configured");
   }
+  const deletionDistinctIds = normalizedDistinctIds([userId, ...distinctIds]);
 
   const response = await fetch(`${POSTHOG_APP_HOST}/api/environments/${encodeURIComponent(environmentId)}/persons/bulk_delete/`, {
     method: "POST",
@@ -20,7 +24,7 @@ export async function deletePostHogPersonData(userId: string): Promise<void> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      distinct_ids: [userId],
+      distinct_ids: deletionDistinctIds,
       delete_events: true,
       delete_recordings: true,
     }),
@@ -41,4 +45,8 @@ function postHogPersonalApiKey(): string | null {
 function trimmedEnv(name: string): string | null {
   const value = process.env[name]?.trim();
   return value ? value : null;
+}
+
+function normalizedDistinctIds(values: readonly string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }

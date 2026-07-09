@@ -10,7 +10,7 @@
 // `web/app/api/**`, to stay structurally identical to that directly-analogous route.
 
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
-import { verifyRequest } from "../../../../services/vms/auth";
+import { verifyRequest as verifyVmRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   MAX_ANALYTICS_BATCH_EVENTS,
@@ -20,6 +20,7 @@ import {
   POSTHOG_PROJECT_KEY,
   isAllowedAnalyticsEvent,
 } from "../../../../services/analytics/iosEventPolicy";
+import { recordIOSAnalyticsIdentities } from "../../../../services/analytics/iosAnalyticsIdentities";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,26 @@ type IncomingEvent = {
   readonly timestamp?: string;
 };
 
+type AnalyticsRouteDependencies = {
+  readonly verifyRequest: typeof verifyVmRequest;
+  readonly recordIOSAnalyticsIdentities: typeof recordIOSAnalyticsIdentities;
+  readonly forwardToPostHog: typeof forwardToPostHog;
+};
+
+const defaultAnalyticsRouteDependencies: AnalyticsRouteDependencies = {
+  verifyRequest: verifyVmRequest,
+  recordIOSAnalyticsIdentities,
+  forwardToPostHog,
+};
+
 export async function POST(request: Request): Promise<Response> {
+  return postAnalyticsEvents(request);
+}
+
+export async function postAnalyticsEvents(
+  request: Request,
+  dependencies: AnalyticsRouteDependencies = defaultAnalyticsRouteDependencies,
+): Promise<Response> {
   // Auth is read opportunistically, NOT required: the two-phase identity design
   // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
   // the user is still anonymous. When a Stack session is present we stamp the
@@ -52,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
   // downstream PostHog quota risk is no worse than the already-public direct
   // r.cmux.com path.
   const hasNativeAuth = request.headers.get("authorization")?.toLowerCase().startsWith("bearer ") === true;
-  const user = await verifyRequest(request, { allowCookie: false });
+  const user = await dependencies.verifyRequest(request, { allowCookie: false });
   if (!user && hasNativeAuth) {
     return jsonResponse({ ok: true, forwarded: 0 });
   }
@@ -84,7 +104,14 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  const forwarded = await forwardToPostHog(accepted, user?.id ?? null);
+  if (user) {
+    await dependencies.recordIOSAnalyticsIdentities({
+      userId: user.id,
+      anonymousIds: anonymousIdsFromEvents(accepted),
+    });
+  }
+
+  const forwarded = await dependencies.forwardToPostHog(accepted, user?.id ?? null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
@@ -123,6 +150,17 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
     properties,
     timestamp: typeof record.timestamp === "string" ? record.timestamp : undefined,
   };
+}
+
+function anonymousIdsFromEvents(events: readonly IncomingEvent[]): string[] {
+  const ids: string[] = [];
+  for (const event of events) {
+    const clientId = event.properties.client_id;
+    const anonymousId = event.properties.$anon_distinct_id;
+    if (typeof clientId === "string") ids.push(clientId);
+    if (typeof anonymousId === "string") ids.push(anonymousId);
+  }
+  return ids;
 }
 
 function isScalar(value: unknown): boolean {
