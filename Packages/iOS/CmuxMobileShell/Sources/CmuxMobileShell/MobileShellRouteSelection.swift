@@ -3,6 +3,13 @@ import CmuxMobileShellModel
 import Darwin
 import Foundation
 
+struct MobileShellReconnectRouteCandidate: Equatable, Sendable {
+    let route: CmxAttachRoute
+    let host: String
+    let port: Int
+    var routeID: String { route.id }
+}
+
 struct MobileShellRouteSelection: Sendable {
     let routeAuthPolicy: MobileShellRouteAuthPolicy
 
@@ -59,14 +66,14 @@ struct MobileShellRouteSelection: Sendable {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
-    ) -> [(host: String, port: Int, routeID: String)] {
+    ) -> [MobileShellReconnectRouteCandidate] {
         let supportedKinds = Set(supportedKinds)
         let ordered = routes.sorted(by: routeSortsBefore)
         var seenEndpoints = Set<String>()
 
         func appendCandidates(
             where predicate: (CmxAttachRoute) -> Bool,
-            to candidates: inout [(host: String, port: Int, routeID: String)]
+            to candidates: inout [MobileShellReconnectRouteCandidate]
         ) {
             for route in ordered {
                 if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
@@ -77,11 +84,11 @@ struct MobileShellRouteSelection: Sendable {
                 }
                 let endpointKey = "\(host)\u{1F}\(port)"
                 guard seenEndpoints.insert(endpointKey).inserted else { continue }
-                candidates.append((host: host, port: port, routeID: route.id))
+                candidates.append(MobileShellReconnectRouteCandidate(route: route, host: host, port: port))
             }
         }
 
-        var candidates: [(host: String, port: Int, routeID: String)] = []
+        var candidates: [MobileShellReconnectRouteCandidate] = []
         if preferNonLoopback {
             // Prefer a Tailscale numeric IP over MagicDNS because it dials
             // without client DNS. Keep encrypted Tailscale routes ahead of
@@ -145,6 +152,21 @@ struct MobileShellRouteSelection: Sendable {
             kind: routeKind,
             endpoint: .hostPort(host: host, port: port)
         )
+    }
+
+    func manualHostRoute(
+        host: String,
+        port: Int,
+        preserving sourceRoute: CmxAttachRoute?,
+        isPhysicalDevice: Bool? = nil
+    ) throws -> CmxAttachRoute {
+        if let sourceRoute,
+           case let .hostPort(sourceHost, sourcePort) = sourceRoute.endpoint,
+           sourcePort == port,
+           routeAuthPolicy.normalizedManualRouteHost(sourceHost) == routeAuthPolicy.normalizedManualRouteHost(host) {
+            return sourceRoute
+        }
+        return try manualHostRoute(host: host, port: port, isPhysicalDevice: isPhysicalDevice)
     }
 
     func supportedRoutes(

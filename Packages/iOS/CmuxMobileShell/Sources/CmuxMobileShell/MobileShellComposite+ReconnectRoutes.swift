@@ -54,8 +54,8 @@ extension MobileShellComposite {
     func freshReconnectRoutesAfterLocalFailure(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        triedRoutes: [(host: String, port: Int, routeID: String)]
-    ) async -> [(host: String, port: Int, routeID: String)]? {
+        triedRoutes: [MobileShellReconnectRouteCandidate]
+    ) async -> [MobileShellReconnectRouteCandidate]? {
         guard let deviceRegistry,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
@@ -165,7 +165,7 @@ extension MobileShellComposite {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
-    ) -> [(host: String, port: Int, routeID: String)] {
+    ) -> [MobileShellReconnectRouteCandidate] {
         MobileShellRouteSelection().reconnectHostPortRoutes(
             routes,
             supportedKinds: supportedKinds,

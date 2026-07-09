@@ -102,10 +102,11 @@ extension MobileShellComposite {
             )
             finishPendingManualHostSwitchAttempt(pending)
             return result
-        case let .pairingURL(_, rawURL, acceptedVersionWarning):
+        case let .pairingURL(_, rawURL, acceptedVersionWarning, approvedRouteID):
             return await connectPairingURLResult(
                 rawURL,
-                acceptedVersionWarning: acceptedVersionWarning
+                acceptedVersionWarning: acceptedVersionWarning,
+                approvedManualRouteID: approvedRouteID
             )
         }
     }

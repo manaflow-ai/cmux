@@ -44,10 +44,11 @@ extension MobileShellComposite {
         name: String,
         host: String,
         port: Int,
+        route: CmxAttachRoute? = nil,
         attemptStartedAt: Date?,
         manualHostTrusted: Bool = false
     ) async throws -> CmxAttachTicket {
-        let directRoute = try routeSelection.manualHostRoute(host: host, port: port)
+        let directRoute = try routeSelection.manualHostRoute(host: host, port: port, preserving: route)
         let displayName = name.isEmpty ? host : name
         if MobileShellRouteAuthPolicy().routeAllowsStackAuth(
             directRoute,

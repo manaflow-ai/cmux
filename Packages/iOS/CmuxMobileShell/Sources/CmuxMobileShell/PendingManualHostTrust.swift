@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 enum PendingManualHostTrust {
@@ -11,13 +12,18 @@ enum PendingManualHostTrust {
         macSwitchAttemptID: UUID?,
         ifStillCurrent: (() -> Bool)?
     )
-    case pairingURL(attemptID: UUID, rawURL: String, acceptedVersionWarning: Bool)
+    case pairingURL(
+        attemptID: UUID,
+        rawURL: String,
+        acceptedVersionWarning: Bool,
+        approvedRouteID: String?
+    )
 
     var attemptID: UUID {
         switch self {
         case let .manual(attemptID, _, _, _, _, _, _, _):
             attemptID
-        case let .pairingURL(attemptID, _, _):
+        case let .pairingURL(attemptID, _, _, _):
             attemptID
         }
     }
@@ -37,6 +43,20 @@ enum PendingManualHostTrust {
             ifStillCurrent
         case .pairingURL:
             nil
+        }
+    }
+
+    func approving(route: CmxAttachRoute) -> PendingManualHostTrust {
+        switch self {
+        case .manual:
+            self
+        case let .pairingURL(attemptID, rawURL, acceptedVersionWarning, _):
+            .pairingURL(
+                attemptID: attemptID,
+                rawURL: rawURL,
+                acceptedVersionWarning: acceptedVersionWarning,
+                approvedRouteID: route.id
+            )
         }
     }
 }

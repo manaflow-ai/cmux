@@ -90,8 +90,9 @@ import Testing
         let clock = TestClock()
         let router = LivenessHostRouter()
         let box = TransportBox()
+        let attempts = RouteAttemptRecorder()
         let runtime = LivenessTestRuntime(
-            transportFactory: ManualFallbackApprovalTransportFactory(router: router, box: box),
+            transportFactory: ManualFallbackApprovalTransportFactory(router: router, box: box, attempts: attempts),
             now: { clock.now },
             supportedRouteKinds: [.tailscale, .manualHost]
         )
@@ -124,6 +125,8 @@ import Testing
         #expect(store.connectionState != .connected)
         #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:58465")
         #expect(await router.count(of: "workspace.list") == 0)
+        #expect(attempts.count(.tailscale) == 1)
+        #expect(attempts.count(.manualHost) == 0)
 
         let approvedResult = await store.acceptManualHostTrustWarning()
 
@@ -131,6 +134,8 @@ import Testing
         #expect(store.connectionState == .connected)
         #expect(store.manualHostTrustWarning == nil)
         #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+        #expect(attempts.count(.tailscale) == 1)
+        #expect(attempts.count(.manualHost) == 1)
         #expect(await router.count(of: "workspace.list") >= 1)
     }
 
@@ -388,6 +393,21 @@ import Testing
         #expect(store.remoteClient === originalClient)
         #expect(store.connectionRequiresReauth == false)
         #expect(store.connectionError?.isEmpty == false)
+    }
+
+    @Test func successfulPairingWhileConnectedStartsReplacementEventStream() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+        let initialSubscribeCount = await router.count(of: "mobile.events.subscribe")
+        let ticket = try makeTicket(clock: clock)
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .connected)
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: initialSubscribeCount + 1)
     }
 
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
