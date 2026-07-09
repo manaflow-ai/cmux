@@ -467,14 +467,24 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 		attachDone <- newAttachment
 	}()
 
-	session.ptyWriteMu.Unlock()
-	newAttachment := <-attachDone
+	// Reattach must complete while the PTY writer is still stalled — a
+	// wedged reader must never turn reattach into an indefinite hang.
+	var newAttachment *wsPTYAttachment
+	select {
+	case newAttachment = <-attachDone:
+	case <-time.After(5 * time.Second):
+		session.ptyWriteMu.Unlock()
+		t.Fatal("reattach blocked behind a stalled PTY writer")
+	}
 	if newAttachment == nil {
+		session.ptyWriteMu.Unlock()
 		t.Fatal("replacement attachment was not created")
 	}
 	if status := hub.writeInputByID(session.id, newAttachment.id, newAttachment.clientToken, []byte("NEW")); status != wsPTYInputWriteOK {
+		session.ptyWriteMu.Unlock()
 		t.Fatalf("new write status = %v, want ok", status)
 	}
+	session.ptyWriteMu.Unlock()
 	if got := readExactlyFromFile(t, readFile, 6, 5*time.Second); string(got) != "OLDNEW" {
 		t.Fatalf("PTY input = %q, want OLDNEW", string(got))
 	}
@@ -571,6 +581,12 @@ func TestWebSocketPTYInputSeqGapNotificationEmitsPTYError(t *testing.T) {
 	event := writer.events[0]
 	if event.Event != "pty.error" || !strings.Contains(event.Message, "got 2, want 1") {
 		t.Fatalf("event = %+v, want visible seq gap pty.error", event)
+	}
+	hub.mu.Lock()
+	_, stillAttached := hub.sessions[persistentPTYSessionKey("sess-seq-event")].attachments["seq-att"]
+	hub.mu.Unlock()
+	if stillAttached {
+		t.Fatal("seq-gap error should detach the attachment, not leave it registered")
 	}
 }
 

@@ -1439,7 +1439,8 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 		Error:           detail,
 		Message:         detail,
 	})
-	if req.Method == "pty.write" && resp.Error != nil && resp.Error.Code == "pty_input_queue_full" && s.ptyHub != nil {
+	if req.Method == "pty.write" && resp.Error != nil && s.ptyHub != nil &&
+		(resp.Error.Code == "pty_input_queue_full" || resp.Error.Code == "pty_input_seq_gap") {
 		s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
 	}
 	return err

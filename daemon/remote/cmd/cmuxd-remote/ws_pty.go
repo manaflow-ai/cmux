@@ -120,9 +120,6 @@ type wsPTYInputChunk struct {
 	payload       []byte
 	seq           uint64
 	finalSeqChunk bool
-	// flushDone marks a barrier sentinel: the input loop closes it once every
-	// chunk enqueued before it has been written to the PTY. No payload.
-	flushDone chan struct{}
 }
 
 type wsPTYInputWriteStatus uint8
@@ -828,33 +825,19 @@ func (h *wsPTYHub) prepareAttachment(
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
 	}
-	// Supersede any existing attachment with this id, quiescing its accepted
-	// input before the replacement may enqueue. Waiting on the flush barrier
-	// drops h.mu, so re-check the slot afterwards: a concurrent attach for the
-	// same id may have registered in the window and must be superseded too,
-	// never silently overwritten.
-	var superseded []*wsPTYAttachment
-	closeSuperseded := func() {
-		for _, old := range superseded {
-			old.closeNow()
-		}
-	}
-	for {
-		old := session.attachments[attachmentID]
-		if old == nil {
-			break
-		}
+	// Supersede any existing attachment with this id. Input the old
+	// attachment already had accepted stays queued and reaches the PTY
+	// ahead of anything the replacement enqueues: session.input is FIFO
+	// with writeInputLoop as its only consumer, whole writes enqueue
+	// atomically under inputEnqueueMu, and writeInputChunk deliberately
+	// does not require the chunk's attachment to still be registered.
+	// Never wait on that drain here — a wedged PTY (reader stopped) must
+	// not turn reattach into an indefinite hang.
+	var superseded *wsPTYAttachment
+	if old := session.attachments[attachmentID]; old != nil {
 		old.cancel()
 		delete(session.attachments, attachmentID)
-		superseded = append(superseded, old)
-		h.mu.Unlock()
-		h.flushAcceptedInput(session)
-		h.mu.Lock()
-		if h.sessions[sessionKey] != session || session.closed {
-			h.mu.Unlock()
-			closeSuperseded()
-			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is not running", sessionID)
-		}
+		superseded = old
 	}
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
@@ -875,13 +858,17 @@ func (h *wsPTYHub) prepareAttachment(
 	if ok := attachment.enqueueReady(sessionID); !ok {
 		cancel()
 		h.mu.Unlock()
-		closeSuperseded()
+		if superseded != nil {
+			superseded.closeNow()
+		}
 		return nil, nil, nil, errors.New("failed to queue ready frame")
 	}
 	if ok := enqueuePTYReplay(attachment, replay); !ok {
 		cancel()
 		h.mu.Unlock()
-		closeSuperseded()
+		if superseded != nil {
+			superseded.closeNow()
+		}
 		return nil, nil, nil, errors.New("failed to queue replay frame")
 	}
 	session.attachments[attachmentID] = attachment
@@ -889,7 +876,9 @@ func (h *wsPTYHub) prepareAttachment(
 	sessionDone := session.done
 	h.mu.Unlock()
 
-	closeSuperseded()
+	if superseded != nil {
+		superseded.closeNow()
+	}
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
@@ -1658,10 +1647,6 @@ func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk) bool {
-	if chunk.flushDone != nil {
-		close(chunk.flushDone)
-		return true
-	}
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
 
@@ -1691,27 +1676,6 @@ func (h *wsPTYHub) writeInputChunkWithPTYFile(ptyFile *os.File, chunk wsPTYInput
 	}
 	h.ackInputChunk(chunk)
 	return true
-}
-
-// flushAcceptedInput blocks until every input chunk enqueued before the call
-// has been written to the PTY. writeInputLoop stays the sole consumer of
-// session.input (a second consumer could reorder a chunk the loop already
-// dequeued but has not yet written); the barrier sentinel is enqueued under
-// inputEnqueueMu so no concurrent write can slip in ahead of it.
-func (h *wsPTYHub) flushAcceptedInput(session *wsPTYSession) {
-	session.inputEnqueueMu.Lock()
-	flushDone := make(chan struct{})
-	select {
-	case session.input <- wsPTYInputChunk{flushDone: flushDone}:
-	case <-session.done:
-		session.inputEnqueueMu.Unlock()
-		return
-	}
-	session.inputEnqueueMu.Unlock()
-	select {
-	case <-flushDone:
-	case <-session.done:
-	}
 }
 
 func (h *wsPTYHub) ackInputChunk(chunk wsPTYInputChunk) {
