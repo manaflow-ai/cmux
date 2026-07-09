@@ -2778,12 +2778,11 @@ class GhosttyApp {
                 return tabManager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_RING_BELL:
-            performOnMain {
-                self.ringBell()
-            }
+            performOnMain { self.ringBell() }
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
-            return performOnMain { surfaceView.handleSelectionChangedAction() }
+            DispatchQueue.main.async { surfaceView.handleSelectionChangedAction() }
+            return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,

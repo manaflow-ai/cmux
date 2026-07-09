@@ -2,35 +2,21 @@ import AppKit
 
 @MainActor
 final class TerminalSelectionAccessibilityNotifier {
-    typealias Sleep = @Sendable (Duration) async throws -> Void
-
-    private let sleep: Sleep
-    private var pendingTask: Task<Void, Never>?
-
-    init(
-        sleep: @escaping Sleep = { duration in
-            try await ContinuousClock().sleep(for: duration)
-        }
-    ) {
-        self.sleep = sleep
-    }
+    private var debounceTimer: Timer?
 
     func schedule(for element: NSView) {
-        pendingTask?.cancel()
-        let sleep = self.sleep
-        pendingTask = Task { @MainActor [weak element] in
-            do {
-                try await sleep(.milliseconds(100))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let element else { return }
+        debounceTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.1, repeats: false) { [weak self, weak element] timer in
+            guard let self, self.debounceTimer === timer, let element else { return }
+            self.debounceTimer = nil
             NSAccessibility.post(element: element, notification: .selectedTextChanged)
         }
+        debounceTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     deinit {
-        pendingTask?.cancel()
+        debounceTimer?.invalidate()
     }
 }
 
