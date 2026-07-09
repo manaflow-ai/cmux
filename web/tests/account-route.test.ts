@@ -520,7 +520,7 @@ describe("account deletion route", () => {
   test("destroys personal-team scoped VMs before deleting account rows", async () => {
     listedPersonalVmIds = [];
     listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
-    stackUserTeams = [{ id: "team-personal" }];
+    stackUserTeams = [stackTeam("team-personal", ["account-user-1"])];
     selectResults = [
       [],
       [],
@@ -545,6 +545,26 @@ describe("account deletion route", () => {
     });
     expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
     expect(transactionExecute).toHaveBeenCalledTimes(4);
+  });
+
+  test("does not treat a selected shared Stack team as account-owned data", async () => {
+    listedPersonalVmIds = [];
+    listedPersonalVmIdsByBillingTeam = { "team-shared": ["shared-team-vm"] };
+    stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 0 });
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1");
+    expect(listUserVms).not.toHaveBeenCalledWith("account-user-1", "team-shared");
+    expect(destroyVm).not.toHaveBeenCalledWith({
+      userId: "account-user-1",
+      billingTeamId: "team-shared",
+      teamIds: ["account-user-1", "team-shared"],
+      providerVmId: "shared-team-vm",
+    });
+    expect(transactionExecute).toHaveBeenCalledTimes(2);
   });
 
   test("revokes the personal Subrouter tenant before deleting local rows", async () => {
@@ -1159,6 +1179,13 @@ function stackUser(id = "account-user-1") {
     listTeams: async () => stackUserTeams,
     update: updateStackUser,
     delete: deleteStackUser,
+  };
+}
+
+function stackTeam(id: string, userIds: readonly string[]) {
+  return {
+    id,
+    listUsers: async () => userIds.map((userId) => ({ id: userId })),
   };
 }
 

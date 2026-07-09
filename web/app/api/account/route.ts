@@ -64,6 +64,11 @@ type DeletableStackUser = {
   readonly delete: () => Promise<void>;
 } & ProMetadataCustomer;
 
+type AccountDeletionStackTeam = {
+  readonly id: string;
+  readonly listUsers?: () => Promise<readonly unknown[]>;
+};
+
 export async function DELETE(request: Request): Promise<Response> {
   const stackUser = await currentDeletableStackUser(request);
   if (!stackUser) return unauthorized();
@@ -589,24 +594,51 @@ async function deletePersonalSubrouterTenant(
 }
 
 async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{ readonly teamIds: readonly string[] }> {
-  const selectedTeamId = stackTeamIdFromUnknown(user.selectedTeam);
-  if (selectedTeamId) return { teamIds: uniqueNonEmptyStrings([user.id, selectedTeamId]) };
-  if (typeof user.listTeams !== "function") return { teamIds: [user.id] };
-
-  const listedTeamIds = (await user.listTeams())
-    .map(stackTeamIdFromUnknown)
-    .filter((teamId): teamId is string => !!teamId);
-  return listedTeamIds.length === 1
-    ? { teamIds: uniqueNonEmptyStrings([user.id, listedTeamIds[0]]) }
-    : { teamIds: [user.id] };
+  const listedTeams = typeof user.listTeams === "function" ? await user.listTeams() : [];
+  const teams = uniqueStackTeams([
+    stackTeamFromUnknown(user.selectedTeam),
+    ...listedTeams.map(stackTeamFromUnknown),
+  ]);
+  const personalTeamIds: string[] = [];
+  for (const team of teams) {
+    const memberIds = await stackTeamMemberIds(team);
+    if (memberIds.length === 1 && memberIds[0] === user.id) personalTeamIds.push(team.id);
+  }
+  return { teamIds: uniqueNonEmptyStrings([user.id, ...personalTeamIds]) };
 }
 
-function stackTeamIdFromUnknown(value: unknown): string | null {
+function stackTeamFromUnknown(value: unknown): AccountDeletionStackTeam | null {
   if (!value || typeof value !== "object") return null;
   const id = (value as { readonly id?: unknown }).id;
-  if (typeof id !== "string") return null;
-  const trimmed = id.trim();
-  return trimmed || null;
+  if (typeof id !== "string" || !id.trim()) return null;
+  const listUsers = (value as { readonly listUsers?: unknown }).listUsers;
+  return {
+    id: id.trim(),
+    listUsers: typeof listUsers === "function"
+      ? async () => await listUsers.call(value)
+      : undefined,
+  };
+}
+
+async function stackTeamMemberIds(team: AccountDeletionStackTeam): Promise<readonly string[]> {
+  if (typeof team.listUsers !== "function") return [];
+  const members = await team.listUsers();
+  return uniqueNonEmptyStrings(members.flatMap((member) => {
+    if (!member || typeof member !== "object") return [];
+    const id = (member as { readonly id?: unknown }).id;
+    return typeof id === "string" ? [id] : [];
+  }));
+}
+
+function uniqueStackTeams(values: readonly (AccountDeletionStackTeam | null)[]): readonly AccountDeletionStackTeam[] {
+  const teams: AccountDeletionStackTeam[] = [];
+  const seen = new Set<string>();
+  for (const team of values) {
+    if (!team || seen.has(team.id)) continue;
+    seen.add(team.id);
+    teams.push(team);
+  }
+  return teams;
 }
 
 function uniqueNonEmptyStrings(values: readonly (string | null | undefined)[]): readonly string[] {
