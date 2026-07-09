@@ -369,13 +369,14 @@ extension AppDelegate {
     func tabTitlesByTabId() -> [UUID: String] {
         var titles: [UUID: String] = [:]
         for context in mainWindowContexts.values {
-            for tab in context.tabManager.tabs where titles[tab.id] == nil {
-                titles[tab.id] = tab.title
+            let manager = context.tabManager
+            for tab in manager.tabs where titles[tab.id] == nil {
+                titles[tab.id] = manager.resolvedWorkspaceDisplayTitle(for: tab)
             }
         }
-        if let activeTabs = tabManager?.tabs {
-            for tab in activeTabs where titles[tab.id] == nil {
-                titles[tab.id] = tab.title
+        if let activeTabs = tabManager {
+            for tab in activeTabs.tabs where titles[tab.id] == nil {
+                titles[tab.id] = activeTabs.resolvedWorkspaceDisplayTitle(for: tab)
             }
         }
         return titles
