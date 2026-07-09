@@ -142,6 +142,52 @@ function expectDeletedAccountEmail(value: unknown) {
   expect(value).toMatch(/^deleted\+[0-9a-f]{24}@cmux\.com$/);
 }
 
+function checkoutCleanupStripeClient(invoice = paidCheckoutInvoice("in_123", "pi_123")) {
+  const updateCustomer = mock(async () => undefined);
+  const updateSubscription = mock(async () => undefined);
+  const cancelSubscription = mock(async () => undefined);
+  const retrieveInvoice = mock(async () => invoice);
+  const voidInvoice = mock(async () => undefined);
+  const createRefund = mock(async () => undefined);
+  return {
+    updateCustomer,
+    updateSubscription,
+    cancelSubscription,
+    retrieveInvoice,
+    voidInvoice,
+    createRefund,
+    stripeClient: () => ({
+      customers: { update: updateCustomer },
+      invoices: { retrieve: retrieveInvoice, voidInvoice },
+      refunds: { create: createRefund },
+      subscriptions: { update: updateSubscription, cancel: cancelSubscription },
+    }) as never,
+  };
+}
+
+function paidCheckoutInvoice(invoiceId: string, paymentIntentId: string) {
+  return {
+    id: invoiceId,
+    status: "paid",
+    amount_paid: 1_200,
+    payments: {
+      data: [{
+        status: "paid",
+        payment: { type: "payment_intent", payment_intent: paymentIntentId },
+      }],
+    },
+  };
+}
+
+function openCheckoutInvoice(invoiceId: string) {
+  return {
+    id: invoiceId,
+    status: "open",
+    amount_paid: 0,
+    payments: { data: [] },
+  };
+}
+
 function checkoutInput(customerId = "cus_123") {
   return {
     session: {
@@ -149,11 +195,13 @@ function checkoutInput(customerId = "cus_123") {
       client_reference_id: "user_123",
       customer: customerId,
       customer_details: { email: "Buyer@Example.com" },
+      invoice: "in_123",
       subscription: "sub_123",
     },
     subscription: {
       id: "sub_123",
       customer: customerId,
+      latest_invoice: "in_123",
       status: "active",
       metadata: { stackUserId: "user_123", app: "cmux" },
       cancel_at_period_end: false,
@@ -181,12 +229,14 @@ function teamCheckoutInput(customerId = "cus_team") {
       client_reference_id: "team_123",
       customer: customerId,
       customer_details: { email: "buyer@example.com" },
+      invoice: "in_team",
       subscription: "sub_team",
       metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
     },
     subscription: {
       id: "sub_team",
       customer: customerId,
+      latest_invoice: "in_team",
       status: "active",
       metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
       cancel_at_period_end: false,
@@ -262,9 +312,7 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks user checkout completion while account deletion is in progress", async () => {
     const update = mock(async () => undefined);
-    const updateCustomer = mock(async () => undefined);
-    const updateSubscription = mock(async () => undefined);
-    const cancelSubscription = mock(async () => undefined);
+    const stripeCleanup = checkoutCleanupStripeClient();
     const user = {
       id: "user_123",
       primaryEmail: null,
@@ -276,10 +324,7 @@ describe("recordCheckoutCompletion", () => {
       recordCheckoutCompletion(checkoutInput() as never, {
         db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,
-        stripeClient: () => ({
-          customers: { update: updateCustomer },
-          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
-        }) as never,
+        stripeClient: stripeCleanup.stripeClient,
       }),
     ).resolves.toEqual({
       skipped: "account_deletion_in_progress",
@@ -287,14 +332,22 @@ describe("recordCheckoutCompletion", () => {
       subscriptionId: "sub_123",
     });
 
-    const customerUpdate = mockCall(updateCustomer);
+    expect(stripeCleanup.retrieveInvoice).toHaveBeenCalledWith("in_123", {
+      expand: ["payments.data.payment.payment_intent"],
+    });
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_123",
+      reason: "requested_by_customer",
+    });
+    expect(stripeCleanup.voidInvoice).not.toHaveBeenCalled();
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
     expect(customerUpdate[0]).toBe("cus_123");
     expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
-    const subscriptionUpdate = mockCall(updateSubscription);
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_123");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]));
-    expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(update).not.toHaveBeenCalled();
@@ -302,19 +355,14 @@ describe("recordCheckoutCompletion", () => {
 
   test("cleans up user checkout completion after the Stack user is deleted", async () => {
     const getUser = mock(async () => null);
-    const updateCustomer = mock(async () => undefined);
-    const updateSubscription = mock(async () => undefined);
-    const cancelSubscription = mock(async () => undefined);
+    const stripeCleanup = checkoutCleanupStripeClient();
     tombstoneSelectResults = [[{ status: "completed" }]];
 
     await expect(
       recordCheckoutCompletion(checkoutInput() as never, {
         db: fakeDb() as never,
         stackApp: { getUser } as never,
-        stripeClient: () => ({
-          customers: { update: updateCustomer },
-          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
-        }) as never,
+        stripeClient: stripeCleanup.stripeClient,
       }),
     ).resolves.toEqual({
       skipped: "account_deletion_in_progress",
@@ -323,16 +371,45 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(getUser).not.toHaveBeenCalled();
-    const customerUpdate = mockCall(updateCustomer);
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_123",
+      reason: "requested_by_customer",
+    });
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
     expect(customerUpdate[0]).toBe("cus_123");
     expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
-    const subscriptionUpdate = mockCall(updateSubscription);
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_123");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]));
-    expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
+  });
+
+  test("voids unpaid checkout invoices when account deletion skips completion", async () => {
+    const stripeCleanup = checkoutCleanupStripeClient(openCheckoutInvoice("in_123"));
+    tombstoneSelectResults = [[{ status: "pending" }]];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load Stack user after deletion tombstone");
+          },
+        } as never,
+        stripeClient: stripeCleanup.stripeClient,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
+
+    expect(stripeCleanup.voidInvoice).toHaveBeenCalledWith("in_123");
+    expect(stripeCleanup.createRefund).not.toHaveBeenCalled();
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_123");
   });
 
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {
@@ -609,9 +686,7 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks Team checkout completion while owner account deletion is in progress", async () => {
     const updateTeam = mock(async () => undefined);
-    const updateCustomer = mock(async () => undefined);
-    const updateSubscription = mock(async () => undefined);
-    const cancelSubscription = mock(async () => undefined);
+    const stripeCleanup = checkoutCleanupStripeClient(paidCheckoutInvoice("in_team", "pi_team"));
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
@@ -631,10 +706,7 @@ describe("recordCheckoutCompletion", () => {
             update: updateTeam,
           }),
         } as never,
-        stripeClient: () => ({
-          customers: { update: updateCustomer },
-          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
-        }) as never,
+        stripeClient: stripeCleanup.stripeClient,
       }),
     ).resolves.toEqual({
       skipped: "account_deletion_in_progress",
@@ -642,23 +714,25 @@ describe("recordCheckoutCompletion", () => {
       subscriptionId: "sub_team",
     });
 
-    const customerUpdate = mockCall(updateCustomer);
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_team",
+      reason: "requested_by_customer",
+    });
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
     expect(customerUpdate[0]).toBe("cus_team");
     expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
-    const subscriptionUpdate = mockCall(updateSubscription);
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
-    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(updateTeam).not.toHaveBeenCalled();
   });
 
   test("blocks Team checkout completion when the singleton team owner is deleting", async () => {
-    const updateCustomer = mock(async () => undefined);
-    const updateSubscription = mock(async () => undefined);
-    const cancelSubscription = mock(async () => undefined);
+    const stripeCleanup = checkoutCleanupStripeClient(paidCheckoutInvoice("in_team", "pi_team"));
     const input = teamCheckoutInput() as unknown as {
       session: { metadata: Record<string, string> };
       subscription: { metadata: Record<string, string> };
@@ -686,10 +760,7 @@ describe("recordCheckoutCompletion", () => {
           getUser: async () => owner,
           getTeam: async () => team,
         } as never,
-        stripeClient: () => ({
-          customers: { update: updateCustomer },
-          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
-        }) as never,
+        stripeClient: stripeCleanup.stripeClient,
       }),
     ).resolves.toEqual({
       skipped: "account_deletion_in_progress",
@@ -698,14 +769,18 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
-    const customerUpdate = mockCall(updateCustomer);
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_team",
+      reason: "requested_by_customer",
+    });
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
     expect(customerUpdate[0]).toBe("cus_team");
     expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
-    const subscriptionUpdate = mockCall(updateSubscription);
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
-    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
   });

@@ -33,7 +33,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 
 type BillingDb = ReturnType<typeof cloudDb>;
-type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "subscriptions">;
+type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "invoices" | "refunds" | "subscriptions">;
 
 type StackBillingUser = {
   readonly id: string;
@@ -114,6 +114,7 @@ export async function recordCheckoutCompletion(
   const teamScope = teamScopeFromSession(input.session, subscription);
   if (teamScope) {
     return recordTeamCheckoutCompletion({
+      session: input.session,
       subscription,
       customerId,
       stackTeamId: teamScope.stackTeamId,
@@ -131,6 +132,7 @@ export async function recordCheckoutCompletion(
   return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
     if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, lockedDb)) {
       await cleanupCheckoutStripeObjectsForAccountDeletion({
+        session: input.session,
         subscription,
         customerId,
         stackUserId,
@@ -148,6 +150,7 @@ export async function recordCheckoutCompletion(
     const user = await loadStackUser(stackUserId, dependencies.stackApp);
     if (await isStackAccountDeletionBlocked(user, { cloudDb: () => lockedDb })) {
       await cleanupCheckoutStripeObjectsForAccountDeletion({
+        session: input.session,
         subscription,
         customerId,
         stackUserId,
@@ -299,6 +302,7 @@ export function isActiveStripeSubscriptionStatus(status: string): boolean {
 }
 
 async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
+  session: Stripe.Checkout.Session;
   subscription: Stripe.Subscription;
   customerId: string;
   stackUserId: string;
@@ -307,6 +311,7 @@ async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
   dependencies: BillingPurchaseDependencies;
 }): Promise<void> {
   const client = (input.dependencies.stripeClient ?? stripe)();
+  await cleanupCheckoutInitialPaymentForAccountDeletion(client, input);
   const anonymizedUserId = deletedAccountId(input.stackUserId);
   const metadata = accountDeletionStripeMetadata({
     anonymizedUserId,
@@ -327,13 +332,82 @@ async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
   await ignoreStripeDeletionCleanupError(client.subscriptions.cancel(input.subscription.id));
 }
 
+async function cleanupCheckoutInitialPaymentForAccountDeletion(
+  client: StripeBillingClient,
+  input: { session: Stripe.Checkout.Session; subscription: Stripe.Subscription },
+): Promise<void> {
+  const invoiceId = checkoutInitialInvoiceId(input.session, input.subscription);
+  if (invoiceId) {
+    await ignoreStripeDeletionCleanupError(reverseCheckoutInvoicePayment(client, invoiceId));
+    return;
+  }
+  const paymentIntentId = stringId(input.session.payment_intent);
+  if (paymentIntentId) {
+    await ignoreStripeDeletionCleanupError(refundCheckoutPaymentIntent(client, paymentIntentId));
+  }
+}
+
+async function reverseCheckoutInvoicePayment(
+  client: StripeBillingClient,
+  invoiceId: string,
+): Promise<void> {
+  const invoice = await client.invoices.retrieve(invoiceId, {
+    expand: ["payments.data.payment.payment_intent"],
+  });
+  const paymentIntentIds = invoicePaymentIntentIds(invoice);
+  if (paymentIntentIds.length > 0) {
+    for (const paymentIntentId of paymentIntentIds) {
+      await refundCheckoutPaymentIntent(client, paymentIntentId);
+    }
+    return;
+  }
+  if ((invoice.amount_paid ?? 0) > 0) {
+    throw new Error(`Paid Stripe checkout invoice ${invoice.id} has no refundable payment intent`);
+  }
+  if (invoice.status === "draft" || invoice.status === "open") {
+    await client.invoices.voidInvoice(invoice.id);
+  }
+}
+
+function checkoutInitialInvoiceId(
+  session: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription,
+): string | null {
+  return stringId(session.invoice) ?? stringId(subscription.latest_invoice);
+}
+
+function invoicePaymentIntentIds(invoice: Stripe.Invoice): string[] {
+  const paymentIntentIds = new Set<string>();
+  for (const invoicePayment of invoice.payments?.data ?? []) {
+    if (invoicePayment.status !== "paid") continue;
+    if (invoicePayment.payment.type !== "payment_intent") continue;
+    const paymentIntentId = stringId(invoicePayment.payment.payment_intent);
+    if (paymentIntentId) paymentIntentIds.add(paymentIntentId);
+  }
+  return [...paymentIntentIds];
+}
+
+async function refundCheckoutPaymentIntent(
+  client: StripeBillingClient,
+  paymentIntentId: string,
+): Promise<void> {
+  await client.refunds.create({
+    payment_intent: paymentIntentId,
+    reason: "requested_by_customer",
+  });
+}
+
 async function ignoreStripeDeletionCleanupError<T>(
   operation: Promise<T>,
 ): Promise<void> {
   try {
     await operation;
   } catch (error) {
-    if (isStripeMissingResourceError(error) || isStripeSubscriptionAlreadyCanceledError(error)) return;
+    if (
+      isStripeMissingResourceError(error) ||
+      isStripeSubscriptionAlreadyCanceledError(error) ||
+      isStripePaymentAlreadyReversedError(error)
+    ) return;
     throw error;
   }
 }
@@ -382,6 +456,12 @@ function isStripeMissingResourceError(error: unknown): boolean {
 function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
   if (isStripeMissingResourceError(error)) return true;
   return /already (been )?canceled/i.test(stripeErrorMessage(error));
+}
+
+function isStripePaymentAlreadyReversedError(error: unknown): boolean {
+  const code = stripeErrorCode(error);
+  if (code === "charge_already_refunded") return true;
+  return /already (been )?(refunded|voided)|has already been (refunded|voided)/i.test(stripeErrorMessage(error));
 }
 
 function stripeErrorCode(error: unknown): string | null {
@@ -465,6 +545,7 @@ async function removeUserFromTestflightOnLapse(
 }
 
 async function recordTeamCheckoutCompletion(input: {
+  session: Stripe.Checkout.Session;
   subscription: Stripe.Subscription;
   customerId: string;
   stackTeamId: string;
@@ -491,6 +572,7 @@ async function recordTeamCheckoutCompletion(input: {
       })
     ) {
       await cleanupCheckoutStripeObjectsForAccountDeletion({
+        session: input.session,
         subscription: input.subscription,
         customerId: input.customerId,
         stackUserId,
