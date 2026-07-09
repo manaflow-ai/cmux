@@ -23,7 +23,8 @@ struct AltScreenNoticeButton: View {
                     popoverContent
                 }
             }
-            .presentationCompactAdaptation(.sheet)
+            .presentationSizing(.fitted)
+            .presentationCompactAdaptation(.popover)
         }
     }
 
