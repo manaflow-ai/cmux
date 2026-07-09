@@ -686,11 +686,7 @@ class TabManager: ObservableObject {
 
     private func sweepStaleAgentPIDs() {
         for tab in tabs {
-            if tab.clearStaleAgentPIDs() {
-                // Also clear stale notifications (e.g. "Doing well, thanks!")
-                // left behind when Claude was killed without SessionEnd firing.
-                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            }
+            tab.clearStaleAgentPIDs()
         }
     }
 
