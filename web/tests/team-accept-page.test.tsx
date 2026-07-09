@@ -124,6 +124,25 @@ describe("team invite accept page", () => {
     expect(redirectTarget).toBe("/en/dashboard/team?joined=1");
   });
 
+  test("code accept with one pending admin invite grants admin", async () => {
+    const acceptTeamInvitation = mock(async () => undefined);
+    const grantPermission = mock(async () => undefined);
+    const team = { id: "team-1", displayName: "Team One" };
+    inviteRoleRows.set("inv_admin", "admin");
+    currentUser = {
+      acceptTeamInvitation,
+      listTeamInvitations: mock(async () => [{ id: "inv_admin", teamId: "team-1" }]),
+      listTeams: mock(async () => [team]),
+      grantPermission,
+    };
+
+    await expect(renderAccept("opaque-code")).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(acceptTeamInvitation).toHaveBeenCalledWith("opaque-code");
+    expect(grantPermission).toHaveBeenCalledWith(team, "team_admin");
+    expect(redirectTarget).toBe("/en/dashboard/team?joined=1");
+  });
+
   test("email mismatch renders a friendly switch-account error", async () => {
     currentUser = {
       acceptTeamInvitation: mock(async () => {

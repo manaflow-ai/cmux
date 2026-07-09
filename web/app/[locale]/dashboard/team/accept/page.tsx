@@ -46,8 +46,18 @@ export default async function TeamInviteAcceptPage({
   try {
     if (code) {
       if (!user.acceptTeamInvitation) throw new Error("acceptTeamInvitation unavailable");
+      // The Stack code is opaque, so capture the pending received invitations
+      // first (their ids match the stored role). Accepting the code consumes
+      // one of them; if exactly one was pending we know which invitation it was
+      // and can apply the invited role. Ambiguous multi-invite cases fall
+      // through to member (safe: a missing grant is a downgrade, not escalation).
+      const pending = user.listTeamInvitations ? await user.listTeamInvitations() : [];
       const result = await user.acceptTeamInvitation(code);
       if (isStackResultError(result)) throw result.error;
+      if (pending.length === 1) {
+        acceptedInvitationId = pending[0].id;
+        acceptedTeamId = pending[0].teamId ?? null;
+      }
     } else {
       if (!user.listTeamInvitations) throw new Error("listTeamInvitations unavailable");
       const invitation = (await user.listTeamInvitations()).find((candidate) => candidate.id === invitationId);
