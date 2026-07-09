@@ -89,6 +89,9 @@ public struct LanguageSettingsStore: Sendable {
         }
     }
 
+    // Optional (not `[]`) on purpose: `nil` distinguishes "no AppleLanguages
+    // key present" from "present but different value" for the repair branch
+    // in reconcileLanguageOverrideAtLaunch(). Do not collapse to [].
     private var currentAppleLanguages: [String]? {
         if let domainName {
             return defaults.persistentDomain(forName: domainName)?[appleLanguagesKey] as? [String]
