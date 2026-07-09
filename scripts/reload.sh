@@ -1121,9 +1121,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     fi
     TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      # 3>&- 4>&-: close the script's saved-stdout/stderr dups (exec 3>&1 4>&2
+      # above) so the long-lived app can't inherit a caller's pipe write end —
+      # an `ssh host reload.sh --launch | …` pipeline would otherwise never see
+      # EOF and hang until the app dies.
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
     else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
