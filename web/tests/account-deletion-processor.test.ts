@@ -135,10 +135,10 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("processes pending jobs and continues after a failed job", async () => {
+  test("processes pending jobs and continues after a failed processing attempt", async () => {
     pendingJobs = [
       { userId: "user-1", userIdHash: "hash-1", status: "pending" },
-      { userId: "user-2", userIdHash: "hash-2", status: "failed" },
+      { userId: "user-2", userIdHash: "hash-2", status: "pending" },
     ];
     const deps = dependencies({
       deleteCmuxAccountData: async ({ userId }) => {

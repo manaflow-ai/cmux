@@ -274,7 +274,6 @@ export async function listPendingAccountDeletionJobs(
       isNotNull(accountDeletionTombstones.userId),
       or(
         eq(accountDeletionTombstones.status, "pending"),
-        eq(accountDeletionTombstones.status, "failed"),
         eq(accountDeletionTombstones.status, "stack_delete_pending"),
         and(
           eq(accountDeletionTombstones.status, "stack_delete_in_progress"),
