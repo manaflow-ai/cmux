@@ -373,7 +373,13 @@ enum Drag {
     /// Browser mouse drag inside a pane's content rect.
     Browser { surface: SurfaceId, content: Rect },
     /// Mouse reporting owned by the PTY application in this pane.
-    PtyMouse { surface: SurfaceId, content: Rect, button: MouseButton },
+    PtyMouse {
+        surface: SurfaceId,
+        content: Rect,
+        button: MouseButton,
+        /// Extra presses observed while `button` remains the active owner.
+        ignored_buttons: u8,
+    },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
     /// Sidebar width override drag.
@@ -2015,24 +2021,36 @@ impl App {
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
-        if matches!(mouse.kind, MouseEventKind::Down(_))
-            && matches!(self.drag, Some(Drag::PtyMouse { .. }))
-        {
-            return Ok(RenderAction::None);
+        if let MouseEventKind::Down(button) = mouse.kind {
+            let bit = Self::mouse_button_bit(button);
+            if let Some(Drag::PtyMouse { ignored_buttons, .. }) = &mut self.drag {
+                *ignored_buttons |= bit;
+                return Ok(RenderAction::None);
+            }
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.handle_left_down(mouse.column, mouse.row, mouse.modifiers)
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if self.forward_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
+                if self.forward_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Left,
+                    mouse.modifiers,
+                ) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_left_drag(mouse.column, mouse.row)
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                if self.finish_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
+                if self.finish_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Left,
+                    mouse.modifiers,
+                ) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_left_up(mouse.column, mouse.row)
@@ -2055,14 +2073,24 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
-                if self.forward_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
+                if self.forward_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Right,
+                    mouse.modifiers,
+                ) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_right_drag(mouse.column, mouse.row)
                 }
             }
             MouseEventKind::Up(MouseButton::Right) => {
-                if self.finish_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
+                if self.finish_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Right,
+                    mouse.modifiers,
+                ) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_right_up(mouse.column, mouse.row)
@@ -2080,20 +2108,30 @@ impl App {
                     RenderAction::None
                 },
             ),
-            MouseEventKind::Drag(MouseButton::Middle) => {
-                Ok(if self.forward_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
+            MouseEventKind::Drag(MouseButton::Middle) => Ok(
+                if self.forward_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Middle,
+                    mouse.modifiers,
+                ) {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
-                })
-            }
-            MouseEventKind::Up(MouseButton::Middle) => {
-                Ok(if self.finish_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
+                },
+            ),
+            MouseEventKind::Up(MouseButton::Middle) => Ok(
+                if self.finish_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Middle,
+                    mouse.modifiers,
+                ) {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
-                })
-            }
+                },
+            ),
             MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row, mouse.modifiers),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
@@ -2132,6 +2170,7 @@ impl App {
         }
 
         self.session.focus_pane(area.pane);
+        self.sidebar_focused = false;
         self.selection = None;
         self.forward_pty_mouse_to_surface(
             area.surface,
@@ -2143,14 +2182,32 @@ impl App {
             modifiers,
             true,
         );
-        self.drag = Some(Drag::PtyMouse { surface: area.surface, content: area.content, button });
+        self.drag = Some(Drag::PtyMouse {
+            surface: area.surface,
+            content: area.content,
+            button,
+            ignored_buttons: 0,
+        });
         true
     }
 
-    fn forward_pty_mouse_drag(&mut self, x: u16, y: u16, modifiers: KeyModifiers) -> bool {
-        let Some(Drag::PtyMouse { surface, content, button: active_button }) = self.drag else {
+    fn forward_pty_mouse_drag(
+        &mut self,
+        x: u16,
+        y: u16,
+        reported_button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        let Some(Drag::PtyMouse { surface, content, button: active_button, ignored_buttons }) =
+            self.drag
+        else {
             return false;
         };
+        if reported_button != active_button
+            && ignored_buttons & Self::mouse_button_bit(reported_button) != 0
+        {
+            return true;
+        }
         let content = self.current_pty_content(surface).unwrap_or(content);
         self.forward_pty_mouse_to_surface(
             surface,
@@ -2165,10 +2222,25 @@ impl App {
         true
     }
 
-    fn finish_pty_mouse_drag(&mut self, x: u16, y: u16, modifiers: KeyModifiers) -> bool {
-        let Some(Drag::PtyMouse { surface, content, button: active_button }) = self.drag else {
+    fn finish_pty_mouse_drag(
+        &mut self,
+        x: u16,
+        y: u16,
+        reported_button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        let Some(Drag::PtyMouse { surface, content, button: active_button, ignored_buttons }) =
+            self.drag
+        else {
             return false;
         };
+        let reported_bit = Self::mouse_button_bit(reported_button);
+        if reported_button != active_button && ignored_buttons & reported_bit != 0 {
+            if let Some(Drag::PtyMouse { ignored_buttons, .. }) = &mut self.drag {
+                *ignored_buttons &= !reported_bit;
+            }
+            return true;
+        }
         let content = self.current_pty_content(surface).unwrap_or(content);
         self.drag = None;
         self.forward_pty_mouse_to_surface(
@@ -2262,6 +2334,7 @@ impl App {
                     surface,
                     bytes: self.encode_buf.clone(),
                     motion: action == MouseAction::Motion,
+                    release: action == MouseAction::Release,
                 });
             } else {
                 surface.write_bytes(&self.encode_buf);
@@ -2285,6 +2358,14 @@ impl App {
             MouseButton::Left => GhosttyMouseButton::Left,
             MouseButton::Right => GhosttyMouseButton::Right,
             MouseButton::Middle => GhosttyMouseButton::Middle,
+        }
+    }
+
+    fn mouse_button_bit(button: MouseButton) -> u8 {
+        match button {
+            MouseButton::Left => 1,
+            MouseButton::Right => 2,
+            MouseButton::Middle => 4,
         }
     }
 
@@ -3337,13 +3418,25 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         app.menu = None;
 
+        app.sidebar_focused = true;
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE))
             .unwrap();
+        assert!(!app.sidebar_focused);
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE))
+            .unwrap();
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());

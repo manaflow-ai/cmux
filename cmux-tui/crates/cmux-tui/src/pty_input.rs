@@ -2,10 +2,12 @@
 //!
 //! A remote `write_bytes` call waits for a control-socket response. Mouse
 //! motion must not perform that round trip on the UI thread, so remote events
-//! use this bounded worker. Consecutive motions on one surface are coalesced;
-//! button and wheel events retain their order.
+//! use this bounded worker. Consecutive motions on one surface are coalesced.
+//! When the queue is full, ordered events displace stale motion and releases
+//! are prioritized so an inner TUI is not left with a stuck button.
 
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::collections::VecDeque;
+use std::sync::{Arc, Condvar, Mutex};
 
 use cmux_tui_core::SurfaceId;
 
@@ -18,82 +20,142 @@ pub struct PtyMouseInputEvent {
     pub surface: SurfaceHandle,
     pub bytes: Vec<u8>,
     pub motion: bool,
+    pub release: bool,
+}
+
+#[derive(Default)]
+struct QueueState {
+    events: VecDeque<PtyMouseInputEvent>,
+    closed: bool,
+}
+
+#[derive(Default)]
+struct SharedQueue {
+    state: Mutex<QueueState>,
+    ready: Condvar,
 }
 
 pub struct PtyMouseInputDispatcher {
-    tx: SyncSender<PtyMouseInputEvent>,
+    queue: Arc<SharedQueue>,
 }
 
 impl PtyMouseInputDispatcher {
     pub fn spawn() -> anyhow::Result<Self> {
-        let (tx, rx) = sync_channel(QUEUE_CAPACITY);
-        std::thread::Builder::new().name("mux-pty-mouse-input".into()).spawn(move || worker(rx))?;
-        Ok(Self { tx })
+        let queue = Arc::new(SharedQueue::default());
+        let worker_queue = queue.clone();
+        std::thread::Builder::new()
+            .name("mux-pty-mouse-input".into())
+            .spawn(move || worker(worker_queue))?;
+        Ok(Self { queue })
     }
 
-    /// Queue an event without blocking the UI. A wedged remote endpoint may
-    /// fill the bounded queue, in which case new input is dropped.
     pub fn enqueue(&self, event: PtyMouseInputEvent) {
-        let _ = self.tx.try_send(event);
+        let mut state = self.queue.state.lock().unwrap();
+        if state.closed || !enqueue_bounded(&mut state.events, event, QUEUE_CAPACITY) {
+            return;
+        }
+        self.queue.ready.notify_one();
     }
 }
 
-fn worker(rx: Receiver<PtyMouseInputEvent>) {
-    while let Ok(event) = rx.recv() {
-        let mut batch = vec![event];
-        while let Ok(next) = rx.try_recv() {
-            batch.push(next);
-        }
-        for event in coalesce_motion(batch) {
-            event.surface.write_bytes(&event.bytes);
-        }
+impl Drop for PtyMouseInputDispatcher {
+    fn drop(&mut self) {
+        let mut state = self.queue.state.lock().unwrap();
+        state.closed = true;
+        self.queue.ready.notify_one();
     }
 }
 
-fn coalesce_motion(batch: Vec<PtyMouseInputEvent>) -> Vec<PtyMouseInputEvent> {
-    let mut coalesced: Vec<PtyMouseInputEvent> = Vec::with_capacity(batch.len());
-    for event in batch {
-        if event.motion
-            && coalesced
-                .last()
-                .is_some_and(|previous| previous.motion && previous.surface_id == event.surface_id)
-        {
-            *coalesced.last_mut().unwrap() = event;
+fn enqueue_bounded(
+    events: &mut VecDeque<PtyMouseInputEvent>,
+    event: PtyMouseInputEvent,
+    capacity: usize,
+) -> bool {
+    if event.motion
+        && events
+            .back()
+            .is_some_and(|previous| previous.motion && previous.surface_id == event.surface_id)
+    {
+        *events.back_mut().unwrap() = event;
+        return true;
+    }
+
+    if events.len() >= capacity {
+        if let Some(index) = events.iter().position(|queued| queued.motion) {
+            events.remove(index);
+        } else if event.release {
+            // A release is the recovery edge for the inner application's
+            // pressed state, so keep the newest one under extreme saturation.
+            events.pop_front();
         } else {
-            coalesced.push(event);
+            return false;
         }
     }
-    coalesced
+    events.push_back(event);
+    true
+}
+
+fn worker(queue: Arc<SharedQueue>) {
+    loop {
+        let event = {
+            let mut state = queue.state.lock().unwrap();
+            while state.events.is_empty() && !state.closed {
+                state = queue.ready.wait(state).unwrap();
+            }
+            if state.events.is_empty() && state.closed {
+                return;
+            }
+            state.events.pop_front().unwrap()
+        };
+        event.surface.write_bytes(&event.bytes);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn event(surface_id: SurfaceId, bytes: u8, motion: bool) -> PtyMouseInputEvent {
+    fn event(surface_id: SurfaceId, bytes: u8, motion: bool, release: bool) -> PtyMouseInputEvent {
         PtyMouseInputEvent {
             surface_id,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
             bytes: vec![bytes],
             motion,
+            release,
         }
     }
 
     #[test]
     fn consecutive_motion_on_one_surface_keeps_latest() {
-        let events = coalesce_motion(vec![event(1, 1, true), event(1, 2, true)]);
+        let mut events = VecDeque::new();
+        assert!(enqueue_bounded(&mut events, event(1, 1, true, false), 4));
+        assert!(enqueue_bounded(&mut events, event(1, 2, true, false), 4));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].bytes, vec![2]);
     }
 
     #[test]
     fn ordered_events_and_other_surfaces_break_motion_coalescing() {
-        let events = coalesce_motion(vec![
-            event(1, 1, true),
-            event(1, 2, false),
-            event(1, 3, true),
-            event(2, 4, true),
-        ]);
+        let mut events = VecDeque::new();
+        for item in [
+            event(1, 1, true, false),
+            event(1, 2, false, false),
+            event(1, 3, true, false),
+            event(2, 4, true, false),
+        ] {
+            assert!(enqueue_bounded(&mut events, item, 8));
+        }
         assert_eq!(events.iter().map(|event| event.bytes[0]).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn release_displaces_motion_when_queue_is_full() {
+        let mut events = VecDeque::from([
+            event(1, 1, false, false),
+            event(1, 2, true, false),
+            event(1, 3, false, false),
+        ]);
+        assert!(enqueue_bounded(&mut events, event(1, 4, false, true), 3));
+        assert_eq!(events.iter().map(|event| event.bytes[0]).collect::<Vec<_>>(), vec![1, 3, 4]);
     }
 }
