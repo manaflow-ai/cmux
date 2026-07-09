@@ -9,7 +9,6 @@ import {
   featureWorkflowContentLocales,
   featureWorkflowDocPathForRequest,
 } from "../i18n/locale-availability";
-import { locales } from "../i18n/routing";
 import { buildAlternateLinkHeader } from "../i18n/seo";
 import {
   extractReadableHtml,
@@ -386,23 +385,16 @@ describe("agent page variants", () => {
     expect(sitemapPaths).not.toContain("/de/docs/task-manager");
   });
 
-  test("lists privacy policy for every supported locale", () => {
+  test("keeps privacy policy sitemap entry canonical English-only", () => {
     const entries = sitemap();
     const sitemapPaths = entries.map((entry) => new URL(String(entry.url)).pathname);
 
-    for (const locale of locales) {
-      const pathname = locale === "en" ? "/privacy-policy" : `/${locale}/privacy-policy`;
-      expect(sitemapPaths).toContain(pathname);
-    }
-
-    const japaneseEntry = entries.find(
-      (entry) => new URL(String(entry.url)).pathname === "/ja/privacy-policy",
+    expect(sitemapPaths).toContain("/privacy-policy");
+    expect(sitemapPaths).not.toContain("/ja/privacy-policy");
+    const englishEntry = entries.find(
+      (entry) => new URL(String(entry.url)).pathname === "/privacy-policy",
     );
-    expect(japaneseEntry?.alternates?.languages).toMatchObject({
-      en: "https://cmux.com/privacy-policy",
-      ja: "https://cmux.com/ja/privacy-policy",
-      "x-default": "https://cmux.com/privacy-policy",
-    });
+    expect(englishEntry?.alternates).toBeUndefined();
   });
 
   test("limits en-ja docs alternate links to live localized routes", () => {

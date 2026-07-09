@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { locales, type Locale } from "../../../../i18n/routing";
+import { locales, routing, type Locale } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 
@@ -14,7 +14,7 @@ type PrivacyPolicyBlock =
 
 type PageParams = { locale: string };
 
-const privacyPolicyLocales = locales;
+const privacyPolicyLocales = [routing.defaultLocale] as const;
 
 export async function generateMetadata({
   params,
@@ -22,13 +22,20 @@ export async function generateMetadata({
   params: Promise<PageParams>;
 }): Promise<Metadata> {
   const { locale: rawLocale } = await params;
-  const locale = requirePrivacyPolicyLocale(rawLocale);
-  const t = await getTranslations({ locale, namespace: "privacyPolicyPage" });
+  requirePrivacyPolicyLocale(rawLocale);
+  const t = await getTranslations({
+    locale: routing.defaultLocale,
+    namespace: "privacyPolicyPage",
+  });
 
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/privacy-policy", privacyPolicyLocales),
+    alternates: buildAlternates(
+      routing.defaultLocale,
+      "/privacy-policy",
+      privacyPolicyLocales,
+    ),
   };
 }
 
@@ -38,8 +45,11 @@ export default async function PrivacyPolicyPage({
   params: Promise<PageParams>;
 }) {
   const { locale: rawLocale } = await params;
-  const locale = requirePrivacyPolicyLocale(rawLocale);
-  const t = await getTranslations({ locale, namespace: "privacyPolicyPage" });
+  requirePrivacyPolicyLocale(rawLocale);
+  const t = await getTranslations({
+    locale: routing.defaultLocale,
+    namespace: "privacyPolicyPage",
+  });
   const blocks = t.raw("blocks") as PrivacyPolicyBlock[];
 
   return (
