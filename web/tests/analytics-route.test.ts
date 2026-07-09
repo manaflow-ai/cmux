@@ -30,7 +30,6 @@ const recordIOSAnalyticsIdentities = mock(async (...args: unknown[]) => {
   return input.anonymousIds;
 });
 const forwardToPostHog = mock(async () => ({ ok: true as const }));
-const deletePostHogPersonData = mock(async () => undefined);
 async function runAuthenticatedAnalytics<T>(
   _userId: string,
   run: (db: never) => Promise<T>,
@@ -49,7 +48,6 @@ beforeEach(() => {
   recordIOSAnalyticsIdentities.mockClear();
   forwardToPostHog.mockClear();
   forwardToPostHog.mockResolvedValue({ ok: true });
-  deletePostHogPersonData.mockClear();
 });
 
 afterEach(() => {
@@ -214,17 +212,13 @@ describe("iOS analytics route", () => {
     expect(calls).toEqual([
       "deletion-lock:stack-user-1",
       "record-identities",
-      "deletion-unlock",
-      "deletion-lock:stack-user-1",
-      "deletion-unlock",
       "forward-posthog",
-      "deletion-lock:stack-user-1",
       "deletion-unlock",
     ]);
   });
 
-  test("does not forward when account deletion starts after identity recording commits", async () => {
-    let lockCount = 0;
+  test("keeps PostHog forwarding inside the account deletion lock", async () => {
+    let deletionLockHeld = false;
 
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
@@ -236,49 +230,27 @@ describe("iOS analytics route", () => {
       }],
     }), {
       ...dependencies(),
+      forwardToPostHog: async () => {
+        expect(deletionLockHeld).toBe(true);
+        return { ok: true };
+      },
       runAuthenticatedAnalytics: async (_userId, run) => {
-        lockCount += 1;
-        if (lockCount === 2) throw new AnalyticsAccountDeletionBlockedError();
-        return await run({} as never);
+        deletionLockHeld = true;
+        try {
+          return await run({} as never);
+        } finally {
+          deletionLockHeld = false;
+        }
       },
     });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
+    expect(await response.json()).toEqual({ ok: true, forwarded: 1 });
     expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
       userId: "stack-user-1",
       anonymousIds: ["99999999-9999-4999-8999-999999999999"],
     });
-    expect(forwardToPostHog).not.toHaveBeenCalled();
-  });
-
-  test("deletes PostHog data when account deletion starts during forwarding", async () => {
-    let lockCount = 0;
-
-    const response = await postAnalyticsEvents(jsonRequest({
-      batch: [{
-        event: "$identify",
-        distinct_id: "stack-user-1",
-        properties: {
-          "$anon_distinct_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        },
-      }],
-    }), {
-      ...dependencies(),
-      runAuthenticatedAnalytics: async (_userId, run) => {
-        lockCount += 1;
-        if (lockCount === 3) throw new AnalyticsAccountDeletionBlockedError();
-        return await run({} as never);
-      },
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
-    expect(forwardToPostHog).toHaveBeenCalled();
-    expect(deletePostHogPersonData).toHaveBeenCalledWith(
-      "stack-user-1",
-      ["stack-user-1", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
-    );
+    expect(deletionLockHeld).toBe(false);
   });
 
   test("does not forward authenticated analytics after account deletion starts", async () => {
@@ -459,7 +431,6 @@ function dependencies() {
     recordIOSAnalyticsIdentities: async (input: Parameters<RecordIOSAnalyticsIdentities>[0]) =>
       await recordIOSAnalyticsIdentities(input),
     forwardToPostHog,
-    deletePostHogPersonData,
     runAuthenticatedAnalytics,
   };
 }
