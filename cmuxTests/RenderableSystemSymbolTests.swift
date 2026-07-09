@@ -96,4 +96,16 @@ struct RenderableSystemSymbolTests {
         ) == nil)
         #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
     }
+
+    @Test @MainActor func failedSymbolLookupDoesNotCreatePermanentNegativeCacheEntry() {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        #expect(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "not.an.sf.symbol",
+            pointSize: 11,
+            weight: .regular
+        ) == nil)
+        #expect(RenderableSystemSymbol.cachedRenderabilityForTesting("not.an.sf.symbol") == nil)
+        #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
+        #expect(RenderableSystemSymbol.cachedRenderabilityForTesting("not.an.sf.symbol") == nil)
+    }
 }

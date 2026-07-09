@@ -170,6 +170,11 @@ enum RenderableSystemSymbol {
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
     }
+
+    @MainActor
+    static func cachedRenderabilityForTesting(_ symbol: String) -> Bool? {
+        renderabilityCache[symbol]
+    }
     #endif
 }
 
