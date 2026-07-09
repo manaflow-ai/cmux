@@ -88,6 +88,8 @@ enum AgentHibernationTranscriptGuard {
 
         return candidates.first { candidate in
             transcriptHasConversationTurns(atPath: candidate, fileManager: fileManager)
+        } ?? candidates.first { candidate in
+            !transcriptContainsOnlyNonProtectiveMetadata(atPath: candidate, fileManager: fileManager)
         } ?? candidates.first
     }
 
@@ -156,8 +158,10 @@ enum AgentHibernationTranscriptGuard {
             return .unableToProtect
         }
 
-        guard transcriptHasConversationTurns(atPath: transcriptPath, fileManager: fileManager) else {
-            return .nothingToProtect
+        if !transcriptHasConversationTurns(atPath: transcriptPath, fileManager: fileManager) {
+            return transcriptContainsOnlyNonProtectiveMetadata(atPath: transcriptPath, fileManager: fileManager)
+                ? .nothingToProtect
+                : .unableToProtect
         }
 
         guard let directory = snapshotDirectory ?? defaultSnapshotDirectoryURL() else {
@@ -362,6 +366,57 @@ enum AgentHibernationTranscriptGuard {
             return false
         }
         return type == "user" || type == "assistant"
+    }
+
+    private static func transcriptContainsOnlyNonProtectiveMetadata(
+        atPath path: String,
+        fileManager: FileManager,
+        maxScannedLineBytes: Int = Self.maxScannedLineBytes
+    ) -> Bool {
+        guard fileManager.fileExists(atPath: path),
+              let handle = FileHandle(forReadingAtPath: path) else {
+            return false
+        }
+        defer { try? handle.close() }
+
+        var sawMetadata = false
+        var buffered = Data()
+        while true {
+            guard let chunk = try? handle.read(upToCount: 64 * 1024),
+                  !chunk.isEmpty else {
+                guard buffered.count <= maxScannedLineBytes,
+                      lineDataIsNonProtectiveMetadata(buffered, sawMetadata: &sawMetadata) else {
+                    return false
+                }
+                return sawMetadata
+            }
+
+            buffered.append(chunk)
+            while let newlineIndex = buffered.firstIndex(of: 10) {
+                let lineData = Data(buffered[..<newlineIndex])
+                buffered.removeSubrange(buffered.startIndex...newlineIndex)
+                guard lineData.count <= maxScannedLineBytes,
+                      lineDataIsNonProtectiveMetadata(lineData, sawMetadata: &sawMetadata) else {
+                    return false
+                }
+            }
+            if buffered.count > maxScannedLineBytes {
+                return false
+            }
+        }
+    }
+
+    private static func lineDataIsNonProtectiveMetadata(_ data: Data, sawMetadata: inout Bool) -> Bool {
+        guard let line = String(data: data, encoding: .utf8) else { return false }
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) as? [String: Any],
+              let type = object["type"] as? String else {
+            return false
+        }
+        guard type == "last-prompt" || type == "ai-title" || type == "mode" else { return false }
+        sawMetadata = true
+        return true
     }
 
     private static func appendLiveStubIfPresent(
