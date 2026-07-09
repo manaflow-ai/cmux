@@ -12545,13 +12545,13 @@ struct CMUXCLI {
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
-                try reconcileBridgeEnd(intentionalOnly: false)
+                _ = try reconcileBridgeEnd(intentionalOnly: false)
                 attachFinished = true
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
                     resizeMonitor.cancel()
-                    try reconcileBridgeEnd(intentionalOnly: false)
+                    _ = try reconcileBridgeEnd(intentionalOnly: false)
                     attachFinished = true
                     return
                 }
