@@ -622,6 +622,18 @@ enum BrowserAvailabilitySettings {
     }
 }
 
+enum BrowserEngineSettings {
+    static let engineKey = "browserEngineOverride"
+
+    static func configuredEngine(defaults: UserDefaults = .standard) -> BrowserEngineChoice {
+        guard let raw = defaults.string(forKey: engineKey),
+              let choice = BrowserEngineChoice(rawValue: raw) else {
+            return .webkit
+        }
+        return choice
+    }
+}
+
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
