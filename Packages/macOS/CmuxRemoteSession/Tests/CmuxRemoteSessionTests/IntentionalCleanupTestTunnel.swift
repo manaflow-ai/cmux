@@ -11,9 +11,16 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private let lock = NSLock()
     private var recordedCalls: [Call] = []
     private var bridgeServers: [RemotePTYBridgeServer] = []
+    private var shouldFailClose = false
 
     var calls: [Call] {
         lock.withLock { recordedCalls }
+    }
+
+    func failCloseRequests() {
+        lock.withLock {
+            shouldFailClose = true
+        }
     }
 
     func start() throws {}
@@ -34,6 +41,9 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
 
     func closePTY(sessionID: String) throws {
         record(name: "close", sessionID: sessionID)
+        if lock.withLock({ shouldFailClose }) {
+            throw NSError(domain: "cmux.tests.intentional-cleanup", code: 1)
+        }
     }
 
     func resizePTY(

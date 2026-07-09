@@ -12564,8 +12564,10 @@ struct CMUXCLI {
             )
         }
 
+        let intentionallyClosed = ((response["requested_session_lifecycle"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)) == "intentionally_closed"
         let errors = response["errors"] as? [[String: Any]] ?? []
-        if !errors.isEmpty {
+        if !intentionallyClosed, !errors.isEmpty {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
                 exitCode: SSHPTYAttachExitCode.retryableTransient
@@ -12576,7 +12578,7 @@ struct CMUXCLI {
         let sessionStillRunning = sessions.contains {
             (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
         }
-        if sessionStillRunning {
+        if !intentionallyClosed, sessionStillRunning {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
                 exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning

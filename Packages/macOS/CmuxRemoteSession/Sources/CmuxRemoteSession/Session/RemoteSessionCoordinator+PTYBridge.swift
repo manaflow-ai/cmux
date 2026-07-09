@@ -32,7 +32,42 @@ extension RemoteSessionCoordinator {
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
                 ])
             }
-            try self.proxyBroker.closePTY(configuration: self.configuration, sessionID: sessionID)
+            let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let previousLifecycle = self.remotePTYLifecyclesBySessionID[normalizedSessionID] ?? .active
+            self.remotePTYLifecyclesBySessionID[normalizedSessionID] = .intentionalCleanupRequested
+            do {
+                try self.proxyBroker.closePTY(
+                    configuration: self.configuration,
+                    sessionID: normalizedSessionID
+                )
+                self.remotePTYLifecyclesBySessionID[normalizedSessionID] = .intentionallyClosed
+            } catch {
+                if previousLifecycle == .active {
+                    self.remotePTYLifecyclesBySessionID.removeValue(forKey: normalizedSessionID)
+                } else {
+                    self.remotePTYLifecyclesBySessionID[normalizedSessionID] = previousLifecycle
+                }
+                throw error
+            }
+        }
+    }
+
+    /// Returns the serialized lifecycle decision for one persistent PTY session.
+    ///
+    /// Callers use this after bridge EOF to distinguish transport loss from an
+    /// explicit cleanup that completed on the same coordinator queue.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - timeout: Maximum time to wait behind an in-flight PTY operation.
+    /// - Returns: The coordinator-owned session lifecycle.
+    public func ptySessionLifecycle(
+        sessionID: String,
+        timeout: TimeInterval = 10.0
+    ) throws -> RemotePTYSessionLifecycle {
+        try runOnControllerQueue(timeout: timeout) {
+            let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return self.remotePTYLifecyclesBySessionID[normalizedSessionID] ?? .active
         }
     }
 
@@ -169,13 +204,24 @@ extension RemoteSessionCoordinator {
                 NSLocalizedDescriptionKey: "remote daemon is not ready",
             ])
         }
-        return try proxyBroker.startPTYBridge(
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if requireExisting,
+           remotePTYLifecyclesBySessionID[normalizedSessionID] == .intentionallyClosed {
+            throw NSError(domain: "cmux.remote.pty", code: 11, userInfo: [
+                NSLocalizedDescriptionKey: "pty_session_intentionally_closed",
+            ])
+        }
+        let endpoint = try proxyBroker.startPTYBridge(
             configuration: configuration,
-            sessionID: sessionID,
+            sessionID: normalizedSessionID,
             attachmentID: attachmentID,
             command: command,
             requireExisting: requireExisting
         )
+        if !requireExisting {
+            remotePTYLifecyclesBySessionID.removeValue(forKey: normalizedSessionID)
+        }
+        return endpoint
     }
 
     func fulfillPendingPTYBridgeStartsLocked() {

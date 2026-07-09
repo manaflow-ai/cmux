@@ -33,6 +33,7 @@ struct RemotePTYIntentionalCleanupTests {
             requireExisting: false
         )
         try coordinator.closePTYSession(sessionID: sessionID)
+        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed)
 
         #expect(throws: (any Error).self) {
             try coordinator.startPTYBridge(
@@ -45,6 +46,49 @@ struct RemotePTYIntentionalCleanupTests {
         #expect(provider.tunnel.calls == [
             .init(name: "bridge", sessionID: sessionID),
             .init(name: "close", sessionID: sessionID),
+        ])
+    }
+
+    @Test("failed cleanup rolls the lifecycle back and keeps reconnect eligible")
+    func failedCleanupRollsBack() throws {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider)
+        let configuration = Self.configuration()
+        let coordinator = Self.coordinator(configuration: configuration, broker: broker)
+        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
+        let sessionID = "ssh-workspace-surface"
+
+        coordinator.queue.sync {
+            coordinator.proxyLease = lease
+            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+            coordinator.daemonReady = true
+        }
+        defer {
+            coordinator.stop()
+            provider.tunnel.stop()
+        }
+
+        _ = try coordinator.startPTYBridge(
+            sessionID: sessionID,
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: false
+        )
+        provider.tunnel.failCloseRequests()
+        #expect(throws: (any Error).self) {
+            try coordinator.closePTYSession(sessionID: sessionID)
+        }
+        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .active)
+        _ = try coordinator.startPTYBridge(
+            sessionID: sessionID,
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        #expect(provider.tunnel.calls == [
+            .init(name: "bridge", sessionID: sessionID),
+            .init(name: "close", sessionID: sessionID),
+            .init(name: "bridge", sessionID: sessionID),
         ])
     }
 

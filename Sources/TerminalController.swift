@@ -4136,12 +4136,7 @@ class TerminalController {
                 }
             }
 
-            return .ok([
-                "all_workspaces": true,
-                "workspace_count": targets.count,
-                "sessions": sessions,
-                "errors": errors,
-            ])
+            return .ok(["all_workspaces": true, "workspace_count": targets.count, "sessions": sessions, "errors": errors])
         }
 
         let resolved = v2ResolveRemotePTYTarget(
@@ -4150,16 +4145,21 @@ class TerminalController {
             preferredSurfaceId: surfaceSelection.surfaceId
         )
         if let error = resolved.error { return error }
-        guard let target = resolved.target else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
+        guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
             return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
             ])
         }
-
+        if let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sessionID.isEmpty,
+           (try? controller.ptySessionLifecycle(sessionID: sessionID)) == .intentionallyClosed {
+            var payload = v2RemotePTYTargetPayload(target)
+            payload["sessions"] = [[String: Any]]()
+            payload["requested_session_lifecycle"] = RemotePTYSessionLifecycle.intentionallyClosed.rawValue
+            return .ok(payload)
+        }
         do {
             let sessions = try controller.listPTYSessions()
             var payload = v2RemotePTYTargetPayload(target)
