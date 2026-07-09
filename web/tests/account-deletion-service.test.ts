@@ -598,6 +598,28 @@ describe("account deletion cleanup", () => {
     expect(personalSubscriptionUpdate?.params.metadata?.stackUserId).toBe("");
     expect(stripeSubscriptionCancels).toContain("sub_personal");
   });
+
+  test("cancels personal Stripe subscriptions even when the local row status is stale", async () => {
+    stripeSubscriptionRows = [{
+      id: "sub_stale_local",
+      stackUserId: "user-1",
+      stackTeamId: null,
+      status: "canceled",
+      scope: "user",
+      plan: PRO_PLAN_ID,
+    }];
+    stripeRemoteSubscriptionStatuses.set("sub_stale_local", "active");
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(retrieveStripeSubscription).toHaveBeenCalledWith("sub_stale_local");
+    expect(stripeSubscriptionCancels).toContain("sub_stale_local");
+    const subscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_stale_local");
+    expect(subscriptionUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(subscriptionUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
+  });
 });
 
 function fakeDb() {

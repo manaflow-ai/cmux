@@ -27,7 +27,6 @@ import {
   vaultUploadTombstones,
 } from "../../db/schema";
 import {
-  ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
 } from "../billing/pro";
@@ -1028,12 +1027,8 @@ function shouldCancelStripeSubscriptionForAccountDeletion(
     readonly scope: string;
     readonly stackTeamId: string | null;
     readonly stackUserId: string | null;
-    readonly status: string;
   },
 ): boolean {
-  if (!isActiveStripeProStatus(subscription.status)) {
-    return false;
-  }
   if (
     subscription.stackUserId === scope.userId &&
     subscription.scope === "user" &&
@@ -1044,10 +1039,6 @@ function shouldCancelStripeSubscriptionForAccountDeletion(
   return isOwnedBillingTeamId(scope, subscription.stackTeamId) &&
     subscription.scope === "team" &&
     subscription.plan === TEAM_PLAN_ID;
-}
-
-function isActiveStripeProStatus(status: string): boolean {
-  return ACTIVE_STRIPE_PRO_STATUSES.some((activeStatus) => activeStatus === status);
 }
 
 function accountDeletionStripeMetadata(
