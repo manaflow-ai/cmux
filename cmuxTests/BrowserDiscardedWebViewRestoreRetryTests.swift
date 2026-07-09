@@ -248,6 +248,42 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         }
     }
 
+    @Test func queuedRemoteRestoreDeduplicatesUntilExplicitReload() throws {
+        let url = try #require(URL(string: "http://localhost:3000/cmux-issue-7504-dedupe"))
+        let workspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: workspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: workspaceId
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore.remote1"))
+        #expect(panel.hiddenWebViewDiscardSnapshot.hasPendingRemoteNavigation)
+        #expect(panel.hiddenWebViewDiscardManager.lastRestoreReason == "test.restore.remote1")
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore.remote2"))
+        #expect(panel.hiddenWebViewDiscardSnapshot.hasPendingRemoteNavigation)
+        #expect(panel.hiddenWebViewDiscardManager.lastRestoreReason == "test.restore.remote1")
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(
+            reason: "test.restore.remote3",
+            forceRestartPendingRestore: true
+        ))
+        #expect(panel.hiddenWebViewDiscardSnapshot.hasPendingRemoteNavigation)
+        #expect(panel.hiddenWebViewDiscardManager.lastRestoreReason == "test.restore.remote3")
+    }
+
     @Test func markDiscardedResetsStalePendingRestoreNavigation() {
         withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
             let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
@@ -339,7 +375,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         let payload = panel.webViewLifecycleTopPayload()
         #expect(payload["state"] as? String != "discarded")
         #expect(payload["restore_pending"] as? Bool == false)
-        #expect(payload["discard_blockers"] as? [String] != nil)
+        #expect(payload["discard_blockers"] is [String])
         #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
     }
 }
