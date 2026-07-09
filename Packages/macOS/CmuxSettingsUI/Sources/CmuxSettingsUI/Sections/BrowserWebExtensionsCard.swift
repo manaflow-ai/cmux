@@ -215,8 +215,8 @@ struct BrowserWebExtensionsCard: View {
             localized: "settings.browser.webExtensions.addUnpacked.missingManifest.title",
             defaultValue: "Missing manifest.json"
         )
-        alert.informativeText = String(
-            format: String(
+        alert.informativeText = String.localizedStringWithFormat(
+            String(
                 localized: "settings.browser.webExtensions.addUnpacked.missingManifest.message",
                 defaultValue: "“%@” is not an unpacked web extension. Choose a folder with manifest.json at its root."
             ),
