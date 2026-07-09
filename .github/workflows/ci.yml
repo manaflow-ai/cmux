@@ -1580,15 +1580,23 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          CU_PROVIDER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-computer-use-provider"
+          CU_MCP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-computer-use-mcp"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          test -x "$CU_PROVIDER_BINARY"
+          test -x "$CU_MCP_BINARY"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CU_PROVIDER_BINARY" "$CU_MCP_BINARY"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          lipo "$CU_PROVIDER_BINARY" -verify_arch arm64 x86_64
+          lipo "$CU_MCP_BINARY" -verify_arch arm64 x86_64
+          codesign --verify --strict --verbose=4 "$CU_PROVIDER_BINARY"
+          codesign --verify --strict --verbose=4 "$CU_MCP_BINARY"
           [[ "$SDK_VERSION" == 26.* ]]
 
   ci-status:
