@@ -2,6 +2,7 @@ import AppKit
 import CMUXMobileCore
 import CmuxTerminal
 import Foundation
+import GhosttyKit
 
 @MainActor
 final class TerminalInlineImageController {
@@ -106,6 +107,22 @@ final class TerminalInlineImageController {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
+        })
+        // Ticks are skipped while the window is occluded, so catch up when it
+        // becomes visible again instead of waiting for the next PTY output.
+        observers.append(center.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let window = self.hostedView?.window,
+                      (note.object as? NSWindow) === window else {
+                    return
+                }
+                self.scheduleScanForVisibleViewport()
+            }
         })
     }
 
@@ -261,14 +278,37 @@ final class TerminalInlineImageController {
             overlayView?.clear()
             return
         }
+        let surfaceView = hostedView.surfaceView
+        // `surfaceView.cellSize` (and the copy-mode grid metrics built from
+        // it) carries Ghostty's raw pixel cell size, so derive the point-space
+        // grid from the surface size and backing scale, the same way
+        // TerminalSurface.mobileScroll does.
+        let size = ghostty_surface_size(surface)
+        let scale = max(surfaceView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        let cellWidth = CGFloat(size.cell_width_px) / scale
+        let cellHeight = CGFloat(size.cell_height_px) / scale
+        guard cellWidth > 0, cellHeight > 0 else {
+            overlayView.clear()
+            return
+        }
+        let xInset = max(0, (surfaceView.bounds.width - CGFloat(size.columns) * cellWidth) / 2)
+        let yInset = max(0, (surfaceView.bounds.height - CGFloat(size.rows) * cellHeight) / 2)
         let items = annotations.compactMap { annotation -> TerminalInlineImageOverlayItem? in
             guard let thumbnail = thumbnailsByID[annotation.id] else { return nil }
-            return TerminalInlineImageOverlayItem(annotation: annotation, thumbnail: thumbnail)
+            let rowTopFromTop = yInset + CGFloat(annotation.rowIndex) * cellHeight
+            let cellRect = CGRect(
+                x: xInset,
+                y: surfaceView.bounds.height - rowTopFromTop - cellHeight,
+                width: cellWidth,
+                height: cellHeight
+            )
+            return TerminalInlineImageOverlayItem(
+                annotation: annotation,
+                thumbnail: thumbnail,
+                anchorRect: overlayView.convert(cellRect, from: surfaceView)
+            )
         }
-        overlayView.update(
-            items: items,
-            metrics: hostedView.surfaceView.keyboardCopyModeGridMetrics(surface: surface)
-        )
+        overlayView.update(items: items)
     }
 
     private func clearAnnotations() {

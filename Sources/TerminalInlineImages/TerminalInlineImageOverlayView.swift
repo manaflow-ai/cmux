@@ -4,6 +4,12 @@ import Foundation
 struct TerminalInlineImageOverlayItem: Sendable {
     let annotation: TerminalInlineImageAnnotation
     let thumbnail: TerminalInlineImageThumbnail
+    /// The annotation row's cell rect converted into the overlay's own
+    /// coordinate space. Grid metrics are expressed in the surface view's
+    /// space, which sits inside the scroll view chrome the overlay covers, so
+    /// positioning must go through an explicit conversion instead of reusing
+    /// the metrics' viewHeight.
+    let anchorRect: CGRect
 }
 
 @MainActor
@@ -22,8 +28,8 @@ final class TerminalInlineImageOverlayView: NSView {
         return nil
     }
 
-    func update(items: [TerminalInlineImageOverlayItem], metrics: KeyboardCopyModeGridMetrics?) {
-        guard let metrics, !items.isEmpty else {
+    func update(items: [TerminalInlineImageOverlayItem]) {
+        guard !items.isEmpty else {
             clear()
             return
         }
@@ -35,7 +41,7 @@ final class TerminalInlineImageOverlayView: NSView {
             }
         }
 
-        for layout in layouts(for: items, metrics: metrics) {
+        for layout in layouts(for: items) {
             let view = thumbnailViews[layout.item.annotation.id] ?? makeThumbnailView()
             thumbnailViews[layout.item.annotation.id] = view
             if view.superview == nil {
@@ -78,17 +84,14 @@ final class TerminalInlineImageOverlayView: NSView {
     }
 
     private func layouts(
-        for items: [TerminalInlineImageOverlayItem],
-        metrics: KeyboardCopyModeGridMetrics
+        for items: [TerminalInlineImageOverlayItem]
     ) -> [(item: TerminalInlineImageOverlayItem, frame: CGRect)] {
         let grouped = Dictionary(grouping: items, by: { $0.annotation.rowIndex })
         return grouped.keys.sorted().flatMap { rowIndex in
             var trailingX = bounds.width - 8
             return grouped[rowIndex, default: []].map { item in
-                let size = thumbnailSize(for: item.thumbnail, rowHeight: metrics.cellHeight)
-                let rowTop = metrics.viewHeight - (
-                    metrics.yInset + CGFloat(item.annotation.rowIndex) * metrics.cellHeight
-                )
+                let size = thumbnailSize(for: item.thumbnail, rowHeight: item.anchorRect.height)
+                let rowTop = item.anchorRect.maxY
                 let frame = CGRect(
                     x: max(8, trailingX - size.width),
                     y: min(max(rowTop - size.height, 8), max(bounds.height - size.height - 8, 8)),
