@@ -284,6 +284,37 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         #expect(panel.hiddenWebViewDiscardManager.lastRestoreReason == "test.restore.remote3")
     }
 
+    @Test func policyCancelledRestoreClearsDiscardStateInsteadOfReplaying() throws {
+        let url = try #require(URL(string: "https://example.com/cmux-issue-7504-policy-cancel"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
+        panel.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+
+        panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(payload["state"] as? String != "discarded")
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
+        #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
     @Test func markDiscardedResetsStalePendingRestoreNavigation() {
         withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
             let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
