@@ -69,6 +69,50 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         }
     }
 
+    @Test("unused bridge retirement reports lifecycle end")
+    func unusedBridgeReportsLifecycleEnd() throws {
+        let tunnel = makeTunnel(rpc: TestPTYLifecycleRPCClient())
+        let ended = DispatchSemaphore(value: 0)
+        _ = try tunnel.startPTYBridge(
+            sessionID: "session",
+            lifecycleID: "unused",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true,
+            onLifecycleEnded: { ended.signal() }
+        )
+        let server = try #require(tunnel.queue.sync { tunnel.ptyBridgeServers.values.first?.server })
+
+        server.stop()
+
+        #expect(ended.wait(timeout: .now() + 2) == .success)
+        let counts = tunnel.queue.sync {
+            (tunnel.ptyBridgeServers.count, tunnel.ptyLifecycleRegistry.generations.count)
+        }
+        #expect(counts.0 == 0)
+        #expect(counts.1 == 0)
+        tunnel.stop()
+    }
+
+    @Test("tunnel replacement reports lifecycle end for an unused bridge")
+    func replacementReportsUnusedLifecycleEnd() throws {
+        let tunnel = makeTunnel(rpc: TestPTYLifecycleRPCClient())
+        let ended = DispatchSemaphore(value: 0)
+        _ = try tunnel.startPTYBridge(
+            sessionID: "session",
+            lifecycleID: "unused",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true,
+            onLifecycleEnded: { ended.signal() }
+        )
+
+        let snapshot = tunnel.stopPreservingPTYLifecycle()
+
+        #expect(ended.wait(timeout: .now() + 2) == .success)
+        #expect(snapshot.registry.generations.isEmpty)
+    }
+
     @Test("definitive daemon rejection restores active reconnect eligibility")
     func definitivelyRejectedCleanupRollsBack() throws {
         let rpc = TestPTYLifecycleRPCClient()

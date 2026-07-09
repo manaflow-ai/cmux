@@ -83,7 +83,8 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         lifecycleID: String,
         attachmentID: String,
         command: String?,
-        requireExisting: Bool
+        requireExisting: Bool,
+        onLifecycleEnded: @escaping @Sendable () -> Void
     ) throws -> RemotePTYBridgeServer.Endpoint {
         let key = Key(sessionID: sessionID, lifecycleID: lifecycleID)
         if lock.withLock({ lifecycleByKey[key] == .intentionallyClosed }) {

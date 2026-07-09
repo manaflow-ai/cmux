@@ -19,6 +19,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     private var _stopCount = 0
     private var _ptyCalls: [PTYCall] = []
     var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
+    var lifecycleEndCallbacks: [RemotePTYLifecycleKey: @Sendable () -> Void] = [:]
 
     init(remotePath: String, localPort: Int, startError: NSError?) {
         self.remotePath = remotePath
@@ -57,6 +58,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         lock.lock()
         _stopCount += 1
         ptyLifecycleRegistry.removeAll()
+        lifecycleEndCallbacks.removeAll()
         lock.unlock()
     }
 
@@ -64,6 +66,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         _stopCount += 1
+        lifecycleEndCallbacks.removeAll()
         return RemotePTYLifecycleSnapshot(registry: ptyLifecycleRegistry)
     }
 
@@ -86,20 +89,6 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         lock.unlock()
     }
 
-    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
-        record("ptySessionLifecycle", [sessionID, lifecycleID])
-        lock.lock()
-        defer { lock.unlock() }
-        return ptyLifecycleRegistry.lifecycle(for: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
-    }
-
-    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
-        record("acknowledgePTYLifecycle", [sessionID, lifecycleID])
-        lock.lock()
-        ptyLifecycleRegistry.acknowledge(RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
-        lock.unlock()
-    }
-
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         record("resizePTY", [sessionID, attachmentID, attachmentToken, String(cols), String(rows)])
     }
@@ -108,7 +97,14 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         record("detachPTY", [sessionID, attachmentID, attachmentToken])
     }
 
-    func startPTYBridge(sessionID: String, lifecycleID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
+    func startPTYBridge(
+        sessionID: String,
+        lifecycleID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        onLifecycleEnded: @escaping @Sendable () -> Void
+    ) throws -> RemotePTYBridgeServer.Endpoint {
         record("startPTYBridge", [sessionID, lifecycleID, attachmentID, command ?? "", String(requireExisting)])
         let key = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
         let bridgeID = UUID()
@@ -116,6 +112,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         defer { lock.unlock() }
         try ptyLifecycleRegistry.registerBridge(key: key, attachmentID: attachmentID, bridgeID: bridgeID)
         ptyLifecycleRegistry.bridgeStopped(key: key, bridgeID: bridgeID, disposition: .acceptedClient)
+        lifecycleEndCallbacks[key] = onLifecycleEnded
         return RemotePTYBridgeServer.Endpoint(
             host: "127.0.0.1",
             port: 4242,
@@ -126,7 +123,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         )
     }
 
-    private func record(_ name: String, _ arguments: [String]) {
+    func record(_ name: String, _ arguments: [String]) {
         lock.lock()
         _ptyCalls.append(PTYCall(name: name, arguments: arguments))
         lock.unlock()

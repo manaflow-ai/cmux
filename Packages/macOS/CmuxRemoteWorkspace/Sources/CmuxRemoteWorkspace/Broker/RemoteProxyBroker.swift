@@ -239,16 +239,21 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         try queue.sync {
             let ownerKey = Self.transportKey(for: configuration)
             guard let tunnel = entries[ownerKey]?.tunnel else { throw Self.ptyTunnelNotReadyError() }
+            let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
             let endpoint = try tunnel.startPTYBridge(
                 sessionID: sessionID,
                 lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting
-            )
-            ptyLifecycleOwners[
-                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-            ] = ownerKey
+            ) { [weak self] in
+                guard let self else { return }
+                self.queue.async {
+                    guard self.ptyLifecycleOwners[lifecycleKey] == ownerKey else { return }
+                    self.ptyLifecycleOwners.removeValue(forKey: lifecycleKey)
+                }
+            }
+            ptyLifecycleOwners[lifecycleKey] = ownerKey
             return endpoint
         }
     }

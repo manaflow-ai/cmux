@@ -2,4 +2,5 @@
 struct RemotePTYBridgeServerRecord {
     let server: RemotePTYBridgeServer
     let lifecycleKey: RemotePTYLifecycleKey
+    let onLifecycleEnded: @Sendable () -> Void
 }

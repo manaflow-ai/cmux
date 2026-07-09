@@ -622,11 +622,12 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         ptyBridgeServers.removeAll()
         for (bridgeID, record) in activePTYBridges {
             let disposition = record.server.stopAndWaitForDisposition()
-            ptyLifecycleRegistry.bridgeStopped(
+            let lifecycleEnded = ptyLifecycleRegistry.bridgeStopped(
                 key: record.lifecycleKey,
                 bridgeID: bridgeID,
                 disposition: disposition
             )
+            if lifecycleEnded { record.onLifecycleEnded() }
         }
         if !preservePTYLifecycle { ptyLifecycleRegistry.removeAll() }
 

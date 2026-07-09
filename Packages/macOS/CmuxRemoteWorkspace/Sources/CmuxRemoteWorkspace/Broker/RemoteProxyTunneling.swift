@@ -52,5 +52,12 @@ public protocol RemoteProxyTunneling: AnyObject {
 
     /// Starts a single-use loopback PTY bridge server for a terminal attach
     /// and returns its endpoint.
-    func startPTYBridge(sessionID: String, lifecycleID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint
+    func startPTYBridge(
+        sessionID: String,
+        lifecycleID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        onLifecycleEnded: @escaping @Sendable () -> Void
+    ) throws -> RemotePTYBridgeServer.Endpoint
 }

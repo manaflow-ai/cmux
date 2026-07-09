@@ -60,7 +60,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     private var listener: NWListener?
     private var session: Session?
     private var isStopped = false
-    private var acceptedClient = false
+    private var authenticatedClient = false
     private var unusedBridgeTimeoutTask: Task<Void, Never>?
 
     /// Creates a bridge server for one remote PTY attachment.
@@ -79,7 +79,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     ///   - clock: Sleep seam driving the handshake and unused-bridge
     ///     timeouts (virtual time in tests).
     ///   - onStop: Invoked exactly once, on the bridge queue, with whether a
-    ///     local client had connected.
+    ///     local client authenticated.
     public init(
         rpcClient: any RemotePTYBridgeRPCClient,
         sessionID: String,
@@ -174,7 +174,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     /// Stops synchronously so a tunnel replacement can preserve the final disposition.
     func stopAndWaitForDisposition() -> RemotePTYBridgeStopDisposition {
         queue.sync {
-            let disposition: RemotePTYBridgeStopDisposition = acceptedClient ? .acceptedClient : .unused
+            let disposition: RemotePTYBridgeStopDisposition = authenticatedClient ? .acceptedClient : .unused
             stopLocked()
             return disposition
         }
@@ -185,7 +185,6 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             connection.cancel()
             return
         }
-        acceptedClient = true
         unusedBridgeTimeoutTask?.cancel()
         unusedBridgeTimeoutTask = nil
         listener?.newConnectionHandler = nil
@@ -203,10 +202,10 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             token: token,
             queue: queue,
             strings: strings,
-            clock: clock
-        ) { [weak self] in
-            self?.stopLocked()
-        }
+            clock: clock,
+            onAuthenticated: { [weak self] in self?.authenticatedClient = true },
+            onClose: { [weak self] in self?.stopLocked() }
+        )
         self.session = session
         session.start()
     }
@@ -237,7 +236,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         let activeSession = session
         session = nil
         activeSession?.stop()
-        onStop(acceptedClient ? .acceptedClient : .unused)
+        onStop(authenticatedClient ? .acceptedClient : .unused)
     }
 
     private static func makeLoopbackListener() throws -> NWListener {

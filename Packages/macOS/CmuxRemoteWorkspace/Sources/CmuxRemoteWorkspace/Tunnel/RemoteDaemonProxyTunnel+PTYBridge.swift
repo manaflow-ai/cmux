@@ -7,7 +7,8 @@ extension RemoteDaemonProxyTunnel {
         lifecycleID: String,
         attachmentID: String,
         command: String?,
-        requireExisting: Bool
+        requireExisting: Bool,
+        onLifecycleEnded: @escaping @Sendable () -> Void = {}
     ) throws -> RemotePTYBridgeServer.Endpoint {
         try queue.sync {
             guard let ptyRPCClient, !isStopped else {
@@ -35,26 +36,29 @@ extension RemoteDaemonProxyTunnel {
                 guard let self else { return }
                 self.queue.async {
                     guard let record = self.ptyBridgeServers.removeValue(forKey: bridgeID) else { return }
-                    self.ptyLifecycleRegistry.bridgeStopped(
+                    let lifecycleEnded = self.ptyLifecycleRegistry.bridgeStopped(
                         key: record.lifecycleKey,
                         bridgeID: bridgeID,
                         disposition: disposition
                     )
+                    if lifecycleEnded { onLifecycleEnded() }
                 }
             }
             do {
                 let endpoint = try server.start()
                 ptyBridgeServers[bridgeID] = RemotePTYBridgeServerRecord(
                     server: server,
-                    lifecycleKey: lifecycleKey
+                    lifecycleKey: lifecycleKey,
+                    onLifecycleEnded: onLifecycleEnded
                 )
                 return endpoint
             } catch {
-                ptyLifecycleRegistry.bridgeStopped(
+                let lifecycleEnded = ptyLifecycleRegistry.bridgeStopped(
                     key: lifecycleKey,
                     bridgeID: bridgeID,
                     disposition: .unused
                 )
+                if lifecycleEnded { onLifecycleEnded() }
                 throw error
             }
         }

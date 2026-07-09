@@ -4,12 +4,40 @@ import Testing
 @testable import CmuxRemoteWorkspace
 
 extension FakeProxyTunnel {
-    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
+        record("ptySessionLifecycle", [sessionID, lifecycleID])
+        return lock.withLock {
+            ptyLifecycleRegistry.lifecycle(
+                for: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+
+    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
+        record("acknowledgePTYLifecycle", [sessionID, lifecycleID])
         lock.withLock {
+            ptyLifecycleRegistry.acknowledge(
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+
+    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
+        record("acknowledgePTYLifecycleIfKnown", [sessionID, lifecycleID])
+        return lock.withLock {
             ptyLifecycleRegistry.acknowledgeIfKnown(
                 RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
             )
         }
+    }
+
+    func reportLifecycleEnded(sessionID: String, lifecycleID: String) {
+        let callback = lock.withLock {
+            lifecycleEndCallbacks.removeValue(
+                forKey: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+        callback?()
     }
 }
 
@@ -145,6 +173,32 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             command: nil,
             requireExisting: true
         )
+    }
+
+    @Test("ended lifecycle removes its broker owner index")
+    func endedLifecycleRemovesOwnerIndex() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "unused",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        let tunnel = try #require(provider.tunnels.first)
+        tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: "unused")
+        _ = try broker.listPTY(configuration: configuration)
+
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unused")
+        _ = try broker.listPTY(configuration: configuration)
+
+        #expect(!tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
     }
 
     @Test("forced local proxy port is used verbatim")

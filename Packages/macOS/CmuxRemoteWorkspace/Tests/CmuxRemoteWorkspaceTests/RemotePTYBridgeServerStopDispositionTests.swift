@@ -20,8 +20,8 @@ struct RemotePTYBridgeServerStopDispositionTests {
         #expect(accepted.wait(timeout: .now()) == .timedOut)
     }
 
-    @Test("an endpoint with a connected client reports accepted")
-    func connectedEndpointReportsAccepted() throws {
+    @Test("an endpoint with an authenticated client reports accepted")
+    func authenticatedEndpointReportsAccepted() throws {
         let unused = DispatchSemaphore(value: 0)
         let accepted = DispatchSemaphore(value: 0)
         let server = makeServer { disposition in
@@ -37,6 +37,23 @@ struct RemotePTYBridgeServerStopDispositionTests {
 
         #expect(accepted.wait(timeout: .now() + 2) == .success)
         #expect(unused.wait(timeout: .now()) == .timedOut)
+    }
+
+    @Test("an invalid-token client leaves the endpoint unused")
+    func invalidTokenReportsUnused() throws {
+        let unused = DispatchSemaphore(value: 0)
+        let accepted = DispatchSemaphore(value: 0)
+        let server = makeServer { disposition in
+            (disposition == .unused ? unused : accepted).signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connect(endpoint)
+        defer { Darwin.close(fd) }
+
+        try writeAll(fd, Data("{\"token\":\"invalid\",\"cols\":80,\"rows\":24}\n".utf8))
+
+        #expect(unused.wait(timeout: .now() + 2) == .success)
+        #expect(accepted.wait(timeout: .now()) == .timedOut)
     }
 
     private func makeServer(

@@ -50,25 +50,27 @@ struct RemotePTYLifecycleRegistry: Sendable {
         generationOrder.append(key)
     }
 
+    @discardableResult
     mutating func bridgeStopped(
         key: RemotePTYLifecycleKey,
         bridgeID: UUID,
         disposition: RemotePTYBridgeStopDisposition
-    ) {
-        guard var generation = generations[key] else { return }
+    ) -> Bool {
+        guard var generation = generations[key] else { return true }
         generation.bridgeIDs.remove(bridgeID)
         if disposition == .acceptedClient {
             generation.acceptedClient = true
         }
         guard generation.bridgeIDs.isEmpty, !generation.acceptedClient else {
             generations[key] = generation
-            return
+            return false
         }
         if generation.phase == .active {
             discardGeneration(key)
         } else {
             retire(key)
         }
+        return true
     }
 
     mutating func requestIntentionalClose(
