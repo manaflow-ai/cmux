@@ -160,13 +160,17 @@ struct MobileShellRouteSelection: Sendable {
         preserving sourceRoute: CmxAttachRoute?,
         isPhysicalDevice: Bool? = nil
     ) throws -> CmxAttachRoute {
-        if let sourceRoute,
-           case let .hostPort(sourceHost, sourcePort) = sourceRoute.endpoint,
-           sourcePort == port,
-           routeAuthPolicy.normalizedManualRouteHost(sourceHost) == routeAuthPolicy.normalizedManualRouteHost(host) {
+        let inferredRoute = try manualHostRoute(host: host, port: port, isPhysicalDevice: isPhysicalDevice)
+        guard let sourceRoute,
+              case let .hostPort(sourceHost, sourcePort) = sourceRoute.endpoint,
+              sourcePort == port,
+              routeAuthPolicy.normalizedManualRouteHost(sourceHost) == routeAuthPolicy.normalizedManualRouteHost(host) else {
+            return inferredRoute
+        }
+        if sourceRoute.kind == .manualHost || sourceRoute.kind == inferredRoute.kind {
             return sourceRoute
         }
-        return try manualHostRoute(host: host, port: port, isPhysicalDevice: isPhysicalDevice)
+        return inferredRoute
     }
 
     func supportedRoutes(

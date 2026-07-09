@@ -115,6 +115,49 @@ import Testing
         #expect(await router.count(of: "workspace.list") >= 1)
     }
 
+    @Test func newPairingURLSupersedesPendingManualHostSwitchApproval() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let manualRoute = try hostPortRoute(kind: .manualHost, host: "192.168.89.1")
+        try await pairedMacStore.upsert(
+            macDeviceID: "manual-mac",
+            displayName: "Manual Mac",
+            routes: [manualRoute],
+            markActive: false,
+            stackUserID: "phone-user",
+            teamID: nil,
+            now: Date()
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+            now: { Date() },
+            supportedRouteKinds: [.manualHost],
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            workspaces: [],
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            reachability: AlwaysOnlineReachability(),
+            manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+        )
+        store.signIn()
+        await store.loadPairedMacs()
+
+        let switched = await store.switchToMac(macDeviceID: "manual-mac")
+        let supersedingResult = await store.connectPairingURLResult("not a cmux pairing url")
+
+        #expect(!switched)
+        #expect(supersedingResult == .failed)
+        #expect(store.manualHostTrustWarning == nil)
+        #expect(!store.isMacSwitchInFlight)
+    }
+
     @Test func tailscaleLookingStoredManualHostStillRequiresApprovalBeforeReconnect() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -26,6 +26,8 @@ public struct MobileSection: View {
     @State private var applyResult: MobilePairingPortApplyResult?
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
+    /// User's in-progress manual-host edit. `nil` tracks the persisted setting.
+    @State private var editedManualHost: String?
 
     /// Host bridge: opens the pairing window, applies the port (availability
     /// checked), and supplies the live pairing status and default display name.
@@ -70,11 +72,23 @@ public struct MobileSection: View {
     }
 
     private var trimmedManualHost: String {
+        draftManualHost.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var draftManualHost: String {
+        editedManualHost ?? manualHost.current
+    }
+
+    private var persistedManualHost: String {
         manualHost.current.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var isManualHostValid: Bool {
         manualHostAdvertisability.isAdvertisable(trimmedManualHost)
+    }
+
+    private var canApplyManualHost: Bool {
+        isManualHostValid && trimmedManualHost != persistedManualHost
     }
 
     /// The Mobile settings section content.
@@ -280,14 +294,22 @@ public struct MobileSection: View {
                 localized: "settings.mobile.manualHost.subtitle",
                 defaultValue: "Optional LAN IP or DNS host to advertise when this Mac cannot run Tailscale."
             ),
-            controlWidth: Self.columnWidth
+            controlWidth: Self.columnWidth + 68
         ) {
-            TextField(
-                String(localized: "settings.mobile.manualHost.placeholder", defaultValue: "192.168.1.23 or mac.local"),
-                text: Binding(get: { manualHost.current }, set: { manualHost.set($0) })
-            )
-            .textFieldStyle(.roundedBorder)
-            .accessibilityIdentifier("SettingsMobilePairingManualHostField")
+            HStack(spacing: 8) {
+                TextField(
+                    String(localized: "settings.mobile.manualHost.placeholder", defaultValue: "192.168.1.23 or mac.local"),
+                    text: Binding(get: { draftManualHost }, set: { editedManualHost = $0 })
+                )
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("SettingsMobilePairingManualHostField")
+                .onSubmit { applyManualHostIfNeeded() }
+
+                Button(String(localized: "settings.mobile.port.apply", defaultValue: "Apply")) {
+                    applyManualHostIfNeeded()
+                }
+                .disabled(!canApplyManualHost)
+            }
         }
     }
 
@@ -334,6 +356,12 @@ public struct MobileSection: View {
             .textFieldStyle(.roundedBorder)
             .accessibilityIdentifier("SettingsMobilePairingDisplayNameField")
         }
+    }
+
+    private func applyManualHostIfNeeded() {
+        guard canApplyManualHost else { return }
+        manualHost.set(trimmedManualHost)
+        editedManualHost = nil
     }
 
     /// Read-only connection count and the reachable routes the phone can use.

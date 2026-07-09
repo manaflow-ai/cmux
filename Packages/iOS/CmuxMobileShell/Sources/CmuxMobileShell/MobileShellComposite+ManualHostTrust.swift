@@ -8,6 +8,14 @@ extension MobileShellComposite {
         pendingManualHostTrust = nil
     }
 
+    func clearSupersededManualHostTrustWarning() {
+        let pending = pendingManualHostTrust
+        clearManualHostTrustWarning()
+        if let pending {
+            finishPendingManualHostSwitchAttempt(pending)
+        }
+    }
+
     func manualHostTrustScope(for route: CmxAttachRoute?) -> MobileManualHostTrustScope? {
         guard let route,
               MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(route) else {
@@ -63,6 +71,10 @@ extension MobileShellComposite {
         }
         clearPairingError()
         clearPairingVersionWarning()
+        if let currentPending = pendingManualHostTrust,
+           currentPending.attemptID != pending.attemptID {
+            finishPendingManualHostSwitchAttempt(currentPending)
+        }
         pendingManualHostTrust = pending
         manualHostTrustWarning = MobileManualHostTrustWarning(
             scope: scope,
@@ -99,6 +111,7 @@ extension MobileShellComposite {
                 pairedMacDeviceID: pairedMacDeviceID,
                 recordsPairingAttempt: recordsPairingAttempt,
                 route: route,
+                approvedManualRouteID: route.id,
                 ifStillCurrent: ifStillCurrent
             )
             finishPendingManualHostSwitchAttempt(pending)

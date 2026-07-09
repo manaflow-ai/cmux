@@ -185,7 +185,7 @@ import Testing
         #expect(await store.isTrusted(differentAccount) == false)
     }
 
-    @Test func userDefaultsManualHostTrustExpiresApproval() async throws {
+    @Test func userDefaultsManualHostTrustIsSessionScopedAndExpires() async throws {
         let suiteName = "cmux-manual-host-trust-\(UUID().uuidString)"
         defer {
             UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -199,18 +199,28 @@ import Testing
         let writer = UserDefaultsMobileManualHostTrustStore(
             suiteName: suiteName,
             key: key,
+            sessionIdentifier: "session-a",
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_000) }
         )
         let stillValidReader = UserDefaultsMobileManualHostTrustStore(
             suiteName: suiteName,
             key: key,
+            sessionIdentifier: "session-a",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_059) }
+        )
+        let differentSessionReader = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-b",
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_059) }
         )
         let expiredReader = UserDefaultsMobileManualHostTrustStore(
             suiteName: suiteName,
             key: key,
+            sessionIdentifier: "session-a",
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_061) }
         )
@@ -218,6 +228,7 @@ import Testing
         await writer.trust(scope)
 
         #expect(await stillValidReader.isTrusted(scope))
+        #expect(await differentSessionReader.isTrusted(scope) == false)
         #expect(await expiredReader.isTrusted(scope) == false)
     }
 

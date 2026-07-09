@@ -1094,7 +1094,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
-        clearManualHostTrustWarning()
+        clearSupersededManualHostTrustWarning()
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
         // below) so the per-terminal draft hooks do not write partial state into a
@@ -1214,7 +1214,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         secondaryAggregationScopeGeneration &+= 1
-        clearManualHostTrustWarning()
+        clearSupersededManualHostTrustWarning()
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -1464,6 +1464,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
+                await self.manualHostTrustStore.removeAll()
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -1595,6 +1596,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
         route: CmxAttachRoute? = nil,
+        approvedManualRouteID: String? = nil,
         pendingMacSwitchAttemptID: UUID? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> MobilePairingURLConnectionResult {
@@ -1626,11 +1628,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let directRoute = try? routeSelection.manualHostRoute(host: normalizedHost, port: port, preserving: route)
+        let directRouteIsApproved = approvedManualRouteID != nil && directRoute?.id == approvedManualRouteID
         let approvalAttemptID = beginPairingValidationAttempt()
         if let directRoute {
             let needsApproval = await manualHostRouteNeedsApproval(directRoute)
             guard isCurrentPairingAttempt(approvalAttemptID) else { return .superseded }
-            if needsApproval {
+            if needsApproval && !directRouteIsApproved {
                 queueManualHostTrustWarning(
                     route: directRoute,
                     displayHost: normalizedHost,
@@ -1670,7 +1673,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             guard ifStillCurrent?() != false else { return .superseded }
-            let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
+            let manualHostTrusted = directRouteIsApproved
+                ? true
+                : await manualHostStackAuthTrusted(for: directRoute)
             guard isCurrentPairingAttempt(attemptID), ifStillCurrent?() != false else { return .superseded }
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -1734,6 +1739,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
+        await manualHostTrustStore.removeAll()
         // Claim this attempt's generation. Only the current generation may resolve
         // the restoring-gate flags, so an older superseded attempt can't clear the
         // gate (or clobber the hint) while a newer reconnect is still running.
@@ -3150,7 +3156,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         clearPairingError()
         clearPairingVersionWarning()
-        clearManualHostTrustWarning()
+        clearSupersededManualHostTrustWarning()
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
@@ -3299,10 +3305,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         invalidatePairingAttempt()
         clearPairingError()
         let hadBlockingPrompt = pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil || manualHostTrustWarning != nil
-        let pendingSwitchAttemptID = pendingManualHostTrust?.macSwitchAttemptID
         clearPairingVersionWarning()
-        clearManualHostTrustWarning()
-        if let pendingSwitchAttemptID { finishMacSwitchAttempt(pendingSwitchAttemptID) }
+        clearSupersededManualHostTrustWarning()
         if hadBlockingPrompt, hasActiveMacConnection { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable

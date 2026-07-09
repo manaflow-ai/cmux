@@ -88,6 +88,17 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(route))
     }
 
+    @Test func legacyLANRouteStoredAsTailscaleBecomesManualHost() throws {
+        let route = try MobileShellRouteSelection().manualHostRoute(
+            host: "192.168.1.77",
+            port: 50906,
+            preserving: legacyLANStoredAsTailscale()
+        )
+
+        #expect(route.kind == .manualHost)
+        #expect(route.endpoint == .hostPort(host: "192.168.1.77", port: 50906))
+    }
+
     @Test func reconnectCandidatesKeepFallbackRoutesAfterPreferredRoute() throws {
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
             [try loopback(), try tailscale()],
