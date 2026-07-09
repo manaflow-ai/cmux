@@ -7,10 +7,11 @@ import WebKit
 /// native `WKWebExtensionController` API (macOS 15.4+).
 ///
 /// One shared controller (persistent storage keyed by a fixed identifier) is attached
-/// to every browser `WKWebViewConfiguration`. Extensions are discovered from:
+/// to every browser `WKWebViewConfiguration`. Extensions come from:
+/// - the `browser.webExtensions` entries in cmux settings (managed in
+///   Settings → Browser → Extensions), and
 /// - directories listed in the `CMUX_BROWSER_EXTENSIONS` environment variable
-///   (colon-separated paths to unpacked extensions or `.appex` bundles), and
-/// - the Bitwarden desktop app's bundled Safari web extension, when installed.
+///   (colon-separated paths to unpacked extensions or `.appex` bundles).
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionSupport: NSObject, ObservableObject {
@@ -19,11 +20,6 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
     /// Fixed identifier so extension storage (e.g. the Bitwarden vault cache)
     /// persists across app launches.
     private static let controllerIdentifier = UUID(uuidString: "8C0FDE2B-6EFD-4E8C-9E70-8E7D0A4C51B7")!
-
-    /// Bundled Safari web extension inside the Bitwarden desktop app.
-    private static let bitwardenAppexURL = URL(
-        fileURLWithPath: "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
-    )
 
     let controller: WKWebExtensionController
 
@@ -67,8 +63,6 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
 
     // MARK: - Settings-driven loading
 
-    private static let didSeedDefaultsKey = "browserWebExtensionsDidSeedDefaults"
-
     /// Starts observing `browser.webExtensions` and keeps loaded extensions in
     /// sync: newly enabled entries load, disabled/removed entries unload.
     /// Called once from app startup so extensions begin loading before the
@@ -77,45 +71,10 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
         guard settingsObservationTask == nil else { return }
         let key = catalog.browser.webExtensions
         settingsObservationTask = Task { @MainActor [weak self] in
-            var isFirstValue = true
             for await entries in jsonStore.values(for: key) {
                 guard let self else { return }
-                if isFirstValue {
-                    isFirstValue = false
-                    if await self.seedDefaultsIfNeeded(current: entries, store: jsonStore, key: key) {
-                        continue // the seeded value arrives as the next stream element
-                    }
-                }
                 await self.apply(entries: entries)
             }
-        }
-    }
-
-    /// Grandfathers the pre-settings behavior exactly once: if the user has
-    /// never configured extensions and the Bitwarden desktop app is installed,
-    /// enable its Safari extension so an existing setup keeps working.
-    private func seedDefaultsIfNeeded(
-        current: [BrowserWebExtensionEntry],
-        store: JSONConfigStore,
-        key: JSONKey<[BrowserWebExtensionEntry]>
-    ) async -> Bool {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: Self.didSeedDefaultsKey) else { return false }
-        defaults.set(true, forKey: Self.didSeedDefaultsKey)
-        guard current.isEmpty,
-              FileManager.default.fileExists(atPath: Self.bitwardenAppexURL.path) else { return false }
-        let seeded = BrowserWebExtensionEntry(
-            id: "com.bitwarden.desktop.safari",
-            kind: .safariAppExtension,
-            path: Self.bitwardenAppexURL.path,
-            enabled: true,
-            displayName: "Bitwarden"
-        )
-        do {
-            try await store.set([seeded], for: key)
-            return true
-        } catch {
-            return false
         }
     }
 
