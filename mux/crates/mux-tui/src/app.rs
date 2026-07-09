@@ -445,7 +445,9 @@ fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Op
     let configured_max =
         if config.sidebar.max_width > 0 { config.sidebar.max_width } else { u16::MAX };
     let effective_max = terminal_max.min(configured_max);
-    (effective_max >= 10).then_some(desired.clamp(10, effective_max))
+    // then_some would evaluate clamp(10, effective_max) eagerly and panic when
+    // effective_max < 10 (terminal narrower than 50 columns).
+    (effective_max >= 10).then(|| desired.clamp(10, effective_max))
 }
 
 fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16) -> Option<u16> {
@@ -2696,6 +2698,18 @@ mod tests {
     use crate::config::{Config, ScrollbarPosition};
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
+
+    #[test]
+    fn sidebar_width_hides_without_panicking_on_narrow_terminals() {
+        // SSH gateways (e.g. Freestyle's) can report width 0 until the first
+        // window-change arrives, and users can shrink real terminals below 50
+        // columns; the sidebar must hide, not panic in clamp().
+        let config = Config::default();
+        for width in [0u16, 1, 39, 49] {
+            assert_eq!(super::sidebar_width_for(&config, true, width, None), 0);
+        }
+        assert!(super::sidebar_width_for(&config, true, 120, None) >= 10);
+    }
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
