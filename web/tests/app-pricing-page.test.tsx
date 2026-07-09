@@ -118,6 +118,22 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
+  test("removes external purchase links in App Store distribution mode", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_distribution: "appstore",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).not.toContain("/api/billing/checkout");
+    expect(html).not.toContain("checkout.stripe.com");
+    expect(html).not.toContain("/api/billing/portal");
+    expect(html).toContain("Billing is not available right now. Please try again later.");
+  });
+
   test("renders the external billing note without a portal link for Stack Pro users", async () => {
     stackConfigured = true;
     currentUser = proUser;
@@ -131,6 +147,28 @@ describe("app pricing page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).not.toContain('href="/api/billing/portal"');
+    expect(html).toContain(
+      "Your subscription is managed by our previous billing system. Contact support to make changes.",
+    );
+    expect(html).toContain("Current plan");
+  });
+
+  test("hides Stripe billing management in App Store distribution mode", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    stripeSubscriptionRows = [{ id: "sub_123" }];
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_distribution: "appstore",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).not.toContain('href="/api/billing/portal"');
+    expect(html).not.toContain("Manage billing");
     expect(html).toContain(
       "Your subscription is managed by our previous billing system. Contact support to make changes.",
     );

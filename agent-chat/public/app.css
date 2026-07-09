@@ -95,7 +95,6 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   position: relative; width: min(660px, 100%);
   background: var(--bg-input); border: 0; border-radius: 16px;
   padding: 6px; display: flex; flex-direction: column;
-  box-shadow: 0 1px 3px rgba(0,0,0,.18);
 }
 #prompt-input {
   width: 100%; background: transparent; border: 0; outline: none; resize: none;
@@ -182,6 +181,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .menu-item .mi-check { margin-left: auto; display: inline-flex; color: var(--accent); }
 .cmdk { min-width: 240px; }
 .cmdk-list { max-height: inherit; overflow-y: auto; }
+.cmdk-group [cmdk-group-items] { display: grid; gap: 1px; }
 .cmdk-search {
   display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); color: var(--text-faint);
@@ -239,7 +239,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   font: 400 calc(var(--font-size-base) - 1.5px) var(--font-sans);
 }
 .model-picker-list {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 6px;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 1px;
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
 .model-row {
@@ -254,11 +254,12 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .model-row-tooltip-wrap { display: block; }
 .model-picker-empty { padding: 20px 10px; color: var(--text-faint); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans); text-align: center; }
 .select-positioner, .menu { z-index: 30; }
+.tooltip-positioner { z-index: 90; }
 .option-menu { max-width: min(520px, 92vw); max-height: 320px; overflow-y: auto; }
 .tooltip {
   display: flex; align-items: center; gap: 18px; min-height: 28px; padding: 6px 9px;
   border-radius: 8px; background: rgba(20,20,24,.96); color: #f3f3f5;
-  box-shadow: 0 8px 24px rgba(0,0,0,.45); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans); z-index: 80;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans); z-index: 90;
   transform-origin: var(--transform-origin);
   transition: opacity 80ms ease-in, transform 80ms ease-in;
   will-change: opacity, transform;
@@ -413,24 +414,17 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .code-copy:hover { color: var(--text); background: var(--bg-hover); }
 
 .disclosure-motion {
-  display: grid;
-  grid-template-rows: 0fr;
+  display: block;
+  height: 0;
   opacity: 0;
   overflow: hidden;
-  transition:
-    grid-template-rows 120ms ease-in,
-    opacity 80ms ease-in;
 }
 .disclosure-motion[data-open="true"] {
-  grid-template-rows: 1fr;
   opacity: 1;
-  transition:
-    grid-template-rows 160ms ease-out,
-    opacity 110ms ease-out 35ms;
 }
 .disclosure-motion-inner {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .activity-caret-icon {
   display: block;
@@ -645,6 +639,9 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   .activity-caret-icon {
     transition: none !important;
   }
+  .disclosure-motion[data-open="true"] .turn-activity-list > .turn-activity-item {
+    animation: none;
+  }
 }
 
 @container (max-width: 520px) {
@@ -721,7 +718,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   display: flex; flex-direction: column; gap: 24px;
 }
 .gallery-card {
-  background: var(--bg-input); border-radius: 14px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.18);
+  background: var(--bg-input); border-radius: 14px; padding: 10px;
 }
 .gallery-card.compact { padding: 5px; }
 .gallery-viewports {

@@ -3462,6 +3462,9 @@
       }
     }
   },
+  "pricing": {
+    "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

@@ -3,7 +3,7 @@ use std::ptr;
 use ghostty_vt_sys as sys;
 
 use crate::terminal::Terminal;
-use crate::{check, Result};
+use crate::{Result, check};
 
 /// Key press/release/repeat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -11,7 +11,7 @@ mod terminal;
 /// Raw bindings, re-exported for key/mode constants.
 pub use ghostty_vt_sys as sys;
 
-pub use key::{key_input_from_chord, KeyAction, KeyEncoder, KeyInput, Mods};
+pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
 pub use render::{Cell, ColorSpec, CursorInfo, CursorShape, Dirty, RenderState};
 pub use terminal::{Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal};
 
