@@ -3948,7 +3948,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    private func normalizePinnedTabs(in paneId: PaneID) -> Bool {
+    private func normalizePinnedTabs(
+        in paneId: PaneID,
+        beforeMirrorRollback: () -> Void = {}
+    ) -> Bool {
         guard !isNormalizingPinnedTabOrder else { return true }
         isNormalizingPinnedTabOrder = true
         defer { isNormalizingPinnedTabOrder = false }
@@ -3967,7 +3970,10 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror, desiredOrder.map(\.id) != tabs.map(\.id) {
             let desiredPanelOrder = desiredOrder.compactMap { panelIdFromSurfaceId($0.id) }
             guard desiredPanelOrder.count == desiredOrder.count else { return false }
-            return performRemoteTmuxMirrorOrderMutation(in: paneId) {
+            return performRemoteTmuxMirrorOrderMutation(
+                in: paneId,
+                beforeRollback: beforeMirrorRollback
+            ) {
                 reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
             }
         }
@@ -4138,9 +4144,12 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else { return }
         bonsplitController.updateTab(tabId, isPinned: pinned)
-        guard normalizePinnedTabs(in: paneId) else {
+        let restorePinState = {
             if wasPinned { pinnedPanelIds.insert(panelId) } else { pinnedPanelIds.remove(panelId) }
             bonsplitController.updateTab(tabId, isPinned: wasPinned)
+        }
+        guard normalizePinnedTabs(in: paneId, beforeMirrorRollback: restorePinState) else {
+            restorePinState()
             return
         }
     }

@@ -266,11 +266,14 @@ struct RemoteTmuxMirrorTargetingTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
-        let secondPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+        guard let secondPanel = workspace.addRemoteTmuxDisplayPane(
             remotePaneId: 2,
             title: "two",
             onInput: { _ in }
-        ))
+        ) else {
+            Issue.record("Expected a second mirror panel")
+            return
+        }
         workspace.isRemoteTmuxMirror = true
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
         let selectedTabBefore = workspace.bonsplitController.selectedTab(inPane: paneId)?.id
@@ -300,9 +303,12 @@ struct RemoteTmuxMirrorTargetingTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
-        let secondPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+        guard let secondPanel = workspace.addRemoteTmuxDisplayPane(
             remotePaneId: 2, title: "two", onInput: { _ in }
-        ))
+        ) else {
+            Issue.record("Expected a second mirror panel")
+            return
+        }
         workspace.isRemoteTmuxMirror = true
         var requestedPanelOrder: [UUID]?
         workspace.remoteTmuxWindowOrderSync = { requestedPanelOrder = $0; return true }
@@ -320,9 +326,12 @@ struct RemoteTmuxMirrorTargetingTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
-        let secondPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+        guard let secondPanel = workspace.addRemoteTmuxDisplayPane(
             remotePaneId: 2, title: "two", onInput: { _ in }
-        ))
+        ) else {
+            Issue.record("Expected a second mirror panel")
+            return
+        }
         workspace.isRemoteTmuxMirror = true
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
         workspace.remoteTmuxWindowOrderSync = { _ in false }

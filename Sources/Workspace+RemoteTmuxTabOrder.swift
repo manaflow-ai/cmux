@@ -28,6 +28,7 @@ extension Workspace {
     /// Applies one optimistic mirror order mutation and rolls it back if tmux rejects it.
     func performRemoteTmuxMirrorOrderMutation(
         in paneId: PaneID,
+        beforeRollback: () -> Void = {},
         _ mutation: () -> Bool
     ) -> Bool {
         let tabs = bonsplitController.tabs(inPane: paneId)
@@ -40,6 +41,7 @@ extension Workspace {
             }
             guard desiredPanelOrder.count == tabs.count,
                   remoteTmuxWindowOrderSync?(desiredPanelOrder) == true else {
+                beforeRollback()
                 _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: previousPanelOrder)
                 return false
             }
