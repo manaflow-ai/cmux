@@ -44,6 +44,11 @@ let package = Package(
             dependencies: ["CmuxMobileTerminal"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+            ],
+            // GhosttyKit's static lib carries C++ objects (glslang); the
+            // standalone xctest bundle must link the C++ runtime itself.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
     ]
