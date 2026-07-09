@@ -199,7 +199,7 @@ extension GhosttySurfaceView {
                 )
                 self.resumePausedRenderPipelineRecoveryIfPossible()
                 #if DEBUG
-                self.recoveryStressFreeDrainObserver?(self.recoveryStressSnapshot())
+                GhosttySurfaceView.RecoveryStressObservers.notifyFreeDrain(self)
                 #endif
             }
         }

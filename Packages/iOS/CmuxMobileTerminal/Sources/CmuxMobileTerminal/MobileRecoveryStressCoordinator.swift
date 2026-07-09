@@ -35,16 +35,18 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
 
     func start() {
         guard scenarioTask == nil else { return }
-        surfaceView?.recoveryStressFreeDrainObserver = { [weak self] snapshot in
-            guard let self else { return }
-            let monitor = self.monitor
-            let clock = self.clock
-            Task {
-                await monitor.recordFreeDrain(
-                    pendingFrees: snapshot.pendingSurfaceFreeCount,
-                    now: clock.now
-                )
-            }
+        if let surfaceView {
+            GhosttySurfaceView.RecoveryStressObservers.set({ [weak self] snapshot in
+                guard let self else { return }
+                let monitor = self.monitor
+                let clock = self.clock
+                Task {
+                    await monitor.recordFreeDrain(
+                        pendingFrees: snapshot.pendingSurfaceFreeCount,
+                        now: clock.now
+                    )
+                }
+            }, for: surfaceView)
         }
         heartbeatTask = Task { @MainActor [weak self] in
             await self?.runHeartbeat()
@@ -58,7 +60,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
     }
 
     func stop() {
-        surfaceView?.recoveryStressFreeDrainObserver = nil
+        if let surfaceView { GhosttySurfaceView.RecoveryStressObservers.set(nil, for: surfaceView) }
         scenarioTask?.cancel()
         heartbeatTask?.cancel()
         watchdogTask?.cancel()

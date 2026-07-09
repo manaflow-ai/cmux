@@ -137,9 +137,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     var outputQueueGeneration: UInt64 = 0
     var pendingSurfaceFreeCount = 0
-    #if DEBUG
-    var recoveryStressFreeDrainObserver: (@MainActor @Sendable (RecoveryStressSnapshot) -> Void)?
-    #endif
     var renderPipelineRecoveryPaused = false
     var renderPipelineRecoveryResumeTimer: (any DispatchSourceTimer)?
     var renderPipelineRecoveryPausedAt: CFTimeInterval?
@@ -2357,20 +2354,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         bridge: GhosttySurfaceBridge,
-        generation: UInt64,
-        on queue: GhosttySurfaceWorkQueue,
+        generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
-        // weak: a wedged free must not keep the whole view alive with it.
         queue.async { [weak self] in
             ghostty_surface_free(surface)
             retainedBridge.release()
-            Task { @MainActor in
-                self?.surfaceFreeDrainWatchdog.cancel(generation: generation)
-                completion?()
-            }
+            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
         }
     }
 

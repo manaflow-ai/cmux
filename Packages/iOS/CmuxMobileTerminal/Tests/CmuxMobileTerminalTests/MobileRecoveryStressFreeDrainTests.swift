@@ -25,7 +25,7 @@ struct MobileRecoveryStressFreeDrainTests {
         let delegate: Delegate
 
         func tearDown() {
-            view.recoveryStressFreeDrainObserver = nil
+            GhosttySurfaceView.RecoveryStressObservers.set(nil, for: view)
             view.prepareForDismantle()
             view.removeFromSuperview()
             window.isHidden = true
@@ -81,9 +81,9 @@ struct MobileRecoveryStressFreeDrainTests {
     private func waitForFreeDrain(afterForcingRecoveryOn view: GhosttySurfaceView) async -> Bool {
         let stream = AsyncStream<GhosttySurfaceView.RecoveryStressSnapshot> { continuation in
             Task { @MainActor in
-                view.recoveryStressFreeDrainObserver = { snapshot in
+                GhosttySurfaceView.RecoveryStressObservers.set({ snapshot in
                     continuation.yield(snapshot)
-                }
+                }, for: view)
             }
         }
 
@@ -114,7 +114,7 @@ struct MobileRecoveryStressFreeDrainTests {
 
             let result = await group.next() ?? false
             group.cancelAll()
-            view.recoveryStressFreeDrainObserver = nil
+            GhosttySurfaceView.RecoveryStressObservers.set(nil, for: view)
             return result
         }
     }
