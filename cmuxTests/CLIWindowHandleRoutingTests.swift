@@ -88,17 +88,17 @@ struct CLIWindowHandleRoutingTests {
         process.standardOutput = outputPipe
         process.standardError = outputPipe
 
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exited.signal()
+        }
+
         do {
             try process.run()
         } catch {
             return ProcessResult(status: -1, output: String(describing: error), timedOut: false)
         }
 
-        let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
         let timedOut = exited.wait(timeout: .now() + 5) == .timedOut
         if timedOut {
             process.terminate()
