@@ -8,6 +8,7 @@ import {
 } from "./entitlements";
 import {
   isVmBillingError,
+  isVmAccountDeletionInProgressError,
   isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
@@ -257,6 +258,17 @@ export function vmRequiresProResponse(): Response {
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  if (isVmAccountDeletionInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "account_deletion_in_progress",
+      status: 409,
+      message: "Account deletion is in progress.",
+      action: "Wait for account deletion to finish before creating Cloud VMs.",
+      phase: workflowError.phase ?? "create",
+      retryable: true,
+    });
+  }
+
   if (isVmCreateDisabledError(workflowError)) {
     return vmErrorResponse({
       error: "vm_create_disabled",

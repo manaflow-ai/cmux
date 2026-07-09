@@ -137,6 +137,7 @@ const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const {
+  VmAccountDeletionInProgressError,
   VmCreateCreditsInsufficientError,
   VmCreateDisabledError,
   VmCreateFailedError,
@@ -1259,7 +1260,7 @@ describe("VM REST auth", () => {
     rejectRunVmWorkflowWith(
       new VmCreateDisabledError({
         provider: "freestyle",
-        reason: "Account deletion is in progress.",
+        reason: "Cloud VM creation is disabled.",
       }),
     );
 
@@ -1275,11 +1276,41 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      reason: "Account deletion is in progress.",
+      reason: "Cloud VM creation is disabled.",
       phase: "create",
     });
     expectNoCloudVmImplementationLeaks(payload);
     expect(payload.action).toContain("enable Cloud VM creation");
+    expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("maps workflow account deletion blocks without environment-disabled guidance", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmAccountDeletionInProgressError({
+        provider: "freestyle",
+        phase: "create",
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "account_deletion_in_progress",
+      phase: "create",
+      retryable: true,
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("account deletion");
+    expect(payload.action).not.toContain("enable Cloud VM creation");
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 

@@ -23,6 +23,7 @@ import {
 } from "../services/vms/repository";
 import {
   VmCreateCreditsInsufficientError,
+  VmAccountDeletionInProgressError,
   VmAccountDeletionIdentityRevocationError,
   VmCreateFailedError,
   VmCreateInProgressError,
@@ -1846,10 +1847,7 @@ describe("VM Effect workflows", () => {
         throw new Error("expected Base VM creation to be blocked");
       } catch (error) {
         const workflowError = vmWorkflowErrorCause(error) ?? error;
-        expect(isVmCreateDisabledError(workflowError)).toBe(true);
-        if (isVmCreateDisabledError(workflowError)) {
-          expect(workflowError.reason).toBe("Account deletion is in progress.");
-        }
+        expect(workflowError).toBeInstanceOf(VmAccountDeletionInProgressError);
       }
     }
 

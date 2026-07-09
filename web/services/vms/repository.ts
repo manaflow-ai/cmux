@@ -23,8 +23,10 @@ import type { ProviderId } from "./drivers";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
+  VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  isVmAccountDeletionInProgressError,
   isVmCreateDisabledError,
   isVmLimitExceededError,
 } from "./errors";
@@ -86,7 +88,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -97,7 +99,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly baseName?: string;
-  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -109,7 +111,7 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
     readonly baseName?: string;
     readonly reason?: string | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -270,9 +272,9 @@ async function assertAccountVmCreateAllowed(
     .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
     .limit(1);
   if (deletion?.userIdHash !== userIdHash || !isBlockingAccountDeletionStatus(deletion.status)) return;
-  throw new VmCreateDisabledError({
+  throw new VmAccountDeletionInProgressError({
     provider: input.provider,
-    reason: "Account deletion is in progress.",
+    phase: "create",
   });
 }
 
@@ -519,7 +521,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
     }),
@@ -724,7 +726,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -889,7 +891,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           };
         });
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),

@@ -35,6 +35,11 @@ export class VmCreateDisabledError extends Data.TaggedError("VmCreateDisabledErr
   readonly reason: string;
 }> {}
 
+export class VmAccountDeletionInProgressError extends Data.TaggedError("VmAccountDeletionInProgressError")<{
+  readonly provider?: ProviderId;
+  readonly phase?: "create";
+}> {}
+
 export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly provider: ProviderId;
   readonly image?: string;
@@ -73,6 +78,7 @@ export type VmWorkflowError =
   | VmCreateInProgressError
   | VmCreateFailedError
   | VmCreateDisabledError
+  | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
@@ -97,6 +103,12 @@ export function isVmCreateFailedError(err: unknown): err is VmCreateFailedError 
 
 export function isVmCreateDisabledError(err: unknown): err is VmCreateDisabledError {
   return (err as { _tag?: string } | null)?._tag === "VmCreateDisabledError";
+}
+
+export function isVmAccountDeletionInProgressError(
+  err: unknown,
+): err is VmAccountDeletionInProgressError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccountDeletionInProgressError";
 }
 
 export function isVmImageConfigError(err: unknown): err is VmImageConfigError {
@@ -136,6 +148,7 @@ const vmWorkflowErrorTags = new Set([
   "VmCreateInProgressError",
   "VmCreateFailedError",
   "VmCreateDisabledError",
+  "VmAccountDeletionInProgressError",
   "VmImageConfigError",
   "VmLimitExceededError",
   "VmCreateCreditsInsufficientError",
