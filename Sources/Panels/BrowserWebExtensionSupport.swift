@@ -52,9 +52,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     weak var pendingPopupAnchorView: NSView?
 
-    @ObservationIgnored
-    var nativeMessageDropCount = 0
-
     override init() {
         let configuration = WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
         // Extension-owned web views (background page, action popup) get WebKit's
