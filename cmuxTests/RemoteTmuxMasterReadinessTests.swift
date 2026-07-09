@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 import Testing
 
 #if canImport(cmux_DEV)
