@@ -4098,6 +4098,23 @@
         }
       }
     },
+    "mobile.settings.altScreenNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-Screen Sizing Notice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全画面サイズ通知"
+          }
+        }
+      }
+    },
     "mobile.settings.previewLines": {
       "extractionState": "manual",
       "localizations": {

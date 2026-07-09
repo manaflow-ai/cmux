@@ -32,10 +32,8 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
-    /// Shared dismissal state for the alternate-screen sizing notice, owned by
-    /// the navigation root so every detail view sees one source of truth.
-    let altScreenNotice: AltScreenNoticeState
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -134,9 +132,11 @@ struct WorkspaceDetailView: View {
         }
         if let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
-           !altScreenNotice.dismissed {
+           displaySettings.showAltScreenNotice {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
-                AltScreenNoticeButton(dismissNotice: altScreenNotice.dismiss)
+                AltScreenNoticeButton {
+                    displaySettings.showAltScreenNotice = false
+                }
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {

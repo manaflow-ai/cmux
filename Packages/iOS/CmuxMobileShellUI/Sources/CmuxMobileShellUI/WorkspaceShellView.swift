@@ -28,9 +28,6 @@ struct WorkspaceShellView: View {
     @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    /// One dismissal source of truth for the alternate-screen sizing notice,
-    /// shared by every workspace detail view in this navigation tree.
-    @State private var altScreenNotice = AltScreenNoticeState()
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -396,8 +393,7 @@ struct WorkspaceShellView: View {
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
-            signOut: signOut,
-            altScreenNotice: altScreenNotice
+            signOut: signOut
         )
     }
 }

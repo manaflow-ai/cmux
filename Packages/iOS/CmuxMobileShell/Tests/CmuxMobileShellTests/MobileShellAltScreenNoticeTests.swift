@@ -33,23 +33,6 @@ import Testing
         #expect(store.isAlternateScreen(surfaceID: "surface-a") == false)
     }
 
-    @Test func dismissedFlagPersistsAcrossStoreInstances() {
-        let suiteName = "altscreen-dismissed-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
-        let firstState = AltScreenNoticeState(defaults: defaults)
-        #expect(firstState.dismissed == false)
-
-        firstState.dismiss()
-        #expect(firstState.dismissed)
-
-        let secondState = AltScreenNoticeState(defaults: defaults)
-        #expect(secondState.dismissed)
-    }
-
     private static func makeStore(defaults: UserDefaults) -> MobileShellComposite {
         return MobileShellComposite(
             clientIDRepository: MobileClientIDRepository(defaults: defaults),
