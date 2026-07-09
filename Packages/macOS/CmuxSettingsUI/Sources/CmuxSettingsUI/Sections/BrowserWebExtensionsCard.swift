@@ -146,13 +146,11 @@ struct BrowserWebExtensionsCard: View {
     private func setEnabled(_ enabled: Bool, id: String) {
         var entries = model.current
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let targetPath = standardizedPath(entries[index].path)
         entries[index].enabled = enabled
-        if enabled {
-            let targetPath = standardizedPath(entries[index].path)
-            for candidateIndex in entries.indices where candidateIndex != index {
-                if standardizedPath(entries[candidateIndex].path) == targetPath {
-                    entries[candidateIndex].enabled = false
-                }
+        for candidateIndex in entries.indices where candidateIndex != index {
+            if standardizedPath(entries[candidateIndex].path) == targetPath {
+                entries[candidateIndex].enabled = false
             }
         }
         model.set(entries)
@@ -237,11 +235,8 @@ struct BrowserWebExtensionsCard: View {
         )
         let displayName = entry.displayName ?? (entry.path as NSString).lastPathComponent
         alert.informativeText = String(
-            format: String(
-                localized: "settings.browser.webExtensions.duplicate.message",
-                defaultValue: "“%@” is already in the extensions list."
-            ),
-            displayName
+            localized: "settings.browser.webExtensions.duplicate.message",
+            defaultValue: "“\(displayName)” is already in the extensions list."
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
