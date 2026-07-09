@@ -298,6 +298,12 @@ extension TerminalSurface {
 
         let fontFloor = min(baseFont, MobileViewportFitGeometry.defaultFontFloorPointSize)
         if currentFont > fontFloor + 0.001 {
+            // This force-to-floor step can be the first font change of the fit
+            // (every earlier apply may have been skipped or broken out of), so
+            // it must capture the restore point like the loop branches do.
+            if mobileFitBaseFontPointSize == nil {
+                mobileFitBaseFontPointSize = baseFont
+            }
             guard applyMobileViewportFontPointSize(fontFloor) else {
                 let fallback = geometry.cappedFallbackGrant(grantedColumns: grantedColumns, grantedRows: grantedRows)
                 return .fallback(width: fallback.width, height: fallback.height, columns: fallback.columns, rows: fallback.rows, grant: appliedBox, baseFont: baseFont, currentFont: currentFont, fontChanged: fontChanged)
@@ -415,7 +421,12 @@ extension TerminalSurface {
             mobileFittedFontPointSize = nil
             return false
         }
-        applyMobileViewportFontPointSize(baseFont)
+        guard applyMobileViewportFontPointSize(baseFont) else {
+            // Keep the fit state when the binding action fails so a later
+            // clear or fit pass can retry; dropping it here would leave the
+            // pane at the shrunken font with no way back to the base size.
+            return false
+        }
         mobileFitBaseFontPointSize = nil
         mobileFittedFontPointSize = nil
         return true
