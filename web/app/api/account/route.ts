@@ -511,9 +511,10 @@ async function deletePersonalSubrouterTenant(
     .limit(1);
   if (!tenant) return;
 
+  const client = createSubrouterClientFromEnv();
   options.afterExternalMutation?.();
   try {
-    await createSubrouterClientFromEnv().revokeTenant(tenant.tenantId);
+    await client.revokeTenant(tenant.tenantId);
   } catch (error) {
     if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
   }

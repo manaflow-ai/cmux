@@ -1342,11 +1342,26 @@ export function revokeUserIdentityLeasesForAccountDeletion(
         if (revoked) revokedIds.push(lease.id);
       }
 
-      yield* repo.markLeasesRevoked(revokedIds);
+      yield* markAccountDeletionLeasesRevoked(repo, revokedIds);
       revokedCount += revokedIds.length;
       if (leases.length < limit) return revokedCount;
     }
   });
+}
+
+function markAccountDeletionLeasesRevoked(
+  repo: VmRepositoryShape,
+  revokedIds: readonly string[],
+): Effect.Effect<void, VmWorkflowError> {
+  return repo.markLeasesRevoked(revokedIds).pipe(
+    Effect.catchAll((err): Effect.Effect<never, VmWorkflowError> =>
+      Effect.fail(
+        revokedIds.length > 0
+          ? new VmAccountDeletionIdentityRevocationError({ cause: err })
+          : err,
+      )
+    ),
+  );
 }
 
 function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): number {

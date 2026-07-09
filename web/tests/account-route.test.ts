@@ -166,6 +166,7 @@ let stripeDeleteCustomerError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
 let listedPersonalVmIds: string[] = [];
 let revokeIdentityLeasesError: unknown = null;
+let subrouterClientCreateError: unknown = null;
 let subrouterRevokeError: unknown = null;
 let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
@@ -271,11 +272,13 @@ mock.module("../services/billing/stripe", () => ({
 
 mock.module("../services/subrouter/client", () => ({
   ...subrouterClientModule,
-  createSubrouterClientFromEnv: () => useAccountRouteStubs
-    ? {
+  createSubrouterClientFromEnv: () => {
+    if (!useAccountRouteStubs) return realCreateSubrouterClientFromEnv();
+    if (subrouterClientCreateError) throw subrouterClientCreateError;
+    return {
         revokeTenant,
-      }
-    : realCreateSubrouterClientFromEnv(),
+      };
+  },
 }));
 
 mock.module("../services/vms/workflows", () => ({
@@ -352,6 +355,7 @@ beforeEach(() => {
   destroyVmFailureProviderIds = new Set();
   listedPersonalVmIds = ["personal-vm-1", "personal-vm-2"];
   revokeIdentityLeasesError = null;
+  subrouterClientCreateError = null;
   subrouterRevokeError = null;
 });
 
@@ -604,6 +608,35 @@ describe("account deletion route", () => {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
     expect(updateStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("restores Stack metadata when local Subrouter configuration fails before revoke", async () => {
+    listedPersonalVmIds = [];
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ tenantId: "tenant-personal" }],
+    ];
+    subrouterClientCreateError = new Error("subrouter not configured");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(revokeTenant).not.toHaveBeenCalled();
+    expect(deletedTables).not.toContain(subrouterTenants);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
   });
 
   test("does not delete personal VM rows that gained a provider id before account row deletion", async () => {
