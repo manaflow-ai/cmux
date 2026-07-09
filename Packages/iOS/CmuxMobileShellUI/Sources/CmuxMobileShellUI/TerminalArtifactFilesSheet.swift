@@ -49,7 +49,7 @@ struct TerminalArtifactFilesSheet: View {
             await load()
         }
         .sheet(item: $selection) { selection in
-            ChatArtifactViewerSheet(path: selection.path)
+            ChatArtifactViewerSheet(path: selection.path, scope: .terminal)
                 .environment(\.chatArtifactLoader, loader)
         }
     }

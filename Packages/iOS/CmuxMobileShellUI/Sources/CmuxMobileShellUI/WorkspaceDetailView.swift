@@ -335,7 +335,7 @@ struct WorkspaceDetailView: View {
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         .sheet(item: $selectedTerminalArtifact) { selection in
-            ChatArtifactViewerSheet(path: selection.path)
+            ChatArtifactViewerSheet(path: selection.path, scope: .terminal)
                 .environment(
                     \.chatArtifactLoader,
                     terminalArtifactLoader(

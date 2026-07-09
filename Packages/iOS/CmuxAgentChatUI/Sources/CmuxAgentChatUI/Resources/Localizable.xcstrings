@@ -154,6 +154,23 @@
         }
       }
     },
+    "chat.artifact.forbidden.terminal_message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file isn't visible in the current terminal view."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは現在のターミナル画面に表示されていません。"
+          }
+        }
+      }
+    },
     "chat.artifact.forbidden.title" : {
       "extractionState" : "manual",
       "localizations" : {

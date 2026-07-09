@@ -471,8 +471,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.artifactFilesEnabled,
-                   let text = await surfaceView.visibleTextForArtifactHitTesting() {
-                    if let path = TerminalArtifactTapHitTester().path(in: text, col: col, row: row) {
+                   let snapshot = await surfaceView.visibleTextForArtifactHitTesting() {
+                    if let path = TerminalArtifactTapHitTester().path(
+                        in: snapshot.text,
+                        col: col,
+                        row: row,
+                        columns: snapshot.columns
+                    ) {
                         self.onArtifactPathTapped(path)
                         return
                     }
@@ -552,43 +557,5 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             return view.window?.rootViewController
         }
     }
-}
-
-private struct TerminalArtifactTapHitTester {
-    func path(in text: String, col: Int, row: Int) -> String? {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard row >= 0, row < lines.count else { return nil }
-        let line = lines[row]
-        for token in tokenRanges(in: line) {
-            guard col >= token.startColumn, col < token.endColumn else { continue }
-            return token.path
-        }
-        return nil
-    }
-
-    private func tokenRanges(in line: String) -> [(path: String, startColumn: Int, endColumn: Int)] {
-        var result: [(path: String, startColumn: Int, endColumn: Int)] = []
-        var index = line.startIndex
-        while index < line.endIndex {
-            while index < line.endIndex, line[index].isWhitespace {
-                index = line.index(after: index)
-            }
-            guard index < line.endIndex else { break }
-            let tokenStart = index
-            while index < line.endIndex, !line[index].isWhitespace {
-                index = line.index(after: index)
-            }
-            let raw = String(line[tokenStart..<index])
-            guard let path = TerminalArtifactPathDetector().tokens(in: raw).first?.path else {
-                continue
-            }
-            let leadingTrim = raw.count - raw.drop(while: { Self.leadingTrimCharacters.contains($0) }).count
-            let start = line.distance(from: line.startIndex, to: tokenStart) + leadingTrim
-            result.append((path: path, startColumn: start, endColumn: start + path.count))
-        }
-        return result
-    }
-
-    private static let leadingTrimCharacters: Set<Character> = ["\"", "'", "`", "(", "[", "{", "<"]
 }
 #endif

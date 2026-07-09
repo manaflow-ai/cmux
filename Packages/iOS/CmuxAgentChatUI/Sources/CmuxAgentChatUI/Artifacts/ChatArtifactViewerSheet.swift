@@ -9,13 +9,15 @@ import AppKit
 
 public struct ChatArtifactViewerSheet: View {
     let path: String
+    let scope: ChatArtifactViewerScope
 
     @Environment(\.chatArtifactLoader) private var loader
     @Environment(\.dismiss) private var dismiss
     @State private var state: LoadState = .loading(fetched: 0, total: nil)
 
-    public init(path: String) {
+    public init(path: String, scope: ChatArtifactViewerScope = .chat) {
         self.path = path
+        self.scope = scope
     }
 
     public var body: some View {
@@ -100,7 +102,7 @@ public struct ChatArtifactViewerSheet: View {
         case .forbidden:
             unavailableView(
                 title: String(localized: "chat.artifact.forbidden.title", defaultValue: "Preview unavailable", bundle: .module),
-                message: String(localized: "chat.artifact.forbidden.message", defaultValue: "This file was not referenced by the conversation.", bundle: .module),
+                message: forbiddenMessage,
                 retry: false
             )
         }
@@ -205,6 +207,23 @@ public struct ChatArtifactViewerSheet: View {
 
     private var displayName: String {
         URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private var forbiddenMessage: String {
+        switch scope {
+        case .chat:
+            String(
+                localized: "chat.artifact.forbidden.message",
+                defaultValue: "This file was not referenced by the conversation.",
+                bundle: .module
+            )
+        case .terminal:
+            String(
+                localized: "chat.artifact.forbidden.terminal_message",
+                defaultValue: "This file isn't visible in the current terminal view.",
+                bundle: .module
+            )
+        }
     }
 
     private func progressValue(fetched: Int64, total: Int64?) -> Double? {

@@ -1978,10 +1978,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func completePendingVisibleSnapshot(id: UInt64, returning section: String?) -> Bool {
+    private func completePendingVisibleSnapshot(
+        id: UInt64,
+        returning snapshot: (text: String, columns: Int)?
+    ) -> Bool {
         guard let pending = pendingVisibleSnapshot, pending.id == id else { return false }
         pendingVisibleSnapshot = nil
-        pending.continuation.resume(returning: section)
+        pending.continuation.resume(returning: snapshot)
         return true
     }
 
@@ -3775,10 +3778,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return sections.joined(separator: "\n\n")
     }
 
-    /// Visible viewport text for this exact surface, used by non-blocking
-    /// terminal artifact tap hit-testing on iOS.
+    /// Visible viewport text and its exact grid width for non-blocking terminal
+    /// artifact tap hit-testing on iOS.
     @MainActor
-    public func visibleTextForArtifactHitTesting() async -> String? {
+    public func visibleTextForArtifactHitTesting() async -> (text: String, columns: Int)? {
         guard let surface,
               !renderPipelineRecoveryPaused else {
             return nil
@@ -3787,7 +3790,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return await visibleTextSnapshot(surface: surface, generation: generation)
     }
 
-    private func visibleTextSnapshot(surface: ghostty_surface_t, generation: UInt64) async -> String? {
+    private func visibleTextSnapshot(
+        surface: ghostty_surface_t,
+        generation: UInt64
+    ) async -> (text: String, columns: Int)? {
         guard self.surface == surface,
               surfaceGeneration == generation,
               !renderPipelineRecoveryPaused else {
@@ -3809,6 +3815,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let read = VisibleTextRead(surface: surface, generation: generation)
             queue.async {
                 let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                let columns = Int(ghostty_surface_size(read.surface).columns)
                 Task { @MainActor [weak self] in
                     guard let view = self else { return }
                     guard view.surface == read.surface,
@@ -3816,7 +3823,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         view.completePendingVisibleSnapshot(id: operationID, returning: nil)
                         return
                     }
-                    view.completePendingVisibleSnapshot(id: operationID, returning: text)
+                    let snapshot = text.map { (text: $0, columns: columns) }
+                    view.completePendingVisibleSnapshot(id: operationID, returning: snapshot)
                 }
             }
         }
@@ -3833,7 +3841,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               !renderPipelineRecoveryPaused else {
             return nil
         }
-        return await withCheckedContinuation { continuation in
+        let snapshot: (text: String, columns: Int)? = await withCheckedContinuation { continuation in
             let operationID = makeSurfaceOperationID()
             if let existing = pendingVisibleSnapshot {
                 pendingVisibleSnapshot = nil
@@ -3851,6 +3859,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
                 let section = "===== visible terminal · grid=\(read.grid) · font=\(read.font) =====\n"
                     + text
+                let columns = Int(ghostty_surface_size(read.surface).columns)
                 Task { @MainActor [weak self] in
                     guard let view = self else { return }
                     guard view.surface == read.surface,
@@ -3858,10 +3867,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         view.completePendingVisibleSnapshot(id: operationID, returning: nil)
                         return
                     }
-                    view.completePendingVisibleSnapshot(id: operationID, returning: section)
+                    view.completePendingVisibleSnapshot(
+                        id: operationID,
+                        returning: (text: section, columns: columns)
+                    )
                 }
             }
         }
+        return snapshot?.text
     }
 
     private func handleBell() {
@@ -3939,11 +3952,11 @@ nonisolated private struct PendingSurfaceOperation {
 }
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
-/// display-link deadline. A timeout skips only the diagnostic snapshot.
+/// display-link deadline. A timeout skips only the pending text snapshot.
 nonisolated private struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
-    let continuation: CheckedContinuation<String?, Never>
+    let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
 }
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
