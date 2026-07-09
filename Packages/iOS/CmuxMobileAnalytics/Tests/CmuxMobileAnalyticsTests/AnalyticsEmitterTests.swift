@@ -250,6 +250,25 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(names == ["ios_after_opt_in"])
     }
 
+    @Test func eventBetweenStoreOptInAndEmitterOptInSignalIsDropped() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+
+        consent.set(false)
+        emitter.setTelemetryConsentEnabled(false)
+        await emitter.flush()
+
+        consent.set(true)
+        emitter.capture("ios_before_opt_in_signal", [:])
+        emitter.setTelemetryConsentEnabled(true)
+        emitter.capture("ios_after_opt_in_signal", [:])
+        await emitter.flush()
+
+        let names = await uploader.uploadedEvents.map(\.name)
+        #expect(names == ["ios_after_opt_in_signal"])
+    }
+
     @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {
         // A stuck uploader (.retry forever) must not let the pending buffer grow
         // without limit. With a cap of 4, only the 4 newest of 20 events survive.
