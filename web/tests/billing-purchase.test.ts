@@ -570,7 +570,7 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("blocks Team checkout completion while the billing owner is deleting their account", async () => {
+  test("blocks Team checkout completion while the billing owner is deleting without deleting the team customer", async () => {
     const cancelSubscription = mock(async () => undefined);
     const deleteCustomer = mock(async () => undefined);
     const owner = {
@@ -602,7 +602,7 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
-    expect(deleteCustomer).toHaveBeenCalledWith("cus_team");
+    expect(deleteCustomer).not.toHaveBeenCalled();
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(owner.update).not.toHaveBeenCalled();

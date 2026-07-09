@@ -234,16 +234,31 @@ async function deleteCheckoutStripeResourcesForAccountDeletion(
   dependencies: BillingPurchaseDependencies,
 ): Promise<void> {
   const client = (dependencies.stripeClient ?? stripe)();
-  try {
-    await client.subscriptions.cancel(subscription.id);
-  } catch (error) {
-    if (!isStripeSubscriptionAlreadyCanceledError(error)) throw error;
-  }
+  await cancelCheckoutSubscription(client, subscription.id);
   try {
     await client.customers.del(customerId);
   } catch (error) {
     if (isStripeCustomerAlreadyDeletedError(error)) return;
     throw error;
+  }
+}
+
+async function cancelCheckoutSubscriptionForAccountDeletion(
+  subscription: Stripe.Subscription,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  const client = (dependencies.stripeClient ?? stripe)();
+  await cancelCheckoutSubscription(client, subscription.id);
+}
+
+async function cancelCheckoutSubscription(
+  client: Pick<ReturnType<typeof stripe>, "subscriptions">,
+  subscriptionId: string,
+): Promise<void> {
+  try {
+    await client.subscriptions.cancel(subscriptionId);
+  } catch (error) {
+    if (!isStripeSubscriptionAlreadyCanceledError(error)) throw error;
   }
 }
 
@@ -574,9 +589,8 @@ async function recordTeamCheckoutCompletion(input: {
   });
 
   if (lockedResult.deleteCheckoutStripeResources) {
-    await deleteCheckoutStripeResourcesForAccountDeletion(
+    await cancelCheckoutSubscriptionForAccountDeletion(
       input.subscription,
-      input.customerId,
       input.dependencies,
     );
   }
