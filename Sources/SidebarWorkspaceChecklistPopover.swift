@@ -72,9 +72,6 @@ struct SidebarWorkspaceChecklistPopover: View {
         .frame(width: 320, alignment: .leading)
         .background(toggleHighlightedShortcutButton(visible: clamped.visible))
         .onAppear { addFieldFocused = true }
-        .onChange(of: addFieldFocused) { _, focused in
-            if !focused { finishAddOnFocusLoss() }
-        }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
@@ -282,8 +279,10 @@ struct SidebarWorkspaceChecklistPopover: View {
         actions.setItemState(item.id, item.state == .completed ? .pending : .completed)
     }
 
-    /// Enter (or focus-loss) commits the trimmed text and re-arms the field
-    /// (a fresh, empty, focused add field) for the next item.
+    /// Enter commits the trimmed text and re-arms the field (a fresh, empty,
+    /// focused add field) for the next item. Focus loss never commits: a
+    /// half-typed draft stays in the field until Return submits it or the
+    /// popover closes.
     private func commitPendingItem() {
         let text = pendingItemText
         pendingItemText = ""
@@ -291,17 +290,6 @@ struct SidebarWorkspaceChecklistPopover: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.addItem(text)
         addFieldFocused = true
-    }
-
-    /// Blur commits like the AppKit field's end-editing did, but never
-    /// re-focuses: re-arming on blur would yank focus back from a
-    /// just-started item edit (the pane's semantics; Return re-arms instead).
-    private func finishAddOnFocusLoss() {
-        let text = pendingItemText
-        pendingItemText = ""
-        onConsumeAddFieldActivation()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        actions.addItem(text)
     }
 
     private func cancelPendingItem() {
