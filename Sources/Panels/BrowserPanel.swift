@@ -1,6 +1,7 @@
 import Foundation
 import CmuxCore
 import CmuxBrowser
+import CmuxChromium
 import CmuxFoundation
 import CmuxSettings
 import Combine
@@ -2811,6 +2812,22 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Engine backing this surface, resolved at creation and persisted with the session.
     private(set) var engineKind: BrowserSurfaceEngineKind = .webkit
 
+    /// Live Chromium engine state; non-nil once the surface acquires a session.
+    /// Stays non-nil (with `chromiumDisconnected == true`) after a process crash
+    /// so the omnibar can offer Reload to restart it.
+    @Published private(set) var chromium: BrowserPanelChromiumState?
+
+    /// True after the Chromium browser process ended; reload restarts a fresh session.
+    @Published private(set) var chromiumDisconnected: Bool = false
+
+    /// Initial (or last-requested) URL for a `.chromium` surface whose session is
+    /// not yet up. `activateChromiumIfNeeded` consumes it; navigation requests
+    /// arriving before activation overwrite it.
+    private var pendingInitialChromiumURL: String?
+
+    /// Last URL mirrored from the Chromium model, used to restore after a crash reload.
+    private var lastMirroredChromiumURL: String?
+
     /// Pure resolution of the configured engine against runtime availability.
     /// `.chromium` degrades to `.webkit` (with `didFallBack == true`) when no runtime is present.
     nonisolated static func resolveEngineKind(
@@ -4237,6 +4254,11 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
+            if engineKind == .chromium {
+                pendingInitialChromiumURL = initialRequest.url?.absoluteString
+                lastMirroredChromiumURL = initialRequest.url?.absoluteString
+                return
+            }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
@@ -4256,6 +4278,11 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
+            if engineKind == .chromium {
+                pendingInitialChromiumURL = url.absoluteString
+                lastMirroredChromiumURL = url.absoluteString
+                return
+            }
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
@@ -5439,6 +5466,8 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewDidRequestClose = nil
         detachWebViewObservers()
         faviconTask?.cancel(); faviconTask = nil
+        chromium?.teardown()
+        chromium = nil
     }
 
     // MARK: - Popup window management
@@ -5800,7 +5829,155 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
+    // MARK: - Chromium engine
+
+    /// Localized banner shown when the Chromium process has ended.
+    var chromiumDisconnectedBannerText: String {
+        String(
+            localized: "chromium.disconnected",
+            defaultValue: "Chromium browser process ended — Reload to restart it"
+        )
+    }
+
+    /// Acquires a Chromium session for this surface and begins mirroring its
+    /// state into the omnibar-feeding properties. Idempotent; a no-op on
+    /// `.webkit` surfaces or once a session already exists.
+    func activateChromiumIfNeeded() {
+        guard engineKind == .chromium, chromium == nil else { return }
+        let initialURL = pendingInitialChromiumURL ?? blankURLString
+        let requestedProfileID = profileID
+        Task { @MainActor in
+            do {
+                let (session, model, webView) = try await ChromiumRuntimeManager.shared.acquireSession(
+                    initialURL: initialURL,
+                    profileID: requestedProfileID
+                )
+                guard self.engineKind == .chromium, self.chromium == nil else {
+                    session.close()
+                    return
+                }
+                let state = BrowserPanelChromiumState(session: session, model: model, webView: webView)
+                self.chromium = state
+                self.startChromiumMirroring(state)
+            } catch {
+#if DEBUG
+                cmuxDebugLog("browser.chromium.activate.failed panel=\(self.id.uuidString.prefix(5)) error=\(error)")
+#endif
+                // Runtime failed after creation-time availability check: degrade to WebKit.
+                self.engineKind = .webkit
+            }
+        }
+    }
+
+    private func startChromiumMirroring(_ state: BrowserPanelChromiumState) {
+        applyChromiumModelState(state.model)
+        observeChromiumModel(state)
+        startChromiumPoll(state)
+    }
+
+    /// Re-arming `withObservationTracking` loop over the Chromium model. Stops
+    /// re-arming once the session is replaced (`chromium !== state`) or disconnects.
+    private func observeChromiumModel(_ state: BrowserPanelChromiumState) {
+        guard chromium === state else { return }
+        let model = state.model
+        withObservationTracking {
+            _ = model.currentURL
+            _ = model.pageTitle
+            _ = model.isLoading
+            _ = model.isDisconnected
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.chromium === state else { return }
+                if state.model.isDisconnected {
+                    self.handleChromiumDisconnected()
+                } else {
+                    self.applyChromiumModelState(state.model)
+                    self.observeChromiumModel(state)
+                }
+            }
+        }
+    }
+
+    /// 1s URL/title poll: Chromium fires navigation events for main-frame loads
+    /// but not every in-page (History API) URL change, so poll to stay current.
+    private func startChromiumPoll(_ state: BrowserPanelChromiumState) {
+        state.pollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+                guard let self, self.chromium === state, !self.chromiumDisconnected else { return }
+                let session = state.session
+                let href = try? await session.executeJavaScript("window.location.href")
+                let title = try? await session.executeJavaScript("document.title")
+                guard self.chromium === state, !self.chromiumDisconnected else { return }
+                if let href, let decoded = Self.decodeChromiumJSONString(href) {
+                    self.applyChromiumURLString(decoded)
+                }
+                if let title, let decoded = Self.decodeChromiumJSONString(title) {
+                    let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty, self.pageTitle != trimmed {
+                        self.pageTitle = trimmed
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyChromiumModelState(_ model: ChromiumBrowserModel) {
+        applyChromiumURLString(model.currentURL)
+        let title = model.pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, pageTitle != title {
+            pageTitle = title
+        }
+        if isLoading != model.isLoading {
+            isLoading = model.isLoading
+        }
+        // Chromium exposes no canGoBack/canGoForward signal; keep the toolbar
+        // buttons enabled so history.back()/forward() shims remain reachable.
+        if !canGoBack { canGoBack = true }
+        if !canGoForward { canGoForward = true }
+    }
+
+    private func applyChromiumURLString(_ rawURLString: String) {
+        let urlString = rawURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !urlString.isEmpty, urlString != blankURLString else { return }
+        lastMirroredChromiumURL = urlString
+        guard let url = URL(string: urlString), currentURL != url else { return }
+        currentURL = url
+    }
+
+    private func handleChromiumDisconnected() {
+        guard let state = chromium, !chromiumDisconnected else { return }
+        lastMirroredChromiumURL = lastMirroredChromiumURL ?? currentURL?.absoluteString
+        state.teardown()
+        chromiumDisconnected = true
+        isLoading = false
+    }
+
+    private func restartChromiumAfterDisconnect() {
+        chromium = nil
+        chromiumDisconnected = false
+        pendingInitialChromiumURL = lastMirroredChromiumURL ?? currentURL?.absoluteString
+        activateChromiumIfNeeded()
+    }
+
+    private static func decodeChromiumJSONString(_ jsonEncoded: String) -> String? {
+        guard let data = jsonEncoded.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(String.self, from: data)
+    }
+
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        if engineKind == .chromium {
+            let urlString = url.absoluteString
+            currentURL = url
+            lastMirroredChromiumURL = urlString
+            if let session = chromium?.session, !chromiumDisconnected {
+                Task { try? await session.navigate(to: urlString) }
+            } else {
+                pendingInitialChromiumURL = urlString
+            }
+            return
+        }
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
@@ -6354,6 +6531,12 @@ extension BrowserPanel {
 
     /// Go back in history
     func goBack() {
+        if engineKind == .chromium {
+            if let session = chromium?.session, !chromiumDisconnected {
+                Task { _ = try? await session.executeJavaScript("history.back()") }
+            }
+            return
+        }
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6386,6 +6569,12 @@ extension BrowserPanel {
 
     /// Go forward in history
     func goForward() {
+        if engineKind == .chromium {
+            if let session = chromium?.session, !chromiumDisconnected {
+                Task { _ = try? await session.executeJavaScript("history.forward()") }
+            }
+            return
+        }
         guard canGoForward else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6525,6 +6714,14 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
+        if engineKind == .chromium {
+            if chromiumDisconnected {
+                restartChromiumAfterDisconnect()
+            } else if let session = chromium?.session {
+                Task { _ = try? await session.executeJavaScript("location.reload()") }
+            }
+            return
+        }
         if prepareForReload(reason: "reload", mode: .soft) {
             return
         }
@@ -6545,6 +6742,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        if engineKind == .chromium { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
