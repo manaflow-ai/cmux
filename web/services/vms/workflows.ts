@@ -19,6 +19,7 @@ import {
 } from "./billingGateway";
 import {
   VmBillingError,
+  VmAccountDeletionIdentityRevocationError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
@@ -72,6 +73,7 @@ const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
 const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
+const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 
 type ExistingVmAccessInput = {
@@ -79,6 +81,7 @@ type ExistingVmAccessInput = {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly provider?: ProviderId;
 };
 
 export type VmProviderStatusReconcileResult = {
@@ -1246,6 +1249,8 @@ export function destroyVm(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly provider?: ProviderId;
+  readonly afterProviderDestroy?: () => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1259,6 +1264,9 @@ export function destroyVm(input: {
         return Effect.fail(err);
       }),
     );
+    yield* Effect.sync(() => {
+      input.afterProviderDestroy?.();
+    });
     yield* repo.markDestroyed(vm.id);
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -1308,6 +1316,70 @@ export function revokeExpiredIdentityLeases(input: {
     yield* repo.markLeasesRevoked(revokedIds);
     return revokedIds.length;
   });
+}
+
+export function revokeUserIdentityLeasesForAccountDeletion(
+  userId: string,
+  input: {
+    readonly limit?: number;
+    readonly afterBatch?: () => Effect.Effect<void, VmWorkflowError>;
+  } = {},
+) {
+  const limit = boundedAccountDeletionIdentityRevokeLimit(input.limit);
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    let revokedCount = 0;
+    for (;;) {
+      const leases = yield* repo.accountDeletionIdentityLeases({ userId, limit });
+      if (leases.length === 0) return revokedCount;
+
+      const revokedIds: string[] = [];
+      for (const lease of leases) {
+        const identityHandle = lease.providerIdentityHandle;
+        if (!identityHandle) {
+          revokedIds.push(lease.id);
+          continue;
+        }
+        const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
+          Effect.as(true),
+          Effect.catchAll((err) => {
+            if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
+            return repo.markLeasesRevoked(revokedIds).pipe(
+              Effect.catchAll(() => Effect.void),
+              Effect.andThen(Effect.fail(new VmAccountDeletionIdentityRevocationError({ cause: err }))),
+            );
+          }),
+        );
+        if (revoked) revokedIds.push(lease.id);
+      }
+
+      yield* markAccountDeletionLeasesRevoked(repo, revokedIds);
+      revokedCount += revokedIds.length;
+      if (input.afterBatch) yield* input.afterBatch();
+      if (leases.length < limit) return revokedCount;
+    }
+  });
+}
+
+function markAccountDeletionLeasesRevoked(
+  repo: VmRepositoryShape,
+  revokedIds: readonly string[],
+): Effect.Effect<void, VmWorkflowError> {
+  return repo.markLeasesRevoked(revokedIds).pipe(
+    Effect.catchAll((err): Effect.Effect<never, VmWorkflowError> =>
+      Effect.fail(
+        revokedIds.length > 0
+          ? new VmAccountDeletionIdentityRevocationError({ cause: err })
+          : err,
+      )
+    ),
+  );
+}
+
+function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH;
+  return Math.max(1, Math.min(Math.floor(limit), ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH));
 }
 
 export function execVm(input: {
@@ -1510,6 +1582,7 @@ function requireUserVm(input: ExistingVmAccessInput) {
       userId: input.userId,
       billingTeamId: input.billingTeamId,
       providerVmId: input.providerVmId,
+      provider: input.provider,
     });
     if (!vm || !vm.providerVmId) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
