@@ -20,6 +20,7 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
+    let altScreenNotice: AltScreenNoticeState
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
@@ -53,7 +54,8 @@ struct WorkspaceDetailContainer: View {
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,
                     backButtonConfiguration: backButtonConfiguration,
-                    signOut: signOut
+                    signOut: signOut,
+                    altScreenNotice: altScreenNotice
                 )
                 .onAppear {
                     rememberRouteWorkspace(workspace)

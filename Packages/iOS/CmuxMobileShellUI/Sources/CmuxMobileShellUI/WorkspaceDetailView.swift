@@ -32,6 +32,9 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
+    /// Shared dismissal state for the alternate-screen sizing notice, owned by
+    /// the navigation root so every detail view sees one source of truth.
+    let altScreenNotice: AltScreenNoticeState
     @Environment(BrowserSurfaceStore.self) private var browserStore
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
@@ -42,7 +45,6 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    private let altScreenNotice = AltScreenNoticeState.shared
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
