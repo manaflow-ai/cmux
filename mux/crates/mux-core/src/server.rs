@@ -38,7 +38,7 @@ use crate::{
     SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {

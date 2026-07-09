@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v7 in `mux/crates/mux-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v6 in `mux/crates/mux-core/src/server.rs`.
 
 ## Notation
 
@@ -131,7 +131,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
 ```
 
 ### ping
@@ -160,7 +160,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":6}}
 ```
 
 ### reload-config
