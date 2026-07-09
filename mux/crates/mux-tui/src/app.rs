@@ -2698,6 +2698,18 @@ mod tests {
     use crate::session::{Session, TreeView};
 
     #[test]
+    fn sidebar_width_hides_without_panicking_on_narrow_terminals() {
+        // SSH gateways (e.g. Freestyle's) can report width 0 until the first
+        // window-change arrives, and users can shrink real terminals below 50
+        // columns; the sidebar must hide, not panic in clamp().
+        let config = Config::default();
+        for width in [0u16, 1, 39, 49] {
+            assert_eq!(super::sidebar_width_for(&config, true, width, None), 0);
+        }
+        assert!(super::sidebar_width_for(&config, true, 120, None) >= 10);
+    }
+
+    #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
         let (_bar, omnibar, content, track) =
