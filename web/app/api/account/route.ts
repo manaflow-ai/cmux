@@ -86,6 +86,12 @@ type RetainedTeamBillingOwner = {
   readonly stackUserId: string;
 };
 
+type AccountDeletionTombstoneStart =
+  | { readonly kind: "started" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "completed" }
+  | { readonly kind: "cleanupIncomplete" };
+
 const ACCOUNT_DELETION_TOMBSTONE_LEASE_MS = 15 * 60 * 1000;
 
 export async function DELETE(request: Request): Promise<Response> {
@@ -102,9 +108,16 @@ export async function DELETE(request: Request): Promise<Response> {
   let restoreBillingEntitlementsOnFailure = true;
   try {
     const accountScope = await accountDeletionScopeForUser(stackUser);
-    accountDeletionTombstoneStarted = await markAccountDeletionTombstonePending(userId);
-    if (!accountDeletionTombstoneStarted) {
+    const tombstoneStart = await markAccountDeletionTombstonePending(userId);
+    accountDeletionTombstoneStarted = tombstoneStart.kind === "started";
+    if (tombstoneStart.kind === "pending") {
       return jsonResponse({ ok: true, deletionPending: true, destroyedVms: 0 }, 202);
+    }
+    if (tombstoneStart.kind === "completed") {
+      return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
+    }
+    if (tombstoneStart.kind === "cleanupIncomplete") {
+      return jsonResponse({ ok: true, cleanupIncomplete: true, destroyedVms: 0 }, 202);
     }
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
@@ -249,7 +262,7 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   return user as DeletableStackUser;
 }
 
-async function markAccountDeletionTombstonePending(userId: string): Promise<boolean> {
+async function markAccountDeletionTombstonePending(userId: string): Promise<AccountDeletionTombstoneStart> {
   const db = cloudDb();
   const now = new Date();
   const userIdHash = accountDeletionUserHash(userId);
@@ -264,9 +277,10 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<bool
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .limit(1);
-    if (existing?.status === "completed" || existing?.status === "cleanup_incomplete") return false;
+    if (existing?.status === "completed") return { kind: "completed" };
+    if (existing?.status === "cleanup_incomplete") return { kind: "cleanupIncomplete" };
     if (existing && isBlockingAccountDeletionStatus(existing.status) && !isStaleAccountDeletionTombstone(existing.updatedAt, now)) {
-      return false;
+      return { kind: "pending" };
     }
 
     await tx
@@ -289,7 +303,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<bool
           errorMessage: null,
         },
       });
-    return true;
+    return { kind: "started" };
   });
 }
 
@@ -1001,14 +1015,15 @@ async function stackTeamMemberIds(team: AccountDeletionStackTeam): Promise<reado
 }
 
 function uniqueStackTeams(values: readonly (AccountDeletionStackTeam | null)[]): readonly AccountDeletionStackTeam[] {
-  const teams: AccountDeletionStackTeam[] = [];
-  const seen = new Set<string>();
+  const teams = new Map<string, AccountDeletionStackTeam>();
   for (const team of values) {
-    if (!team || seen.has(team.id)) continue;
-    seen.add(team.id);
-    teams.push(team);
+    if (!team) continue;
+    const existing = teams.get(team.id);
+    if (!existing || (typeof existing.listUsers !== "function" && typeof team.listUsers === "function")) {
+      teams.set(team.id, team);
+    }
   }
-  return teams;
+  return [...teams.values()];
 }
 
 function uniqueNonEmptyStrings(values: readonly (string | null | undefined)[]): readonly string[] {

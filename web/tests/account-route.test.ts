@@ -755,6 +755,47 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
+  test("returns completed when a retry sees a completed account deletion tombstone", async () => {
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "completed",
+      updatedAt: new Date(),
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      destroyedVms: 0,
+    });
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("returns cleanup incomplete when a retry sees a cleanup-incomplete tombstone", async () => {
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "cleanup_incomplete",
+      updatedAt: new Date(),
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      cleanupIncomplete: true,
+      destroyedVms: 0,
+    });
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
   test("adopts a stale in-progress account deletion instead of blocking forever", async () => {
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
@@ -792,6 +833,27 @@ describe("account deletion route", () => {
       provider: "freestyle",
     });
     expect(transactionExecute).toHaveBeenCalledTimes(3);
+  });
+
+  test("uses the listed Stack team when selectedTeam has no member listing", async () => {
+    listedPersonalVmIds = [];
+    listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
+    stackUserSelectedTeam = { id: "team-personal" };
+    stackUserTeams = [stackTeam("team-personal", ["account-user-1"])];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1");
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal");
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      billingTeamId: "team-personal",
+      teamIds: ["account-user-1", "team-personal"],
+      providerVmId: "personal-team-vm",
+      provider: "freestyle",
+    });
   });
 
   test("reassigns retained shared-team Stripe billing to another team member", async () => {
