@@ -16,12 +16,10 @@ private struct SidebarPanelObservationState: Equatable {
 extension View {
     func sidebarAgentRuntimeObservation(
         id: UUID,
-        enabled: Bool,
         model: WorkspaceSidebarAgentRuntimeObservationModel,
         onChange: @MainActor @escaping () -> Void
     ) -> some View {
-        task(id: enabled ? id : nil) { @MainActor in
-            guard enabled else { return }
+        task(id: id) { @MainActor in
             for await _ in model.changes() {
                 if Task.isCancelled { break }
                 onChange()
