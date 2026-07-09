@@ -318,6 +318,43 @@ import Testing
         #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.88:58465")
     }
 
+    @Test func cancelledPairingURLApprovalDoesNotPersistTrustOrConnect() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: box),
+            now: { clock.now },
+            supportedRouteKinds: [.manualHost]
+        )
+        let trustStore = BlockingManualHostTrustPersistenceStore()
+        let store = makeStore(runtime: runtime, manualHostTrustStore: trustStore)
+        let route = try CmxAttachRoute(
+            id: "manual",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: 58_465)
+        )
+        let scope = try #require(MobileManualHostTrustScope(route: route, stackUserID: nil))
+        let url = try attachURL(for: manualHostTicket(host: "192.168.1.77"))
+
+        let queued = await store.connectPairingURLResult(url)
+        #expect(queued == .needsUserApproval)
+
+        let approval = Task { @MainActor in
+            await store.acceptManualHostTrustWarning()
+        }
+        await trustStore.waitUntilTrustIsBlocked()
+        approval.cancel()
+        store.cancelPairing()
+        await trustStore.releaseTrust()
+        let result = await approval.value
+
+        #expect(result == .superseded)
+        #expect(store.manualHostTrustWarning == nil)
+        #expect(await trustStore.isTrusted(scope) == false)
+        #expect(await router.count(of: "workspace.list") == 0)
+    }
+
     @Test func failedPairingWhileConnectedReportsAttemptedRoute() async throws {
         let clock = TestClock()
         let oldRouter = LivenessHostRouter()
