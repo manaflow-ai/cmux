@@ -3977,11 +3977,11 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
-        navDelegate.handleDroppedFileNavigation = { [weak self] url in
+        navDelegate.handleDroppedFileNavigation = { [weak self] urls in
             guard let self, let workspace = AppDelegate.shared?.workspaceFor(tabId: self.workspaceId),
                   let paneId = workspace.paneId(forPanelId: self.id) else { return false }
             return workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
-                urls: [url], destination: PaneDropRouting.filePreviewDestination(targetPane: paneId, zone: .right)))
+                urls: urls, destination: PaneDropRouting.filePreviewDestination(targetPane: paneId, zone: .right)))
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)

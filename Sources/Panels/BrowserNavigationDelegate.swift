@@ -17,7 +17,7 @@ import WebKit
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
-    var handleDroppedFileNavigation: ((URL) -> Bool)?
+    var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
@@ -241,8 +241,8 @@ import WebKit
                isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
                navigationType: navigationAction.navigationType
            ),
-           BrowserFileDropNavigationGuard.shared.consumeDropNavigation(webView: webView, url: url),
-           handleDroppedFileNavigation?(url) == true {
+           let droppedURLs = BrowserFileDropNavigationGuard.shared.consumeDropNavigation(webView: webView, url: url),
+           handleDroppedFileNavigation?(droppedURLs) == true {
 #if DEBUG
             cmuxDebugLog("browser.nav.decidePolicy.action kind=dropFilePreview url=\(browserNavigationDebugURL(url))")
 #endif

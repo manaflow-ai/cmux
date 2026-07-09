@@ -337,12 +337,12 @@ struct BrowserPaneFileDropUploadRegressionTests {
             webView: webView,
             url: URL(fileURLWithPath: "/tmp/upload.png"),
             now: now.addingTimeInterval(1)
-        ))
-        #expect(!guardStore.consumeDropNavigation(
+        )?.map(\.path) == ["/tmp/upload.png"])
+        #expect(guardStore.consumeDropNavigation(
             webView: webView,
             url: URL(fileURLWithPath: "/tmp/upload.png"),
             now: now.addingTimeInterval(2)
-        ))
+        ) == nil)
     }
 
     @Test func guardRejectsExpiredDifferentWebViewAndUnmatchedURLs() {
@@ -357,12 +357,12 @@ struct BrowserPaneFileDropUploadRegressionTests {
             now: now
         )
 
-        #expect(!guardStore.consumeDropNavigation(webView: secondWebView, url: URL(fileURLWithPath: "/tmp/upload.png"), now: now))
-        #expect(!guardStore.consumeDropNavigation(webView: firstWebView, url: URL(fileURLWithPath: "/tmp/other.png"), now: now))
-        #expect(!guardStore.consumeDropNavigation(webView: firstWebView, url: URL(fileURLWithPath: "/tmp/upload.png"), now: now.addingTimeInterval(6)))
+        #expect(guardStore.consumeDropNavigation(webView: secondWebView, url: URL(fileURLWithPath: "/tmp/upload.png"), now: now) == nil)
+        #expect(guardStore.consumeDropNavigation(webView: firstWebView, url: URL(fileURLWithPath: "/tmp/other.png"), now: now) == nil)
+        #expect(guardStore.consumeDropNavigation(webView: firstWebView, url: URL(fileURLWithPath: "/tmp/upload.png"), now: now.addingTimeInterval(6)) == nil)
     }
 
-    @Test func guardMatchesAnyFileInMultiFileRecord() {
+    @Test func guardMatchesAnyFileInMultiFileRecordAndReturnsEveryDroppedFile() {
         let guardStore = BrowserFileDropNavigationGuard()
         let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let now = Date(timeIntervalSince1970: 300)
@@ -373,7 +373,11 @@ struct BrowserPaneFileDropUploadRegressionTests {
             now: now
         )
 
-        #expect(guardStore.consumeDropNavigation(webView: webView, url: URL(fileURLWithPath: "/tmp/two.png"), now: now))
+        // WebKit's fallback navigation names only one file of a multi-file drop;
+        // the consumed record must return every dropped file, in drop order, so
+        // the preview fallback opens all of them (not just the navigated one).
+        let consumed = guardStore.consumeDropNavigation(webView: webView, url: URL(fileURLWithPath: "/tmp/two.png"), now: now)
+        #expect(consumed?.map(\.path) == ["/tmp/one.png", "/tmp/two.png"])
     }
 
     @Test func fallbackNavigationClassifierRequiresMainFrameFileOtherNavigation() {

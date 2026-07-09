@@ -12,13 +12,18 @@ final class BrowserFileDropNavigationGuard {
     private final class Record {
         weak var webView: WKWebView?
         let webViewID: ObjectIdentifier
+        /// Every file URL delivered by the drop, in pasteboard order. WebKit's
+        /// fallback navigation names only one file of a multi-file drop, but the
+        /// preview fallback must open all of them.
+        let urls: [URL]
         let paths: Set<String>
         let timestamp: Date
 
-        init(webView: WKWebView, paths: Set<String>, timestamp: Date) {
+        init(webView: WKWebView, urls: [URL], timestamp: Date) {
             self.webView = webView
             self.webViewID = ObjectIdentifier(webView)
-            self.paths = paths
+            self.urls = urls
+            self.paths = Set(urls.map(\.path))
             self.timestamp = timestamp
         }
     }
@@ -30,34 +35,37 @@ final class BrowserFileDropNavigationGuard {
     ) {
         pruneExpiredRecords(now: now)
         guard DragOverlayRoutingPolicy.hasFileURL(pasteboard.types) else { return }
-        let paths = Set(
-            DragOverlayRoutingPolicy.fileURLs(from: pasteboard)
-                .filter(\.isFileURL)
-                .map { $0.standardizedFileURL.path }
-        )
-        guard !paths.isEmpty else { return }
+        // Already standardized and deduped by path, in pasteboard order.
+        let urls = DragOverlayRoutingPolicy.fileURLs(from: pasteboard)
+            .filter(\.isFileURL)
+            .map(\.standardizedFileURL)
+        guard !urls.isEmpty else { return }
         records[ObjectIdentifier(webView)] = Record(
             webView: webView,
-            paths: paths,
+            urls: urls,
             timestamp: now
         )
     }
 
+    /// Consumes (once) the drop record that `url` belongs to and returns every
+    /// file URL delivered by that drop, or nil when the navigation does not
+    /// match a live record. Callers preview the full list, not just the single
+    /// file WebKit chose to navigate to.
     func consumeDropNavigation(
         webView: WKWebView,
         url: URL,
         now: Date = Date()
-    ) -> Bool {
+    ) -> [URL]? {
         pruneExpiredRecords(now: now)
         let webViewID = ObjectIdentifier(webView)
         guard let record = records[webViewID],
               record.webViewID == webViewID,
               record.webView === webView,
               record.paths.contains(url.standardizedFileURL.path) else {
-            return false
+            return nil
         }
         records[webViewID] = nil
-        return true
+        return record.urls
     }
 
     static func isDropFallbackNavigation(
