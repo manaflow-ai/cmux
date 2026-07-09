@@ -13,7 +13,7 @@ name: iOS streamed-screenshot CI validation
 on:
   workflow_dispatch:
   push:
-    branches: [main, feat-ios-appstore-prod-lane]
+    branches: [main]
     paths: [".github/workflows/ios-streamed-validate.yml"]
 
 permissions:
