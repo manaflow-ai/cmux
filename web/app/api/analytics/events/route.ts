@@ -104,16 +104,18 @@ export async function postAnalyticsEvents(
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  if (user) {
-    await dependencies.recordIOSAnalyticsIdentities({
-      userId: user.id,
-      anonymousIds: anonymousIdsFromEvents(accepted),
-    });
-  }
-
   const forwarded = await dependencies.forwardToPostHog(accepted, user?.id ?? null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
+  }
+  if (user) {
+    const anonymousIds = trustedIdentifyAnonymousIds(accepted, user.id);
+    if (anonymousIds.length > 0) {
+      await dependencies.recordIOSAnalyticsIdentities({
+        userId: user.id,
+        anonymousIds,
+      });
+    }
   }
   return jsonResponse({ ok: true, forwarded: accepted.length });
 }
@@ -152,12 +154,11 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   };
 }
 
-function anonymousIdsFromEvents(events: readonly IncomingEvent[]): string[] {
+function trustedIdentifyAnonymousIds(events: readonly IncomingEvent[], userId: string): string[] {
   const ids: string[] = [];
   for (const event of events) {
-    const clientId = event.properties.client_id;
+    if (event.event !== "$identify" || event.distinctID !== userId) continue;
     const anonymousId = event.properties.$anon_distinct_id;
-    if (typeof clientId === "string") ids.push(clientId);
     if (typeof anonymousId === "string") ids.push(anonymousId);
   }
   return ids;

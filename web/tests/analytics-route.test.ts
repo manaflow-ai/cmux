@@ -33,14 +33,13 @@ afterEach(() => {
 });
 
 describe("iOS analytics route", () => {
-  test("persists authenticated mobile anonymous ids before forwarding", async () => {
+  test("persists authenticated mobile anonymous ids after an accepted identify", async () => {
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
         event: "$identify",
         distinct_id: "stack-user-1",
         properties: {
-          client_id: "anon-client-1",
-          "$anon_distinct_id": "anon-client-1",
+          "$anon_distinct_id": "11111111-1111-4111-8111-111111111111",
         },
       }],
     }), dependencies());
@@ -48,29 +47,26 @@ describe("iOS analytics route", () => {
     expect(response.status).toBe(200);
     expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
       userId: "stack-user-1",
-      anonymousIds: ["anon-client-1", "anon-client-1"],
+      anonymousIds: ["11111111-1111-4111-8111-111111111111"],
     });
     expect(forwardToPostHog).toHaveBeenCalled();
   });
 
-  test("keeps the deletion mapping even when PostHog forwarding fails", async () => {
+  test("does not persist identify mappings when PostHog forwarding fails", async () => {
     forwardToPostHog.mockResolvedValue({ ok: false, status: 502 });
 
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
-        event: "ios_app_foregrounded",
+        event: "$identify",
         distinct_id: "stack-user-1",
         properties: {
-          client_id: "anon-client-2",
+          "$anon_distinct_id": "22222222-2222-4222-8222-222222222222",
         },
       }],
     }), dependencies());
 
     expect(response.status).toBe(502);
-    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
-      userId: "stack-user-1",
-      anonymousIds: ["anon-client-2"],
-    });
+    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
   });
 
   test("does not persist anonymous-only analytics ids without a Stack user", async () => {
@@ -79,9 +75,24 @@ describe("iOS analytics route", () => {
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
         event: "ios_app_first_launch",
-        distinct_id: "anon-client-3",
+        distinct_id: "33333333-3333-4333-8333-333333333333",
         properties: {
-          client_id: "anon-client-3",
+          client_id: "33333333-3333-4333-8333-333333333333",
+        },
+      }],
+    }), dependencies());
+
+    expect(response.status).toBe(200);
+    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
+  });
+
+  test("does not persist capture-event client ids as deletion identities", async () => {
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "ios_app_foregrounded",
+        distinct_id: "stack-user-1",
+        properties: {
+          client_id: "44444444-4444-4444-8444-444444444444",
         },
       }],
     }), dependencies());

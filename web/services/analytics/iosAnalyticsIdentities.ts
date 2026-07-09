@@ -4,6 +4,7 @@ import { iosAnalyticsIdentities } from "../../db/schema";
 
 const MAX_ANALYTICS_DISTINCT_ID_LENGTH = 512;
 const MAX_IOS_ANALYTICS_IDENTITIES_PER_USER = 16;
+const IOS_INSTALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type IOSAnalyticsIdentityRuntime = {
   readonly cloudDb: typeof cloudDb;
@@ -63,10 +64,10 @@ export async function listPostHogDeletionDistinctIds(
     .from(iosAnalyticsIdentities)
     .where(eq(iosAnalyticsIdentities.userId, input.userId))
     .limit(MAX_IOS_ANALYTICS_IDENTITIES_PER_USER);
-  return normalizedDistinctIds([
+  return Array.from(new Set([
     input.userId,
-    ...rows.map((row) => row.anonymousId),
-  ]);
+    ...normalizedDistinctIds(rows.map((row) => row.anonymousId)),
+  ]));
 }
 
 export async function deleteIOSAnalyticsIdentities(
@@ -85,5 +86,6 @@ function normalizedDistinctIds(values: readonly string[]): string[] {
 function normalizedDistinctId(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > MAX_ANALYTICS_DISTINCT_ID_LENGTH) return null;
+  if (!IOS_INSTALL_ID_PATTERN.test(trimmed)) return null;
   return trimmed;
 }

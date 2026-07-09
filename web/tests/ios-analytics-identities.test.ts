@@ -32,12 +32,12 @@ describe("iOS analytics identities", () => {
       userId: "stack-user-1",
       anonymousIds: [
         "stack-user-1",
-        ...Array.from({ length: 25 }, (_, index) => `anon-${index}`),
+        ...Array.from({ length: 25 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
       ],
     }, runtime);
 
     expect(inserted.map((row) => row.anonymousId)).toEqual(
-      Array.from({ length: 16 }, (_, index) => `anon-${index}`),
+      Array.from({ length: 16 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
     );
     expect(evicted).toBe(true);
   });
