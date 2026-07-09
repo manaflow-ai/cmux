@@ -18,12 +18,13 @@ struct BrowserWebExtensionsCard: View {
     @State private var discovered: [SettingsDiscoveredBrowserExtension] = []
 
     var body: some View {
+        let enabledByID = effectiveEnabledByID()
         SettingsCard {
             headerRow
             if supported {
                 ForEach(model.current) { entry in
                     SettingsCardDivider()
-                    entryRow(entry, isEnabled: entry.enabled)
+                    entryRow(entry, isEnabled: enabledByID[entry.id] ?? entry.enabled)
                 }
                 if model.current.isEmpty {
                     SettingsCardDivider()
@@ -146,12 +147,21 @@ struct BrowserWebExtensionsCard: View {
         var entries = model.current
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index].enabled = enabled
+        if enabled {
+            let targetPath = standardizedPath(entries[index].path)
+            for candidateIndex in entries.indices where candidateIndex != index {
+                if standardizedPath(entries[candidateIndex].path) == targetPath {
+                    entries[candidateIndex].enabled = false
+                }
+            }
+        }
         model.set(entries)
     }
 
     private func add(_ entry: BrowserWebExtensionEntry) {
         var entries = model.current
         guard !entries.contains(where: { $0.id == entry.id }) else { return }
+        guard !entries.contains(where: { standardizedPath($0.path) == standardizedPath(entry.path) }) else { return }
         entries.append(entry)
         model.set(entries)
     }
@@ -210,5 +220,20 @@ struct BrowserWebExtensionsCard: View {
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
+    }
+
+    private func effectiveEnabledByID() -> [String: Bool] {
+        var seenEnabledPaths = Set<String>()
+        var result: [String: Bool] = [:]
+        for entry in model.current {
+            let path = standardizedPath(entry.path)
+            let isFirstEnabledEntryForPath = entry.enabled && seenEnabledPaths.insert(path).inserted
+            result[entry.id] = isFirstEnabledEntryForPath
+        }
+        return result
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }
