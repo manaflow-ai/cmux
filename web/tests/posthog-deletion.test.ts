@@ -52,26 +52,17 @@ describe("PostHog account deletion", () => {
     expect(() => assertPostHogDeletionConfigured()).not.toThrow();
   });
 
-  test("skips PostHog deletion when it is not configured", async () => {
+  test("fails closed when PostHog deletion is not configured", async () => {
     delete process.env.POSTHOG_ENVIRONMENT_ID;
     delete process.env.POSTHOG_PROJECT_ID;
     delete process.env.POSTHOG_PERSONAL_API_KEY;
     const fetchMock = mock(async () => new Response(null, { status: 200 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    const originalConsoleError = console.error;
-    const consoleError = mock(() => {});
-    console.error = consoleError as unknown as typeof console.error;
 
-    try {
-      await expect(deletePostHogPersonData("stack-user-1", ["anon-1"])).resolves.toBeUndefined();
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion is not configured");
 
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(consoleError).toHaveBeenCalledWith(
-        "[account-deletion] PostHog deletion skipped because it is not configured",
-      );
-    } finally {
-      console.error = originalConsoleError;
-    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
