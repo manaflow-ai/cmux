@@ -252,7 +252,7 @@ struct AgentHibernationTranscriptGuardScanTests {
         #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
             agent: agent(sessionId: nestedSession, workingDirectory: cwd),
             homeDirectory: home.path
-        ) == nestedSummary.path)
+        ) == nil)
         #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
             agent: agent(sessionId: nestedSession, workingDirectory: cwd),
             homeDirectory: home.path,
@@ -302,6 +302,29 @@ struct AgentHibernationTranscriptGuardScanTests {
             agent: agent(sessionId: driftedSession, workingDirectory: "/tmp/drifted"),
             homeDirectory: home.path
         ) == driftedTranscript.path)
+    }
+
+    @Test
+    func resolveTranscriptPathFailsClosedOnUnsafeHigherPriorityCandidate() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionId = "unsafe-priority"
+        let currentTranscript = transcriptURL(home: home, cwd: "/tmp/current", sessionId: sessionId)
+        let staleDuplicateTranscript = transcriptURL(home: home, cwd: "/tmp/stale", sessionId: sessionId)
+        try writeFile(#"{"type":"summary","summary":"Compacted session"}"# + "\n", to: currentTranscript)
+        try writeFile(#"{"type":"user","message":{"content":"old duplicate"}}"# + "\n", to: staleDuplicateTranscript)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: "/tmp/current"),
+            homeDirectory: home.path
+        ) == nil)
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: sessionId, workingDirectory: "/tmp/current"),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
     }
 
     @Test
