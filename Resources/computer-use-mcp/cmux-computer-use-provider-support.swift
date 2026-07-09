@@ -140,6 +140,13 @@ func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: Stri
     if !caseInsensitiveExact.isEmpty {
         return singleResolvedApp(caseInsensitiveExact, query: trimmed)
     }
+    let partial = apps.filter {
+        ($0.bundleIdentifier ?? "").lowercased().contains(lower) ||
+        ($0.localizedName ?? "").localizedStandardContains(trimmed)
+    }
+    if !partial.isEmpty {
+        return singleResolvedApp(partial, query: trimmed)
+    }
     return nil
 }
 
@@ -207,7 +214,7 @@ func listWindows(match: String?) -> [[String: Any]] {
             "pid": entry[kCGWindowOwnerPID as String] ?? 0,
             "layer": layer,
         ]
-        if let bounds = entry[kCGWindowBounds as String] as? [String: Any] {
+        if let bounds = windowEntryBounds(entry) {
             window["bounds"] = bounds
         }
         windows.append(window)

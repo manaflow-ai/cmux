@@ -425,6 +425,10 @@ function normalizeAppName(app) {
   return typeof app === "string" ? app.trim() : "";
 }
 
+function looksLikeBundleIdentifier(app) {
+  return /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(app);
+}
+
 function shortErrorMessage(error) {
   return String(error?.message ?? error ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
 }
@@ -572,6 +576,10 @@ class FakeComputerUseProvider {
     return this.identityForApp(app);
   }
 
+  async openApp(app) {
+    return this.resolveApp(app);
+  }
+
   async getState(app, { includeScreenshot = true, target = null } = {}) {
     if (app === "SlowStateApp" || app === "QueueHoldApp") await delay(140);
     const identity = this.identityForApp(app, target);
@@ -669,7 +677,7 @@ class FakeComputerUseProvider {
         title: "Test Window",
         pid: 1001,
         layer: 0,
-        bounds: { X: 0, Y: 0, Width: 400, Height: 300 },
+        bounds: { x: 0, y: 0, width: 400, height: 300 },
       },
     ];
     if (!match) return windows;
@@ -771,6 +779,20 @@ class MacComputerUseProvider {
   async resolveApp(app) {
     const result = await this.run({ op: "resolve_app", app });
     return result.target ?? null;
+  }
+
+  async openApp(app) {
+    try {
+      const args = looksLikeBundleIdentifier(app) ? ["-b", app] : ["-a", app];
+      await execFileTool("/usr/bin/open", args, {
+        timeout: TIMEOUT_MS,
+        env: childEnv(),
+      });
+      return await this.resolveApp(app);
+    } catch (error) {
+      if (error instanceof ProviderOperationError) throw error;
+      throw new ProviderOperationError("provider.processFailed", shortErrorMessage(error));
+    }
   }
 
   async getState(app, { includeScreenshot = true, target = null } = {}) {
@@ -1442,17 +1464,17 @@ const TOOLS = [
       // Launching or focusing can replace the key window. Drop any old
       // agent-visible state so the next input must refresh its snapshot.
       revokeAppState(app);
-      if (USE_FAKE_PROVIDER) {
-        return ok([text(localizedMessage("openedApp", appDisplay))]);
-      }
       try {
-        const { stdout } = await execFileTool("/usr/bin/open", ["-a", app], {
-          timeout: TIMEOUT_MS,
-          env: childEnv(),
-        });
-        return ok([text(stdout?.trim() || localizedMessage("openedApp", appDisplay))]);
+        const s = await session();
+        const target = retainableTarget(await s.provider.openApp(normalizeAppName(app)));
+        if (!target) {
+          throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
+        }
+        s.revoke(target.name);
+        s.revoke(target.bundleIdentifier);
+        return ok([text(localizedMessage("openedApp", safeDisplayText(target.name || appDisplay)))]);
       } catch (error) {
-        return err(error?.stderr?.trim() || error?.message || String(error));
+        return providerError(error);
       }
     },
   },
