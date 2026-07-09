@@ -75,6 +75,26 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(workspace["has_custom_title"] == .bool(false))
     }
 
+    @Test func workspaceCloseReportsKnownTeardownFailureDistinctly() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        context.closeResolution = .closeFailed(windowID: windowID)
+
+        guard case .err(let code, let message, .object(let data)) = coordinator.handle(request(
+            "workspace.close",
+            ["workspace_id": .string(workspaceID.uuidString)]
+        )) else {
+            Issue.record("unexpected workspace.close result")
+            return
+        }
+
+        #expect(code == "internal_error")
+        #expect(message == "close failed")
+        #expect(data["window_id"] == .string(windowID.uuidString))
+        #expect(data["workspace_id"] == .string(workspaceID.uuidString))
+    }
+
     @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

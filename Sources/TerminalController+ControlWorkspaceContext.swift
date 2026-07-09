@@ -19,35 +19,6 @@ import Foundation
 /// `workspace.remote.pty_*` (sessions/close/detach/bridge/resize) methods stay on
 /// the app-side dispatcher.
 extension TerminalController: ControlWorkspaceContext {
-    func controlWorkspaceStrings() -> ControlWorkspaceStrings {
-        ControlWorkspaceStrings(
-            closeProtected: String(
-                localized: "workspace.closeProtected.message",
-                defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
-            ),
-            reorderManyMissingOrder: String(
-                localized: "socket.workspace.reorderMany.missingOrder",
-                defaultValue: "Missing workspace_ids"
-            ),
-            reorderManyDuplicateWorkspace: String(
-                localized: "socket.workspace.reorderMany.duplicateWorkspace",
-                defaultValue: "Duplicate workspace in order"
-            ),
-            reorderManyWorkspaceNotFound: String(
-                localized: "socket.workspace.reorderMany.workspaceNotFound",
-                defaultValue: "Workspace not found"
-            ),
-            reorderManyInvalidWorkspace: String(
-                localized: "socket.workspace.reorderMany.invalidWorkspace",
-                defaultValue: "Invalid workspace id or ref"
-            ),
-            reorderManyTabManagerUnavailable: String(
-                localized: "socket.workspace.reorderMany.tabManagerUnavailable",
-                defaultValue: "TabManager not available"
-            )
-        )
-    }
-
     func controlWorkspaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
         resolveTabManager(routing: routing) != nil
     }
@@ -161,7 +132,9 @@ extension TerminalController: ControlWorkspaceContext {
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
         }
-        guard tabManager.closeWorkspaceNonInteractively(ws) else { return .notFound }
+        guard tabManager.closeWorkspaceNonInteractively(ws) else {
+            return .closeFailed(windowID: windowId)
+        }
         return .resolved(windowID: windowId)
     }
 

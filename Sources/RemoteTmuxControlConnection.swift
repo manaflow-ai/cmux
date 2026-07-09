@@ -512,9 +512,22 @@ final class RemoteTmuxControlConnection {
     }
 
     private func handleStderrBackpressureOverflow() {
-        guard connectionState == .connected || connectionState == .connecting else { return }
-        record("stderr-backpressure")
-        beginReconnecting()
+        switch connectionState {
+        case .connecting, .connected:
+            record("stderr-backpressure")
+            beginReconnecting()
+        case .reconnecting:
+            // This attempt's diagnostic stream is incomplete, so it cannot
+            // safely decide whether the session is gone. Abort the attempt and
+            // retry with a fresh bounded stream instead of attaching with lost
+            // stderr or waiting indefinitely for stdout to end.
+            guard process != nil else { return }
+            record("reconnect-stderr-backpressure")
+            teardownProcessHandles()
+            scheduleReconnectAttempt()
+        case .ended:
+            return
+        }
     }
 
     private func ingest(_ data: Data) {
