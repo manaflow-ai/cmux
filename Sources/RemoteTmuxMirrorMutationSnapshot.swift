@@ -12,6 +12,7 @@ struct RemoteTmuxMirrorMutationSnapshot {
     let window: NSWindow?
     let wasWindowVisible: Bool
     let wasWindowKey: Bool
+    let wasApplicationActive: Bool
     let previousKeyWindow: NSWindow?
 
     init(workspace: Workspace) {
@@ -24,6 +25,7 @@ struct RemoteTmuxMirrorMutationSnapshot {
         window = tabManager?.window
         wasWindowVisible = window?.isVisible == true
         wasWindowKey = window?.isKeyWindow == true
+        wasApplicationActive = NSApp.isActive
         previousKeyWindow = NSApp.keyWindow
     }
 
@@ -46,12 +48,16 @@ struct RemoteTmuxMirrorMutationSnapshot {
         // A session-end lifecycle may legitimately discard the dedicated window;
         // never resurrect a window its manager no longer owns.
         guard let window, tabManager?.window === window else { return }
-        if wasWindowVisible != window.isVisible {
-            if wasWindowVisible {
-                window.orderFront(nil)
-            } else {
-                window.orderOut(nil)
-            }
+        // Ordering a window out is the supported way to make AppKit resign an
+        // unexpected key window; `resignKeyWindow` is an override hook and must
+        // not be invoked directly.
+        if !wasWindowKey && window.isKeyWindow {
+            window.orderOut(nil)
+        }
+        if wasWindowVisible && !window.isVisible {
+            window.orderFront(nil)
+        } else if !wasWindowVisible && window.isVisible {
+            window.orderOut(nil)
         }
         if wasWindowKey {
             if !window.isKeyWindow { window.makeKey() }
@@ -60,8 +66,7 @@ struct RemoteTmuxMirrorMutationSnapshot {
                   previousKeyWindow.isVisible,
                   !previousKeyWindow.isKeyWindow {
             previousKeyWindow.makeKey()
-        } else if window.isKeyWindow {
-            window.resignKey()
         }
+        if !wasApplicationActive && NSApp.isActive { NSApp.deactivate() }
     }
 }
