@@ -5,7 +5,7 @@ import Testing
 
 @Suite("RemoteProxyBroker PTY lifecycle restart", .serialized)
 struct RemoteProxyBrokerPTYLifecycleRestartTests {
-    @Test("intentional-close lifecycle survives automatic tunnel replacement")
+    @Test("intentional-close lifecycle survives a failed automatic tunnel replacement")
     func intentionalCloseSurvivesTunnelReplacement() throws {
         let provider = FakeTunnelProvider()
         let clock = ManualRetryClock()
@@ -29,13 +29,16 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             lifecycleID: "generation"
         ) == .intentionallyClosed)
 
+        provider.failNextStarts(1)
         let fatalError = try #require(provider.fatalErrorCallback(at: 0))
         fatalError("transport died")
         #expect(clock.waitForSleeps(1))
         clock.fireOldestSleep()
+        #expect(clock.waitForSleeps(2))
+        clock.fireOldestSleep()
         let deadline = Date().addingTimeInterval(5.0)
-        while provider.tunnels.count < 2 && Date() < deadline { usleep(10_000) }
-        #expect(provider.tunnels.count == 2)
+        while provider.tunnels.count < 3 && Date() < deadline { usleep(10_000) }
+        #expect(provider.tunnels.count == 3)
 
         #expect(try broker.ptySessionLifecycle(
             configuration: configuration,
