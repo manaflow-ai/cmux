@@ -256,7 +256,32 @@ public final class HostBrowserSignInFlow {
             ) { result in
                 self.log.log("auth.browser.session.completion id=\(attemptID) \(self.sessionResultSummary(result))")
                 if case let .callback(url) = result, !self.callbackRouter.isAuthCallbackURL(url) {
-                    self.log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=nonAuthCallback \(self.authCallbackSummary(url))")
+                    self.log.log(
+                        "auth.browser.session.completion.nonAuth id=\(attemptID) \(self.authCallbackSummary(url))"
+                    )
+                    guard self.activeAttemptID == attemptID,
+                          self.activeSessionContinuationAttemptID == attemptID
+                    else {
+                        self.log.log(
+                            "auth.browser.session.completion.ignored id=\(attemptID) reason=staleNonAuthCallback active=\(self.activeAttemptID.map(String.init) ?? "nil")"
+                        )
+                        return
+                    }
+                    // ASWebAuthenticationSession invokes its completion exactly
+                    // once. Safari can finish that system session with the HTTPS
+                    // handoff URL before the custom-scheme callback returns to
+                    // the app. Keeping the continuation parked here leaves the
+                    // Settings spinner active until the ten-minute abandoned-
+                    // attempt timeout even though the popup is already gone.
+                    // End the popup attempt now, but retain its unguessable state
+                    // so a later callback delivered through AppDelegate can still
+                    // complete sign-in.
+                    self.pendingFallbackCallbackState = self.activeCallbackState
+                    self.resumeActiveSessionContinuation(
+                        returning: .cancelled(reason: "external_browser_handoff"),
+                        reason: "nonAuthCallbackHandoff",
+                        expectedAttemptID: attemptID
+                    )
                     return
                 }
                 self.resumeActiveSessionContinuation(
