@@ -108,10 +108,8 @@ pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
     if let Some(cell) = ioctl_cell_pixels() {
         return cell;
     }
-    if query_fallback {
-        if let Some(cell) = query_cell_pixels() {
-            return cell;
-        }
+    if query_fallback && let Some(cell) = query_cell_pixels() {
+        return cell;
     }
     (8, 16)
 }

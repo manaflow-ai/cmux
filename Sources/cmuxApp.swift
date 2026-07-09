@@ -1461,7 +1461,6 @@ private struct MainWindowBootstrapView: View {
     }
 }
 
-
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
@@ -1487,6 +1486,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.extensionSidebarInspector",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
+    "cmux.spinnerGallery",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",

@@ -183,7 +183,7 @@ extension TerminalSurface {
                 "workspaceId": tabId
             ]
         )
-
+        onRuntimeReady?()
 #if DEBUG
         let runtimeFontText = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)

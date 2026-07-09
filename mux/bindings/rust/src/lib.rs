@@ -491,7 +491,7 @@ impl CmuxClient {
         let id = self.next_id();
         params.insert("id".to_string(), Value::from(id));
         params.insert("cmd".to_string(), Value::from(cmd));
-        CmuxStream::open(&self.config.socket_path, self.config.timeout, Value::Object(params))
+        CmuxStream::open(&self.config.socket_path, self.config.timeout, &Value::Object(params))
     }
 
     fn next_id(&mut self) -> u64 {
@@ -507,10 +507,10 @@ pub struct CmuxStream {
 }
 
 impl CmuxStream {
-    fn open(socket_path: &PathBuf, timeout: Duration, request: Value) -> Result<Self> {
+    fn open(socket_path: &PathBuf, timeout: Duration, request: &Value) -> Result<Self> {
         let mut conn = JsonLineConnection::connect(socket_path, timeout)?;
         let request_id = request.get("id").cloned();
-        conn.send(&request)?;
+        conn.send(request)?;
         let mut buffered = Vec::new();
         loop {
             let response = conn.recv()?;
@@ -551,10 +551,12 @@ impl CmuxStream {
         if !self.buffered.is_empty() {
             return Ok(self.buffered.remove(0));
         }
-        self.conn.with_read_timeout(timeout, |conn| loop {
-            let value = conn.recv()?;
-            if value.get("event").is_some() {
-                return Ok(parse_event(value));
+        self.conn.with_read_timeout(timeout, |conn| {
+            loop {
+                let value = conn.recv()?;
+                if value.get("event").is_some() {
+                    return Ok(parse_event(value));
+                }
             }
         })
     }
