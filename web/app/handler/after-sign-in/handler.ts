@@ -5,9 +5,12 @@ import {
 } from "../../lib/native-callback";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
+import {
+  clearNativeHandoffCookie,
+  NATIVE_HANDOFF_COOKIE_NAME,
+  NATIVE_HANDOFF_QUERY_PARAM,
+} from "../native-handoff-cookie";
 
-const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
-const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
 type AfterSignInMessages = {
@@ -133,9 +136,9 @@ function verifiedNativeHandoff(
   nativeReturnTo: string
 ): boolean {
   if (!hasAuthState(nativeReturnTo)) return false;
-  const handoffNonce = request.nextUrl.searchParams.get(NATIVE_HANDOFF_PARAM);
+  const handoffNonce = request.nextUrl.searchParams.get(NATIVE_HANDOFF_QUERY_PARAM);
   if (!handoffNonce) return false;
-  return cookieStore.get(NATIVE_HANDOFF_COOKIE)?.value === handoffNonce;
+  return cookieStore.get(NATIVE_HANDOFF_COOKIE_NAME)?.value === handoffNonce;
 }
 
 function escapeHtml(value: string): string {
@@ -266,21 +269,11 @@ ${switchAccountAction}    </div>
   return response;
 }
 
-function nativeRedirectResponse(href: string): NextResponse {
+function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
   const response = NextResponse.redirect(href);
   response.headers.set("Cache-Control", "no-store");
-  clearNativeHandoffCookie(response);
+  clearNativeHandoffCookie(response, request);
   return response;
-}
-
-function clearNativeHandoffCookie(response: NextResponse): void {
-  response.cookies.set(NATIVE_HANDOFF_COOKIE, "", {
-    httpOnly: true,
-    maxAge: 0,
-    path: "/handler/after-sign-in",
-    sameSite: "lax",
-    secure: requestIsSecure(),
-  });
 }
 
 function currentAfterSignInPath(request: NextRequest): string {
@@ -298,10 +291,6 @@ function switchAccountHref(request: NextRequest): string | null {
   const signOut = new URL("/handler/sign-out-and-sign-in", request.nextUrl.origin);
   signOut.searchParams.set("after_auth_return_to", `${nativeSignIn.pathname}${nativeSignIn.search}`);
   return `${signOut.pathname}${signOut.search}`;
-}
-
-function requestIsSecure(): boolean {
-  return process.env.NODE_ENV === "production";
 }
 
 export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependencies) {
@@ -350,7 +339,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         if (href) {
           if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
-            return nativeRedirectResponse(href);
+            return nativeRedirectResponse(request, href);
           }
           return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
         }
