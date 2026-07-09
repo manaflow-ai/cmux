@@ -71,6 +71,7 @@ extension AppDelegate {
             NSSound.beep()
             return false
         }
+        AgentChatThemeSync.start()
         guard AgentChatActionInFlightGate.begin() else {
             NSSound.beep()
             return false
@@ -83,6 +84,7 @@ extension AppDelegate {
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
+            AgentChatThemeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
             guard let workspace = self.openAgentChatWorkspace(
                 tabManager: tabManager,

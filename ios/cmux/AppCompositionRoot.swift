@@ -50,6 +50,12 @@ final class AppCompositionRoot {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding
     ) {
+        #if DEBUG
+        // Arm the durable debug log at launch: `.shared` is lazy, and without
+        // this a run that never logs would create no file or crash capture.
+        MobileDebugLog.shared.append("app launch · composition root initialized")
+        #endif
+
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability

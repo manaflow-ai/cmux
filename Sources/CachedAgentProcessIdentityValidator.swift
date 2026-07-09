@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 struct CachedAgentProcessIdentityValidator: Sendable {
@@ -6,10 +7,10 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         matches snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
         if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
-           liveKind.compare(snapshot.kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
+           !Self.launchKind(liveKind, matches: snapshot.kind, launcher: snapshot.launchCommand?.launcher) {
             return false
         }
-        guard currentProcessExecutable(process.arguments, matches: snapshot) else {
+        guard currentProcessExecutable(process.arguments, environment: process.environment, matches: snapshot) else {
             return false
         }
         return currentProcessSession(process.arguments, matches: snapshot)
@@ -17,15 +18,29 @@ struct CachedAgentProcessIdentityValidator: Sendable {
 
     private func currentProcessExecutable(
         _ arguments: [String],
+        environment: [String: String],
         matches snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
         guard let liveExecutable = arguments.first.map(executableBasename) else { return false }
+        if let liveKind = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_KIND"]),
+           Self.launchKind(liveKind, matches: snapshot.kind, launcher: snapshot.launchCommand?.launcher),
+           normalizedProcessValue(snapshot.launchCommand?.launcher)?.compare(liveKind, options: [.caseInsensitive, .literal]) == .orderedSame,
+           liveProcessExecutableMatchesRecordedAgent(
+               kind: snapshot.kind,
+               liveExecutable: liveExecutable,
+               recordedExecutable: snapshot.kind.rawValue,
+               arguments: arguments,
+               environment: [:]
+           ) {
+            return true
+        }
         if let recordedExecutable = recordedExecutableBasename(snapshot),
            liveProcessExecutableMatchesRecordedAgent(
                kind: snapshot.kind,
                liveExecutable: liveExecutable,
                recordedExecutable: recordedExecutable,
-               arguments: arguments
+               arguments: arguments,
+               environment: environment
            ) {
             return true
         }
@@ -34,7 +49,8 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                 kind: snapshot.kind,
                 liveExecutable: liveExecutable,
                 recordedExecutable: snapshot.kind.rawValue,
-                arguments: arguments
+                arguments: arguments,
+                environment: environment
             )
         }
         return registrationDetectRule(registration.detect, matchesExecutable: liveExecutable, arguments: arguments)
@@ -60,9 +76,17 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         kind: RestorableAgentKind,
         liveExecutable: String,
         recordedExecutable: String,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]
     ) -> Bool {
         if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
+            return true
+        }
+        if Self.liveProcessMatchesLaunchExecutableEnvironment(
+            kind: kind,
+            executableCandidates: [liveExecutable],
+            environment: environment
+        ) {
             return true
         }
         if kind == .opencode, arguments.contains(where: argumentLooksLikeOpenCode) {
@@ -101,6 +125,34 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             return executableBasename(argument).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame
                 || lowered.contains("@openai/codex")
                 || lowered.contains("oh-my-codex")
+        }
+    }
+
+    static func launchKind(_ liveKind: String, matches kind: RestorableAgentKind, launcher: String?) -> Bool {
+        if liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) == .orderedSame {
+            return true
+        }
+        guard let launcher = normalizedProcessValue(launcher),
+              launcher.compare(liveKind, options: [.caseInsensitive, .literal]) == .orderedSame else {
+            return false
+        }
+        return AgentLaunchCaptureTrust.launcherDescribesKind(liveKind, kind: kind.rawValue)
+    }
+
+    static func liveProcessMatchesLaunchExecutableEnvironment(
+        kind: RestorableAgentKind,
+        executableCandidates: [String],
+        environment: [String: String]
+    ) -> Bool {
+        guard let liveKind = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_KIND"]),
+              (liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) == .orderedSame
+                  || AgentLaunchCaptureTrust.launcherDescribesKind(liveKind, kind: kind.rawValue)),
+              let launchExecutable = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
+            return false
+        }
+        let launchBasename = executableBasename(launchExecutable)
+        return executableCandidates.contains { candidate in
+            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
         }
     }
 
@@ -171,11 +223,15 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         Self.executableBasename(value)
     }
 
-    private func normalizedProcessValue(_ value: String?) -> String? {
+    private static func normalizedProcessValue(_ value: String?) -> String? {
         guard let rawValue = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil
         }
         return rawValue
+    }
+
+    private func normalizedProcessValue(_ value: String?) -> String? {
+        Self.normalizedProcessValue(value)
     }
 }

@@ -1281,12 +1281,6 @@ impl App {
             self.forward_key(&key);
             return Ok(RenderAction::Draw);
         }
-        // 1-9 select a tab by number (fixed: they mirror the tab labels).
-        if let KeyCode::Char(c @ '1'..='9') = key.code {
-            let pane = self.active_pane();
-            self.session.select_tab(pane, Some(c as usize - '1' as usize), None);
-            return Ok(RenderAction::Draw);
-        }
         let Some(action) = self.config.keys.action_for(&key) else {
             return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
@@ -1313,6 +1307,11 @@ impl App {
             Action::NewPaneSmart => self.new_pane_smart()?,
             Action::NextTab => self.session.select_tab(pane, None, Some(1)),
             Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
+            Action::SelectTab(_) => {
+                if let Some(index) = action.tab_index() {
+                    self.session.select_tab(pane, Some(index), None);
+                }
+            }
             Action::SplitRight => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Right)?;
@@ -1346,6 +1345,11 @@ impl App {
             }
             Action::PrevScreen => self.session.select_screen(None, Some(-1)),
             Action::NextScreen => self.session.select_screen(None, Some(1)),
+            Action::SelectScreen(_) => {
+                if let Some(index) = action.screen_index() {
+                    self.session.select_screen(Some(index), None);
+                }
+            }
             Action::NewScreen => self.new_screen()?,
             Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
             Action::NewWorkspace => self.new_workspace()?,
@@ -1354,6 +1358,10 @@ impl App {
             Action::FocusRight => self.move_focus(1, 0),
             Action::FocusUp => self.move_focus(0, -1),
             Action::FocusDown => self.move_focus(0, 1),
+            Action::FocusNextPane => self.focus_next_pane(),
+            Action::SwapPanePrev => self.swap_pane_by_order(-1),
+            Action::SwapPaneNext => self.swap_pane_by_order(1),
+            Action::ZoomPane => self.session.zoom_pane(pane),
             Action::ResizeGrow => self.resize_focused_split(0.05),
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
@@ -1621,6 +1629,38 @@ impl App {
         };
         if let Some(next) = layout.neighbor(active, dx, dy) {
             self.session.focus_pane(next);
+        }
+    }
+
+    fn active_screen_pane_order(&self) -> Vec<PaneId> {
+        self.tree
+            .active_screen()
+            .map(|screen| screen.panes.iter().map(|pane| pane.id).collect())
+            .unwrap_or_default()
+    }
+
+    fn adjacent_pane_by_order(&self, delta: isize) -> Option<PaneId> {
+        let active = self.active_pane()?;
+        let panes = self.active_screen_pane_order();
+        let position = panes.iter().position(|pane| *pane == active)?;
+        let len = panes.len();
+        if len < 2 {
+            return None;
+        }
+        let next = (position as isize + delta).rem_euclid(len as isize) as usize;
+        panes.get(next).copied()
+    }
+
+    fn focus_next_pane(&self) {
+        if let Some(next) = self.adjacent_pane_by_order(1) {
+            self.session.focus_pane(next);
+        }
+    }
+
+    fn swap_pane_by_order(&self, delta: isize) {
+        let Some(active) = self.active_pane() else { return };
+        if let Some(target) = self.adjacent_pane_by_order(delta) {
+            self.session.swap_pane(active, target);
         }
     }
 
