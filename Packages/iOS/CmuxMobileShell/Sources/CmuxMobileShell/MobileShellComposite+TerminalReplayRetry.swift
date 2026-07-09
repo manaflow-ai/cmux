@@ -42,6 +42,69 @@ extension MobileShellComposite {
         requestTerminalReplay(surfaceID: surfaceID)
     }
 
+    @discardableResult
+    func recoverAfterDroppedReplayFrame(
+        surfaceID: String,
+        replayBarrierToken: UUID?,
+        replayRequestID: UUID,
+        coveredReplayBarrierDroppedOutputCount: UInt64?,
+        reason: String
+    ) -> Bool {
+        let retryBudgetWasExhausted = terminalReplayFailureRetryExhausted(surfaceID: surfaceID)
+        if let retryToken = prepareTerminalReplayFailureRetry(
+            surfaceID: surfaceID,
+            replayBarrierToken: replayBarrierToken
+        ) {
+            clearTerminalReplayInFlightIfCurrent(surfaceID: surfaceID, requestID: replayRequestID)
+            requestTerminalReplay(
+                surfaceID: surfaceID,
+                replayBarrierToken: retryToken,
+                coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCount
+                    ?? terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+            )
+            return true
+        }
+        if replayBarrierToken == nil,
+           prepareNonBarrierTerminalReplayFailureRetry(surfaceID: surfaceID) {
+            clearTerminalReplayInFlightIfCurrent(surfaceID: surfaceID, requestID: replayRequestID)
+            requestTerminalReplay(surfaceID: surfaceID)
+            return true
+        }
+        let retryBudgetExhausted = retryBudgetWasExhausted
+            || terminalReplayFailureRetryExhausted(surfaceID: surfaceID)
+        let barrierFailedOpen = replayBarrierToken.map {
+            failOpenTerminalReplayBarrier(surfaceID: surfaceID, token: $0, reason: reason)
+        } ?? false
+        if retryBudgetExhausted {
+            // Barrier fail-open clears counters because normal recovery should
+            // get a fresh episode. This replay-response drop is still part of
+            // the same pending-input episode, so keep its exhausted budget
+            // spent until a new input target explicitly resets it.
+            terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = Self.maxTerminalReplayFailureRetries
+        }
+        if !barrierFailedOpen {
+            failOpenPendingInputReplayGate(
+                surfaceID: surfaceID,
+                reason: reason,
+                resetRetryBudget: !retryBudgetExhausted
+            )
+        }
+        return false
+    }
+
+    func failOpenPendingInputReplayGate(
+        surfaceID: String,
+        reason: String,
+        resetRetryBudget: Bool = true
+    ) {
+        MobileDebugLog.anchormux("CMUX_REPLAY pending_input_fail_open surface=\(surfaceID) reason=\(reason)")
+        pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+        if resetRetryBudget {
+            terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
+        }
+    }
+
     /// Consume one replay-failure attempt after a replay response made no
     /// progress toward the pending input target (empty response, bytes without
     /// a sequence, stale sequence, or a failed non-barrier request). Without

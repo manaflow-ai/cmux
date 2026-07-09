@@ -6828,6 +6828,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
+        if source == "replay",
+           let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
+           renderGrid.stateSeq >= pendingSeq { return false }
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
               renderGrid.stateSeq < pendingSeq else {
             guard pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(renderGrid.surfaceID),
@@ -7087,37 +7090,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let renderGrid {
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
-                        if let retryToken = self.prepareTerminalReplayFailureRetry(
+                        transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
-                            replayBarrierToken: replayBarrierTokenForRequest
-                        ) {
-                            self.clearTerminalReplayInFlightIfCurrent(
-                                surfaceID: surfaceID,
-                                requestID: replayRequestID
-                            )
-                            transferredInFlightToRetry = true
-                            self.requestTerminalReplay(
-                                surfaceID: surfaceID,
-                                replayBarrierToken: retryToken,
-                                coveredReplayBarrierDroppedOutputCount:
-                                    self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
-                            )
-                            return
-                        }
-                        if replayBarrierTokenForRequest == nil,
-                           self.prepareNonBarrierTerminalReplayFailureRetry(surfaceID: surfaceID) {
-                            self.clearTerminalReplayInFlightIfCurrent(
-                                surfaceID: surfaceID,
-                                requestID: replayRequestID
-                            )
-                            transferredInFlightToRetry = true
-                            self.requestTerminalReplay(surfaceID: surfaceID)
-                            return
-                        }
-                        self.clearTerminalReplayBarrierIfCurrent(
-                            surfaceID: surfaceID,
-                            token: replayBarrierTokenForRequest,
-                            reason: "pending_input_exhausted"
+                            replayBarrierToken: replayBarrierTokenForRequest,
+                            replayRequestID: replayRequestID,
+                            coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCountForRequest,
+                            reason: "pending_input_drop"
                         )
                         return
                     }
@@ -7127,11 +7105,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         bypassReplayBarrier: replayBarrierTokenForRequest != nil
                     )
                     guard accepted else {
-                        self.clearTerminalReplayBarrierIfCurrent(
+                        transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
-                            token: replayBarrierTokenForRequest,
-                            reason: "not_delivered",
-                            preserveDroppedOutput: true
+                            replayBarrierToken: replayBarrierTokenForRequest,
+                            replayRequestID: replayRequestID,
+                            coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCountForRequest,
+                            reason: "not_delivered"
                         )
                         return
                     }

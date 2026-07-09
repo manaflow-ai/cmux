@@ -376,6 +376,11 @@ extension MobileShellComposite {
         let requestCount = terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] ?? 0
         guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil,
               !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+              // A pending-input episode that already exhausted replay repair
+              // must fail open instead of immediately re-entering through the
+              // missing-baseline path; the next full live frame re-establishes
+              // the baseline.
+              !terminalReplayFailureRetryExhausted(surfaceID: surfaceID),
               requestCount < Self.maxTerminalReplayFailureRetries else {
             return
         }
