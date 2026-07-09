@@ -54,7 +54,7 @@ const realListUserVms = workflowsModule.listUserVms;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
 type ListedAccountVm = string | {
-  readonly providerVmId: string;
+  readonly providerVmId?: string | null;
   readonly provider?: ProviderId;
 };
 type StackPage = readonly unknown[] & { readonly nextCursor?: string | null };
@@ -1290,6 +1290,32 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
+    expect(deletedTables).toContain(cloudVms);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("deletes failed providerless VM rows without provider teardown", async () => {
+    listedPersonalVmIds = [
+      { providerVmId: null, provider: "freestyle" },
+      "personal-vm-1",
+    ];
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000767",
+      providerVmId: null,
+      status: "failed",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
+    expect(destroyVm).toHaveBeenCalledTimes(1);
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-1",
+      provider: "freestyle",
+    });
     expect(deletedTables).toContain(cloudVms);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });

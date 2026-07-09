@@ -454,23 +454,28 @@ async function listAccountDeletionCloudVms(
   userId: string,
   accountTeamIds: readonly string[],
 ): Promise<Array<{ readonly providerVmId: string; readonly provider: ProviderId; readonly billingTeamId?: string | null }>> {
+  type ListedVm = { readonly providerVmId?: string | null; readonly provider: ProviderId };
   const vms = new Map<
     string,
     { readonly providerVmId: string; readonly provider: ProviderId; readonly billingTeamId?: string | null }
   >();
-  const legacyScopedVms = await runVmWorkflow(listUserVms(userId));
+  const legacyScopedVms: readonly ListedVm[] = await runVmWorkflow(listUserVms(userId));
   for (const vm of legacyScopedVms) {
-    vms.set(accountDeletionVmKey(vm), {
-      providerVmId: vm.providerVmId,
+    const providerVmId = vm.providerVmId;
+    if (!providerVmId) continue;
+    vms.set(accountDeletionVmKey({ provider: vm.provider, providerVmId }), {
+      providerVmId,
       provider: vm.provider,
     });
   }
   for (const teamId of accountTeamIds) {
     if (teamId === userId) continue;
-    const teamScopedVms = await runVmWorkflow(listUserVms(userId, teamId));
+    const teamScopedVms: readonly ListedVm[] = await runVmWorkflow(listUserVms(userId, teamId));
     for (const vm of teamScopedVms) {
-      vms.set(accountDeletionVmKey(vm), {
-        providerVmId: vm.providerVmId,
+      const providerVmId = vm.providerVmId;
+      if (!providerVmId) continue;
+      vms.set(accountDeletionVmKey({ provider: vm.provider, providerVmId }), {
+        providerVmId,
         provider: vm.provider,
         billingTeamId: teamId,
       });
