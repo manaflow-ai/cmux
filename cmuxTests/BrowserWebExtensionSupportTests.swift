@@ -12,6 +12,55 @@ import WebKit
 
 @Suite
 struct BrowserWebExtensionSupportTests {
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func keyWindowSwitchRestoresThatWindowsActiveExtensionTab() {
+        let support = BrowserWebExtensionSupport()
+        let firstPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://first.example"),
+            renderInitialNavigation: false,
+            browserWebExtensionHost: support
+        )
+        let secondPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://second.example"),
+            renderInitialNavigation: false,
+            browserWebExtensionHost: support
+        )
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        firstWindow.contentView = firstPanel.webView
+        secondWindow.contentView = secondPanel.webView
+        defer {
+            firstPanel.close()
+            secondPanel.close()
+            firstWindow.close()
+            secondWindow.close()
+        }
+
+        support.register(panel: firstPanel)
+        support.register(panel: secondPanel)
+        support.noteActivated(panelID: firstPanel.id)
+        support.noteActivated(panelID: secondPanel.id)
+        #expect(support.activePanelID == secondPanel.id)
+
+        support.noteWindowBecameKey(firstWindow)
+
+        #expect(support.activePanelID == firstPanel.id)
+    }
+
     @Test
     func reconciliationSkipsEnvPathWhenSettingsEntryIsDisabled() {
         let planner = BrowserWebExtensionReconciliationPlanner()
@@ -225,6 +274,25 @@ struct BrowserWebExtensionSupportTests {
         #expect(plan.loadEntries.isEmpty)
     }
 
+    @Test
+    func failedUnloadRollbackRestoresTheLoadedEntryAsEnabled() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let loadedEntry = BrowserWebExtensionEntry(
+            id: "com.example.extension",
+            kind: .safariAppExtension,
+            path: "/Applications/Example.app/Contents/PlugIns/Example.appex",
+            enabled: true,
+            displayName: "Example"
+        )
+
+        let restored = planner.rollbackEntriesAfterFailedUnloads(
+            settingsEntries: [],
+            failedEntries: [loadedEntry]
+        )
+
+        #expect(restored == [loadedEntry])
+    }
+
     @MainActor
     @Test
     func pageInitiatedExtensionNavigationPolicyDistinguishesContextEntryAndExit() throws {
@@ -247,6 +315,23 @@ struct BrowserWebExtensionSupportTests {
         #expect(!panel.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: extensionURL))
         #expect(panel.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: normalURL))
         #expect(!panel.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: fileURL))
+    }
+
+    @MainActor
+    @Test
+    func extensionExitPreservesNilTargetNewTabIntent() {
+        let delegate = BrowserNavigationDelegate()
+
+        #expect(!delegate.shouldRouteWebExtensionNavigationAsCurrentTab(
+            targetFrameIsMainFrame: nil,
+            shouldOpenInNewTab: false,
+            navigationType: .linkActivated
+        ))
+        #expect(delegate.shouldRouteWebExtensionNavigationAsCurrentTab(
+            targetFrameIsMainFrame: true,
+            shouldOpenInNewTab: false,
+            navigationType: .linkActivated
+        ))
     }
 
     @Test
