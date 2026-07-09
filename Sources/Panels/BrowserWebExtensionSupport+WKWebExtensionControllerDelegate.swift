@@ -56,19 +56,50 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
 #if DEBUG
         cmuxDebugLog("browser.webext.openTab url=\(configuration.url?.absoluteString.prefix(80) ?? "nil")")
 #endif
-        if let url = configuration.url, url.scheme == "https" || url.scheme == "http" {
-            NSWorkspace.shared.open(url)
-            completionHandler(nil, nil)
+        if let url = configuration.url,
+           let scheme = url.scheme?.lowercased(),
+           scheme != "https" && scheme != "http" {
+            completionHandler(nil, openTabsUnsupportedError())
             return
         }
-        completionHandler(nil, NSError(
+
+        guard let adapter = openBrowserTab(url: configuration.url, shouldActivate: configuration.shouldBeActive) else {
+            completionHandler(nil, openTabsUnsupportedError())
+            return
+        }
+        completionHandler(adapter, nil)
+    }
+
+    private func openBrowserTab(url: URL?, shouldActivate: Bool) -> BrowserWebExtensionTabAdapter? {
+        guard let sourcePanel = activeTabAdapter?.panel,
+              let workspace = AppDelegate.shared?.workspaceContainingPanel(
+                  panelId: sourcePanel.id,
+                  preferredWorkspaceId: sourcePanel.workspaceId
+              )?.workspace,
+              let paneId = workspace.paneId(forPanelId: sourcePanel.id),
+              let panel = workspace.newBrowserSurface(
+                  inPane: paneId,
+                  url: url,
+                  focus: shouldActivate,
+                  preferredProfileID: sourcePanel.profileID
+              ) else {
+            return nil
+        }
+        if shouldActivate {
+            noteActivated(panelID: panel.id)
+        }
+        return tabAdapter(for: panel.id)
+    }
+
+    private func openTabsUnsupportedError() -> NSError {
+        NSError(
             domain: "cmux.webExtension",
             code: 2,
             userInfo: [NSLocalizedDescriptionKey: String(
                 localized: "browser.webExtension.error.openTabsUnsupported",
                 defaultValue: "Opening extension tabs is not supported yet."
             )]
-        ))
+        )
     }
 
     func webExtensionController(

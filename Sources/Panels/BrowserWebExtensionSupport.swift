@@ -129,6 +129,11 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         }
     }
 
+    func noteTabMetadataChanged(panelID: UUID) {
+        guard let adapter = tabAdapters[panelID] else { return }
+        controller.didChangeTabProperties([.title, .URL, .loading, .muted], for: adapter)
+    }
+
     func tabAdapter(for panelID: UUID) -> BrowserWebExtensionTabAdapter? {
         tabAdapters[panelID]
     }

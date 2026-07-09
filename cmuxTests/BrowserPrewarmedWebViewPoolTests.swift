@@ -58,6 +58,8 @@ private final class PrewarmTestWebExtensionHost: BrowserWebExtensionHosting {
 
     func noteActivated(panelID: UUID) {}
 
+    func noteTabMetadataChanged(panelID: UUID) {}
+
     func performCommand(for event: NSEvent) -> Bool { false }
 }
 

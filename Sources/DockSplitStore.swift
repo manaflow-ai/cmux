@@ -392,6 +392,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     func focusPanel(_ panelId: UUID) {
         guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }
+        (panels[panelId] as? BrowserPanel)?.browserWebExtensionHost?.noteActivated(panelID: panelId)
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
         applyDockSelection(tabId: tabId, inPane: paneId)
@@ -570,6 +571,7 @@ final class DockSplitStore: BonsplitDelegate {
             .sink { [weak self, weak browser] _ in
                 guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
                       let existing = self.bonsplitController.tab(tabId) else { return }
+                browser.browserWebExtensionHost?.noteTabMetadataChanged(panelID: browser.id)
                 // Only push fields that actually changed; otherwise unchanged metadata
                 // would mutate Bonsplit and re-render the Dock tree for nothing.
                 // Mirrors the main area's guarded path in Workspace.installBrowserPanelSubscription.

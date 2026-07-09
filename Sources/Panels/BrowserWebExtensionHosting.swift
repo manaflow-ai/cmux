@@ -7,5 +7,6 @@ protocol BrowserWebExtensionHosting: AnyObject {
     func register(panel: BrowserPanel)
     func unregister(panelID: UUID)
     func noteActivated(panelID: UUID)
+    func noteTabMetadataChanged(panelID: UUID)
     func performCommand(for event: NSEvent) -> Bool
 }
