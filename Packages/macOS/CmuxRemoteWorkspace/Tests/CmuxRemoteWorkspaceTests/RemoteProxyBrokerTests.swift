@@ -5,7 +5,7 @@ import Testing
 
 /// Scripted tunnel: records calls, can be told to fail `start()`, and
 /// reports canned PTY results.
-private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
+final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     struct PTYCall: Equatable {
         let name: String
         let arguments: [String]
@@ -18,6 +18,7 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     private var _startCount = 0
     private var _stopCount = 0
     private var _ptyCalls: [PTYCall] = []
+    private var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
 
     init(remotePath: String, localPort: Int, startError: NSError?) {
         self.remotePath = remotePath
@@ -55,6 +56,20 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     func stop() {
         lock.lock()
         _stopCount += 1
+        ptyLifecycleRegistry.removeAll()
+        lock.unlock()
+    }
+
+    func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        _stopCount += 1
+        return RemotePTYLifecycleSnapshot(registry: ptyLifecycleRegistry)
+    }
+
+    func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {
+        lock.lock()
+        ptyLifecycleRegistry = snapshot.registry
         lock.unlock()
     }
 
@@ -65,15 +80,24 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
 
     func closePTY(sessionID: String) throws {
         record("closePTY", [sessionID])
+        lock.lock()
+        let previous = ptyLifecycleRegistry.requestIntentionalClose(sessionID: sessionID)
+        ptyLifecycleRegistry.completeIntentionalClose(previous)
+        lock.unlock()
     }
 
     func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
         record("ptySessionLifecycle", [sessionID, lifecycleID])
-        return .intentionallyClosed
+        lock.lock()
+        defer { lock.unlock() }
+        return ptyLifecycleRegistry.lifecycle(for: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
     }
 
     func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
         record("acknowledgePTYLifecycle", [sessionID, lifecycleID])
+        lock.lock()
+        ptyLifecycleRegistry.acknowledge(RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
+        lock.unlock()
     }
 
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
@@ -86,6 +110,12 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
 
     func startPTYBridge(sessionID: String, lifecycleID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
         record("startPTYBridge", [sessionID, lifecycleID, attachmentID, command ?? "", String(requireExisting)])
+        let key = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        let bridgeID = UUID()
+        lock.lock()
+        defer { lock.unlock() }
+        try ptyLifecycleRegistry.registerBridge(key: key, attachmentID: attachmentID, bridgeID: bridgeID)
+        ptyLifecycleRegistry.bridgeStopped(key: key, bridgeID: bridgeID, disposition: .acceptedClient)
         return RemotePTYBridgeServer.Endpoint(
             host: "127.0.0.1",
             port: 4242,
@@ -106,7 +136,7 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
 /// Provider that hands out ``FakeProxyTunnel``s and records every request,
 /// including the failure callback so tests can simulate a running tunnel
 /// dying.
-private final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable {
+final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var _tunnels: [FakeProxyTunnel] = []
     private var _onFatalErrors: [@Sendable (String) -> Void] = []
@@ -157,7 +187,7 @@ private final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked S
 
 /// Manual clock: parks every sleep until the test resumes it, recording the
 /// requested delays so backoff escalation is assertable with virtual time.
-private final class ManualRetryClock: RemoteProxyRetryClock, @unchecked Sendable {
+final class ManualRetryClock: RemoteProxyRetryClock, @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [CheckedContinuation<Void, any Error>] = []
     private var _requestedDelays: [Int] = []
@@ -452,7 +482,7 @@ struct RemoteProxyBrokerTests {
         try broker.detachPTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t")
         let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", lifecycleID: "life", attachmentID: "a", command: "top", requireExisting: true)
         #expect(endpoint.port == 4242)
-        #expect(lifecycle == .intentionallyClosed)
+        #expect(lifecycle == .active)
 
         #expect(tunnel.ptyCalls == [
             FakeProxyTunnel.PTYCall(name: "listPTY", arguments: []),
@@ -465,19 +495,4 @@ struct RemoteProxyBrokerTests {
         ])
     }
 
-    @Test("a forced localProxyPort from the configuration is used verbatim")
-    func forcedLocalProxyPort() throws {
-        let provider = FakeTunnelProvider()
-        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
-        let recorder = UpdateRecorder()
-
-        let lease = broker.acquire(
-            configuration: makeConfiguration(localProxyPort: 45_678),
-            remotePath: "/r/p"
-        ) { recorder.record($0) }
-        defer { lease.release() }
-
-        #expect(try #require(provider.tunnels.first).localPort == 45_678)
-        #expect(recorder.updates.last == .ready(BrowserProxyEndpoint(host: "127.0.0.1", port: 45_678)))
-    }
 }

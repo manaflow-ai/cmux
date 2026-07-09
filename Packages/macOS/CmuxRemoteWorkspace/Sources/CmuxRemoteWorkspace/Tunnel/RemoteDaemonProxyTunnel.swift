@@ -119,7 +119,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 listener.start(queue: queue)
             } catch {
                 capturedError = error
-                stopLocked(notify: false)
+                stopLocked(notify: false, preservePTYLifecycle: false)
             }
         }
         if let capturedError {
@@ -130,7 +130,23 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Stops the listener, all sessions, all PTY bridges, and the RPC client.
     public func stop() {
         queue.sync {
-            stopLocked(notify: false)
+            stopLocked(notify: false, preservePTYLifecycle: false)
+        }
+    }
+
+    /// Stops a replaceable runtime while retaining its logical PTY generations.
+    public func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
+        queue.sync {
+            stopLocked(notify: false, preservePTYLifecycle: true)
+            return RemotePTYLifecycleSnapshot(registry: ptyLifecycleRegistry)
+        }
+    }
+
+    /// Restores logical PTY generations before this replacement runtime starts.
+    public func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {
+        queue.sync {
+            precondition(ptyBridgeServers.isEmpty)
+            ptyLifecycleRegistry = snapshot.registry
         }
     }
 
@@ -584,11 +600,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
     private func failLocked(_ detail: String) {
         guard !isStopped else { return }
-        stopLocked(notify: false)
+        stopLocked(notify: false, preservePTYLifecycle: true)
         onFatalError(detail)
     }
 
-    private func stopLocked(notify: Bool) {
+    private func stopLocked(notify: Bool, preservePTYLifecycle: Bool) {
         guard !isStopped else { return }
         isStopped = true
 
@@ -602,12 +618,17 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         for session in activeSessions {
             session.stop()
         }
-        let activePTYBridges = ptyBridgeServers.values.map(\.server)
+        let activePTYBridges = ptyBridgeServers
         ptyBridgeServers.removeAll()
-        ptyLifecycleRegistry.removeAll()
-        for bridge in activePTYBridges {
-            bridge.stop()
+        for (bridgeID, record) in activePTYBridges {
+            let disposition = record.server.stopAndWaitForDisposition()
+            ptyLifecycleRegistry.bridgeStopped(
+                key: record.lifecycleKey,
+                bridgeID: bridgeID,
+                disposition: disposition
+            )
         }
+        if !preservePTYLifecycle { ptyLifecycleRegistry.removeAll() }
 
         rpcClient?.stop()
         rpcClient = nil

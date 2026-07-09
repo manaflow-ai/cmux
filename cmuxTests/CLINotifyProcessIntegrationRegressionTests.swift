@@ -3850,7 +3850,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsWithoutSSHRetryStatus() throws {
+    func testSSHPTYAttachBridgeEOFWhileSessionRunsPreservesLifecycleForRetry() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3934,6 +3934,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,

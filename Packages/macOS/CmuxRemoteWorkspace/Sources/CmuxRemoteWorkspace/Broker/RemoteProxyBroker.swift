@@ -38,6 +38,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         var restartTask: Task<Void, Never>?
         var restartToken: UUID?
         var restartRetryCount = 0
+        var ptyLifecycleSnapshot: RemotePTYLifecycleSnapshot?
         var subscribers: [UUID: @Sendable (RemoteProxyBrokerUpdate) -> Void] = [:]
 
         init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
@@ -83,7 +84,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                     existing.remotePath = remotePath
                     existing.restartRetryCount = 0
                     if existing.tunnel != nil {
-                        stopEntryRuntimeLocked(existing)
+                        stopEntryRuntimeLocked(existing, preservePTYLifecycle: true)
                         notifyLocked(existing, update: .connecting)
                     }
                 }
@@ -254,14 +255,18 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                     self.handleTunnelFailureLocked(key: key, detail: detail)
                 }
             }
+            if let snapshot = entry.ptyLifecycleSnapshot {
+                tunnel.restorePTYLifecycle(snapshot)
+            }
             try tunnel.start()
             entry.tunnel = tunnel
+            entry.ptyLifecycleSnapshot = nil
             let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
             entry.endpoint = endpoint
             entry.restartRetryCount = 0
             notifyLocked(entry, update: .ready(endpoint))
         } catch {
-            stopEntryRuntimeLocked(entry)
+            stopEntryRuntimeLocked(entry, preservePTYLifecycle: true)
             let detail = "Failed to start local daemon proxy: \(error.localizedDescription)"
             let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
             notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
@@ -271,7 +276,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private func handleTunnelFailureLocked(key: String, detail: String) {
         guard let entry = entries[key], entry.tunnel != nil else { return }
-        stopEntryRuntimeLocked(entry)
+        stopEntryRuntimeLocked(entry, preservePTYLifecycle: true)
         let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
         notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
         scheduleRestartLocked(key: key, entry: entry, baseDelay: 3.0)
@@ -326,12 +331,19 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private func teardownEntryLocked(key: String, entry: Entry) {
         cancelRestartLocked(entry)
-        stopEntryRuntimeLocked(entry)
+        stopEntryRuntimeLocked(entry, preservePTYLifecycle: false)
         entries.removeValue(forKey: key)
     }
 
-    private func stopEntryRuntimeLocked(_ entry: Entry) {
-        entry.tunnel?.stop()
+    private func stopEntryRuntimeLocked(_ entry: Entry, preservePTYLifecycle: Bool) {
+        if preservePTYLifecycle {
+            if let tunnel = entry.tunnel {
+                entry.ptyLifecycleSnapshot = tunnel.stopPreservingPTYLifecycle()
+            }
+        } else {
+            entry.ptyLifecycleSnapshot = nil
+            entry.tunnel?.stop()
+        }
         entry.tunnel = nil
         entry.endpoint = nil
     }

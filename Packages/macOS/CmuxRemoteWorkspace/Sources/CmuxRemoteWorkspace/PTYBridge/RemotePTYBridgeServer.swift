@@ -172,6 +172,15 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         }
     }
 
+    /// Stops synchronously so a tunnel replacement can preserve the final disposition.
+    func stopAndWaitForDisposition() -> RemotePTYBridgeStopDisposition {
+        queue.sync {
+            let disposition: RemotePTYBridgeStopDisposition = acceptedClient ? .acceptedClient : .unused
+            stopLocked()
+            return disposition
+        }
+    }
+
     private func acceptConnectionLocked(_ connection: NWConnection) {
         guard !isStopped, session == nil else {
             connection.cancel()

@@ -24,6 +24,13 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         for server in servers { server.stop() }
     }
 
+    func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
+        stop()
+        return RemotePTYLifecycleSnapshot()
+    }
+
+    func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {}
+
     func listPTY() throws -> [[String: Any]] { [] }
 
     func closePTY(sessionID: String) throws {

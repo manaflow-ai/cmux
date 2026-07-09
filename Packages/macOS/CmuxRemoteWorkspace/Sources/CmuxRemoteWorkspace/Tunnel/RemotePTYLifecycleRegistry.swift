@@ -1,7 +1,7 @@
 internal import Foundation
 
 /// Bounded queue-confined registry of logical PTY attachment generations and retired tombstones.
-struct RemotePTYLifecycleRegistry {
+struct RemotePTYLifecycleRegistry: Sendable {
     static let defaultCapacity = 256
 
     private let generationCapacity: Int
@@ -123,12 +123,7 @@ struct RemotePTYLifecycleRegistry {
 
     private mutating func makeGenerationSlot() throws {
         guard generations.count >= generationCapacity else { return }
-        guard let evicted = generationOrder.first(where: { key in
-            generations[key]?.bridgeIDs.isEmpty == true
-        }) else {
-            throw RemotePTYLifecycleError.capacityReached
-        }
-        retire(evicted)
+        throw RemotePTYLifecycleError.capacityReached
     }
 
     private mutating func discardGeneration(_ key: RemotePTYLifecycleKey) {

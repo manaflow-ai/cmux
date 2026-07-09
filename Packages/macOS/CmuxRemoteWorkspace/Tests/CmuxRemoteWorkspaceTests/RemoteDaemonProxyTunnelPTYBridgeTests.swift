@@ -108,18 +108,28 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         let keys = (0..<5).map {
             RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "generation-\($0)")
         }
-        for key in keys {
+        for key in keys.prefix(2) {
             let bridgeID = UUID()
             try registry.registerBridge(key: key, attachmentID: "attachment", bridgeID: bridgeID)
             registry.bridgeStopped(key: key, bridgeID: bridgeID, disposition: .acceptedClient)
         }
 
         #expect(registry.generations.count == 2)
-        #expect(registry.retiredKeys.count == 2)
-        #expect(registry.lifecycle(for: keys[2]) == .intentionallyClosed)
+        #expect(registry.retiredKeys.isEmpty)
         #expect(registry.lifecycle(for: keys[0]) == .active)
-        #expect(throws: RemotePTYLifecycleError.self) {
+        #expect(registry.lifecycle(for: keys[1]) == .active)
+        #expect(throws: RemotePTYLifecycleError.capacityReached) {
             try registry.registerBridge(key: keys[2], attachmentID: "attachment", bridgeID: UUID())
+        }
+
+        for key in keys.suffix(3) {
+            registry.acknowledge(key)
+        }
+        #expect(registry.retiredKeys.count == 2)
+        #expect(registry.lifecycle(for: keys[2]) == .active)
+        #expect(registry.lifecycle(for: keys[3]) == .intentionallyClosed)
+        #expect(throws: RemotePTYLifecycleError.intentionallyClosed) {
+            try registry.registerBridge(key: keys[3], attachmentID: "attachment", bridgeID: UUID())
         }
     }
 
@@ -135,6 +145,38 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
 
         let counts = tunnel.queue.sync {
             (tunnel.ptyLifecycleRegistry.generations.count, tunnel.ptyLifecycleRegistry.retiredKeys.count)
+        }
+        #expect(counts.0 == 0)
+        #expect(counts.1 == 0)
+    }
+
+    @Test("replacement snapshot preserves closed generations until final teardown")
+    func replacementSnapshotPreservesClosedGeneration() throws {
+        let key = RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "generation")
+        let original = makeTunnel(rpc: TestPTYLifecycleRPCClient())
+        try recordReconnectGap(key: key, in: original)
+        try original.closePTY(sessionID: key.sessionID)
+
+        let snapshot = original.stopPreservingPTYLifecycle()
+        let replacement = makeTunnel(rpc: TestPTYLifecycleRPCClient())
+        replacement.restorePTYLifecycle(snapshot)
+        #expect(replacement.ptySessionLifecycle(
+            sessionID: key.sessionID,
+            lifecycleID: key.lifecycleID
+        ) == .intentionallyClosed)
+        #expect(throws: RemotePTYLifecycleError.intentionallyClosed) {
+            try replacement.startPTYBridge(
+                sessionID: key.sessionID,
+                lifecycleID: key.lifecycleID,
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: true
+            )
+        }
+
+        replacement.stop()
+        let counts = replacement.queue.sync {
+            (replacement.ptyLifecycleRegistry.generations.count, replacement.ptyLifecycleRegistry.retiredKeys.count)
         }
         #expect(counts.0 == 0)
         #expect(counts.1 == 0)

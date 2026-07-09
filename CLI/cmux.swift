@@ -12368,6 +12368,20 @@ struct CMUXCLI {
         var wrapperWillRetrySameSurface = false
         var attachFinished = false
         var attachmentToken = ""
+        func reconcileBridgeEnd(intentionalOnly: Bool) throws -> Bool {
+            do {
+                return try reconcileSSHPTYBridgeEnd(
+                    client: client, workspaceId: workspaceId, surfaceID: surfaceID,
+                    sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: intentionalOnly
+                )
+            } catch let error as CLIError {
+                if SSHPTYAttachExitCode(rawValue: error.exitCode)?.isWrapperRetryable == true,
+                   sshPTYAttachWrapperRetryPending() {
+                    wrapperWillRetrySameSurface = true
+                }
+                throw error
+            }
+        }
         defer {
             if !attachFinished {
                 cleanupFailedSSHPTYAttach(
@@ -12421,20 +12435,9 @@ struct CMUXCLI {
                 wrapperWillRetrySameSurface = true
             }
             if closedGeneration || exitCode.isWrapperRetryable {
-                do {
-                    if try reconcileSSHPTYBridgeEnd(
-                        client: client, workspaceId: workspaceId, surfaceID: surfaceID,
-                        sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: true
-                    ) {
-                        attachFinished = true
-                        return
-                    }
-                } catch let reconciliationError as CLIError {
-                    if SSHPTYAttachExitCode(rawValue: reconciliationError.exitCode)?.isWrapperRetryable == true,
-                       sshPTYAttachWrapperRetryPending() {
-                        wrapperWillRetrySameSurface = true
-                    }
-                    throw reconciliationError
+                if try reconcileBridgeEnd(intentionalOnly: true) {
+                    attachFinished = true
+                    return
                 }
             }
             if requireExisting && exitCode == .sessionNotFound {
@@ -12484,10 +12487,7 @@ struct CMUXCLI {
             }
             if let connectedFD { Darwin.close(connectedFD) }
             if !sessionNotFound, preReadyRetryable,
-               try reconcileSSHPTYBridgeEnd(
-                   client: client, workspaceId: workspaceId, surfaceID: surfaceID,
-                   sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: true
-               ) {
+               try reconcileBridgeEnd(intentionalOnly: true) {
                 attachFinished = true
                 return
             }
@@ -12539,19 +12539,13 @@ struct CMUXCLI {
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
-                try reconcileSSHPTYBridgeEnd(
-                    client: client, workspaceId: workspaceId, surfaceID: surfaceID,
-                    sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: false
-                )
+                try reconcileBridgeEnd(intentionalOnly: false)
                 attachFinished = true
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
                     resizeMonitor.cancel()
-                    try reconcileSSHPTYBridgeEnd(
-                        client: client, workspaceId: workspaceId, surfaceID: surfaceID,
-                        sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: false
-                    )
+                    try reconcileBridgeEnd(intentionalOnly: false)
                     attachFinished = true
                     return
                 }

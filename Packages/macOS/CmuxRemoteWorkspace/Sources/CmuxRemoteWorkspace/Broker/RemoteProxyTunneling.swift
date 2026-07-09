@@ -22,6 +22,12 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// Stops the listener, sessions, PTY bridges, and RPC transport.
     func stop()
 
+    /// Stops one replaceable runtime while preserving its logical PTY lifecycle.
+    func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot
+
+    /// Restores logical PTY lifecycle before a replacement tunnel starts.
+    func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot)
+
     /// Lists the daemon's persistent PTY sessions (raw JSON objects, wire
     /// shape pinned).
     func listPTY() throws -> [[String: Any]]
