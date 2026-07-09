@@ -15,6 +15,7 @@ const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
+let tombstoneSelectResults: unknown[][] = [];
 
 function fakeDb() {
   return {
@@ -34,7 +35,7 @@ function fakeDb() {
     select: () => ({
       from: (table: unknown) => ({
         where: () => table === accountDeletionTombstones
-          ? emptySelectableResult()
+          ? tombstoneSelectableResult()
           : selectableResult(),
       }),
     }),
@@ -56,10 +57,10 @@ function selectableResult() {
   };
 }
 
-function emptySelectableResult() {
+function tombstoneSelectableResult() {
   return {
-    orderBy: () => emptySelectableResult(),
-    limit: () => Promise.resolve([]),
+    orderBy: () => tombstoneSelectableResult(),
+    limit: () => Promise.resolve(tombstoneSelectResults.shift() ?? []),
   };
 }
 
@@ -156,6 +157,7 @@ describe("recordCheckoutCompletion", () => {
     updates.length = 0;
     insertErrorsByTable.clear();
     selectResults = [];
+    tombstoneSelectResults = [];
   });
 
   test("attaches Stripe email to a purchaser without a primary email", async () => {
@@ -214,6 +216,41 @@ describe("recordCheckoutCompletion", () => {
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  test("cleans up user checkout completion after the Stack user is deleted", async () => {
+    const getUser = mock(async () => null);
+    const updateCustomer = mock(async () => undefined);
+    const updateSubscription = mock(async () => undefined);
+    const cancelSubscription = mock(async () => undefined);
+    tombstoneSelectResults = [[{ status: "completed" }]];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+        stripeClient: () => ({
+          customers: { update: updateCustomer },
+          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
+        }) as never,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
+
+    expect(getUser).not.toHaveBeenCalled();
+    const customerUpdate = mockCall(updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_123");
+    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
+    const subscriptionUpdate = mockCall(updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_123");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]));
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {

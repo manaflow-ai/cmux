@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import { stackServerApp } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   billingEmailClaims,
   stripeCustomers,
   stripeSubscriptions,
@@ -124,6 +125,21 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
+  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db)) {
+    await cleanupCheckoutStripeObjectsForAccountDeletion({
+      subscription,
+      customerId,
+      stackUserId,
+      clearStackTeamId: false,
+      dependencies,
+    });
+    return {
+      skipped: "account_deletion_in_progress",
+      stackUserId,
+      subscriptionId: subscription.id,
+    };
+  }
+
   const user = await loadStackUser(stackUserId, dependencies.stackApp);
   if (await isStackAccountDeletionBlocked(user, { cloudDb: () => db })) {
     await cleanupCheckoutStripeObjectsForAccountDeletion({
@@ -477,8 +493,25 @@ async function isBillingStackUserDeletionBlocked(
   stackUserId: string,
   input: { db: BillingDb; stackApp: StackBillingApp | null | undefined },
 ): Promise<boolean> {
+  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, input.db)) return true;
   const user = await loadStackUser(stackUserId, input.stackApp);
   return await isStackAccountDeletionBlocked(user, { cloudDb: () => input.db });
+}
+
+async function hasCheckoutBlockingAccountDeletionTombstone(
+  stackUserId: string,
+  db: BillingDb,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ status: accountDeletionTombstones.status })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
+    .limit(1);
+  return row ? isCheckoutBillingBlockedTombstoneStatus(row.status) : false;
+}
+
+function isCheckoutBillingBlockedTombstoneStatus(status: string): boolean {
+  return status !== "failed";
 }
 
 async function singletonStackTeamUserId(team: StackBillingTeam): Promise<string | null> {
