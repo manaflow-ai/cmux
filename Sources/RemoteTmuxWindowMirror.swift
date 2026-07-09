@@ -370,6 +370,15 @@ final class RemoteTmuxWindowMirror {
         focusBonsplitPane(forTmuxPane: paneId)
     }
 
+    func setActivePane(_ paneId: Int, fromTmux: Bool) {
+        guard layout.paneIDsInOrder.contains(paneId) else { return }
+        if activePaneId != paneId { activePaneId = paneId }
+        focusBonsplitPane(forTmuxPane: paneId)
+        if !fromTmux {
+            connection?.send("select-pane -t @\(windowId).%\(paneId)")
+        }
+    }
+
     /// Records the user-focused pane and asks tmux to make it active.
     func focus(pane tmuxPaneId: Int) {
         setActivePane(tmuxPaneId, fromTmux: false)

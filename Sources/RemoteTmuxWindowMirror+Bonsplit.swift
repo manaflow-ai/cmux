@@ -349,15 +349,6 @@ extension RemoteTmuxWindowMirror {
         bonsplitController.updateTab(tabId, title: title(forPane: paneId))
     }
 
-    func setActivePane(_ paneId: Int, fromTmux: Bool) {
-        guard layout.paneIDsInOrder.contains(paneId) else { return }
-        if activePaneId != paneId { activePaneId = paneId }
-        focusBonsplitPane(forTmuxPane: paneId)
-        if !fromTmux {
-            connection?.send("select-pane -t @\(windowId).%\(paneId)")
-        }
-    }
-
     func focusBonsplitPane(forTmuxPane paneId: Int) {
         guard let bonsplitPane = paneIdByPaneId[paneId] else { return }
         isApplyingTmuxFocus = true
