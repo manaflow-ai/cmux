@@ -74,18 +74,27 @@ type DeletableStackUser = {
   readonly id: string;
   readonly primaryEmail?: string | null;
   readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
+  readonly listTeams?: (options?: StackPaginationOptions) => Promise<StackPaginationPage>;
   readonly delete: () => Promise<void>;
 } & ProMetadataCustomer;
 
 type AccountDeletionStackTeam = {
   readonly id: string;
-  readonly listUsers?: () => Promise<readonly unknown[]>;
+  readonly listUsers?: (options?: StackPaginationOptions) => Promise<StackPaginationPage>;
 };
 
 type RetainedTeamBillingOwner = {
   readonly stackTeamId: string;
   readonly stackUserId: string;
+};
+
+type StackPaginationOptions = {
+  readonly cursor?: string;
+  readonly limit?: number;
+};
+
+type StackPaginationPage = readonly unknown[] & {
+  readonly nextCursor?: string | null;
 };
 
 type AccountDeletionTombstoneStart =
@@ -990,10 +999,7 @@ async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{
   readonly teamIds: readonly string[];
   readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
 }> {
-  if (typeof user.listTeams !== "function") {
-    throw new Error("Stack team listing is required for account deletion");
-  }
-  const listedTeams = await user.listTeams();
+  const listedTeams = await listAllStackTeams(user);
   const teams = uniqueStackTeams([
     stackTeamFromUnknown(user.selectedTeam),
     ...listedTeams.map(stackTeamFromUnknown),
@@ -1024,6 +1030,34 @@ async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{
   };
 }
 
+async function listAllStackTeams(user: DeletableStackUser): Promise<readonly unknown[]> {
+  if (typeof user.listTeams !== "function") {
+    throw new Error("Stack team listing is required for account deletion");
+  }
+
+  const teams: unknown[] = [];
+  const seenCursors = new Set<string>();
+  const limit = 100;
+  let cursor: string | undefined;
+  do {
+    const page = await user.listTeams({ cursor, limit });
+    teams.push(...Array.from(page));
+    const nextCursor = normalizedStackCursor(page.nextCursor);
+    if (!nextCursor) {
+      if (page.length >= limit && page.nextCursor === undefined) {
+        throw new Error("Stack team pagination is incomplete for account deletion");
+      }
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Stack team pagination looped during account deletion");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (true);
+  return teams;
+}
+
 function stackTeamFromUnknown(value: unknown): AccountDeletionStackTeam | null {
   if (!value || typeof value !== "object") return null;
   const id = (value as { readonly id?: unknown }).id;
@@ -1032,19 +1066,43 @@ function stackTeamFromUnknown(value: unknown): AccountDeletionStackTeam | null {
   return {
     id: id.trim(),
     listUsers: typeof listUsers === "function"
-      ? async () => await listUsers.call(value)
+      ? async (options) => await listUsers.call(value, options)
       : undefined,
   };
 }
 
 async function stackTeamMemberIds(team: AccountDeletionStackTeam): Promise<readonly string[] | null> {
   if (typeof team.listUsers !== "function") return null;
-  const members = await team.listUsers();
+  const members: unknown[] = [];
+  const seenCursors = new Set<string>();
+  const limit = 100;
+  let cursor: string | undefined;
+  do {
+    const page = await team.listUsers({ cursor, limit });
+    members.push(...Array.from(page));
+    const nextCursor = normalizedStackCursor(page.nextCursor);
+    if (!nextCursor) {
+      if (page.length >= limit && page.nextCursor === undefined) {
+        throw new Error(`Stack team ${team.id} membership pagination is incomplete`);
+      }
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error(`Stack team ${team.id} membership pagination looped`);
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (true);
   return uniqueNonEmptyStrings(members.flatMap((member) => {
     if (!member || typeof member !== "object") return [];
     const id = (member as { readonly id?: unknown }).id;
     return typeof id === "string" ? [id] : [];
   }));
+}
+
+function normalizedStackCursor(value: string | null | undefined): string | undefined {
+  const cursor = value?.trim();
+  return cursor ? cursor : undefined;
 }
 
 function uniqueStackTeams(values: readonly (AccountDeletionStackTeam | null)[]): readonly AccountDeletionStackTeam[] {

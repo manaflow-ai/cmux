@@ -57,6 +57,10 @@ type ListedAccountVm = string | {
   readonly providerVmId: string;
   readonly provider?: ProviderId;
 };
+type StackPage = readonly unknown[] & { readonly nextCursor?: string | null };
+type StackList =
+  | StackPage
+  | ((options?: { readonly cursor?: string; readonly limit?: number }) => StackPage | Promise<StackPage>);
 
 const deleteStackUser = mock(async () => {
   routeEvents.push("stack-delete");
@@ -270,7 +274,7 @@ let revokedIdentityLeaseCount = 2;
 let subrouterClientCreateError: unknown = null;
 let subrouterRevokeError: unknown = null;
 let stackUserSelectedTeam: unknown = null;
-let stackUserTeams: readonly unknown[] = [];
+let stackUserTeams: StackList = [];
 let useAccountRouteStubs = false;
 let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unknown } | null = null;
 let vaultLockUsers: string[] = [];
@@ -868,6 +872,28 @@ describe("account deletion route", () => {
     });
   });
 
+  test("pages through Stack teams before selecting account-owned data", async () => {
+    listedPersonalVmIds = [];
+    listedPersonalVmIdsByBillingTeam = { "team-personal-page-2": ["personal-team-vm"] };
+    stackUserTeams = ({ cursor } = {}) => cursor === "page-2"
+      ? stackPage([stackTeam("team-personal-page-2", ["account-user-1"])])
+      : stackPage([stackTeam("team-shared-page-1", ["account-user-1", "other-user"])], "page-2");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1");
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal-page-2");
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      billingTeamId: "team-personal-page-2",
+      teamIds: ["account-user-1", "team-personal-page-2"],
+      providerVmId: "personal-team-vm",
+      provider: "freestyle",
+    });
+  });
+
   test("reassigns retained shared-team Stripe billing to another team member", async () => {
     listedPersonalVmIds = [];
     stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
@@ -923,6 +949,18 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ error: "account_delete_failed" });
     expect(updateStackUser).not.toHaveBeenCalled();
     expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when Stack team pagination loops", async () => {
+    stackUserTeams = () => stackPage([], "repeat");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(updateStackUser).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
@@ -1666,7 +1704,8 @@ function stackUser(id = "account-user-1") {
     primaryEmail: "account@example.com",
     clientReadOnlyMetadata: { cmuxPlan: "pro" },
     selectedTeam: stackUserSelectedTeam,
-    listTeams: async () => stackUserTeams,
+    listTeams: async (options?: { readonly cursor?: string; readonly limit?: number }) =>
+      typeof stackUserTeams === "function" ? await stackUserTeams(options) : stackUserTeams,
     update: updateStackUser,
     delete: deleteStackUser,
   };
@@ -1677,6 +1716,12 @@ function stackTeam(id: string, userIds: readonly string[]) {
     id,
     listUsers: async () => userIds.map((userId) => ({ id: userId })),
   };
+}
+
+function stackPage(items: readonly unknown[], nextCursor?: string | null): StackPage {
+  const page = [...items] as unknown[] & { nextCursor?: string | null };
+  if (nextCursor !== undefined) page.nextCursor = nextCursor;
+  return page;
 }
 
 function stripUpdatedAt(values: unknown): Record<string, unknown> {
