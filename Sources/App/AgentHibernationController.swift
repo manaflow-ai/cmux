@@ -99,6 +99,8 @@ final class AgentHibernationController {
         let stableSince: TimeInterval
     }
 
+    private struct InFlightTeardown { let requestID: UUID }
+
     struct UnableToProtectMarker {
         let fingerprint: String
         let lastActivityAt: TimeInterval
@@ -116,6 +118,7 @@ final class AgentHibernationController {
     var teardownValidationEpochByPanel: [AgentHibernationPanelKey: UInt64] = [:]
     var teardownValidationGeneration: UInt64 = 0
     var unableToProtectByPanel: [AgentHibernationPanelKey: UnableToProtectMarker] = [:]
+    private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
 
@@ -132,7 +135,7 @@ final class AgentHibernationController {
             queue: .main
         ) { _ in
             Task { @MainActor in
-                AgentHibernationController.shared.updateTimerForCurrentSettings()
+                AgentHibernationController.shared.recordSettingsChange()
             }
         }
         updateTimerForCurrentSettings()
@@ -187,6 +190,13 @@ final class AgentHibernationController {
 
     private func bumpTeardownValidationEpoch(_ key: AgentHibernationPanelKey) {
         teardownValidationEpochByPanel[key] = (teardownValidationEpochByPanel[key] ?? 0) &+ 1
+    }
+
+    private func recordSettingsChange() {
+        teardownValidationGeneration = teardownValidationGeneration &+ 1
+        confirmations.removeAll(keepingCapacity: false)
+        unableToProtectByPanel.removeAll(keepingCapacity: false)
+        updateTimerForCurrentSettings()
     }
 
     private func updateTimerForCurrentSettings() {
@@ -309,6 +319,7 @@ final class AgentHibernationController {
             unableToProtectByPanel.removeValue(forKey: record.key)
             return
         }
+        if teardownInFlightByPanel[record.key] != nil { confirmations.removeValue(forKey: record.key); return }
 
         if let confirmation = confirmations[record.key] {
             guard now >= confirmation.dueAt else { return }
@@ -321,11 +332,14 @@ final class AgentHibernationController {
                 confirmations.removeValue(forKey: record.key)
                 return
             }
+            let requestID = UUID()
+            teardownInFlightByPanel[record.key] = InFlightTeardown(requestID: requestID)
             confirmations.removeValue(forKey: record.key)
             beginConfirmedTeardown(
                 record: record,
                 confirmationFingerprint: confirmation.fingerprint,
-                effectiveLastActivityAt: effectiveLastActivityAt
+                effectiveLastActivityAt: effectiveLastActivityAt,
+                requestID: requestID
             )
             return
         }
@@ -456,6 +470,7 @@ final class AgentHibernationController {
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
         unableToProtectByPanel.removeAll(keepingCapacity: false)
+        teardownInFlightByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
     }
@@ -469,9 +484,15 @@ final class AgentHibernationController {
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
+        teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
         }
         tailFingerprintSamples = tailFingerprintSamples.filter { currentKeys.contains($0.key) }
+    }
+
+    func clearInFlightTeardown(_ key: AgentHibernationPanelKey, requestID: UUID) {
+        guard teardownInFlightByPanel[key]?.requestID == requestID else { return }
+        teardownInFlightByPanel.removeValue(forKey: key)
     }
 }

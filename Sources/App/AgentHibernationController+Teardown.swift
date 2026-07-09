@@ -16,12 +16,14 @@ extension AgentHibernationController {
     func beginConfirmedTeardown(
         record: AgentHibernationRecord,
         confirmationFingerprint: String,
-        effectiveLastActivityAt: TimeInterval
+        effectiveLastActivityAt: TimeInterval,
+        requestID: UUID
     ) {
         let agent = record.agent
         let epoch = teardownValidationEpochByPanel[record.key] ?? 0
         let generation = teardownValidationGeneration
         Task { @MainActor in
+            defer { self.clearInFlightTeardown(record.key, requestID: requestID) }
             let snapshotOutcome = await Task.detached(priority: .utility) {
                 AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
             }.value
