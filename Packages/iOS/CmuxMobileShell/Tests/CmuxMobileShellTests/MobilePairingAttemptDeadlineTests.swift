@@ -41,12 +41,12 @@ import Testing
         let secondTask = Task { @MainActor in
             await store.connectPairingURLResult(Self.qrURL)
         }
-        await Task.yield()
-        #expect(await transport.connectCount() == 1)
+        let second = await secondTask.value
+        let connectCountBeforeReleasingStuckConnect = await transport.connectCount()
         await transport.finishConnects()
         let first = await firstTask.value
-        let second = await secondTask.value
 
+        #expect(connectCountBeforeReleasingStuckConnect == 1)
         #expect(first == .failed || first == .superseded)
         #expect(second == .failed)
         #expect(await transport.connectCount() == 1)
