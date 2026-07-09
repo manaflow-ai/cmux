@@ -98,6 +98,7 @@ struct RemoteTmuxMirrorLifecycleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         manager.window = window
         let veto = CloseVetoDelegate()
@@ -147,6 +148,7 @@ struct RemoteTmuxMirrorLifecycleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         manager.window = window
         var didClose = false
@@ -248,6 +250,7 @@ struct RemoteTmuxMirrorLifecycleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
