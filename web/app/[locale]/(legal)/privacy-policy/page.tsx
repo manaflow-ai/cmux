@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { routing, type Locale } from "../../../../i18n/routing";
+import { locales, type Locale } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 
@@ -14,7 +14,7 @@ type PrivacyPolicyBlock =
 
 type PageParams = { locale: string };
 
-const privacyPolicyLocales = [routing.defaultLocale] as const;
+const privacyPolicyLocales = locales;
 
 export async function generateMetadata({
   params,
@@ -73,7 +73,7 @@ function renderBlock(block: PrivacyPolicyBlock, index: number): ReactNode {
 }
 
 function requirePrivacyPolicyLocale(locale: string): Locale {
-  if (locale === routing.defaultLocale) return routing.defaultLocale;
+  if (locales.includes(locale as Locale)) return locale as Locale;
   notFound();
 }
 
