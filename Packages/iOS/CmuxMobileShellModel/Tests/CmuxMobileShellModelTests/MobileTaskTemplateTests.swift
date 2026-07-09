@@ -18,9 +18,9 @@ import Testing
     }
 
     @Test func agentIconAssetNamesResolveOnlyKnownAgents() {
-        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:claude") == "AgentClaude")
-        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:codex") == "AgentCodex")
-        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:opencode") == "AgentOpenCode")
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:claude") == "Claude")
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:codex") == "Codex")
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:opencode") == "OpenCode")
         #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:unknown") == nil)
         #expect(MobileTaskTemplate.agentIconAssetName(for: "terminal") == nil)
         #expect(MobileTaskTemplate.agentIconAssetName(for: "🚀") == nil)

@@ -51,7 +51,7 @@ let package = Package(
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             resources: [
-                .process("Resources"),
+                .copy("Resources/AgentIcons"),
             ],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
