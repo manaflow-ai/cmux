@@ -122,6 +122,23 @@ struct BrowserPaneFileDropUploadRegressionTests {
         }
     }
 
+    @Test func previewDefaultStillRoutesBrowserDropToHostedPage() throws {
+        try withFileDropDefault(.preview) {
+            let setup = try makeTarget(hostedWebView: true)
+            defer { close(setup.window) }
+            let webView = try #require(setup.webView)
+            let dragInfo = makeFileDragInfo(window: setup.window, slot: setup.slot)
+
+            #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                eventType: .leftMouseDragged
+            ))
+            #expect(setup.target.prepareForDragOperation(dragInfo))
+            #expect(setup.target.performDragOperation(dragInfo))
+            #expect(webView.dragCalls == ["prepare", "perform"])
+        }
+    }
+
     // A live hosted web view does not always fill its slot (a docked Web
     // Inspector splits the slot with WebKit companion views). The registry
     // fallback hit-tests the whole slot container, so without a geometry check
@@ -207,33 +224,45 @@ struct BrowserPaneFileDropUploadRegressionTests {
     }
 
     @Test func dispositionDefaultsToPageUploadRegardlessOfWebViewAvailability() {
-        #expect(
-            BrowserPaneFileDropRouting.disposition(
-                pasteboardTypes: fileURLPasteboardTypes(),
-                modifierFlags: [],
-                isDockHosted: false,
-                defaultBehavior: .text
-            ) == .forwardToPage
-        )
+        withFileDropDefault(.text) {
+            #expect(
+                BrowserPaneFileDropRouting.disposition(
+                    pasteboardTypes: fileURLPasteboardTypes(),
+                    modifierFlags: [],
+                    isDockHosted: false
+                ) == .forwardToPage
+            )
+        }
+        withFileDropDefault(.preview) {
+            #expect(
+                BrowserPaneFileDropRouting.disposition(
+                    pasteboardTypes: fileURLPasteboardTypes(),
+                    modifierFlags: [],
+                    isDockHosted: false
+                ) == .forwardToPage
+            )
+        }
     }
 
-    @Test func dispositionShiftInvertsToPreview() {
-        #expect(
-            BrowserPaneFileDropRouting.disposition(
-                pasteboardTypes: fileURLPasteboardTypes(),
-                modifierFlags: [.shift],
-                isDockHosted: false,
-                defaultBehavior: .text
-            ) == .previewInWorkspace
-        )
-        #expect(
-            BrowserPaneFileDropRouting.disposition(
-                pasteboardTypes: fileURLPasteboardTypes(),
-                modifierFlags: [.shift],
-                isDockHosted: false,
-                defaultBehavior: .preview
-            ) == .forwardToPage
-        )
+    @Test func dispositionShiftAlwaysRoutesToPreview() {
+        withFileDropDefault(.text) {
+            #expect(
+                BrowserPaneFileDropRouting.disposition(
+                    pasteboardTypes: fileURLPasteboardTypes(),
+                    modifierFlags: [.shift],
+                    isDockHosted: false
+                ) == .previewInWorkspace
+            )
+        }
+        withFileDropDefault(.preview) {
+            #expect(
+                BrowserPaneFileDropRouting.disposition(
+                    pasteboardTypes: fileURLPasteboardTypes(),
+                    modifierFlags: [.shift],
+                    isDockHosted: false
+                ) == .previewInWorkspace
+            )
+        }
     }
 
     @Test func dispositionDockAlwaysForwardsToPage() {
@@ -241,16 +270,14 @@ struct BrowserPaneFileDropUploadRegressionTests {
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [],
-                isDockHosted: true,
-                defaultBehavior: .preview
+                isDockHosted: true
             ) == .forwardToPage
         )
         #expect(
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [.shift],
-                isDockHosted: true,
-                defaultBehavior: .text
+                isDockHosted: true
             ) == .forwardToPage
         )
     }
@@ -259,14 +286,12 @@ struct BrowserPaneFileDropUploadRegressionTests {
         #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType],
             modifierFlags: [],
-            isDockHosted: false,
-            defaultBehavior: .text
+            isDockHosted: false
         ) == nil)
         #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: nil,
             modifierFlags: [],
-            isDockHosted: false,
-            defaultBehavior: .text
+            isDockHosted: false
         ) == nil)
     }
 
@@ -283,8 +308,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
         #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: nil,
             modifierFlags: [],
-            isDockHosted: countingDockStatus(),
-            defaultBehavior: .text
+            isDockHosted: countingDockStatus()
         ) == nil)
         #expect(dockStatusEvaluations == 0)
 
@@ -292,8 +316,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
             BrowserPaneFileDropRouting.disposition(
                 pasteboardTypes: fileURLPasteboardTypes(),
                 modifierFlags: [],
-                isDockHosted: countingDockStatus(),
-                defaultBehavior: .text
+                isDockHosted: countingDockStatus()
             ) == .forwardToPage
         )
         #expect(dockStatusEvaluations == 1)
@@ -352,11 +375,16 @@ struct BrowserPaneFileDropUploadRegressionTests {
     }
 
     private func makeFileDragInfo(window: NSWindow, slot: WindowBrowserSlotView) -> MockDraggingInfo {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7632.file.\(UUID().uuidString)"))
-        pasteboard.clearContents()
-        #expect(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
+        let pasteboard = makeFilePasteboard(paths: ["/tmp/upload.png"])
         let dropPoint = slot.convert(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY), to: nil)
         return MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
+    }
+
+    private func makeFilePasteboard(paths: [String]) -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7632.file.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects(paths.map { URL(fileURLWithPath: $0) as NSURL }))
+        return pasteboard
     }
 
     private func fileURLPasteboardTypes() -> [NSPasteboard.PasteboardType] {
