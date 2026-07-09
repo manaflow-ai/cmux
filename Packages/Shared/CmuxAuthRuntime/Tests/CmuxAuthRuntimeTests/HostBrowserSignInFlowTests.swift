@@ -24,22 +24,30 @@ import Testing
         #expect(harness.flow.isSigningIn == false)
     }
 
-    @Test func nonAuthBrowserCompletionWaitsForExternalCallback() async {
+    @Test func nonAuthBrowserCompletionEndsAttemptAndAcceptsLateExternalCallback() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
+        let callbackState = harness.callbackState(harness.factory.sessions[0])
         harness.factory.sessions[0].deliver(URL(string: "https://example.test/handler/sign-in?after_auth_return_to=1")!)
 
         await Task.yield()
-        #expect(harness.flow.isSigningIn)
+        // ASWebAuthenticationSession completes exactly once. A non-auth HTTPS
+        // completion means the system session is already over (Safari may now
+        // own the handoff), so the Settings row must stop spinning immediately
+        // instead of waiting for the abandoned-attempt timeout.
+        #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
 
-        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
+        // Preserve the issued callback state after clearing the popup attempt:
+        // Safari can still return the custom-scheme callback through the app's
+        // external URL handler after ASWebAuthenticationSession has completed.
+        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState))
 
         #expect(callbackResult)
-        #expect(await attempt.value)
+        #expect(await attempt.value == false)
         #expect(harness.coordinator.isAuthenticated)
         #expect(harness.coordinator.currentUser == user)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
