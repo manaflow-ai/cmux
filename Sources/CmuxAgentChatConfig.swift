@@ -89,12 +89,14 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
     static let `default` = CmuxAgentChatConfiguration(
         url: URL(string: defaultURLString)!,
         startCommand: nil,
-        source: .defaults
+        source: .defaults,
+        hasExplicitURL: false
     )
 
     var url: URL
     var startCommand: String?
     var source: CmuxAgentChatConfigurationSource
+    var hasExplicitURL: Bool
 
     var startCommandRequiresTrust: Bool {
         source.isLocal && startCommand != nil
@@ -142,7 +144,51 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
         return CmuxAgentChatConfiguration(
             url: URL(string: rawURL) ?? Self.default.url,
             startCommand: definition?.startCommand,
-            source: source
+            source: source,
+            hasExplicitURL: definition?.url != nil
         )
+    }
+}
+
+struct AgentChatOwnedServerSession: Sendable, Hashable {
+    var port: Int
+    var pid: Int
+    var token: String
+
+    var baseURL: URL {
+        URL(string: "http://127.0.0.1:\(port)")!
+    }
+
+    var healthURL: URL {
+        baseURL.appendingPathComponent("healthz")
+    }
+
+    var browserURL: URL {
+        Self.browserURL(port: port, token: token)
+    }
+
+    var themeURL: URL {
+        baseURL
+            .appendingPathComponent(token, isDirectory: true)
+            .appendingPathComponent("api", isDirectory: true)
+            .appendingPathComponent("theme")
+    }
+
+    static func browserURL(port: Int, token: String) -> URL {
+        URL(string: "http://127.0.0.1:\(port)/\(token)/")!
+    }
+}
+
+struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
+    var port: Int
+    var pid: Int
+
+    func session(token: String) -> AgentChatOwnedServerSession? {
+        guard (1...65_535).contains(port), pid > 0 else { return nil }
+        return AgentChatOwnedServerSession(port: port, pid: pid, token: token)
+    }
+
+    static func parse(_ data: Data, token: String) throws -> AgentChatOwnedServerSession? {
+        try JSONDecoder().decode(Self.self, from: data).session(token: token)
     }
 }

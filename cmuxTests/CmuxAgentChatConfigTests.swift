@@ -56,6 +56,7 @@ struct CmuxAgentChatConfigTests {
         #expect(config.agentChat?.url == "http://127.0.0.1:8777/chat")
         #expect(config.agentChat?.startCommand == "cmux-chat --port 8777")
         let resolved = CmuxAgentChatConfiguration.resolved(local: config.agentChat, global: nil)
+        #expect(resolved.hasExplicitURL)
         #expect(resolved.healthURL.absoluteString == "http://127.0.0.1:8777/healthz")
     }
 
@@ -106,6 +107,7 @@ struct CmuxAgentChatConfigTests {
         #expect(resolved.startCommand == nil)
         #expect(resolved.source == .local(path: localPath))
         #expect(resolved.source.sourcePath == localPath)
+        #expect(resolved.hasExplicitURL)
         #expect(!resolved.startCommandRequiresTrust)
     }
 
@@ -133,6 +135,7 @@ struct CmuxAgentChatConfigTests {
         #expect(resolved.url.absoluteString == "http://127.0.0.1:9000")
         #expect(resolved.startCommand == "cmux-chat --port 9000")
         #expect(resolved.source == .global(path: globalPath))
+        #expect(resolved.hasExplicitURL)
         #expect(!resolved.startCommandRequiresTrust)
     }
 
@@ -151,6 +154,7 @@ struct CmuxAgentChatConfigTests {
         #expect(resolved.url.absoluteString == CmuxAgentChatConfiguration.defaultURLString)
         #expect(resolved.startCommand == "cmux-chat --port 9010")
         #expect(resolved.source == .local(path: localPath))
+        #expect(!resolved.hasExplicitURL)
         #expect(resolved.startCommandRequiresTrust)
     }
 
@@ -169,6 +173,7 @@ struct CmuxAgentChatConfigTests {
         #expect(resolved.url.absoluteString == "http://127.0.0.1:9000")
         #expect(resolved.startCommand == "cmux-chat --port 9000")
         #expect(resolved.source == .global(path: globalPath))
+        #expect(resolved.hasExplicitURL)
         #expect(!resolved.startCommandRequiresTrust)
     }
 
@@ -179,7 +184,41 @@ struct CmuxAgentChatConfigTests {
         #expect(resolved.startCommand == nil)
         #expect(resolved.source == .defaults)
         #expect(resolved.source.sourcePath == nil)
+        #expect(!resolved.hasExplicitURL)
         #expect(!resolved.startCommandRequiresTrust)
+    }
+
+    @Test func agentChatStateFileParsesValidPortAndPID() throws {
+        let data = try #require("""
+        {"port":43123,"pid":9876}
+        """.data(using: .utf8))
+
+        let session = try #require(try AgentChatSidecarStateFile.parse(data, token: "token_123"))
+
+        #expect(session.port == 43123)
+        #expect(session.pid == 9876)
+        #expect(session.token == "token_123")
+        #expect(session.healthURL.absoluteString == "http://127.0.0.1:43123/healthz")
+    }
+
+    @Test func agentChatStateFileRejectsInvalidPortOrPID() throws {
+        let badPort = try #require("""
+        {"port":0,"pid":9876}
+        """.data(using: .utf8))
+        let badPID = try #require("""
+        {"port":43123,"pid":0}
+        """.data(using: .utf8))
+
+        #expect(try AgentChatSidecarStateFile.parse(badPort, token: "token") == nil)
+        #expect(try AgentChatSidecarStateFile.parse(badPID, token: "token") == nil)
+    }
+
+    @Test func agentChatOwnedServerBuildsTokenedURLs() {
+        let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "abc-DEF_123")
+
+        #expect(session.browserURL.absoluteString == "http://127.0.0.1:43123/abc-DEF_123/")
+        #expect(session.themeURL.absoluteString == "http://127.0.0.1:43123/abc-DEF_123/api/theme")
+        #expect(AgentChatOwnedServerSession.browserURL(port: 43123, token: "abc").absoluteString == "http://127.0.0.1:43123/abc/")
     }
 
     @Test func newAgentChatInFlightGateRejectsDuplicatesUntilCleared() {
@@ -235,6 +274,35 @@ struct CmuxAgentChatConfigTests {
     @Test func agentChatThemeEndpointIsRootAnchoredLikeHealthURL() throws {
         let url = try #require(URL(string: "http://127.0.0.1:7739/chat?ignored=1"))
         #expect(AgentChatThemeSync.themeURL(for: url).absoluteString == "http://127.0.0.1:7739/api/theme")
+    }
+
+    @MainActor
+    @Test func agentChatThemeURLUsesTokenedOwnedServerWhenAvailable() {
+        let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
+        AgentChatOwnedServerRuntime.shared.update(session: session)
+        defer { AgentChatOwnedServerRuntime.shared.resetForTesting() }
+        let agentChat = CmuxAgentChatConfiguration.resolved(
+            local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat"),
+            global: nil
+        )
+
+        #expect(AgentChatThemeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:43123/theme-token/api/theme")
+    }
+
+    @MainActor
+    @Test func explicitAgentChatThemeURLIgnoresOwnedServer() {
+        let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
+        AgentChatOwnedServerRuntime.shared.update(session: session)
+        defer { AgentChatOwnedServerRuntime.shared.resetForTesting() }
+        let agentChat = CmuxAgentChatConfiguration.resolved(
+            local: CmuxAgentChatConfigDefinition(
+                url: "http://127.0.0.1:9000/chat",
+                startCommand: "cmux-chat"
+            ),
+            global: nil
+        )
+
+        #expect(AgentChatThemeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:9000/api/theme")
     }
 
     @Test func agentChatThemePayloadEncodesNullNullableFields() throws {
