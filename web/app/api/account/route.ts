@@ -71,6 +71,7 @@ export async function DELETE(request: Request): Promise<Response> {
     await resolveUserBillingForAccountDeletion(user.id, {
       beforeExternalMutation: () => {
         restoreBillingEntitlementsOnFailure = false;
+        destructiveCleanupStarted = true;
       },
     });
     try {
@@ -109,9 +110,10 @@ export async function DELETE(request: Request): Promise<Response> {
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
       return jsonResponse({
-        error: "account_delete_incomplete",
+        ok: true,
+        cleanupIncomplete: true,
         destroyedVms,
-      }, 500);
+      }, 202);
     }
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {

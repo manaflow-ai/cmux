@@ -520,6 +520,32 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps deletion retryable when Stripe cleanup mutates billing before failing", async () => {
+    selectResults = [
+      [{ id: "sub_user_active" }],
+      [{ id: "cus_user" }],
+    ];
+    stripeDeleteCustomerError = new Error("stripe unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
+    expect(deletedStripeCustomers).toEqual(["cus_user"]);
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("keeps deletion retryable when any VM was destroyed before a teardown error", async () => {
     destroyVmFailureProviderIds = new Set(["personal-vm-1"]);
 
@@ -610,7 +636,7 @@ describe("account deletion route", () => {
     );
   });
 
-  test("returns incomplete deletion when post-Stack cleanup fails after the account is deleted", async () => {
+  test("returns accepted deletion when post-Stack cleanup fails after the account is deleted", async () => {
     postStackVaultDeleteError = new Error("post-delete vault unavailable");
     selectResults = [
       [],
@@ -628,9 +654,10 @@ describe("account deletion route", () => {
 
     const response = await DELETE(accountDeletionRequest());
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
-      error: "account_delete_incomplete",
+      ok: true,
+      cleanupIncomplete: true,
       destroyedVms: 2,
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
