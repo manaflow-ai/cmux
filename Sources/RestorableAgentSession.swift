@@ -373,6 +373,7 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
+        let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -428,7 +429,8 @@ struct RestorableAgentSessionIndex: Sendable {
                         kind: kind,
                         registration: registration,
                         fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
+                        lookup: claudeTranscriptLookup,
+                        codexCwdLookup: codexCwdLookup
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration
@@ -680,7 +682,8 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind,
         registration: CmuxVaultAgentRegistration?,
         fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
+        lookup: ClaudeTranscriptLookupCache,
+        codexCwdLookup: CodexSessionCwdLookupCache
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
@@ -692,6 +695,16 @@ struct RestorableAgentSessionIndex: Sendable {
         // the command builder). The shared namespacing policy below is only for built-in agents.
         if let registration {
             return registration.cwd == .ignore ? nil : (recordedCwd ?? launchCwd)
+        }
+
+        if kind.cwdNamespacing == .cwdInFile {
+            // Resume is addressed by id and the cwd lives inside the record, so the runtime cwd is
+            // fine. When Codex omitted cwd from the hook record, recover it from the session file.
+            return recordedCwd ?? launchCwd ?? codexCwdLookup.workingDirectory(
+                kind: kind,
+                sessionId: record.sessionId,
+                launchCommand: record.launchCommand
+            )
         }
 
         // Claude is directory-namespaced, but its launch and recorded cwds can both look plausible;
@@ -764,25 +777,12 @@ struct RestorableAgentSessionIndex: Sendable {
             kind: kind,
             liveExecutable: liveExecutable,
             recordedExecutable: recordedExecutable,
-            arguments: process.arguments
+            arguments: process.arguments,
+            environment: process.environment
         ) else {
             return nil
         }
         return pid
-    }
-
-    private static func liveProcessExecutableMatchesRecordedAgent(
-        kind: RestorableAgentKind,
-        liveExecutable: String,
-        recordedExecutable: String,
-        arguments: [String]
-    ) -> Bool {
-        if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
-            return true
-        }
-
-        return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
-            || CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {

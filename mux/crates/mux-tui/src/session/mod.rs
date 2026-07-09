@@ -17,7 +17,7 @@ use std::sync::mpsc::Receiver;
 use ghostty_vt::{RenderState, Terminal};
 use mux_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface,
-    SurfaceId, SurfaceKind, WorkspaceId,
+    SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
 };
 use serde_json::json;
 
@@ -227,6 +227,17 @@ impl Session {
         }
     }
 
+    pub fn zoom_pane(&self, pane: Option<PaneId>) {
+        match self {
+            Session::Local(mux) => {
+                let _ = mux.zoom_pane(pane, ZoomMode::Toggle);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}));
+            }
+        }
+    }
+
     pub fn split(
         &self,
         pane: PaneId,
@@ -277,6 +288,17 @@ impl Session {
             Session::Local(mux) => mux.close_pane(pane),
             Session::Remote(remote) => {
                 let _ = remote.request(json!({"cmd": "close-pane", "pane": pane}));
+            }
+        }
+    }
+
+    pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
+        match self {
+            Session::Local(mux) => {
+                mux.swap_panes(pane, target);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(json!({"cmd": "swap-pane", "pane": pane, "target": target}));
             }
         }
     }
