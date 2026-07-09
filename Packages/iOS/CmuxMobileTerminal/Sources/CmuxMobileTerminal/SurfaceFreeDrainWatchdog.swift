@@ -1,5 +1,9 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface.free")
 
 @MainActor
 final class SurfaceFreeDrainWatchdog {
@@ -15,7 +19,10 @@ final class SurfaceFreeDrainWatchdog {
     func start(
         generation: UInt64,
         pendingFrees: @MainActor @escaping @Sendable () -> Int,
-        onStuck: @MainActor @escaping @Sendable (_ generation: UInt64, _ pendingFrees: Int) -> Void
+        onStuck: @MainActor @escaping @Sendable (_ generation: UInt64, _ pendingFrees: Int) -> Void = { generation, pendingFrees in
+            MobileDebugLog.anchormux("surface.free.STUCK generation=\(generation) pendingFrees=\(pendingFrees)")
+            log.fault("surface.free.STUCK generation=\(generation, privacy: .public) pendingFrees=\(pendingFrees, privacy: .public)")
+        }
     ) {
         cancel(generation: generation)
         let clock = clock

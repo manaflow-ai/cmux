@@ -67,7 +67,7 @@ struct MobileRecoveryStressFreeDrainTests {
 
     private func pumpRecoveryTraffic(on view: GhosttySurfaceView) async throws {
         for cycle in 0..<6 {
-            view.setFocusForRecoveryStress(cycle.isMultiple(of: 2))
+            view.setFocus(cycle.isMultiple(of: 2))
             _ = await view.processOutputAndWait(Self.syntheticOutput(cycle: cycle))
             view.bounds = CGRect(
                 origin: .zero,
