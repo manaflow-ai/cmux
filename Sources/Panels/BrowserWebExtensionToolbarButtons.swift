@@ -6,19 +6,22 @@ import WebKit
 /// anchored so the extension's popup (e.g. the Bitwarden vault) opens beneath it.
 @available(macOS 15.4, *)
 struct BrowserWebExtensionToolbarButtons: View {
-    @ObservedObject var support: BrowserWebExtensionSupport
+    let support: BrowserWebExtensionSupport
     let panel: BrowserPanel
     let iconPointSize: CGFloat
     let hitSize: CGFloat
 
     var body: some View {
-        ForEach(Array(support.contexts.enumerated()), id: \.offset) { _, context in
+        ForEach(support.actionSnapshots) { snapshot in
             BrowserWebExtensionActionButton(
-                support: support,
-                context: context,
+                snapshot: snapshot,
                 panel: panel,
                 iconPointSize: iconPointSize,
-                hitSize: hitSize
+                hitSize: hitSize,
+                performAction: { anchorView in
+                    guard let context = support.context(forActionID: snapshot.id) else { return }
+                    support.performAction(context: context, panel: panel, anchorView: anchorView)
+                }
             )
         }
     }
@@ -26,11 +29,11 @@ struct BrowserWebExtensionToolbarButtons: View {
 
 @available(macOS 15.4, *)
 private struct BrowserWebExtensionActionButton: View {
-    let support: BrowserWebExtensionSupport
-    let context: WKWebExtensionContext
+    let snapshot: BrowserWebExtensionActionSnapshot
     let panel: BrowserPanel
     let iconPointSize: CGFloat
     let hitSize: CGFloat
+    let performAction: (NSView?) -> Void
 
     @State private var anchorViewHolder = BrowserWebExtensionAnchorViewHolder()
 
@@ -39,10 +42,10 @@ private struct BrowserWebExtensionActionButton: View {
 #if DEBUG
             cmuxDebugLog(
                 "browser.webext.action panel=\(panel.id.uuidString.prefix(5)) " +
-                "name=\(context.webExtension.displayName ?? "?")"
+                "name=\(snapshot.displayName)"
             )
 #endif
-            support.performAction(context: context, panel: panel, anchorView: anchorViewHolder.view)
+            performAction(anchorViewHolder.view)
         }) {
             actionIcon
                 .frame(width: hitSize, height: hitSize, alignment: .center)
@@ -50,16 +53,13 @@ private struct BrowserWebExtensionActionButton: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .background(BrowserWebExtensionAnchorViewReader(holder: anchorViewHolder))
-        .safeHelp(context.webExtension.displayName ?? String(
-            localized: "browser.webExtension.action.help",
-            defaultValue: "Extension"
-        ))
-        .accessibilityIdentifier("BrowserWebExtensionActionButton")
+        .safeHelp(snapshot.displayName)
+        .accessibilityIdentifier(snapshot.accessibilityIdentifier)
     }
 
     @ViewBuilder
     private var actionIcon: some View {
-        if let icon = context.webExtension.icon(for: CGSize(width: 32, height: 32)) {
+        if let icon = snapshot.icon {
             Image(nsImage: icon)
                 .resizable()
                 .aspectRatio(contentMode: .fit)

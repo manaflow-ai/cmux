@@ -23,7 +23,7 @@ struct BrowserWebExtensionsCard: View {
             if supported {
                 ForEach(model.current) { entry in
                     SettingsCardDivider()
-                    entryRow(entry)
+                    entryRow(entry, isEnabled: entry.enabled)
                 }
                 if model.current.isEmpty {
                     SettingsCardDivider()
@@ -117,7 +117,7 @@ struct BrowserWebExtensionsCard: View {
         }
     }
 
-    private func entryRow(_ entry: BrowserWebExtensionEntry) -> some View {
+    private func entryRow(_ entry: BrowserWebExtensionEntry, isEnabled: Bool) -> some View {
         SettingsCardRow(
             configurationReview: .json("browser.webExtensions"),
             entry.displayName ?? (entry.path as NSString).lastPathComponent,
@@ -125,7 +125,7 @@ struct BrowserWebExtensionsCard: View {
         ) {
             HStack(spacing: 8) {
                 Toggle("", isOn: Binding(
-                    get: { isEnabled(entry.id) },
+                    get: { isEnabled },
                     set: { setEnabled($0, id: entry.id) }
                 ))
                 .labelsHidden()
@@ -140,10 +140,6 @@ struct BrowserWebExtensionsCard: View {
                 .controlSize(.small)
             }
         }
-    }
-
-    private func isEnabled(_ id: String) -> Bool {
-        model.current.first { $0.id == id }?.enabled ?? false
     }
 
     private func setEnabled(_ enabled: Bool, id: String) {
@@ -184,6 +180,11 @@ struct BrowserWebExtensionsCard: View {
             defaultValue: "Choose a folder containing an unpacked web extension (manifest.json at its root)."
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let manifestURL = url.appendingPathComponent("manifest.json", isDirectory: false)
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            presentMissingManifestAlert(for: url)
+            return
+        }
         add(BrowserWebExtensionEntry(
             id: url.path,
             kind: .unpackedDirectory,
@@ -191,5 +192,23 @@ struct BrowserWebExtensionsCard: View {
             enabled: true,
             displayName: url.lastPathComponent
         ))
+    }
+
+    private func presentMissingManifestAlert(for url: URL) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "settings.browser.webExtensions.addUnpacked.missingManifest.title",
+            defaultValue: "Missing manifest.json"
+        )
+        alert.informativeText = String(
+            format: String(
+                localized: "settings.browser.webExtensions.addUnpacked.missingManifest.message",
+                defaultValue: "“%@” is not an unpacked web extension. Choose a folder with manifest.json at its root."
+            ),
+            url.lastPathComponent
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.runModal()
     }
 }

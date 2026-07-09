@@ -36,29 +36,20 @@ actor BrowserWebExtensionDiscoveryService {
         return Self.parse(pluginkitOutput: output)
     }
 
-    /// Parses `pluginkit -m -A -v` machine listing: one plug-in per line,
-    /// tab-separated `identifier(version)`, UUID, timestamp, absolute path.
+    /// Parses `pluginkit -m -A -v` output. The tool is human-readable rather
+    /// than a documented TSV format, so each line is parsed by extracting the
+    /// `.appex` path first, then reading the leading identifier/version field.
     static func parse(pluginkitOutput: String) -> [BrowserWebExtensionCandidate] {
         var seen = Set<String>()
         var candidates: [BrowserWebExtensionCandidate] = []
         for line in pluginkitOutput.split(separator: "\n") {
-            let columns = line.split(separator: "\t").map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }
-            guard let first = columns.first, columns.count >= 2 else { continue }
-            guard let path = columns.last, path.hasSuffix(".appex") else { continue }
-
-            // `identifier(version)` — a leading `+`/`-`/`?` marks election state.
-            var identifierField = first
-            while let head = identifierField.first, ["+", "-", "?", "!"].contains(String(head)) {
-                identifierField = String(identifierField.dropFirst()).trimmingCharacters(in: .whitespaces)
-            }
-            var identifier = identifierField
-            var version: String?
-            if let open = identifierField.lastIndex(of: "("), identifierField.hasSuffix(")") {
-                identifier = String(identifierField[..<open]).trimmingCharacters(in: .whitespaces)
-                version = String(identifierField[identifierField.index(after: open)..<identifierField.index(before: identifierField.endIndex)])
-            }
+            let rawLine = String(line).trimmingCharacters(in: .whitespaces)
+            guard let pathRange = Self.appexPathRange(in: rawLine) else { continue }
+            let path = String(rawLine[pathRange])
+            let prefix = String(rawLine[..<pathRange.lowerBound])
+            guard let parsed = Self.identifierAndVersion(from: prefix) else { continue }
+            let identifier = parsed.identifier
+            let version = parsed.version
             guard !identifier.isEmpty, seen.insert(identifier).inserted else { continue }
             candidates.append(BrowserWebExtensionCandidate(
                 id: identifier,
@@ -69,6 +60,34 @@ actor BrowserWebExtensionDiscoveryService {
             ))
         }
         return candidates.sorted { $0.id < $1.id }
+    }
+
+    private static func appexPathRange(in line: String) -> Range<String.Index>? {
+        guard let start = line.firstIndex(of: "/") else { return nil }
+        guard let end = line.range(of: ".appex", range: start..<line.endIndex)?.upperBound else { return nil }
+        return start..<end
+    }
+
+    private static func identifierAndVersion(from prefix: String) -> (identifier: String, version: String?)? {
+        let normalizedPrefix = prefix
+            .split(separator: "\t")
+            .first
+            .map(String.init) ?? prefix
+        let trimmedPrefix = normalizedPrefix.trimmingCharacters(in: .whitespaces)
+        let pattern = #"^[+\-!?=\s]*([A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+)(?:\(([^)]*)\))?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(trimmedPrefix.startIndex..<trimmedPrefix.endIndex, in: trimmedPrefix)
+        guard let match = regex.firstMatch(in: trimmedPrefix, range: range) else { return nil }
+        guard let identifierRange = Range(match.range(at: 1), in: trimmedPrefix) else { return nil }
+        let identifier = String(trimmedPrefix[identifierRange]).trimmingCharacters(in: .whitespaces)
+        let version: String?
+        if match.range(at: 2).location != NSNotFound,
+           let versionRange = Range(match.range(at: 2), in: trimmedPrefix) {
+            version = String(trimmedPrefix[versionRange]).trimmingCharacters(in: .whitespaces)
+        } else {
+            version = nil
+        }
+        return (identifier, version?.isEmpty == true ? nil : version)
     }
 
     /// Prefers the containing app's name ("Bitwarden") over the appex's own

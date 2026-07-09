@@ -702,7 +702,7 @@ final class CmuxWebView: WKWebView {
         // Web-extension commands (e.g. Bitwarden's ⌘⇧L autofill) match only
         // shortcuts the extension manifest declares; everything else falls through.
         if #available(macOS 15.4, *),
-           BrowserWebExtensionSupport.shared.performCommand(for: event) {
+           AppDelegate.shared?.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
             return finish(true)
         }
 

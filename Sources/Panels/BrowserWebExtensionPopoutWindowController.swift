@@ -27,7 +27,9 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
 
         let webViewConfiguration = context.webViewConfiguration ?? WKWebViewConfiguration()
         webView = WKWebView(frame: .zero, configuration: webViewConfiguration)
+#if DEBUG
         webView.isInspectable = true
+#endif
 
         var frame = configuration.frame
         let usesFallbackFrame = frame.isNull || frame.isEmpty || frame.width < 50 || frame.height < 50
