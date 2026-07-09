@@ -137,6 +137,13 @@ const updateRows = mock((table: unknown) => ({
         ) {
           throw tombstoneCompleteError;
         }
+        if (
+          table === accountDeletionTombstones &&
+          (values as { readonly status?: unknown }).status === "cleanup_incomplete" &&
+          tombstoneCleanupIncompleteError
+        ) {
+          throw tombstoneCleanupIncompleteError;
+        }
       },
     };
   },
@@ -229,11 +236,13 @@ const updateCustomer = mock(async (...args: unknown[]) => {
   const [customerId, params] = args as [string, Record<string, unknown>];
   routeEvents.push("stripe-update-customer");
   updatedStripeCustomers.push({ id: customerId, params });
+  if (stripeUpdateCustomerError) throw stripeUpdateCustomerError;
 });
 const updateSubscription = mock(async (...args: unknown[]) => {
   const [subscriptionId, params] = args as [string, Record<string, unknown>];
   routeEvents.push("stripe-update-subscription");
   updatedStripeSubscriptions.push({ id: subscriptionId, params });
+  if (stripeUpdateSubscriptionError) throw stripeUpdateSubscriptionError;
 });
 const removeTester = mock(async (...args: unknown[]) => {
   const [email] = args as [string];
@@ -246,6 +255,8 @@ const captureAscError = mock((..._args: unknown[]) => {
 const revokeTenant = mock(async (...args: unknown[]) => {
   const [tenantId] = args as [string];
   routeEvents.push(`subrouter-revoke:${tenantId}`);
+  const sequenceError = subrouterRevokeErrors.shift();
+  if (sequenceError) throw sequenceError;
   if (subrouterRevokeError) throw subrouterRevokeError;
 });
 
@@ -256,6 +267,7 @@ let selectedWhere: Array<{ readonly table: unknown; readonly condition: unknown 
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let tombstoneUpdates: unknown[] = [];
 let tombstoneCompleteError: unknown = null;
+let tombstoneCleanupIncompleteError: unknown = null;
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
@@ -273,6 +285,8 @@ let updatedStripeCustomers: Array<{ readonly id: string; readonly params: Record
 let updatedStripeSubscriptions: Array<{ readonly id: string; readonly params: Record<string, unknown> }> = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
+let stripeUpdateCustomerError: unknown = null;
+let stripeUpdateSubscriptionError: unknown = null;
 let removeTesterError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
 let destroyVmFailureErrorsByProviderId = new Map<string, unknown>();
@@ -283,6 +297,7 @@ let revokeIdentityLeasesError: unknown = null;
 let revokedIdentityLeaseCount = 2;
 let subrouterClientCreateError: unknown = null;
 let subrouterRevokeError: unknown = null;
+let subrouterRevokeErrors: unknown[] = [];
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: StackList = [];
 let useAccountRouteStubs = false;
@@ -534,6 +549,7 @@ beforeEach(() => {
   updatedRows = [];
   tombstoneUpdates = [];
   tombstoneCompleteError = null;
+  tombstoneCleanupIncompleteError = null;
   routeEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
@@ -551,6 +567,8 @@ beforeEach(() => {
   updatedStripeSubscriptions = [];
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
+  stripeUpdateCustomerError = null;
+  stripeUpdateSubscriptionError = null;
   removeTesterError = null;
   destroyVmFailureProviderIds = new Set();
   destroyVmFailureErrorsByProviderId = new Map();
@@ -562,6 +580,7 @@ beforeEach(() => {
   lastRevokeIdentityCall = null;
   subrouterClientCreateError = null;
   subrouterRevokeError = null;
+  subrouterRevokeErrors = [];
   stackUserSelectedTeam = null;
   stackUserTeams = [];
   vaultLockUsers = [];
@@ -655,6 +674,9 @@ describe("account deletion route", () => {
     );
     expect(completedTombstone).toBeTruthy();
     expect((completedTombstone as { readonly completedAt?: unknown }).completedAt).toBeInstanceOf(Date);
+    expect(tombstoneUpdates.some((update) =>
+      (update as { readonly status?: unknown }).status === "stack_delete_pending"
+    )).toBe(true);
     const leaseRefreshes = tombstoneUpdates.filter((update) =>
       Boolean(
         update &&
@@ -720,7 +742,7 @@ describe("account deletion route", () => {
     stackUserTeams = [stackTeam("team-personal", ["account-user-1"])];
     selectResults = [
       [
-        { id: "sub_user_active" },
+        { id: "sub_user_active", stackTeamId: "legacy-user-team", scope: "user", status: "active" },
         { id: "sub_team_active", stackTeamId: "team-personal", scope: "team", status: "active" },
       ],
       [{ id: "cus_user" }, { id: "cus_team", stackTeamId: "team-personal" }],
@@ -834,7 +856,7 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
-  test("returns cleanup incomplete when a retry sees a cleanup-incomplete tombstone", async () => {
+  test("resumes post-Stack cleanup when a retry sees a cleanup-incomplete tombstone", async () => {
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
       status: "cleanup_incomplete",
@@ -843,16 +865,18 @@ describe("account deletion route", () => {
 
     const response = await DELETE(accountDeletionRequest());
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
-      cleanupIncomplete: true,
       destroyedVms: 0,
     });
     expect(updateStackUser).not.toHaveBeenCalled();
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(listUserVms).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "completed"
+    )).toBe(true);
   });
 
   test("adopts a stale in-progress account deletion instead of blocking forever", async () => {
@@ -1001,6 +1025,31 @@ describe("account deletion route", () => {
     }))).toContainEqual({
       table: stripeSubscriptions,
       values: { stackUserId: "other-user", raw: null },
+    });
+  });
+
+  test("restores Stack metadata when retained shared-team Stripe transfer fails before mutation", async () => {
+    listedPersonalVmIds = [];
+    stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
+    selectResults = [
+      [],
+      [{ id: "cus_shared", stackTeamId: "team-shared" }],
+    ];
+    stripeUpdateCustomerError = new Error("stripe update timed out");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(updateCustomer).toHaveBeenCalledWith("cus_shared", expect.objectContaining({
+      metadata: expect.objectContaining({ stackUserId: "other-user" }),
+    }));
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
   });
 
@@ -1296,6 +1345,39 @@ describe("account deletion route", () => {
     expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
     expect(deletedTables).not.toContain(subrouterTenants);
     expect(transaction).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+  });
+
+  test("restores Stack metadata when Subrouter 404 is followed by a pre-mutation failure", async () => {
+    listedPersonalVmIds = [];
+    revokedIdentityLeaseCount = 0;
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ tenantId: "tenant-missing" }, { tenantId: "tenant-timeout" }],
+    ];
+    subrouterRevokeErrors = [
+      new subrouterClientModule.SubrouterClientError("revokeTenant", 404),
+      new Error("subrouter request timed out"),
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-missing");
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-timeout");
+    expect(deletedTables).not.toContain(subrouterTenants);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1759,6 +1841,45 @@ describe("account deletion route", () => {
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
       "Error: post-delete vault unavailable",
+    );
+  });
+
+  test("records Stack-delete phase before post-Stack cleanup-incomplete marking can fail", async () => {
+    postStackVaultDeleteError = new Error("post-delete vault unavailable");
+    tombstoneCleanupIncompleteError = new Error("tombstone unavailable");
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ id: "post-stack-session", latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      cleanupIncomplete: true,
+      destroyedVms: 2,
+    });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    const statusUpdates = tombstoneUpdates
+      .map((values) => (values as { readonly status?: unknown }).status)
+      .filter(Boolean);
+    expect(statusUpdates).toContain("stack_delete_pending");
+    expect(statusUpdates.indexOf("stack_delete_pending")).toBeLessThan(
+      statusUpdates.indexOf("cleanup_incomplete"),
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.post_stack_cleanup_mark_incomplete",
+      "Error: tombstone unavailable",
     );
   });
 

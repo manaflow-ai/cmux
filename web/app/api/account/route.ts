@@ -125,7 +125,10 @@ export async function DELETE(request: Request): Promise<Response> {
       return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
     if (tombstoneStart.kind === "cleanupIncomplete") {
-      return jsonResponse({ ok: true, cleanupIncomplete: true, destroyedVms: 0 }, 202);
+      const accountScope = await accountDeletionScopeForUser(stackUser);
+      await finishPostStackAccountCleanup(userId, accountScope.teamIds);
+      await markAccountDeletionTombstoneCompleted(userId);
+      return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
     const accountScope = await accountDeletionScopeForUser(stackUser);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
@@ -198,6 +201,7 @@ export async function DELETE(request: Request): Promise<Response> {
     await deleteCmuxOwnedAccountRows(userId, accountScope.teamIds);
     cmuxOwnedRowsDeleted = true;
     try {
+      await markAccountDeletionTombstoneStackDeletePending(userId);
       await stackUser.delete();
     } catch (error) {
       logAccountDeleteError("account.delete.stack_user_failed_after_data_delete", error);
@@ -333,6 +337,17 @@ async function markAccountDeletionTombstoneFailed(userId: string, error: unknown
       status: "failed",
       updatedAt: new Date(),
       errorMessage: sanitizedErrorSummary(error),
+    })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
+}
+
+async function markAccountDeletionTombstoneStackDeletePending(userId: string): Promise<void> {
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({
+      status: "stack_delete_pending",
+      updatedAt: new Date(),
+      errorMessage: null,
     })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
@@ -658,7 +673,6 @@ async function resolveUserBillingForAccountDeletion(
   for (const customer of retainedTeamCustomers) {
     const retainedOwnerId = retainedOwnerByTeam.get(customer.stackTeamId ?? "");
     if (!retainedOwnerId) throw new Error(`retained team billing owner missing for ${customer.stackTeamId}`);
-    options.beforeExternalRequest?.();
     await client.customers.update(customer.id, {
       email: "",
       metadata: {
@@ -679,7 +693,6 @@ async function resolveUserBillingForAccountDeletion(
   for (const subscription of retainedTeamSubscriptions) {
     const retainedOwnerId = retainedOwnerByTeam.get(subscription.stackTeamId ?? "");
     if (!retainedOwnerId) throw new Error(`retained team billing owner missing for ${subscription.stackTeamId}`);
-    options.beforeExternalRequest?.();
     await client.subscriptions.update(subscription.id, {
       metadata: {
         stackUserId: retainedOwnerId,
@@ -713,7 +726,7 @@ function stripeSubscriptionBelongsToDeletingAccount(
   deletionTeamIds: readonly string[],
 ): boolean {
   const scope = subscription.scope ?? "user";
-  if (scope === "user" && !subscription.stackTeamId) return true;
+  if (scope === "user") return true;
   return scope === "team" &&
     typeof subscription.stackTeamId === "string" &&
     deletionTeamIds.includes(subscription.stackTeamId);
@@ -1016,7 +1029,6 @@ async function deletePersonalSubrouterTenant(
       options.afterExternalMutation?.();
     } catch (error) {
       if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
-      options.afterExternalMutation?.();
     }
   }
   await db.delete(subrouterTenants).where(inArray(subrouterTenants.teamId, teamIds));
