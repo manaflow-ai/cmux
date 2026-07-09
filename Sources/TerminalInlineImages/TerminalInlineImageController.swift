@@ -14,6 +14,7 @@ final class TerminalInlineImageController {
     private var settingsObserver: TerminalInlineImageSettingsObserver?
     private var observers: [NSObjectProtocol] = []
     private var releaseFrameDemand: (() -> Void)?
+    private var releaseTickDemand: (() -> Void)?
     private var debounceTimer: DispatchSourceTimer?
     private var pendingScanFirstRequestedAt: DispatchTime?
     private var scanGeneration: UInt64 = 0
@@ -45,6 +46,7 @@ final class TerminalInlineImageController {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         releaseFrameDemand?()
+        releaseTickDemand?()
         debounceTimer?.cancel()
     }
 
@@ -88,6 +90,31 @@ final class TerminalInlineImageController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleScan() }
         })
+        // Render-frame notifications only post when Ghostty's Metal layer
+        // vends a drawable, which it skips in common configurations, and
+        // scrollbar updates only fire when scrollback geometry changes —
+        // neither covers plain output at a fresh prompt. Ticks fire on every
+        // Ghostty IO cycle (see MobileTerminalRenderObserver), so they are
+        // the reliable output signal. The occlusion gate below plus the
+        // debounce and the byte-identical grid dedupe keep the per-tick cost
+        // to at most one coalesced export + compare per debounce window, and
+        // only for surfaces the user can actually see.
+        releaseTickDemand = GhosttyApp.retainTickNotifications()
+        observers.append(center.addObserver(
+            forName: .ghosttyDidTick,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
+        })
+    }
+
+    private func scheduleScanForVisibleViewport() {
+        guard let window = hostedView?.window,
+              window.occlusionState.contains(.visible) else {
+            return
+        }
+        scheduleScan()
     }
 
     private func stopSurfaceObservers() {
@@ -95,6 +122,8 @@ final class TerminalInlineImageController {
         observers.removeAll()
         releaseFrameDemand?()
         releaseFrameDemand = nil
+        releaseTickDemand?()
+        releaseTickDemand = nil
     }
 
     private func scheduleScan() {

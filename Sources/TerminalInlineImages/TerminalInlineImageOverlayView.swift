@@ -56,9 +56,13 @@ final class TerminalInlineImageOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden else { return nil }
+        // `point` arrives in the superview's coordinate space; subviews'
+        // hitTest expects a point in this view's coordinate space (their
+        // superview). Convert once, and let clicks outside any thumbnail fall
+        // through to the terminal by returning nil.
+        let localPoint = convert(point, from: superview)
         for view in subviews.reversed() {
-            let converted = convert(point, to: view)
-            if let hit = view.hitTest(converted) {
+            if let hit = view.hitTest(localPoint) {
                 return hit
             }
         }
