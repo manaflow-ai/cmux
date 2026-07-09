@@ -3443,17 +3443,11 @@ final class Workspace: Identifiable, ObservableObject {
             guard panel is TerminalPanel,
                   let tabId = surfaceIdFromPanelId(panelId),
                   let existing = bonsplitController.tab(tabId) else { continue }
-            // Prefer a LIVE hook/registry session snapshot (covers opencode + agents
-            // that fire a cmux hook). A stale hook entry whose process has already
-            // exited must NOT mask a freshly running bare CLI; treat it as "no snapshot"
-            // and fall through to the display-only process-detected built-in map
-            // (covers bare CLIs like `codex`/`cursor` that fire no hook).
-            let liveSnapshot = SharedLiveAgentIndex.shared
-                .snapshot(workspaceId: workspaceId, panelId: panelId)
-                .flatMap { snapshot in
-                    SharedLiveAgentIndex.shared.hasLiveProcess(workspaceId: workspaceId, panelId: panelId) ? snapshot : nil
-                }
-            let nextIconImageData = liveSnapshot?
+            // Prefer the hook/registry session snapshot (covers opencode + agents that
+            // fire a cmux hook); fall back to the display-only process-detected built-in
+            // map (covers bare CLIs like `codex`/`cursor` that fire no hook).
+            let nextIconImageData = SharedLiveAgentIndex.shared
+                .snapshot(workspaceId: workspaceId, panelId: panelId)?
                 .agentIconPNGData()
                 ?? SharedLiveAgentIndex.shared
                     .builtInAgentIcon(workspaceId: workspaceId, panelId: panelId)?

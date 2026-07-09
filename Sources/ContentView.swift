@@ -14863,14 +14863,14 @@ struct TabItemView: View, Equatable {
             )
         }
         for panelId in tab.sidebarOrderedPanelIds() {
-            // Prefer a LIVE hook/registry session snapshot; a stale hook entry whose
-            // process has already exited must not mask a freshly running bare CLI on
-            // the same terminal — fall through to the process-detected built-in map.
-            let index = SharedLiveAgentIndex.shared
-            if let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId),
-               index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId) {
+            // Prefer the hook/registry session snapshot; fall back to the process-detected
+            // built-in when no session exists for this pane.
+            if let snapshot = SharedLiveAgentIndex.shared.snapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            ) {
                 appendIcon(kindRawValue: snapshot.kind.rawValue, assetName: snapshot.agentIconAssetName)
-            } else if let builtIn = index.builtInAgentIcon(
+            } else if let builtIn = SharedLiveAgentIndex.shared.builtInAgentIcon(
                 workspaceId: workspaceId,
                 panelId: panelId
             ) {
