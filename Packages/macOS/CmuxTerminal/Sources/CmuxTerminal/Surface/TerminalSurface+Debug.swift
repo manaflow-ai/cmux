@@ -219,6 +219,7 @@ extension TerminalSurface {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        applyRetainedOcclusionAfterRuntimeInstallation()
     }
 #endif
 }

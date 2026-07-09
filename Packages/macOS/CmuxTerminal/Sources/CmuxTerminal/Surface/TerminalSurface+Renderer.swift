@@ -43,10 +43,36 @@ extension TerminalSurface {
         }
     }
 
-    /// Applies the occlusion state to the runtime surface.
+    /// Records and applies the desired occlusion state.
+    ///
+    /// The desired value survives periods without a native surface. This is
+    /// important for hidden restored and hibernated panes: their portal often
+    /// transitions to hidden before creation and does not emit a duplicate
+    /// transition after recreation.
     public func setOcclusion(_ visible: Bool) {
+        desiredOcclusionVisible = visible
+        applyDesiredOcclusionIfNeeded()
+    }
+
+    /// Applies retained visibility to the current native surface once.
+    /// Called after creation and by visibility transitions.
+    public func applyDesiredOcclusionIfNeeded() {
         guard let surface = surface else { return }
-        ghostty_surface_set_occlusion(surface, visible)
+        guard lastAppliedOcclusionVisible != desiredOcclusionVisible else { return }
+        ghostty_surface_set_occlusion(surface, desiredOcclusionVisible)
+        lastAppliedOcclusionVisible = desiredOcclusionVisible
+    }
+
+    /// Starts deduplication afresh when a native surface is replaced.
+    func noteRuntimeSurfaceRecreatedForOcclusion() {
+        lastAppliedOcclusionVisible = nil
+    }
+
+    /// Finalizes one native-surface installation at the lifecycle boundary
+    /// where display, scale, size, and focus have already converged.
+    func applyRetainedOcclusionAfterRuntimeInstallation() {
+        noteRuntimeSurfaceRecreatedForOcclusion()
+        applyDesiredOcclusionIfNeeded()
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.

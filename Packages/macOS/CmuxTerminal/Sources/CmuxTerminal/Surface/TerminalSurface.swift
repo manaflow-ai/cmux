@@ -254,6 +254,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
+    /// Desired Ghostty renderer visibility, retained even while the native
+    /// surface is absent so a hidden pane cannot restart visible after runtime
+    /// recreation.
+    var desiredOcclusionVisible = true
+    /// Last visibility applied to the current native surface. Reset whenever
+    /// that native surface is replaced.
+    var lastAppliedOcclusionVisible: Bool?
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0

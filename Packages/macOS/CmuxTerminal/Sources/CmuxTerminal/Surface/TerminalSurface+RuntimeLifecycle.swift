@@ -315,6 +315,7 @@ extension TerminalSurface {
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
+        noteRuntimeSurfaceRecreatedForOcclusion()
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -622,6 +623,7 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+        applyRetainedOcclusionAfterRuntimeInstallation()
 
         flushPendingSocketInputIfNeeded()
 
