@@ -110,3 +110,31 @@ jobs:
             publish_prefix "cmux-tui/latest" "no-cache, no-store, must-revalidate"
           fi
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
+
+          # Transitional double-publish under the pre-rename prefix and binary
+          # names: out-of-repo consumers (cmux-cloud bootstrap/install-mux.sh
+          # and snapshot builders) still curl files.cmux.com/mux/<ref>/cmux-mux-*.
+          # Remove once cmux-cloud switches to the cmux-tui prefix
+          # (https://github.com/manaflow-ai/cmux-cloud/pull/2).
+          legacy_assets="assets-legacy"
+          mkdir -p "$legacy_assets"
+          for file in assets/cmux-tui-*; do
+            cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
+          done
+          cp assets/manifest.json "$legacy_assets/manifest.json"
+          publish_legacy_prefix() {
+            local prefix="$1"
+            local cache="$2"
+            for file in "$legacy_assets"/*; do
+              python3 scripts/ci/upload-r2-object.py \
+                --file "$file" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --bucket cmux-binaries \
+                --key "$prefix/$(basename "$file")" \
+                --cache-control "$cache"
+            done
+          }
+          publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            publish_legacy_prefix "mux/latest" "no-cache, no-store, must-revalidate"
+          fi
