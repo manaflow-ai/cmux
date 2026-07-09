@@ -218,7 +218,7 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
 
         emitter.identify(userId: "user-3", alias: "anon-9", properties: [:])
         await emitter.flush()
-        #expect(await uploader.identifyCalls.count == 1)
+        #expect(await uploader.identifyCalls.count == 2)
 
         await uploader.setResult(.accepted)
         consent.set(false)
@@ -228,7 +228,24 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         await emitter.flush()
 
         let calls = await uploader.identifyCalls
-        #expect(calls.count == 2)
+        #expect(calls.count == 3)
+        #expect(calls.last?.userID == "user-3")
+        #expect(calls.last?.anonymousID == "anon-9")
+    }
+
+    @Test func flushRetriesPendingAuthenticatedIdentify() async {
+        let uploader = RecordingAnalyticsUploader(result: .retry)
+        let emitter = makeEmitter(uploader: uploader, anonymousID: "anon-9")
+
+        emitter.identify(userId: "user-3", alias: "anon-9", properties: [:])
+        await emitter.flush()
+        #expect(await uploader.identifyCalls.count == 2)
+
+        await uploader.setResult(.accepted)
+        await emitter.flush()
+
+        let calls = await uploader.identifyCalls
+        #expect(calls.count == 3)
         #expect(calls.last?.userID == "user-3")
         #expect(calls.last?.anonymousID == "anon-9")
     }

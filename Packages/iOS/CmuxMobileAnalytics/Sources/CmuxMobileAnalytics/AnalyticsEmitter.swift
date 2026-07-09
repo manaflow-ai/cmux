@@ -330,6 +330,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
             uploadOutageOpen = false
             return
         }
+        await replayAuthenticatedIdentifyIfNeeded()
         while !pending.isEmpty {
             let batch = pending
             let result = await uploader.upload(batch)

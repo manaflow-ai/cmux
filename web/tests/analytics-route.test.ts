@@ -179,9 +179,40 @@ describe("iOS analytics route", () => {
     expect(calls).toEqual([
       "deletion-lock:stack-user-1",
       "record-identities",
+      "deletion-unlock",
+      "deletion-lock:stack-user-1",
       "forward-posthog",
       "deletion-unlock",
     ]);
+  });
+
+  test("does not forward when account deletion starts after identity recording commits", async () => {
+    let lockCount = 0;
+
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "stack-user-1",
+        properties: {
+          "$anon_distinct_id": "99999999-9999-4999-8999-999999999999",
+        },
+      }],
+    }), {
+      ...dependencies(),
+      runAuthenticatedAnalytics: async (_userId, run) => {
+        lockCount += 1;
+        if (lockCount === 2) throw new AnalyticsAccountDeletionBlockedError();
+        return await run({} as never);
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
+    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
+      userId: "stack-user-1",
+      anonymousIds: ["99999999-9999-4999-8999-999999999999"],
+    });
+    expect(forwardToPostHog).not.toHaveBeenCalled();
   });
 
   test("does not forward authenticated analytics after account deletion starts", async () => {

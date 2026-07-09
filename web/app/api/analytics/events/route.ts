@@ -126,21 +126,33 @@ export async function postAnalyticsEvents(
   }
 
   if (user) {
-    let forwarded: Awaited<ReturnType<typeof forwardToPostHog>>;
+    let eventsForForwarding: readonly IncomingEvent[];
     try {
-      forwarded = await dependencies.runAuthenticatedAnalytics(user.id, async (tx) => {
-        const eventsForForwarding = await prepareAuthenticatedEvents(accepted, user.id, dependencies, tx);
-        // Keep authenticated forwarding inside the deletion lock so a concurrent
-        // delete cannot erase PostHog data and then have this request recreate it.
-        // `forwardToPostHog` aborts quickly, bounding the held DB transaction.
-        return await dependencies.forwardToPostHog(eventsForForwarding, user.id);
-      });
+      eventsForForwarding = await dependencies.runAuthenticatedAnalytics(user.id, async (tx) =>
+        await prepareAuthenticatedEvents(accepted, user.id, dependencies, tx)
+      );
     } catch (error) {
       if (error instanceof AnalyticsAccountDeletionBlockedError) {
         return jsonResponse({ ok: true, forwarded: 0 });
       }
       if (error instanceof AnalyticsIdentityRecordingError) {
         return jsonResponse({ error: "identity_recording_failed" }, 503);
+      }
+      throw error;
+    }
+
+    let forwarded: Awaited<ReturnType<typeof forwardToPostHog>>;
+    try {
+      // Reacquire the deletion lock after the alias transaction commits. This
+      // makes accepted aliases durable before the PostHog side effect, while
+      // still preventing a concurrent delete from erasing and then recreating
+      // the same user's analytics data.
+      forwarded = await dependencies.runAuthenticatedAnalytics(user.id, async () =>
+        await dependencies.forwardToPostHog(eventsForForwarding, user.id)
+      );
+    } catch (error) {
+      if (error instanceof AnalyticsAccountDeletionBlockedError) {
+        return jsonResponse({ ok: true, forwarded: 0 });
       }
       throw error;
     }
