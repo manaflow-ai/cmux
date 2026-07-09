@@ -309,7 +309,7 @@ import WebKit
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
-            browserHandleExternalNavigation(
+            let didCancelTerminalPolicy = browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
                 webView: webView,
@@ -317,8 +317,8 @@ import WebKit
                     requestNavigation?(request, .currentTab)
                 },
                 presentAlert: presentAlert
-            )
-            reportTerminalPolicyCancellation(for: navigationAction, in: webView)
+            ).isTerminalPolicyCancellation
+            if didCancelTerminalPolicy { reportTerminalPolicyCancellation(for: navigationAction, in: webView) }
             decisionHandler(.cancel)
             return
         }

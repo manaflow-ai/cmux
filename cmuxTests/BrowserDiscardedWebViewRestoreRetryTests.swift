@@ -315,6 +315,59 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
     }
 
+    @Test func intentBrowserFallbackPolicyCancelStaysRetryableUntilFallbackCommits() throws {
+        let intentURLString = [
+            "intent://join/abc#Intent",
+            "scheme=zoommtg",
+            "package=us.zoom.videomeetings",
+            "S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc",
+            "end",
+        ].joined(separator: ";")
+        let intentURL = try #require(URL(string: intentURLString))
+        let fallbackURL = try #require(URL(string: "https://zoom.us/join/abc"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: intentURL.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: intentURL))
+        panel.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+
+        var fallbackRequest: URLRequest?
+        let handlingResult = browserHandleExternalNavigation(
+            intentURL,
+            source: "test",
+            webView: panel.webView,
+            loadFallbackRequest: { fallbackRequest = $0 },
+            presentAlert: { _, _, _, cancel in cancel() }
+        )
+        #expect(handlingResult == .browserFallback)
+        #expect(!handlingResult.isTerminalPolicyCancellation)
+        #expect(fallbackRequest?.url == fallbackURL)
+
+        if handlingResult.isTerminalPolicyCancellation {
+            panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal)
+        }
+        panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == true)
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
     @Test func unknownCancellationAfterClearedAttemptedURLKeepsRestoreRetryable() throws {
         let url = try #require(URL(string: "file:///tmp/cmux-issue-7504-policy-cancel.html"))
         let panel = BrowserPanel(
