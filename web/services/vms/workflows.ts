@@ -1578,7 +1578,7 @@ export function openSshEndpoint(input: {
         ),
       ),
     );
-    yield* repo.recordUsageEvent({
+    const recordedUsage = yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -1587,7 +1587,11 @@ export function openSshEndpoint(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll(() => Effect.succeed(true)));
+    if (!recordedUsage) {
+      yield* revokeEndpointIdentity(vm.provider, endpoint);
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     return endpoint;
   });
 }

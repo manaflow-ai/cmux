@@ -1322,6 +1322,46 @@ describe("VM Effect workflows", () => {
     expect(revokedIdentityHandles).toEqual(["identity-ssh-resume"]);
   });
 
+  test("openSshEndpoint revokes minted identity when account deletion blocks usage recording", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000712",
+      userId: "user-workflow-ssh-usage-blocked",
+      billingTeamId: "team-workflow-ssh-usage-blocked",
+      providerVmId: "provider-vm-ssh-usage-blocked",
+      status: "running",
+    });
+    const leases: RecordedLease[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      leases,
+      usageEvents,
+      recordUsageEventResult: false,
+    });
+    const revokedIdentityHandles: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openSSH: () => Effect.succeed(testSshEndpoint()),
+      revokeSSHIdentity: (_provider, handle) =>
+        Effect.sync(() => {
+          revokedIdentityHandles.push(handle);
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-usage-blocked",
+        teamIds: ["team-workflow-ssh-usage-blocked"],
+        providerVmId: "provider-vm-ssh-usage-blocked",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(leases).toHaveLength(1);
+    expect(usageEvents).toHaveLength(0);
+    expect(revokedIdentityHandles).toEqual(["identity-ssh-resume"]);
+  });
+
   test("openAttachEndpoint does not return a websocket endpoint when session persistence fails", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000113",

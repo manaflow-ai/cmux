@@ -8,6 +8,7 @@ import {
   type StackAccountDeletionMetadataUser,
 } from "../../../../services/account/deletion";
 import { processAccountDeletionForUser } from "../../../../services/account/deletionProcessor";
+import { assertPostHogDeletionConfigured } from "../../../../services/analytics/posthogDeletion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export type AccountDeletionRouteDependencies = {
   readonly markStackUserDeletionInProgress: typeof markStackUserDeletionInProgress;
   readonly enqueueAccountDeletion: typeof enqueueAccountDeletion;
   readonly processAccountDeletionForUser: typeof processAccountDeletionForUser;
+  readonly preflightDeletionDependencies: () => void;
   readonly scheduleAfterResponse: (callback: () => Promise<void>) => void;
 };
 
@@ -37,6 +39,7 @@ const accountDeletionRouteDependencies: AccountDeletionRouteDependencies = {
   markStackUserDeletionInProgress,
   enqueueAccountDeletion,
   processAccountDeletionForUser,
+  preflightDeletionDependencies: assertPostHogDeletionConfigured,
   scheduleAfterResponse: after,
 };
 
@@ -57,6 +60,13 @@ export async function deleteAccountWithDependencies(
     return jsonResponse({ error: "deletion_unavailable" }, 503);
   }
   if (!user) return unauthorized();
+
+  try {
+    dependencies.preflightDeletionDependencies();
+  } catch (error) {
+    console.error("[account-deletion] dependency preflight failed", { error });
+    return jsonResponse({ error: "deletion_unavailable" }, 503);
+  }
 
   const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });
 
