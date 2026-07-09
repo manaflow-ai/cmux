@@ -38,14 +38,16 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     /// than an SF Symbol or emoji (e.g. `agent:claude`).
     public static let agentIconPrefix = "agent:"
 
-    /// Returns the bundled `AgentIcons/` asset name for an `agent:` icon
-    /// value, or nil when the value is a symbol/emoji icon.
+    /// Returns the bundled asset name for an `agent:` icon value, or nil
+    /// when the value is a symbol/emoji icon. Names are catalog-root flat:
+    /// namespaced (`AgentIcons/...`) lookups fail at runtime in SwiftPM
+    /// resource bundles even though the compiled catalog contains them.
     public static func agentIconAssetName(for icon: String) -> String? {
         guard icon.hasPrefix(agentIconPrefix) else { return nil }
         switch icon.dropFirst(agentIconPrefix.count) {
-        case "claude": return "AgentIcons/Claude"
-        case "codex": return "AgentIcons/Codex"
-        case "opencode": return "AgentIcons/OpenCode"
+        case "claude": return "AgentClaude"
+        case "codex": return "AgentCodex"
+        case "opencode": return "AgentOpenCode"
         default: return nil
         }
     }
