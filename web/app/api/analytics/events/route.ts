@@ -162,11 +162,16 @@ export async function postAnalyticsEvents(
     return jsonResponse({ ok: true, forwarded: accepted.length });
   }
 
-  const forwarded = await dependencies.forwardToPostHog(accepted, null);
+  const anonymousEvents = accepted.filter((event) => event.event !== "$identify");
+  if (anonymousEvents.length === 0) {
+    return jsonResponse({ ok: true, forwarded: 0 });
+  }
+
+  const forwarded = await dependencies.forwardToPostHog(anonymousEvents, null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
-  return jsonResponse({ ok: true, forwarded: accepted.length });
+  return jsonResponse({ ok: true, forwarded: anonymousEvents.length });
 }
 
 async function prepareAuthenticatedEvents(

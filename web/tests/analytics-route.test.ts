@@ -309,6 +309,25 @@ describe("iOS analytics route", () => {
     expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
   });
 
+  test("drops anonymous identify aliases before forwarding", async () => {
+    verifyRequest.mockResolvedValue(null);
+
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "33333333-3333-4333-8333-333333333333",
+        properties: {
+          "$anon_distinct_id": "44444444-4444-4444-8444-444444444444",
+        },
+      }],
+    }), dependencies());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
+    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
+    expect(forwardToPostHog).not.toHaveBeenCalled();
+  });
+
   test("does not persist capture-event client ids as deletion identities", async () => {
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
