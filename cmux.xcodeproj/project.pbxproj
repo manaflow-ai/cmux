@@ -127,6 +127,7 @@
 		F47126CFDAE244988A92E2D0 /* AppDelegateWindowFrameReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD21AD844E5D4D50A6DFC442 /* AppDelegateWindowFrameReconcileTests.swift */; };
 		A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAB000000000000000001 /* AppearanceSettings.swift */; };
 		A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAA000000000000000001 /* AppearanceSettingsTests.swift */; };
+		C8046FF15781CC7E4F8EAEA6 /* AppHostWindowReleaseGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FAA194471B7BA157FB4660 /* AppHostWindowReleaseGuardTests.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
@@ -1809,6 +1810,7 @@
 		FD21AD844E5D4D50A6DFC442 /* AppDelegateWindowFrameReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateWindowFrameReconcileTests.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		A11EAA000000000000000001 /* AppearanceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsTests.swift; sourceTree = "<group>"; };
+		B3FAA194471B7BA157FB4660 /* AppHostWindowReleaseGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHostWindowReleaseGuardTests.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
@@ -4829,6 +4831,7 @@
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				B3FAA194471B7BA157FB4660 /* AppHostWindowReleaseGuardTests.swift */,
 				9C5C9824B98FFC44A2C44F47 /* WorkspaceTodoSnapshotTests.swift */,
 				9F007352E96022D7EFBE73C9 /* WorkspaceTodoSidebarModelTests.swift */,
 				C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */,
@@ -6562,6 +6565,7 @@
 				4E6A6F5C1D2B4980A1234568 /* AppDelegateSurfaceShortcutRoutingTests.swift in Sources */,
 				F47126CFDAE244988A92E2D0 /* AppDelegateWindowFrameReconcileTests.swift in Sources */,
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
+				C8046FF15781CC7E4F8EAEA6 /* AppHostWindowReleaseGuardTests.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */,
 				7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */,
