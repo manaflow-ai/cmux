@@ -1047,26 +1047,6 @@ private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
 }
 
-func browserInteractiveModalHostWindow(_ window: NSWindow?) -> NSWindow? {
-    guard let window else { return nil }
-    guard window.isVisible else { return nil }
-    guard window.alphaValue > 0 else { return nil }
-    guard !window.ignoresMouseEvents else { return nil }
-    guard !window.isExcludedFromWindowsMenu else { return nil }
-    return window
-}
-
-func browserInteractiveModalHostWindow(for webView: WKWebView) -> NSWindow? {
-    browserInteractiveModalHostWindow(webView.window)
-}
-
-private func browserFallbackInteractiveModalHostWindow() -> NSWindow? {
-    if let keyWindow = browserInteractiveModalHostWindow(NSApp.keyWindow) {
-        return keyWindow
-    }
-    return browserInteractiveModalHostWindow(NSApp.mainWindow)
-}
-
 typealias BrowserAlertPresenter = (
     _ alert: NSAlert,
     _ webView: WKWebView,
@@ -3996,6 +3976,12 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
+        }
+        navDelegate.handleDroppedFileNavigation = { [weak self] url in
+            guard let self, let workspace = AppDelegate.shared?.workspaceFor(tabId: self.workspaceId),
+                  let paneId = workspace.paneId(forPanelId: self.id) else { return false }
+            return workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+                urls: [url], destination: PaneDropRouting.filePreviewDestination(targetPane: paneId, zone: .right)))
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)

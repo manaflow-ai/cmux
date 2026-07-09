@@ -162,6 +162,9 @@ final class BrowserPaneDropTargetView: NSView {
 
         if fileDropDisposition(sender) == .forwardToPage {
             let webView = preparedFileDropWebView ?? activeFileDropWebView ?? webViewForFileDropDelivery(at: location)
+            if let webView = webView as? WKWebView {
+                BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
+            }
             let handled = webView?.performDragOperation(sender) ?? false
             if handled {
                 performedFileDropWebView = webView

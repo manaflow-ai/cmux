@@ -1,8 +1,9 @@
 import AppKit
 import WebKit
 
-/// Routes browser-pane file drops by intent only: intent never depends on transient webview
-/// availability; delivery failure refuses the drop instead of reinterpreting it.
+/// Routes browser-pane file drops by intent only: a file drag over browser page content is
+/// always delivered to the page unless Shift explicitly asks for a cmux preview; delivery
+/// failure refuses the drop instead of reinterpreting it.
 enum BrowserPaneFileDropRouting {
     /// How a file-URL drag over a browser pane should be handled.
     enum Disposition: Equatable {
@@ -18,8 +19,7 @@ enum BrowserPaneFileDropRouting {
     static func disposition(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         modifierFlags: NSEvent.ModifierFlags,
-        isDockHosted: @autoclosure () -> Bool,
-        defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
+        isDockHosted: @autoclosure () -> Bool
     ) -> Disposition? {
         guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else { return nil }
 
@@ -34,21 +34,7 @@ enum BrowserPaneFileDropRouting {
             return .forwardToPage
         }
 
-        guard let behavior = DragOverlayRoutingPolicy.resolvedFileDropBehavior(
-            pasteboardTypes: pasteboardTypes,
-            modifierFlags: modifierFlags,
-            canDropAsText: true,
-            defaultBehavior: defaultBehavior
-        ) else {
-            return nil
-        }
-
-        switch behavior {
-        case .text:
-            return .forwardToPage
-        case .preview:
-            return .previewInWorkspace
-        }
+        return modifierFlags.contains(.shift) ? .previewInWorkspace : .forwardToPage
     }
 }
 

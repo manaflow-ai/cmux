@@ -322,6 +322,73 @@ struct BrowserPaneFileDropUploadRegressionTests {
         #expect(dockStatusEvaluations == 1)
     }
 
+    @Test func guardConsumesRecordedDropNavigationOnceWithinTTL() {
+        let guardStore = BrowserFileDropNavigationGuard()
+        let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let now = Date(timeIntervalSince1970: 100)
+
+        guardStore.recordDelivery(
+            webView: webView,
+            pasteboard: makeFilePasteboard(paths: ["/tmp/upload.png"]),
+            now: now
+        )
+
+        #expect(guardStore.consumeDropNavigation(
+            webView: webView,
+            url: URL(fileURLWithPath: "/tmp/upload.png"),
+            now: now.addingTimeInterval(1)
+        ))
+        #expect(!guardStore.consumeDropNavigation(
+            webView: webView,
+            url: URL(fileURLWithPath: "/tmp/upload.png"),
+            now: now.addingTimeInterval(2)
+        ))
+    }
+
+    @Test func guardRejectsExpiredDifferentWebViewAndUnmatchedURLs() {
+        let guardStore = BrowserFileDropNavigationGuard()
+        let firstWebView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let secondWebView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let now = Date(timeIntervalSince1970: 200)
+
+        guardStore.recordDelivery(
+            webView: firstWebView,
+            pasteboard: makeFilePasteboard(paths: ["/tmp/upload.png"]),
+            now: now
+        )
+
+        #expect(!guardStore.consumeDropNavigation(webView: secondWebView, url: URL(fileURLWithPath: "/tmp/upload.png"), now: now))
+        #expect(!guardStore.consumeDropNavigation(webView: firstWebView, url: URL(fileURLWithPath: "/tmp/other.png"), now: now))
+        #expect(!guardStore.consumeDropNavigation(webView: firstWebView, url: URL(fileURLWithPath: "/tmp/upload.png"), now: now.addingTimeInterval(6)))
+    }
+
+    @Test func guardMatchesAnyFileInMultiFileRecord() {
+        let guardStore = BrowserFileDropNavigationGuard()
+        let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let now = Date(timeIntervalSince1970: 300)
+
+        guardStore.recordDelivery(
+            webView: webView,
+            pasteboard: makeFilePasteboard(paths: ["/tmp/one.png", "/tmp/two.png"]),
+            now: now
+        )
+
+        #expect(guardStore.consumeDropNavigation(webView: webView, url: URL(fileURLWithPath: "/tmp/two.png"), now: now))
+    }
+
+    @Test func fallbackNavigationClassifierRequiresMainFrameFileOtherNavigation() {
+        #expect(BrowserFileDropNavigationGuard.isDropFallbackNavigation(
+            url: URL(fileURLWithPath: "/tmp/upload.png"),
+            isMainFrame: true,
+            navigationType: .other
+        ))
+        #expect(!BrowserFileDropNavigationGuard.isDropFallbackNavigation(url: URL(string: "https://example.com"), isMainFrame: true, navigationType: .other))
+        #expect(!BrowserFileDropNavigationGuard.isDropFallbackNavigation(url: URL(fileURLWithPath: "/tmp/upload.png"), isMainFrame: false, navigationType: .other))
+        #expect(!BrowserFileDropNavigationGuard.isDropFallbackNavigation(url: URL(fileURLWithPath: "/tmp/upload.png"), isMainFrame: true, navigationType: .backForward))
+        #expect(!BrowserFileDropNavigationGuard.isDropFallbackNavigation(url: URL(fileURLWithPath: "/tmp/upload.png"), isMainFrame: true, navigationType: .linkActivated))
+        #expect(!BrowserFileDropNavigationGuard.isDropFallbackNavigation(url: nil, isMainFrame: true, navigationType: .other))
+    }
+
     private func withFileDropDefault(_ behavior: FileDropDefaultBehavior, run: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)

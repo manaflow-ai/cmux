@@ -346,6 +346,7 @@ final class FileDropOverlayView: NSView {
                 return handled
             }
             if let webView {
+                BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
                 let handled = webView.performDragOperation(sender)
                 if !handled {
                     preparedDragWebView = nil
@@ -397,6 +398,7 @@ final class FileDropOverlayView: NSView {
         }
         preparedPaneDropTarget = nil
         if let webView {
+            BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
             let handled = webView.performDragOperation(sender)
             if !handled {
                 preparedDragWebView = nil
