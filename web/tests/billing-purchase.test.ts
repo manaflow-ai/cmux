@@ -529,7 +529,7 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("blocks Team checkout completion while owner account deletion is in progress", async () => {
+  test("blocks Team checkout completion while owner account deletion is in progress without mutating the team customer", async () => {
     const updateTeam = mock(async () => undefined);
     const updateCustomer = mock(async () => undefined);
     const updateSubscription = mock(async () => undefined);
@@ -564,10 +564,7 @@ describe("recordCheckoutCompletion", () => {
       subscriptionId: "sub_team",
     });
 
-    const customerUpdate = mockCall(updateCustomer);
-    expect(customerUpdate[0]).toBe("cus_team");
-    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
-    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
+    expect(updateCustomer).not.toHaveBeenCalled();
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
@@ -620,10 +617,7 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
-    const customerUpdate = mockCall(updateCustomer);
-    expect(customerUpdate[0]).toBe("cus_team");
-    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
-    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
+    expect(updateCustomer).not.toHaveBeenCalled();
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
     expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });

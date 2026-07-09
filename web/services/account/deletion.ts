@@ -450,6 +450,7 @@ export async function assertAccountDeletionCanStart(
   if (hasStripeBillingRows && !isBillingConfigured()) {
     throw new Error("Stripe account deletion is not configured");
   }
+  assertRetainedTeamBillingOwnersKnown(scope, { customerRows, subscriptionRows });
 }
 
 export async function deleteCmuxAccountData(
@@ -1000,6 +1001,7 @@ async function cancelStripeAccountBilling(
   if (!isBillingConfigured()) {
     throw new Error("Stripe account deletion is not configured");
   }
+  assertRetainedTeamBillingOwnersKnown(scope, { customerRows, subscriptionRows });
 
   const stripeClient = (runtime.stripeClient ?? stripe)();
   for (const customer of customerRows) {
@@ -1048,6 +1050,47 @@ async function cancelStripeAccountBilling(
       subscription,
     );
   }
+}
+
+function assertRetainedTeamBillingOwnersKnown(
+  scope: AccountDeletionScope,
+  rows: {
+    readonly customerRows: readonly AccountDeletionStripeCustomerRow[];
+    readonly subscriptionRows: readonly AccountDeletionStripeSubscriptionRow[];
+  },
+): void {
+  const missingTeamIds = uniqueStrings([
+    ...rows.customerRows.flatMap((customer) => {
+      return isRetainedTeamBillingOwnerMissing(scope, customer.stackTeamId, scope.userId)
+        ? [customer.stackTeamId]
+        : [];
+    }),
+    ...rows.subscriptionRows.flatMap((subscription) => {
+      const missingOwner = isRetainedTeamBillingOwnerMissing(
+        scope,
+        subscription.stackTeamId,
+        subscription.stackUserId,
+      );
+      const retainedTeamSubscription = subscription.scope === "team" && subscription.plan === TEAM_PLAN_ID;
+      return missingOwner && retainedTeamSubscription ? [subscription.stackTeamId] : [];
+    }),
+  ]);
+  if (missingTeamIds.length > 0) {
+    throw new Error(`Account deletion retained team billing owner missing for ${missingTeamIds[0]}`);
+  }
+}
+
+function isRetainedTeamBillingOwnerMissing(
+  scope: AccountDeletionScope,
+  stackTeamId: string | null,
+  stackUserId: string | null,
+): boolean {
+  return shouldCancelRetainedTeamBilling(
+    scope,
+    stackTeamId,
+    stackUserId,
+    retainedTeamBillingOwnerFor(scope, stackTeamId, stackUserId),
+  );
 }
 
 async function accountDeletionStripeBillingRows(

@@ -131,6 +131,7 @@ export async function recordCheckoutCompletion(
       customerId,
       stackUserId,
       clearStackTeamId: false,
+      updateCustomer: true,
       dependencies,
     });
     return {
@@ -147,6 +148,7 @@ export async function recordCheckoutCompletion(
       customerId,
       stackUserId,
       clearStackTeamId: false,
+      updateCustomer: true,
       dependencies,
     });
     return {
@@ -287,6 +289,7 @@ async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
   customerId: string;
   stackUserId: string;
   clearStackTeamId: boolean;
+  updateCustomer: boolean;
   dependencies: BillingPurchaseDependencies;
 }): Promise<void> {
   const client = (input.dependencies.stripeClient ?? stripe)();
@@ -295,12 +298,14 @@ async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
     anonymizedUserId,
     clearStackTeamId: input.clearStackTeamId,
   });
-  await ignoreStripeDeletionCleanupError(
-    client.customers.update(input.customerId, {
-      email: deletedAccountEmail(anonymizedUserId),
-      metadata,
-    }),
-  );
+  if (input.updateCustomer) {
+    await ignoreStripeDeletionCleanupError(
+      client.customers.update(input.customerId, {
+        email: deletedAccountEmail(anonymizedUserId),
+        metadata,
+      }),
+    );
+  }
   await ignoreStripeDeletionCleanupError(
     client.subscriptions.update(input.subscription.id, { metadata }),
   );
@@ -469,6 +474,7 @@ async function recordTeamCheckoutCompletion(input: {
       customerId: input.customerId,
       stackUserId: guard.stackUserId,
       clearStackTeamId: true,
+      updateCustomer: false,
       dependencies: input.dependencies,
     });
     return {
