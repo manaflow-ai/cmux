@@ -29,7 +29,7 @@ extension View {
 }
 
 private struct SidebarImmediateObservationState: Equatable {
-    let title: String
+    let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
     let customColor: String?
@@ -65,22 +65,18 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
-    // Leading-edge coalescing for the immediate sidebar observation stream.
-    // Every subscription (a sidebar row, the MergeMany extension-sidebar
-    // aggregate) fires a full makeWorkspaceSnapshot() rebuild per emission.
-    // Agents (e.g. Codex) rewrite a workspace title every turn, and
-    // removeDuplicates() cannot collapse distinct titles, so without coalescing
-    // each rewrite drives a snapshot rebuild per consumer per workspace.
-    // coalesceLatest (below) keeps the first change in a burst synchronous
-    // (a user pin/color/title edit stays immediate, which Combine's throttle
-    // cannot guarantee because it schedules every emission onto the scheduler)
-    // and collapses the tail of the burst into one trailing emission per window.
-    // See https://github.com/manaflow-ai/cmux/issues/4127.
+    // User-owned sidebar fields keep a synchronous leading edge. Automatic
+    // process titles settle separately: agent TUIs can animate their terminal
+    // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
+    // spaced farther apart than its window. Waiting for the title to settle
+    // prevents those frames from continuously invalidating LazyVStack rows.
+    // See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+    static let sidebarProcessTitleSettleInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(500)
 
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $title,
+            $customTitle,
             $customDescription,
             $isPinned,
             $customColor
@@ -99,11 +95,11 @@ extension Workspace {
             todoState.$checklist
         )
 
-        return workspaceFields
+        let immediateFields = workspaceFields
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    title: workspaceFields.0,
+                    customTitle: workspaceFields.0,
                     customDescription: workspaceFields.1,
                     isPinned: workspaceFields.2,
                     customColor: workspaceFields.3,
@@ -121,6 +117,18 @@ extension Workspace {
                 scheduler: RunLoop.main
             )
             .map { _ in () }
+
+        let settledProcessTitle = Publishers.CombineLatest($title, $customTitle)
+            .map { title, customTitle in customTitle == nil ? title : nil }
+            .removeDuplicates()
+            // TabItemView builds its initial snapshot in onAppear. Dropping
+            // the replay avoids a redundant delayed refresh for every row.
+            .dropFirst()
+            .debounce(for: Self.sidebarProcessTitleSettleInterval, scheduler: RunLoop.main)
+            .compactMap { $0 }
+            .map { _ in () }
+
+        return Publishers.Merge(immediateFields, settledProcessTitle)
             .eraseToAnyPublisher()
     }
 
