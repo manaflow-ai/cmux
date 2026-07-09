@@ -256,9 +256,9 @@ describe("recordCheckoutCompletion", () => {
     expect(updates).toHaveLength(0);
   });
 
-  test("syncs checkout metadata after the account deletion lock commits", async () => {
+  test("syncs checkout metadata under a fresh account deletion lock", async () => {
     let transactionOpen = false;
-    let lockAcquired = false;
+    let lockCount = 0;
     const baseDb = fakeDb();
     const db = {
       ...baseDb,
@@ -270,7 +270,7 @@ describe("recordCheckoutCompletion", () => {
           return await callback({
             ...baseDb,
             execute: async (_query?: unknown) => {
-              lockAcquired = true;
+              lockCount += 1;
             },
           });
         } finally {
@@ -279,8 +279,8 @@ describe("recordCheckoutCompletion", () => {
       },
     };
     const update = mock(async () => {
-      expect(transactionOpen).toBe(false);
-      expect(lockAcquired).toBe(true);
+      expect(transactionOpen).toBe(true);
+      expect(lockCount).toBe(2);
     });
     const user = {
       id: "user_123",
@@ -297,6 +297,39 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
+    expect(lockCount).toBe(2);
+  });
+
+  test("skips checkout metadata sync when deletion starts after checkout rows commit", async () => {
+    const staleUpdate = mock(async () => undefined);
+    const deletingUpdate = mock(async () => undefined);
+    const staleUser = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update: staleUpdate,
+    };
+    const deletingUser = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update: deletingUpdate,
+    };
+    let getUserCalls = 0;
+    const getUser = mock(async () => {
+      getUserCalls += 1;
+      return getUserCalls === 1 ? staleUser : deletingUser;
+    });
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser } as never,
+    });
+
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(true);
+    expect(staleUpdate).not.toHaveBeenCalled();
+    expect(deletingUpdate).not.toHaveBeenCalled();
   });
 
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {
@@ -834,6 +867,43 @@ describe("recordCheckoutCompletion", () => {
     expect(update).not.toHaveBeenCalled();
     expect(updates.some((entry) => entry.table === stripeSubscriptions)).toBe(false);
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+  });
+
+  test("skips subscription metadata sync when deletion starts after webhook rows update", async () => {
+    const staleUpdate = mock(async () => undefined);
+    const deletingUpdate = mock(async () => undefined);
+    const staleUser = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: staleUpdate,
+    };
+    const deletingUser = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true, cmuxPlan: "pro" },
+      update: deletingUpdate,
+    };
+    let getUserCalls = 0;
+    const getUser = mock(async () => {
+      getUserCalls += 1;
+      return getUserCalls === 1 ? staleUser : deletingUser;
+    });
+    selectResults = [[], []];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(true);
+    expect(staleUpdate).not.toHaveBeenCalled();
+    expect(deletingUpdate).not.toHaveBeenCalled();
   });
 
   test("fails known subscription webhooks when the Stack user is missing", async () => {

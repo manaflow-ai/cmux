@@ -216,16 +216,23 @@ async function syncUserCheckoutAfterCommit(
   db: BillingDb,
   input: UserCheckoutPostCommitSync,
 ): Promise<void> {
-  if (input.email) {
-    await attachPurchaseEmailOrRecordClaim(db, {
-      user: input.user,
-      email: input.email,
-      stripeCustomerId: input.stripeCustomerId,
-      stackUserId: input.stackUserId,
-      stackApp: input.stackApp,
-    });
-  }
-  await syncProPlanMetadata(input.user, true);
+  await syncStackUserMetadataWithAccountDeletionGuard({
+    db,
+    stackUserId: input.stackUserId,
+    stackApp: input.stackApp,
+    sync: async (user, tx) => {
+      if (input.email) {
+        await attachPurchaseEmailOrRecordClaim(tx, {
+          user,
+          email: input.email,
+          stripeCustomerId: input.stripeCustomerId,
+          stackUserId: input.stackUserId,
+          stackApp: input.stackApp,
+        });
+      }
+      await syncProPlanMetadata(user, true);
+    },
+  });
 }
 
 async function deleteCheckoutStripeResourcesForAccountDeletion(
@@ -352,7 +359,14 @@ export async function applySubscriptionUpdate(
     });
   }
 
-  await syncProPlanMetadata(user, isActive);
+  await syncStackUserMetadataWithAccountDeletionGuard({
+    db,
+    stackUserId,
+    stackApp: dependencies.stackApp ?? stackServerApp,
+    sync: async (freshUser) => {
+      await syncProPlanMetadata(freshUser, isActive);
+    },
+  });
   if (!isActive) {
     await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
   }
@@ -392,6 +406,21 @@ async function withAccountDeletionUserLock<T>(
       sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(stackUserId)}, 0))`,
     );
     return callback(accountTx);
+  });
+}
+
+async function syncStackUserMetadataWithAccountDeletionGuard(input: {
+  readonly db: BillingDb;
+  readonly stackUserId: string;
+  readonly stackApp: StackBillingApp | null | undefined;
+  readonly sync: (user: StackBillingUser, tx: BillingDbClient) => Promise<void>;
+}): Promise<boolean> {
+  return await withAccountDeletionUserLock(input.db, input.stackUserId, async (tx) => {
+    if (await hasCheckoutBlockingAccountDeletionTombstone(input.stackUserId, tx)) return false;
+    const freshUser = await loadOptionalStackUser(input.stackUserId, input.stackApp);
+    if (!freshUser || isAccountDeletionInProgress(freshUser)) return false;
+    await input.sync(freshUser, tx);
+    return true;
   });
 }
 
