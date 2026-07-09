@@ -1043,12 +1043,7 @@ async function listAllStackTeams(user: DeletableStackUser): Promise<readonly unk
     const page = await user.listTeams({ cursor, limit });
     teams.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
-    if (!nextCursor) {
-      if (page.length >= limit && page.nextCursor === undefined) {
-        throw new Error("Stack team pagination is incomplete for account deletion");
-      }
-      break;
-    }
+    if (!nextCursor) break;
     if (seenCursors.has(nextCursor)) {
       throw new Error("Stack team pagination looped during account deletion");
     }
@@ -1081,12 +1076,7 @@ async function stackTeamMemberIds(team: AccountDeletionStackTeam): Promise<reado
     const page = await team.listUsers({ cursor, limit });
     members.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
-    if (!nextCursor) {
-      if (page.length >= limit && page.nextCursor === undefined) {
-        throw new Error(`Stack team ${team.id} membership pagination is incomplete`);
-      }
-      break;
-    }
+    if (!nextCursor) break;
     if (seenCursors.has(nextCursor)) {
       throw new Error(`Stack team ${team.id} membership pagination looped`);
     }

@@ -894,6 +894,22 @@ describe("account deletion route", () => {
     });
   });
 
+  test("accepts non-paginated Stack team member arrays with 100 members", async () => {
+    listedPersonalVmIds = [];
+    const teamMembers = [
+      "account-user-1",
+      ...Array.from({ length: 99 }, (_, index) => `member-${index}`),
+    ];
+    stackUserSelectedTeam = stackTeam("large-team", teamMembers);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 0 });
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1");
+    expect(listUserVms).not.toHaveBeenCalledWith("account-user-1", "large-team");
+  });
+
   test("reassigns retained shared-team Stripe billing to another team member", async () => {
     listedPersonalVmIds = [];
     stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
