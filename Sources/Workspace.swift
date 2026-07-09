@@ -3151,17 +3151,14 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
-        // The default mobile-connect button is remotely toggleable; the flag
-        // is read when buttons are (re)applied, so a dashboard change lands
-        // on the next config reload or launch.
-        let buttons = CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
-            ? buttons
-            : buttons.filter { button in
-                if case .builtIn(let builtInAction) = button.action, builtInAction == .mobileConnect {
-                    return false
-                }
-                return true
-            }
+        // Built-in surface-tab-bar buttons are feature-flagged when applied, so
+        // dashboard changes land on the next config reload or launch.
+        let buttons = buttons.filter { button in
+            guard case .builtIn(let builtInAction) = button.action else { return true }
+            if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
+            if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
+            return true
+        }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
                 if button.terminalCommand != nil {
@@ -7686,7 +7683,7 @@ final class Workspace: Identifiable, ObservableObject {
             manualIO: true,
             manualInputHandler: onInput
         )
-        surface.onManualGridResize = onResize
+        if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
         let newPanel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(
             newPanel,

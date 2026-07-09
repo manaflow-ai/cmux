@@ -67,10 +67,15 @@ extension AppDelegate {
         preferredWindow: NSWindow?,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
+            NSSound.beep()
+            return false
+        }
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSSound.beep()
             return false
         }
+        AgentChatThemeSync.start()
         guard AgentChatActionInFlightGate.begin() else {
             NSSound.beep()
             return false
@@ -83,6 +88,7 @@ extension AppDelegate {
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
+            AgentChatThemeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
             guard let workspace = self.openAgentChatWorkspace(
                 tabManager: tabManager,

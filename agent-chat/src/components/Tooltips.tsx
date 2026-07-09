@@ -21,7 +21,7 @@ export function HintTooltip({ label, action, children }: { label: string; action
     <Tooltip.Root>
       <Tooltip.Trigger render={children} />
       <Tooltip.Portal>
-        <Tooltip.Positioner sideOffset={7}>
+        <Tooltip.Positioner className="tooltip-positioner" sideOffset={7}>
           <Tooltip.Popup className="tooltip">
             <span>{label}</span>
             {combo ? <kbd>{comboGlyph(combo)}</kbd> : null}
