@@ -41,6 +41,9 @@ extension RemoteTmuxControlConnection {
                windowReorderRecoveryGeneration == requestGeneration {
                 restartAfterWindowReorderRecoveryFailure()
             }
+            if case .listWindowOrder = kind {
+                requestFullWindowOrderRecovery()
+            }
             // Errors are dropped by design (results correlate positionally), but
             // an invisible %error has already hidden one real bug — an unquoted
             // refresh-client -B that never subscribed — so leave a trace.
@@ -176,6 +179,29 @@ extension RemoteTmuxControlConnection {
             } else if completesReorderRecovery {
                 restartAfterWindowReorderRecoveryFailure()
             }
+        case let .listWindowOrder(requestGeneration):
+            let order = lines.compactMap { line in
+                RemoteTmuxControlStreamParser.id(
+                    Substring(line.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    sigil: "@"
+                )
+            }
+            let knownWindowIDs = Set(windowsByID.keys)
+            guard !order.isEmpty,
+                  order.count == knownWindowIDs.count,
+                  Set(order) == knownWindowIDs else {
+                // A concurrent add/close needs the existing full topology path.
+                requestFullWindowOrderRecovery()
+                break
+            }
+            let optimisticOrder = windowOrder.filter { knownWindowIDs.contains($0) }
+            let reconciledOrder = requestGeneration == windowReorderGeneration
+                ? order
+                : decoding.windowOrder(order, applyingReorder: optimisticOrder)
+            if reconciledOrder != windowOrder {
+                windowOrder = reconciledOrder
+                observers.notifyTopologyChanged()
+            }
         case let .capturePane(paneId):
             // capture-pane -e -S output is the pane's history + visible rows (with
             // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
@@ -242,15 +268,29 @@ extension RemoteTmuxControlConnection {
         }
     }
 
-    /// Reconciles every completed batch from authoritative tmux order while
-    /// coalescing any rejected swap into recovery that blocks later reorders.
+    /// Verifies a successful reorder without restaging every window's geometry.
+    func requestWindowOrder() {
+        sendInternal(
+            "list-windows -F \"#{window_id}\"",
+            kind: .listWindowOrder(reorderGeneration: windowReorderGeneration)
+        )
+    }
+
+    /// Escalates a failed order-only verification to blocking full recovery.
+    func requestFullWindowOrderRecovery() {
+        windowReorderRecoveryGeneration = windowReorderGeneration
+        requestWindows()
+    }
+
+    /// Reconciles every completed batch while rejected swaps use full recovery.
     func completeWindowReorderCommand(isLast: Bool, failed: Bool) {
         windowReorderBatchFailed = windowReorderBatchFailed || failed
         guard isLast else { return }
         if windowReorderBatchFailed {
-            windowReorderRecoveryGeneration = windowReorderGeneration
+            requestFullWindowOrderRecovery()
+        } else {
+            requestWindowOrder()
         }
-        requestWindows()
         windowReorderBatchFailed = false
     }
 }

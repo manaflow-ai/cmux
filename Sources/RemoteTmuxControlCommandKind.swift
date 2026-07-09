@@ -3,6 +3,8 @@ import Foundation
 enum RemoteTmuxControlCommandKind: Equatable {
     /// A topology snapshot tagged with the accepted reorder generation at send time.
     case listWindows(reorderGeneration: UInt64)
+    /// An order-only snapshot used to verify a successful swap batch cheaply.
+    case listWindowOrder(reorderGeneration: UInt64)
     case capturePane(Int)
     case paneState(Int)
     case panePath(Int)

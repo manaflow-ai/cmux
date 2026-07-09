@@ -153,19 +153,6 @@ struct RemoteTmuxSessionRenameTitleTests {
         manager.selectedTabId = workspace.id
         workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        manager.window = window
-        defer {
-            manager.window = nil
-            window.close()
-        }
-        manager.refreshWindowTitle()
-
         let postTerminalTitle: (String) -> Void = { title in
             NotificationCenter.default.post(
                 name: .ghosttyDidSetTitle,
@@ -186,7 +173,6 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")
-        #expect(window.title == "work")
 
         postTerminalTitle("/Users/austinwang")
 
@@ -195,13 +181,27 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")
-        #expect(window.title == "work")
 
         manager.focusedSurfaceTitleDidChange(tabId: workspace.id)
 
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")
+
+        // Verify final window chrome without mounting AppKit/SwiftUI during the
+        // terminal-icon mutations above (the test host has no real window scene).
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+        manager.refreshWindowTitle()
         #expect(window.title == "work")
     }
 }
