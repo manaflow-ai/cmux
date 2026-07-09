@@ -37,22 +37,27 @@ final class BrowserHiddenWebViewDiscardManager {
         let isVisualAutomationCaptureActive: Bool
         let hasPopups: Bool
         let isCapturingMedia: Bool
-        let isPlayingMedia: Bool
+        let hasAudibleMedia: Bool
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
 
     private var discardTimer: DispatchSourceTimer?
-    private var policyObserver: NSObjectProtocol?
-    private var systemSleepObservers: [NSObjectProtocol] = []
-    private var systemSleepObserverCenter: NotificationCenter?
+    private var blockedRecheckTimer: DispatchSourceTimer?
     private let policyDefaults: UserDefaults
-    private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
+    private let eventCenter: BrowserHiddenWebViewDiscardEventCenter
+    private var isSubscribedToEventCenter = false
     private var scheduleGeneration: UInt64 = 0
 
-    init(policyDefaults: UserDefaults = .standard) {
+    init(
+        policyDefaults: UserDefaults = .standard,
+        // nil resolves to .shared inside this main-actor-isolated init body; a
+        // `.shared` default argument would be evaluated in a nonisolated
+        // context and trip the Swift 6 actor-isolation warning.
+        eventCenter: BrowserHiddenWebViewDiscardEventCenter? = nil
+    ) {
         self.policyDefaults = policyDefaults
-        self.policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
+        self.eventCenter = eventCenter ?? .shared
     }
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
@@ -72,6 +77,10 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
+    var hasScheduledBlockedRecheck: Bool {
+        blockedRecheckTimer != nil
+    }
+
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
@@ -88,8 +97,8 @@ final class BrowserHiddenWebViewDiscardManager {
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
-        if snapshot.isPlayingMedia { blockers.append("media_playback") }
-        if snapshot.preferredDeveloperToolsVisible || snapshot.isDeveloperToolsVisible {
+        if snapshot.hasAudibleMedia { blockers.append("media_playback") }
+        if snapshot.isDeveloperToolsVisible {
             blockers.append("developer_tools")
         }
         if snapshot.isElementFullscreenActive { blockers.append("fullscreen") }
@@ -103,9 +112,19 @@ final class BrowserHiddenWebViewDiscardManager {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
+        blockedRecheckTimer?.cancel()
+        blockedRecheckTimer = nil
 
         guard let delegate else { return }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
+        let snapshot = delegate.hiddenWebViewDiscardSnapshot
+        guard blockers(for: snapshot).isEmpty else {
+            guard shouldScheduleBlockedRecheck(for: snapshot) else { return }
+            scheduleBlockedRecheckIfNeeded(
+                observedWebViewInstanceID: delegate.hiddenWebViewDiscardWebViewInstanceID,
+                generation: scheduleGeneration
+            )
+            return
+        }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -141,6 +160,19 @@ final class BrowserHiddenWebViewDiscardManager {
         timer.resume()
     }
 
+    /// Fires an armed blocked-recheck immediately. This is the single re-check
+    /// path: the production recheck timer routes through it, and tests drive it
+    /// directly instead of waiting out the coarse timer. A discard that results
+    /// from this path reports "blocked_recheck" as its reason.
+    @discardableResult
+    func performBlockedRecheckNow(now: Date = Date()) -> Bool {
+        guard blockedRecheckTimer != nil else { return false }
+        blockedRecheckTimer?.cancel()
+        blockedRecheckTimer = nil
+        scheduleIfNeeded(reason: "blocked_recheck", now: now)
+        return true
+    }
+
     @discardableResult
     func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
@@ -158,6 +190,8 @@ final class BrowserHiddenWebViewDiscardManager {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
+        blockedRecheckTimer?.cancel()
+        blockedRecheckTimer = nil
         delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
         return true
     }
@@ -166,36 +200,8 @@ final class BrowserHiddenWebViewDiscardManager {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
-    }
-
-    /// Tracks system sleep/wake so discard countdowns armed before sleep do not
-    /// fire shortly after wake. Injectable center for tests.
-    func installSystemSleepObservers(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
-        guard systemSleepObservers.isEmpty else { return }
-        systemSleepObserverCenter = center
-        systemSleepObservers = [
-            // Synchronous main-actor delivery (no Task hop): a countdown with
-            // milliseconds of mach time left must see isSystemSleeping before
-            // its timer can fire.
-            center.addObserver(
-                forName: NSWorkspace.willSleepNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.noteSystemWillSleep()
-                }
-            },
-            center.addObserver(
-                forName: NSWorkspace.didWakeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.noteSystemDidWake()
-                }
-            }
-        ]
+        blockedRecheckTimer?.cancel()
+        blockedRecheckTimer = nil
     }
 
     func noteSystemWillSleep() {
@@ -218,18 +224,10 @@ final class BrowserHiddenWebViewDiscardManager {
 #endif
     }
 
-    func installPolicyObserver() {
-        policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
-        guard policyObserver == nil else { return }
-        policyObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handlePolicyDefaultsChanged()
-            }
-        }
+    func installEventCenterSubscription() {
+        guard !isSubscribedToEventCenter else { return }
+        eventCenter.add(self)
+        isSubscribedToEventCenter = true
     }
 
     nonisolated func stop() {
@@ -317,13 +315,6 @@ final class BrowserHiddenWebViewDiscardManager {
         updateRestoredSessionRenderIntent(nil)
     }
 
-    private func handlePolicyDefaultsChanged() {
-        let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
-        guard policyState != nextPolicyState else { return }
-        policyState = nextPolicyState
-        delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")
-    }
-
     private func isInPostWakeDiscardDelay(now: Date) -> Bool {
         guard let lastSystemWakeAt else { return false }
         return now.timeIntervalSince(lastSystemWakeAt) < BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
@@ -331,16 +322,57 @@ final class BrowserHiddenWebViewDiscardManager {
 
     private func stopOnMainActor() {
         cancel()
-        if let policyObserver {
-            NotificationCenter.default.removeObserver(policyObserver)
-            self.policyObserver = nil
+        if isSubscribedToEventCenter {
+            eventCenter.remove(self)
+            isSubscribedToEventCenter = false
         }
-        if let center = systemSleepObserverCenter {
-            for observer in systemSleepObservers {
-                center.removeObserver(observer)
+    }
+
+    private func shouldScheduleBlockedRecheck(for snapshot: BlockerSnapshot) -> Bool {
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) else { return false }
+        guard !snapshot.isVisibleInUI, !snapshot.isClosing, !isDiscardedForMemory else { return false }
+        return true
+    }
+
+    private func scheduleBlockedRecheckIfNeeded(
+        observedWebViewInstanceID: UUID,
+        generation: UInt64
+    ) {
+        guard blockedRecheckTimer == nil else { return }
+        let policy = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
+        let delay = Self.blockedRecheckDelay(for: policy)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard self.scheduleGeneration == generation else { return }
+                guard let delegate = self.delegate else { return }
+                guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
+                self.performBlockedRecheckNow(now: Date())
             }
         }
-        systemSleepObservers.removeAll()
-        systemSleepObserverCenter = nil
+        blockedRecheckTimer = timer
+        timer.resume()
+    }
+
+    static func blockedRecheckDelay(
+        for policy: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
+    ) -> TimeInterval {
+        max(60, policy.hiddenDelay)
+    }
+}
+
+extension BrowserHiddenWebViewDiscardManager: BrowserHiddenWebViewDiscardEventSubscriber {
+    func discardPolicyDidChange(_: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy) {
+        delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")
+    }
+
+    func systemWillSleep() {
+        noteSystemWillSleep()
+    }
+
+    func systemDidWake() {
+        noteSystemDidWake()
     }
 }

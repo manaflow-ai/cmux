@@ -3282,8 +3282,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func installHiddenWebViewDiscardPolicyObserver() {
-        hiddenWebViewDiscardManager.installPolicyObserver()
-        hiddenWebViewDiscardManager.installSystemSleepObservers()
+        hiddenWebViewDiscardManager.installEventCenterSubscription()
     }
 
     @discardableResult
@@ -6012,7 +6011,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             hasPopups: !popupControllers.isEmpty,
             isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
-            isPlayingMedia: isPlayingMedia
+            hasAudibleMedia: isPlayingAudio
         )
     }
 
