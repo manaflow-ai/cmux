@@ -69,6 +69,33 @@ import Testing
         #expect(candidates.map { $0.host } == ["127.0.0.1", "100.82.214.112"])
     }
 
+    @Test func physicalDeviceCandidatesNeverIncludeLoopbackWhenRealRoutesExist() throws {
+        // Route ITERATION dials every candidate, so the loopback tail entry
+        // that single-pick selection never reached must not be in the list at
+        // all: dialing 127.0.0.1 on a physical phone reaches whatever local
+        // process is listening, and the manual attach path treats loopback as
+        // trusted.
+        let candidates = MobileShellComposite.reconnectHostPortRoutes(
+            [try loopback(), try tailscale()],
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(candidates.map { $0.host } == ["100.82.214.112"])
+    }
+
+    @Test func physicalDeviceCandidatesUseLoopbackOnlyAsSoleSupportedRoute() throws {
+        // The on-device XCUITest mock host serves a real listener on 127.0.0.1
+        // and advertises no other route.
+        let candidates = MobileShellComposite.reconnectHostPortRoutes(
+            [try loopback()],
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(candidates.map { $0.host } == ["127.0.0.1"])
+    }
+
     @Test func reconnectCandidatesDeduplicateEndpoints() throws {
         let duplicate = try CmxAttachRoute(
             id: "duplicate",
