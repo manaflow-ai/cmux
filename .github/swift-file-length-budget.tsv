@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 35481	CLI/cmux.swift
-17865	Sources/AppDelegate.swift
+17842	Sources/AppDelegate.swift
 16424	Sources/ContentView.swift
 15098	Sources/TerminalController.swift
 13096	Sources/Workspace.swift
@@ -10,9 +10,9 @@
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11388	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-8055	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 8016	CLI/cmux_open.swift
 7959	Sources/Panels/BrowserPanelView.swift
+7705	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7489	cmuxTests/WorkspaceUnitTests.swift
 7312	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
@@ -35,7 +35,6 @@
 3124	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2866	Sources/Mobile/MobileHostService.swift
 2611	Sources/KeyboardShortcutSettings.swift
 2562	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
@@ -46,6 +45,7 @@
 2203	Sources/RestorableAgentSession.swift
 2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2126	cmuxTests/CmuxConfigTests.swift
+2113	Sources/Mobile/MobileHostService.swift
 2016	Sources/SessionPersistence.swift
 2011	Sources/KeyboardShortcutSettingsFileStore.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
@@ -70,8 +70,8 @@
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1317	Sources/FileExplorerStore.swift
-1313	cmuxTests/MobileHostAuthorizationTests.swift
 1291	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
+1291	cmuxTests/MobileHostAuthorizationTests.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1258	Sources/Feed/FeedCoordinator.swift
