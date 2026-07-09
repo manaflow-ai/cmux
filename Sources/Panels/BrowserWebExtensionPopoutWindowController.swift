@@ -31,11 +31,19 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         webView.isInspectable = true
 #endif
 
-        var frame = configuration.frame
-        let usesFallbackFrame = frame.isNull || frame.isEmpty || frame.width < 50 || frame.height < 50
-        if usesFallbackFrame {
-            frame = CGRect(origin: .zero, size: Self.defaultSize)
-        }
+        let requestedFrame = configuration.frame
+        let hasUsableOrigin = requestedFrame.origin.x.isFinite && requestedFrame.origin.y.isFinite
+        let width = requestedFrame.width.isFinite && requestedFrame.width >= 50 ? requestedFrame.width : Self.defaultSize.width
+        let height = requestedFrame.height.isFinite && requestedFrame.height >= 50 ? requestedFrame.height : Self.defaultSize.height
+        let frame = CGRect(
+            origin: hasUsableOrigin ? requestedFrame.origin : .zero,
+            size: CGSize(width: width, height: height)
+        )
+        let usesFallbackFrame = !hasUsableOrigin
+            || !requestedFrame.width.isFinite
+            || !requestedFrame.height.isFinite
+            || requestedFrame.width < 50
+            || requestedFrame.height < 50
         window = NSWindow(
             contentRect: frame,
             styleMask: [.titled, .closable, .resizable],
