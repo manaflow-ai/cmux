@@ -6,6 +6,7 @@ extension SystemAppearanceObserver {
         let startEffectiveAppearanceObservation: (@escaping @MainActor () -> Void) -> EffectiveAppearanceObservation?
         let currentAppearanceModeRawValue: () -> String?
         let effectivePrefersDark: () -> Bool
+        let synchronizeTerminalTheme: () -> Void
         let postSystemAppearanceDidChange: () -> Void
 
         static func live() -> Environment {
@@ -33,6 +34,12 @@ extension SystemAppearanceObserver {
                     MainActor.assumeIsolated {
                         NSApp?.effectiveAppearance.cmuxPrefersDark == true
                     }
+                },
+                synchronizeTerminalTheme: {
+                    GhosttyApp.shared.synchronizeThemeWithAppearance(
+                        NSApp?.effectiveAppearance,
+                        source: "systemAppearanceObserver"
+                    )
                 },
                 postSystemAppearanceDidChange: {
                     NotificationCenter.default.post(name: .systemAppearanceDidChange, object: nil)

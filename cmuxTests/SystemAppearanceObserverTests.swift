@@ -155,6 +155,9 @@ struct SystemAppearanceObserverTests {
                 self.events.append("effectivePrefersDark(\(self.prefersDark))")
                 return self.prefersDark
             },
+            synchronizeTerminalTheme: { [unowned self] in
+                self.events.append("synchronizeTerminalTheme")
+            },
             postSystemAppearanceDidChange: { [unowned self] in
                 self.events.append("postSystemAppearanceDidChange")
                 self.onPostSystemAppearanceDidChange?()
@@ -183,6 +186,7 @@ struct SystemAppearanceObserverTests {
         #expect(harness.events == [
             "effectivePrefersDark(false)",
             "effectivePrefersDark(true)",
+            "synchronizeTerminalTheme",
             "postSystemAppearanceDidChange",
         ])
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
@@ -227,6 +231,7 @@ struct SystemAppearanceObserverTests {
         #expect(harness.events == [
             "effectivePrefersDark(true)",
             "effectivePrefersDark(true)",
+            "synchronizeTerminalTheme",
             "postSystemAppearanceDidChange",
         ])
     }
@@ -248,6 +253,7 @@ struct SystemAppearanceObserverTests {
         harness.fireEffectiveAppearanceChanged()
 
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+        #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.count == 1)
 
         // Pins that lastResolvedPrefersDark is updated on every apply, not just
         // seeded at startObserving() — fire the same (now-current) value again
@@ -280,6 +286,7 @@ struct SystemAppearanceObserverTests {
         #expect(harness.events == [
             "effectivePrefersDark(false)",
             "effectivePrefersDark(true)",
+            "synchronizeTerminalTheme",
             "postSystemAppearanceDidChange",
             "effectivePrefersDark(true)",
         ])
