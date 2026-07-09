@@ -45,10 +45,10 @@ struct BrowserWebExtensionsCard: View {
     /// Discovered Safari extensions not yet added, offered by the Import menu.
     private var importableExtensions: [SettingsDiscoveredBrowserExtension] {
         let addedIDs = Set(model.current.map(\.id))
-        let addedPaths = Set(model.current.map { standardizedPath($0.path) })
+        let addedResourcePaths = Set(model.current.map { standardizedResourcePath(for: $0) })
         return discovered.filter { candidate in
             !addedIDs.contains(candidate.id)
-                && !addedPaths.contains(standardizedPath(candidate.path))
+                && !addedResourcePaths.contains(standardizedSafariAppExtensionResourcePath(candidate.path))
         }
     }
 
@@ -166,7 +166,8 @@ struct BrowserWebExtensionsCard: View {
             presentDuplicateExtensionAlert(for: entry)
             return
         }
-        guard !entries.contains(where: { standardizedPath($0.path) == standardizedPath(entry.path) }) else {
+        let entryResourcePath = standardizedResourcePath(for: entry)
+        guard !entries.contains(where: { standardizedResourcePath(for: $0) == entryResourcePath }) else {
             presentDuplicateExtensionAlert(for: entry)
             return
         }
@@ -262,5 +263,23 @@ struct BrowserWebExtensionsCard: View {
 
     private func standardizedPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func standardizedResourcePath(for entry: BrowserWebExtensionEntry) -> String {
+        switch entry.kind {
+        case .safariAppExtension:
+            return standardizedSafariAppExtensionResourcePath(entry.path)
+        case .unpackedDirectory:
+            return standardizedPath(entry.path)
+        }
+    }
+
+    private func standardizedSafariAppExtensionResourcePath(_ path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        guard url.pathExtension == "appex" else { return standardizedPath(path) }
+        return url
+            .appendingPathComponent("Contents/Resources", isDirectory: true)
+            .standardizedFileURL
+            .path
     }
 }
