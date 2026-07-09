@@ -308,7 +308,7 @@ struct BrowserDiscardRestorePolicyCancelTests {
         #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
     }
 
-    @Test func cancelledInsecureHTTPPromptCompletesDiscardRestore() throws {
+    @Test func cancelledInsecureHTTPPromptKeepsDiscardRestoreRetryable() throws {
         let url = try #require(URL(string: "http://example.com/cmux-issue-7504-insecure-prompt"))
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -348,10 +348,40 @@ struct BrowserDiscardRestorePolicyCancelTests {
         panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
 
         let payload = panel.webViewLifecycleTopPayload()
-        #expect(payload["state"] as? String != "discarded")
+        #expect(payload["state"] as? String == "discarded")
         #expect(payload["restore_pending"] as? Bool == false)
-        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
-        #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == true)
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
+    @Test func failedInsecureHTTPExternalOpenDoesNotReportTerminalRestore() throws {
+        let url = try #require(URL(string: "http://example.com/cmux-issue-7504-open-failure"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        var resolutions: [BrowserInsecureHTTPNavigationResolution] = []
+        var openedURL: URL?
+        panel.handleInsecureHTTPAlertResponse(
+            .alertFirstButtonReturn,
+            alert: nil,
+            host: "example.com",
+            request: URLRequest(url: url),
+            url: url,
+            intent: .currentTab,
+            recordTypedNavigation: false,
+            onResolution: { resolutions.append($0) },
+            openExternalURL: { url in
+                openedURL = url
+                return false
+            }
+        )
+
+        #expect(openedURL == url)
+        #expect(resolutions.isEmpty)
     }
 
     @Test func staleInsecureHTTPPromptDoesNotCompleteNewerRestore() throws {

@@ -1163,9 +1163,10 @@ private func browserOpenExternalNavigationURL(
     _ url: URL,
     source: String,
     webView: WKWebView,
-    presentAlert: BrowserAlertPresenter = browserPresentAlert
+    presentAlert: BrowserAlertPresenter = browserPresentAlert,
+    openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
 ) -> Bool {
-    let opened = NSWorkspace.shared.open(url)
+    let opened = openURL(url)
     if !opened {
         browserPresentExternalNavigationFailure(for: url, in: webView, presentAlert: presentAlert)
     }
@@ -1859,9 +1860,9 @@ enum BrowserInsecureHTTPNavigationResolution {
 
     var isTerminalPolicyCancellation: Bool {
         switch self {
-        case .openedExternally, .proceededInNewTab, .cancelled:
+        case .openedExternally, .proceededInNewTab:
             true
-        case .proceededInCurrentTab:
+        case .proceededInCurrentTab, .cancelled:
             false
         }
     }
@@ -5942,7 +5943,7 @@ final class BrowserPanel: Panel, ObservableObject {
         handleResponse(alert.runModal())
     }
 
-    private func handleInsecureHTTPAlertResponse(
+    func handleInsecureHTTPAlertResponse(
         _ response: NSApplication.ModalResponse,
         alert: NSAlert?,
         host: String,
@@ -5950,7 +5951,8 @@ final class BrowserPanel: Panel, ObservableObject {
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool,
-        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void
+        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
@@ -5960,8 +5962,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch response {
         case .alertFirstButtonReturn:
+            guard browserOpenExternalNavigationURL(
+                url,
+                source: "insecure_http",
+                webView: webView,
+                openURL: openExternalURL
+            ) else { return }
             onResolution(.openedExternally)
-            NSWorkspace.shared.open(url)
         case .alertSecondButtonReturn:
             switch intent {
             case .currentTab:
