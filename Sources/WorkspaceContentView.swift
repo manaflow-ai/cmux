@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxRemoteWorkspace
 import Bonsplit
 import CmuxCore
 import CmuxWindowing

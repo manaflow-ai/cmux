@@ -15,8 +15,8 @@ final class RemoteTmuxControlConnection {
     typealias ConnectionState = RemoteTmuxConnectionState
     typealias PaneForegroundState = RemoteTmuxPaneForegroundState
     typealias Snapshot = RemoteTmuxControlConnectionSnapshot
-    private typealias CommandKind = RemoteTmuxControlCommandKind
-    private typealias PostAttachAction = RemoteTmuxPostAttachAction
+    typealias CommandKind = RemoteTmuxControlCommandKind
+    typealias PostAttachAction = RemoteTmuxPostAttachAction
 
     /// The host this connection talks to.
     let host: RemoteTmuxHost
@@ -33,7 +33,7 @@ final class RemoteTmuxControlConnection {
     /// Multicast observer registry. A single connection is shared by every consumer
     /// of the same host+session (``RemoteTmuxController.attach`` reuses it), so events
     /// fan out to all consumers via this registry.
-    private let observers = RemoteTmuxConnectionObservers()
+    let observers = RemoteTmuxConnectionObservers()
 
     // MARK: Observed state
 
@@ -61,24 +61,24 @@ final class RemoteTmuxControlConnection {
     /// guard on `!exited` keep treating a reconnecting connection as alive.
     var exited: Bool { connectionState == .ended }
     private(set) var sessionId: Int?
-    private(set) var windowsByID: [Int: RemoteTmuxWindow] = [:]
-    private(set) var windowOrder: [Int] = []
-    private(set) var activePaneByWindow: [Int: Int] = [:]
-    private(set) var paneOutputByteCounts: [Int: Int] = [:]
-    private(set) var totalOutputBytes = 0
+    var windowsByID: [Int: RemoteTmuxWindow] = [:]
+    var windowOrder: [Int] = []
+    var activePaneByWindow: [Int: Int] = [:]
+    var paneOutputByteCounts: [Int: Int] = [:]
+    var totalOutputBytes = 0
     /// Last-known foreground classification per pane, kept current by the same
     /// one-shot query + live subscription that drive reflow classification
     /// (`#{alternate_on}` + `#{pane_current_command}`, see
     /// ``requestPaneReflow(paneId:)``). Read at close time to decide whether
     /// killing a mirrored pane/window needs a confirmation dialog — a mirror
     /// surface has no local child process for ghostty's needs-confirm check.
-    private(set) var paneForegroundStates: [Int: PaneForegroundState] = [:]
+    var paneForegroundStates: [Int: PaneForegroundState] = [:]
     /// In-flight close-time activity queries by token (see
     /// ``queryWindowActivity(windowId:completion:)``). Failed with `nil` when the
     /// control stream becomes unusable, so a pending close decision falls back to
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
-    private let activityQueries = RemoteTmuxActivityQueryRegistry()
+    let activityQueries = RemoteTmuxActivityQueryRegistry()
 
     /// Subprocess + pipe-plumbing sub-model. Owns the `ssh tmux -CC` `Process`, its
     /// three pipes, the bounded stdin writer, and the stdout/stderr consumer tasks.
@@ -87,7 +87,7 @@ final class RemoteTmuxControlConnection {
     /// two backpressure reconnect signals) and attaches itself in `init`.
     private let transport = RemoteTmuxControlTransport()
     private var parser = RemoteTmuxControlStreamParser()
-    private var pendingCommands: [CommandKind] = []
+    var pendingCommands: [CommandKind] = []
     private let connectionWaiters = RemoteTmuxConnectionWaiters()
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
@@ -101,7 +101,7 @@ final class RemoteTmuxControlConnection {
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
     /// window reorder, session-gone classification). Holds no state.
-    private let decoding = RemoteTmuxControlMessageDecoding()
+    let decoding = RemoteTmuxControlMessageDecoding()
     /// Bounded ring of recent event labels surfaced through `remote.tmux.state`.
     private let diagnostics = RemoteTmuxConnectionDiagnostics()
 
@@ -120,8 +120,22 @@ final class RemoteTmuxControlConnection {
     /// `refresh-client -C` send (coalescing SwiftUI layout-settle oscillation into one
     /// send) and the one-shot attach redraw kick. This connection drives it through
     /// the ``RemoteTmuxClientSizeHost`` conformance below and attaches itself in `init`.
-    private let clientSize = RemoteTmuxClientSizeController()
-    private var pendingPostAttachAction: PostAttachAction?
+    let clientSize = RemoteTmuxClientSizeController()
+    var pendingPostAttachAction: PostAttachAction?
+
+    /// The last size any writer requested per window: per-window dedup baseline
+    /// and reconnect re-pin table.
+    var lastWindowSizes: [Int: (columns: Int, rows: Int)] = [:]
+    /// Most recent window with a size request, used for deterministic fallback
+    /// when an older tmux rejects per-window sizing.
+    var lastSizeRequestWindowId: Int?
+    var lastSizingSendAt: ContinuousClock.Instant?
+    var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
+    var supportsPerWindowSize = true
+    var pendingPerWindowAttachRedrawKick = false
+    var perWindowAttachRedrawKickTask: Task<Void, Never>?
+    static let clientSizeDebounceMs = 180
+    static let attachRedrawKickGapMs = 350
 
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
@@ -139,6 +153,33 @@ final class RemoteTmuxControlConnection {
     /// re-seed clear, and the capture-pane repaint). Held as a value and called as
     /// `mirrorSeed.xxx`; see ``RemoteTmuxMirrorSeedSequences``.
     let mirrorSeed = RemoteTmuxMirrorSeedSequences()
+
+    /// Per-pane header-strip labels: the pane's expanded `pane-border-format`,
+    /// style tokens stripped. Seeded by pane rect fetches and kept live by a
+    /// per-pane subscription.
+    var paneHeaderLabels: [Int: String] = [:]
+    /// Whether each window currently has `pane-border-status top`.
+    var windowTitleRowsVisible: [Int: Bool] = [:]
+
+    static func strippingStyleTokens(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
+        )
+    }
+
+    struct PendingLayout {
+        var node: RemoteTmuxLayoutNode
+        var visibleNode: RemoteTmuxLayoutNode?
+        var zoomed: Bool
+        var name: String
+        var generation: Int
+        var dirty = false
+        var inFlight = false
+        var retriesRemaining = 1
+    }
+    var pendingLayouts: [Int: PendingLayout] = [:]
+    var initialBatchAwaiting: Set<Int>?
+    var initialBatchStaged: [Int: RemoteTmuxWindow] = [:]
 
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
@@ -272,6 +313,9 @@ final class RemoteTmuxControlConnection {
         // FIFO are stale and must not bleed into the new %begin/%end correlation.
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        pendingLayouts.removeAll()
+        initialBatchAwaiting = nil
+        initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
         // caller of spawnProcess can't strand a close decision.
         failPendingActivityQueries()
@@ -324,12 +368,23 @@ final class RemoteTmuxControlConnection {
     /// Requests the current window list + layouts (used to (re)build topology).
     ///
     /// `#{window_name}` is placed last because it can contain spaces, while the
-    /// id and layout tokens never do — so the result parses as
-    /// `@id <layout> <name with spaces…>`.
+    /// id/layout/visible-layout/flags tokens never do — so the result parses as
+    /// `@id <layout> <visible-layout> [flags] <name with spaces...>`.
     func requestWindows() {
         sendInternal(
             commandBuilder.listWindowsCommand(),
             kind: .listWindows
+        )
+    }
+
+    /// Fetches one window's real pane rectangles, active pane, header-row mode,
+    /// and expanded pane-border labels. Parsed layout strings are quarantined
+    /// until this reply patches every leaf with the geometry tmux actually draws.
+    @discardableResult
+    func requestPaneRects(windowId: Int, generation: Int) -> Bool {
+        sendInternal(
+            commandBuilder.paneRectsCommand(windowId: windowId),
+            kind: .paneRects(windowId, generation)
         )
     }
 
@@ -410,6 +465,18 @@ final class RemoteTmuxControlConnection {
         capturePane(paneId: paneId)
         requestPanePath(paneId: paneId)
         subscribePanePath(paneId: paneId)
+        subscribePaneHeader(paneId: paneId)
+    }
+
+    /// Subscribes to live changes of a pane's expanded `pane-border-format`.
+    /// The pane-rects fetch seeds the initial label; this keeps it current
+    /// between layout events.
+    func subscribePaneHeader(paneId: Int) {
+        send(commandBuilder.paneHeaderSubscriptionCommand(paneId: paneId))
+    }
+
+    func unsubscribePaneHeader(paneId: Int) {
+        send(commandBuilder.paneHeaderUnsubscribeCommand(paneId: paneId))
     }
 
     /// One-shot query of a pane's working directory (`pane_current_path`),
@@ -458,7 +525,7 @@ final class RemoteTmuxControlConnection {
     /// state (for the close-confirmation check), and emits the no-reflow decision.
     /// No-reflow when on the alternate screen OR the foreground command isn't a known
     /// plain shell; defaults to no-reflow on an empty/unparseable value (safe).
-    private func classifyAndEmitReflow(paneId: Int, rawValue: String, source: String) {
+    func classifyAndEmitReflow(paneId: Int, rawValue: String, source: String) {
         let state = PaneForegroundState(rawValue: rawValue)
         paneForegroundStates[paneId] = state
         let noReflow = state.suppressesReflow
@@ -575,13 +642,18 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         reconnect.cancel()
         clientSize.reset()
+        for task in windowSizeDebounceTasks.values { task.cancel() }
+        windowSizeDebounceTasks.removeAll()
+        perWindowAttachRedrawKickTask?.cancel()
+        perWindowAttachRedrawKickTask = nil
+        pendingPerWindowAttachRedrawKick = false
         pendingPostAttachAction = nil
     }
 
     // MARK: - Internals
 
     @discardableResult
-    private func sendInternal(_ command: String, kind: CommandKind) -> Bool {
+    func sendInternal(_ command: String, kind: CommandKind) -> Bool {
         guard connectionState == .connected, transport.hasStdinWriter else { return false }
         let line = command.hasSuffix("\n") ? command : command + "\n"
         guard let data = line.data(using: .utf8) else { return false }
@@ -692,15 +764,20 @@ final class RemoteTmuxControlConnection {
     /// and re-capture current contents (with history) + cwd. Called from the first
     /// post-reconnect `list-windows` result, so `windowsByID` is freshly repopulated
     /// and the command-result FIFO is aligned (the attach block is already drained).
-    private func reseedAfterReconnect() {
+    func reseedAfterReconnect() {
         if let size = clientSize.lastClientSize {
             send(commandBuilder.clientResizeCommand(columns: size.columns, rows: size.rows))
+        }
+        if supportsPerWindowSize {
+            for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {
+                sendPerWindowSize(windowId: windowId, columns: size.columns, rows: size.rows)
+            }
         }
         // The re-applied size is usually a no-op (the server kept the window at our
         // size across the transport drop), so TUIs get no SIGWINCH — kick them so
         // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the
         // captures below are queued before the kick task's first push can run.
-        clientSize.scheduleAttachRedrawKickIfNeeded()
+        scheduleAttachRedrawKickIfNeeded()
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
                 observers.emitPaneOutput(paneId, mirrorSeed.reconnectReseedClear)
@@ -724,6 +801,7 @@ final class RemoteTmuxControlConnection {
                 // first size apply (debounced send, reconnect re-seed, or the
                 // first-connect list-windows result).
                 clientSize.armAttachRedrawKick()
+                pendingPerWindowAttachRedrawKick = true
                 reconnect.handleConnected()
                 // Do not send here: `.enter` precedes the attach result block, so a
                 // command queued now could be consumed by that result and shift the
@@ -772,11 +850,22 @@ final class RemoteTmuxControlConnection {
                 for pane in closing.paneIDsInOrder {
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
+                    paneHeaderLabels[pane] = nil
                 }
+            }
+            lastWindowSizes[id] = nil
+            windowSizeDebounceTasks[id]?.cancel()
+            windowSizeDebounceTasks[id] = nil
+            if lastSizeRequestWindowId == id {
+                lastSizeRequestWindowId = nil
             }
             activePaneByWindow[id] = nil
             windowsByID[id] = nil
+            windowTitleRowsVisible[id] = nil
             windowOrder.removeAll { $0 == id }
+            pendingLayouts[id] = nil
+            initialBatchStaged[id] = nil
+            finishInitialBatchMember(id)
             record("window-close @\(id)")
             observers.notifyTopologyChanged()
         case let .windowRenamed(id, name):
@@ -786,14 +875,14 @@ final class RemoteTmuxControlConnection {
             if let existing = windowsByID[id], existing.name != name {
                 windowsByID[id] = RemoteTmuxWindow(
                     id: id, name: name,
-                    width: existing.width, height: existing.height, layout: existing.layout
+                    width: existing.width, height: existing.height, layout: existing.layout,
+                    visibleLayout: existing.visibleLayout, zoomed: existing.zoomed
                 )
                 observers.notifyTopologyChanged()
             }
-        case let .layoutChange(id, layout):
-            applyLayout(windowId: id, layout: layout)
-            record("layout-change @\(id)")
-            observers.notifyTopologyChanged()
+        case let .layoutChange(id, layout, visibleLayout, zoomed):
+            applyLayout(windowId: id, layout: layout, visibleLayout: visibleLayout, zoomed: zoomed)
+            record("layout-change @\(id)\(zoomed ? " zoomed" : "")")
         case let .windowPaneChanged(windowId, paneId):
             activePaneByWindow[windowId] = paneId
             observers.emitActivePaneChanged(windowId, paneId)
@@ -809,6 +898,13 @@ final class RemoteTmuxControlConnection {
                       let paneId = Int(name.dropFirst(commandBuilder.reflowSubscriptionPrefix.count)) {
                 // Reflow classification: "<alternate_on>|<pane_current_command>".
                 classifyAndEmitReflow(paneId: paneId, rawValue: value, source: "sub")
+            } else if name.hasPrefix(commandBuilder.headerSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(commandBuilder.headerSubscriptionPrefix.count)) {
+                let label = Self.strippingStyleTokens(value)
+                if paneHeaderLabels[paneId] != label {
+                    paneHeaderLabels[paneId] = label
+                    observers.notifyTopologyChanged()
+                }
             }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —
@@ -828,165 +924,7 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    private func handleCommandResult(lines: [String], isError: Bool) {
-        // The attach block was already consumed upstream (`attachBlockDrained`);
-        // an empty FIFO here means an unsolicited block — drop it rather than
-        // misalign the positional correlation.
-        guard !pendingCommands.isEmpty else { return }
-        let kind = pendingCommands.removeFirst()
-        guard !isError else {
-            // An errored activity query must still complete (with nil) — a close
-            // decision is waiting on it and falls back to the cached state.
-            if case let .activityQuery(token) = kind,
-               let completion = activityQueries.removeCompletion(for: token) {
-                completion(nil)
-            }
-            // Errors are dropped by design (results correlate positionally), but
-            // an invisible %error has already hidden one real bug — an unquoted
-            // refresh-client -B that never subscribed — so leave a trace.
-            #if DEBUG
-            cmuxDebugLog(
-                "remote.tmux.commandError kind=\(kind) error=\"\(lines.joined(separator: " / "))\""
-            )
-            #endif
-            return
-        }
-        switch kind {
-        case .listWindows:
-            var order: [Int] = []
-            var next: [Int: RemoteTmuxWindow] = [:]
-            for line in lines {
-                // "@<id> <layout> <name with spaces…>" — id and layout never
-                // contain spaces, so split into at most 3 fields.
-                let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
-                guard parts.count >= 2,
-                      let id = RemoteTmuxControlStreamParser.id(parts[0], sigil: "@"),
-                      let node = RemoteTmuxRawLayoutParser.parse(String(parts[1]))
-                else { continue }
-                let name = parts.count >= 3 ? String(parts[2]) : ""
-                next[id] = RemoteTmuxWindow(
-                    id: id, name: name, width: node.width, height: node.height, layout: node
-                )
-                order.append(id)
-            }
-            // Ignore an empty/garbled reply on purpose: a live tmux session always
-            // has ≥1 window, so a zero-window parse is a transient or malformed
-            // result, not a real topology. Acting on it would wipe `windowOrder`
-            // and tear down every mirror tab. A genuine "no windows" state means
-            // the session ended — that arrives as the connection's `%exit` /
-            // stream-end (see `handleConnectionExited` → `handleSessionEndedRemotely`),
-            // which is the path that closes the workspace / dedicated window.
-            if !order.isEmpty {
-                // Replace topology instead of merging: a remote close missed while
-                // disconnected leaves no %window-close, so prune stale panes here.
-                let liveIDs = Set(order)
-                windowsByID = next
-                activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
-                windowOrder = order
-                observers.notifyTopologyChanged()
-                // The attach block is drained and the topology is fresh — run the
-                // deferred post-attach work; commands queued here correlate cleanly
-                // (see ``PostAttachAction``).
-                switch pendingPostAttachAction {
-                case .reseed:
-                    reseedAfterReconnect()
-                case .applyClientSize:
-                    // A surface that hasn't computed a grid yet is covered by the
-                    // debounced `setClientSize` instead.
-                    if let size = clientSize.lastClientSize {
-                        send(commandBuilder.clientResizeCommand(columns: size.columns, rows: size.rows))
-                    }
-                case nil:
-                    break
-                }
-                pendingPostAttachAction = nil
-                // First-connect coverage for the attach redraw kick: if the grid was
-                // computed before `.enter`, no post-connect `setClientSize` may ever
-                // fire (layout settled + same-size dedupe upstream), so the
-                // debounced-send consumer never runs. This is the earliest point with
-                // populated topology — and `windowsByID` was parsed from THIS
-                // list-windows reply, generated before tmux processed the size apply
-                // just queued above, so the at-target check sees the true pre-apply
-                // geometry. No-op when the kick was already consumed (or when
-                // reseedAfterReconnect just ran it).
-                clientSize.scheduleAttachRedrawKickIfNeeded()
-            }
-        case let .capturePane(paneId):
-            // capture-pane -e -S output is the pane's history + visible rows (with
-            // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
-            // which would erase the scrollback we are seeding), then write every
-            // captured row joined by CR LF: rows that overflow the screen scroll up
-            // into the surface's scrollback buffer, which is what makes the mirrored
-            // tab scrollable from the start. The last row (the visible bottom) gets
-            // no trailing newline so the cursor lands at its END, lining up with
-            // tmux's real prompt cursor — otherwise echoed input lands a line below
-            // the prompt. The `.paneState` seed then repositions the cursor within
-            // the visible screen.
-            if let data = mirrorSeed.capturePaint(rows: lines) {
-                observers.emitPaneOutput(paneId, data)
-            }
-        case let .paneState(paneId):
-            // Restore the pane's terminal state (scroll region + DEC modes + cursor)
-            // onto the mirror surface, applied after the capture paint. The scroll
-            // region (DECSTBM) is the important one: without it an inline TUI's
-            // region-relative redraws land on the wrong rows even at a static size.
-            if let line = lines.first {
-                observers.emitPaneOutput(paneId, decoding.paneStateSeedSequence(from: line))
-            }
-        case let .panePath(paneId):
-            if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
-                observers.emitPaneCwd(paneId, path)
-            }
-        case let .paneReflow(paneId):
-            // One-shot reflow classification result (see requestPaneReflow). Empty
-            // lines → classifyAndEmitReflow defaults to no-reflow (safe).
-            classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
-        case let .activityQuery(token):
-            guard let completion = activityQueries.removeCompletion(for: token) else { break }
-            var states: [Int: PaneForegroundState] = [:]
-            for line in lines {
-                guard let parsed = commandBuilder.parseActivityQueryLine(line) else { continue }
-                states[parsed.paneId] = parsed.state
-            }
-            // The fresh answer flows back into the cache, so the synchronous
-            // consumers (batch close, workspace close, quit warning) benefit too.
-            for (paneId, state) in states { paneForegroundStates[paneId] = state }
-            completion(states)
-        case let .paneAltScreen(paneId):
-            // Match the mirror surface to the remote pane's screen (alt = no reflow on
-            // resize). Emitted before the capture paint that follows in the FIFO, so the
-            // seeded rows land on the right screen. The else branch is load-bearing on a
-            // surface REUSED across reconnect: if it was on the alt screen before and the
-            // remote pane is now on primary, force it back (1049l) so the capture doesn't
-            // paint onto a stale alt screen.
-            if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                observers.emitPaneOutput(paneId, mirrorSeed.altScreenEnter)
-            } else {
-                observers.emitPaneOutput(paneId, mirrorSeed.altScreenExit)
-            }
-        case .other:
-            break
-        }
-    }
-
-    private func applyLayout(windowId: Int, layout: String) {
-        guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
-        // Preserve any name tmux already reported (a %layout-change carries no name).
-        let existingName = windowsByID[windowId]?.name ?? ""
-        windowsByID[windowId] = RemoteTmuxWindow(
-            id: windowId, name: existingName, width: node.width, height: node.height, layout: node
-        )
-        if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
-        prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
-    }
-
-    private func prunePaneState(keeping livePanes: Set<Int>) {
-        paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
-        paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
-    }
-
-    private func record(_ event: String) {
+    func record(_ event: String) {
         diagnostics.record(event)
     }
 

@@ -23,6 +23,10 @@ struct RemoteTmuxControlCommandBuilder: Sendable {
     /// routing, mirroring ``cwdSubscriptionPrefix``.
     let reflowSubscriptionPrefix = "cmux_reflow_"
 
+    /// Subscription-name prefix for per-pane header labels
+    /// (`#{T:pane-border-format}`).
+    let headerSubscriptionPrefix = "cmux_hdr_"
+
     /// Format for close-time activity queries: the pane id (for cache refresh and
     /// multi-pane correlation) plus the same `alternate_on`/`pane_current_command`
     /// pair the reflow subscription streams. Quoted by the command builders — see
@@ -115,11 +119,17 @@ struct RemoteTmuxControlCommandBuilder: Sendable {
     }
 
     /// The `list-windows` line behind ``RemoteTmuxControlConnection/requestWindows()``.
-    /// `#{window_name}` is placed last because it can contain spaces, while the id
-    /// and layout tokens never do — so the result parses as
-    /// `@id <layout> <name with spaces…>`.
+    /// `#{window_name}` is placed last because it can contain spaces, while the id,
+    /// base layout, visible layout, and bracketed flags tokens never do.
     func listWindowsCommand() -> String {
-        "list-windows -F \"#{window_id} #{window_layout} #{window_name}\""
+        "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\""
+    }
+
+    /// The `list-panes` line behind one window's rect publication. The expanded
+    /// border format is last behind a `:` sentinel so empty labels survive
+    /// splitting and custom labels may contain spaces.
+    func paneRectsCommand(windowId: Int) -> String {
+        "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\""
     }
 
     /// The `display-message` line behind ``RemoteTmuxControlConnection/capturePane(paneId:)``
@@ -181,6 +191,16 @@ struct RemoteTmuxControlCommandBuilder: Sendable {
         "refresh-client -B \(reflowSubscriptionPrefix)\(paneId)"
     }
 
+    /// The live label subscription for a pane's expanded `pane-border-format`.
+    func paneHeaderSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+    }
+
+    /// Removes the live header-label subscription for `paneId`.
+    func paneHeaderUnsubscribeCommand(paneId: Int) -> String {
+        "refresh-client -B \(headerSubscriptionPrefix)\(paneId)"
+    }
+
     /// The `send-keys -H` line behind ``RemoteTmuxControlConnection/sendKeys(paneId:data:)``,
     /// delivering `data` as the hex byte arguments from ``hexByteArguments(_:)`` —
     /// binary-safe and needing no shell quoting.
@@ -193,5 +213,11 @@ struct RemoteTmuxControlCommandBuilder: Sendable {
     /// reconnect and after attach.
     func clientResizeCommand(columns: Int, rows: Int) -> String {
         "refresh-client -C \(columns)x\(rows)"
+    }
+
+    /// The per-window `refresh-client -C` form that pins one tmux window's grid
+    /// for this control client.
+    func perWindowClientResizeCommand(windowId: Int, columns: Int, rows: Int) -> String {
+        "refresh-client -C '@\(windowId):\(columns)x\(rows)'"
     }
 }

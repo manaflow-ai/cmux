@@ -223,7 +223,14 @@ public struct RemoteTmuxControlStreamParser {
         if line.hasPrefix("%layout-change ") {
             guard let id = Self.fieldId(line, 1, sigil: "@"),
                   let layout = Self.field(line, 2) else { return .unparsed(line) }
-            return .layoutChange(windowId: id, layout: layout)
+            // Field 3 is the VISIBLE layout (single-pane while zoomed), field 4
+            // the window flags; zoom is derived per event from `Z` in the flags
+            // (never latched — tmux auto-unzooms on its own).
+            let visible = Self.field(line, 3)
+            let zoomed = Self.field(line, 4)?.contains("Z") ?? false
+            return .layoutChange(
+                windowId: id, layout: layout, visibleLayout: visible, zoomed: zoomed
+            )
         }
         if line.hasPrefix("%window-pane-changed ") {
             guard let id = Self.fieldId(line, 1, sigil: "@"),

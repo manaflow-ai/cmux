@@ -1,8 +1,8 @@
 internal import Foundation
 
 /// The worker-lane RPC handler for the v2 `remote.tmux.*` control commands,
-/// lifted byte-faithfully from `TerminalController.v2RemoteTmux*` /
-/// `TerminalController+RemoteTmux.swift`.
+/// lifted byte-faithfully from the app-side `TerminalController.v2RemoteTmux*`
+/// command handlers.
 ///
 /// Owns the command logic for `remote.tmux.sessions`, `remote.tmux.attach`,
 /// `remote.tmux.mirror`, `remote.tmux.window`, `remote.tmux.detach`, and
@@ -63,6 +63,8 @@ public struct ControlRemoteTmuxWorker: Sendable {
             return await detach(request.params)
         case "remote.tmux.state":
             return await state(request.params)
+        case "remote.tmux.pane_grids":
+            return await paneGrids(request.params)
         default:
             return nil
         }
@@ -211,6 +213,32 @@ public struct ControlRemoteTmuxWorker: Sendable {
                 payload["session_id"] = .int(Int64(sessionId))
             }
             return .object(payload)
+        }
+    }
+
+    /// `remote.tmux.pane_grids` — per mirrored multi-pane window, each pane's
+    /// tmux-assigned dims next to the grid its ghostty surface actually renders.
+    private func paneGrids(_ params: [String: JSONValue]) async -> ControlCallResult {
+        guard reading.isEnabled() else { return disabledError }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params)
+        else {
+            return .err(code: "invalid_params", message: strings.hostAndSessionRequired, data: nil)
+        }
+        return await runWithTimeout(seconds: 10) {
+            guard let snapshots = await reading.sizingSnapshots(host: host, sessionName: session) else {
+                return .object([
+                    "host": .string(host.destination),
+                    "session": .string(session),
+                    "mirrored": .bool(false),
+                ])
+            }
+            return .object([
+                "host": .string(host.destination),
+                "session": .string(session),
+                "mirrored": .bool(true),
+                "windows": .array(snapshots.map { Self.sizingSnapshotPayload($0) }),
+            ])
         }
     }
 
@@ -380,5 +408,80 @@ public struct ControlRemoteTmuxWorker: Sendable {
             dict["created"] = .int(Int64(created))
         }
         return .object(dict)
+    }
+
+    /// Serializes one window's sizing snapshot for `remote.tmux.pane_grids`.
+    static func sizingSnapshotPayload(_ snapshot: ControlRemoteTmuxSizingSnapshot) -> JSONValue {
+        var payload: [String: JSONValue] = [
+            "window_id": .string("@\(snapshot.windowId)"),
+            "structure_version": .int(Int64(snapshot.structureVersion)),
+            "zoomed": .bool(snapshot.zoomed),
+            "base": .object([
+                "cols": .int(Int64(snapshot.baseColumns)),
+                "rows": .int(Int64(snapshot.baseRows)),
+            ]),
+            "panes": .array(snapshot.panes.map { pane -> JSONValue in
+                var entry: [String: JSONValue] = [
+                    "pane_id": .string("%\(pane.paneId)"),
+                    "assigned": .object([
+                        "cols": .int(Int64(pane.assignedColumns)),
+                        "rows": .int(Int64(pane.assignedRows)),
+                    ]),
+                    "has_panel": .bool(pane.hasPanel),
+                ]
+                if let inWindow = pane.viewInWindow { entry["view_in_window"] = .bool(inWindow) }
+                if let live = pane.surfaceLive { entry["surface_live"] = .bool(live) }
+                if let cols = pane.renderedColumns, let rows = pane.renderedRows {
+                    entry["rendered"] = .object([
+                        "cols": .int(Int64(cols)),
+                        "rows": .int(Int64(rows)),
+                    ])
+                    let colsOK = pane.exactColumns ? cols == pane.assignedColumns : cols >= pane.assignedColumns
+                    let rowsOK = pane.exactRows ? rows == pane.assignedRows : rows >= pane.assignedRows
+                    entry["match"] = .bool(colsOK && rowsOK)
+                }
+                if let sample = pane.calibration {
+                    var calibration: [String: JSONValue] = [
+                        "grid": .object([
+                            "cols": .int(Int64(sample.columns)),
+                            "rows": .int(Int64(sample.rows)),
+                        ]),
+                        "cell_px": .object([
+                            "w": .int(Int64(sample.cellWidthPx)),
+                            "h": .int(Int64(sample.cellHeightPx)),
+                        ]),
+                        "surface_px": .object([
+                            "w": .int(Int64(sample.surfaceWidthPx)),
+                            "h": .int(Int64(sample.surfaceHeightPx)),
+                        ]),
+                    ]
+                    if let width = sample.viewWidthPt, let height = sample.viewHeightPt {
+                        calibration["view_pt"] = .object(["w": .double(width), "h": .double(height)])
+                    }
+                    if let scale = sample.backingScale {
+                        calibration["scale"] = .double(scale)
+                    }
+                    entry["calibration"] = .object(calibration)
+                }
+                return .object(entry)
+            }),
+            "visible_for_sizing": .bool(snapshot.visibleForSizing),
+        ]
+        if let cols = snapshot.pushedColumns, let rows = snapshot.pushedRows {
+            payload["pushed"] = .object([
+                "cols": .int(Int64(cols)),
+                "rows": .int(Int64(rows)),
+            ])
+        }
+        if let width = snapshot.containerWidthPt, let height = snapshot.containerHeightPt {
+            payload["container_pt"] = .object(["w": .double(width), "h": .double(height)])
+        }
+        if let cols = snapshot.currentFColumns, let rows = snapshot.currentFRows {
+            payload["current_f"] = .object([
+                "cols": .int(Int64(cols)),
+                "rows": .int(Int64(rows)),
+            ])
+        }
+        return .object(payload)
     }
 }

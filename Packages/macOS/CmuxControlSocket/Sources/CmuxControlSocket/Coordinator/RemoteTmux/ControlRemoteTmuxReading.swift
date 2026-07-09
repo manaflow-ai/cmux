@@ -100,4 +100,17 @@ public protocol ControlRemoteTmuxReading: Sendable {
         host: ControlRemoteTmuxHost,
         sessionName: String
     ) async -> ControlRemoteTmuxStateSnapshot?
+
+    /// Reads per-window sizing diagnostics for a mirrored session
+    /// (`remote.tmux.pane_grids`), or `nil` when no mirror exists for the
+    /// host/session.
+    ///
+    /// - Parameters:
+    ///   - host: The validated remote host.
+    ///   - sessionName: The tmux session name.
+    /// - Returns: Sizing snapshots for mirrored windows, or `nil` when not mirrored.
+    func sizingSnapshots(
+        host: ControlRemoteTmuxHost,
+        sessionName: String
+    ) async -> [ControlRemoteTmuxSizingSnapshot]?
 }

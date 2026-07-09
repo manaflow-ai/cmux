@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 
 /// Owns the dedicated-window bookkeeping ``RemoteTmuxController`` uses for the
 /// "one cmux window per remote endpoint" mirror mode (Option 1): the host↔window

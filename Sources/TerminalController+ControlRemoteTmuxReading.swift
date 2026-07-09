@@ -1,4 +1,6 @@
 import CmuxControlSocket
+import CmuxRemoteWorkspace
+import CmuxTerminal
 import Foundation
 
 /// App-side wiring for the worker-lane `remote.tmux.*` control commands.
@@ -147,6 +149,18 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
         )
     }
 
+    func sizingSnapshots(
+        host: ControlRemoteTmuxHost,
+        sessionName: String
+    ) async -> [ControlRemoteTmuxSizingSnapshot]? {
+        await MainActor.run {
+            TerminalController.shared.appEnvironment?.remoteTmuxController
+                .sessionMirror(host: Self.host(host), sessionName: sessionName)?
+                .sizingSnapshots()
+                .map(Self.sizingSnapshot)
+        }
+    }
+
     /// Rebuilds the app-side `RemoteTmuxHost` (and its ControlMaster-socket / argv
     /// machinery) from the socket-validated package value.
     private static func host(_ host: ControlRemoteTmuxHost) -> RemoteTmuxHost {
@@ -154,6 +168,60 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
             destination: host.destination,
             port: host.port,
             identityFile: host.identityFile
+        )
+    }
+
+    private static func sizingSnapshot(
+        _ snapshot: RemoteTmuxWindowMirror.SizingSnapshot
+    ) -> ControlRemoteTmuxSizingSnapshot {
+        ControlRemoteTmuxSizingSnapshot(
+            windowId: snapshot.windowId,
+            panes: snapshot.panes.map(Self.sizingPane),
+            baseColumns: snapshot.baseCols,
+            baseRows: snapshot.baseRows,
+            pushedColumns: snapshot.pushedColumns,
+            pushedRows: snapshot.pushedRows,
+            zoomed: snapshot.zoomed,
+            structureVersion: snapshot.structureVersion,
+            visibleForSizing: snapshot.visibleForSizing,
+            containerWidthPt: snapshot.containerPt.map { Double($0.width) },
+            containerHeightPt: snapshot.containerPt.map { Double($0.height) },
+            currentFColumns: snapshot.currentFCols,
+            currentFRows: snapshot.currentFRows
+        )
+    }
+
+    private static func sizingPane(
+        _ pane: RemoteTmuxWindowMirror.SizingSnapshot.Pane
+    ) -> ControlRemoteTmuxSizingSnapshot.Pane {
+        ControlRemoteTmuxSizingSnapshot.Pane(
+            paneId: pane.paneId,
+            assignedColumns: pane.assignedCols,
+            assignedRows: pane.assignedRows,
+            renderedColumns: pane.renderedCols,
+            renderedRows: pane.renderedRows,
+            exactColumns: pane.exactCols,
+            exactRows: pane.exactRows,
+            hasPanel: pane.hasPanel,
+            viewInWindow: pane.viewInWindow,
+            surfaceLive: pane.surfaceLive,
+            calibration: pane.calibration.map(Self.sizingCalibration)
+        )
+    }
+
+    private static func sizingCalibration(
+        _ sample: TerminalSurfaceRawSizingSample
+    ) -> ControlRemoteTmuxSizingSnapshot.Calibration {
+        ControlRemoteTmuxSizingSnapshot.Calibration(
+            columns: sample.columns,
+            rows: sample.rows,
+            cellWidthPx: sample.cellWidthPx,
+            cellHeightPx: sample.cellHeightPx,
+            surfaceWidthPx: sample.surfaceWidthPx,
+            surfaceHeightPx: sample.surfaceHeightPx,
+            viewWidthPt: sample.viewBoundsPt.map { Double($0.width) },
+            viewHeightPt: sample.viewBoundsPt.map { Double($0.height) },
+            backingScale: sample.backingScale.map { Double($0) }
         )
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 import OSLog
 
 /// Discovers a remote host's tmux sessions and mirrors them into cmux windows

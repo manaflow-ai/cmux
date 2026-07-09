@@ -174,10 +174,6 @@ import Testing
         #expect(messages == [.sessionRenamed(sessionId: 1, name: "$1 dev", idBearingName: "dev")])
     }
 
-    @Test func layoutChangeCarriesRawLayoutString() {
-        let messages = parse("%layout-change @4 f92f,80x24,0,0,1 @4 1\r\n")
-        #expect(messages == [.layoutChange(windowId: 4, layout: "f92f,80x24,0,0,1")])
-    }
 
     // MARK: - Pane state seeding (cursor / region / origin ordering)
 

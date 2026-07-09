@@ -13,6 +13,7 @@ private actor FakeRemoteTmuxReading: ControlRemoteTmuxReading {
     var windowResult: Result<ControlRemoteTmuxAttachOutcome, any Error> = .success(.mirrored(windowID: "W"))
     var detachResult: Result<Void, any Error> = .success(())
     var snapshotResult: ControlRemoteTmuxStateSnapshot?
+    var sizingSnapshotsResult: [ControlRemoteTmuxSizingSnapshot]?
 
     private(set) var lastHost: ControlRemoteTmuxHost?
     private(set) var lastSession: String?
@@ -67,6 +68,15 @@ private actor FakeRemoteTmuxReading: ControlRemoteTmuxReading {
         lastSession = sessionName
         return snapshotResult
     }
+
+    func sizingSnapshots(
+        host: ControlRemoteTmuxHost,
+        sessionName: String
+    ) async -> [ControlRemoteTmuxSizingSnapshot]? {
+        lastHost = host
+        lastSession = sessionName
+        return sizingSnapshotsResult
+    }
 }
 
 private struct FakeError: Error, CustomStringConvertible {
@@ -104,6 +114,7 @@ private func makeWorker(_ reading: any ControlRemoteTmuxReading) -> ControlRemot
         for method in [
             "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.mirror",
             "remote.tmux.window", "remote.tmux.detach", "remote.tmux.state",
+            "remote.tmux.pane_grids",
         ] {
             #expect(await worker.handle(request(method, ["host": .string("h")])) == disabled)
         }
@@ -299,6 +310,97 @@ private func makeWorker(_ reading: any ControlRemoteTmuxReading) -> ControlRemot
         ])))
     }
 
+    @Test func paneGridsMapsMissingMirrorAndSizingPayload() async {
+        let reading = FakeRemoteTmuxReading()
+        let worker = makeWorker(reading)
+        #expect(await worker.handle(request("remote.tmux.pane_grids", [
+            "host": .string("box"), "session": .string("main"),
+        ])) == .ok(.object([
+            "host": .string("box"),
+            "session": .string("main"),
+            "mirrored": .bool(false),
+        ])))
+
+        await reading.setSizingSnapshots([
+            ControlRemoteTmuxSizingSnapshot(
+                windowId: 7,
+                panes: [
+                    ControlRemoteTmuxSizingSnapshot.Pane(
+                        paneId: 9,
+                        assignedColumns: 80,
+                        assignedRows: 24,
+                        renderedColumns: 80,
+                        renderedRows: 24,
+                        exactColumns: true,
+                        exactRows: true,
+                        hasPanel: true,
+                        viewInWindow: true,
+                        surfaceLive: true,
+                        calibration: ControlRemoteTmuxSizingSnapshot.Calibration(
+                            columns: 80,
+                            rows: 24,
+                            cellWidthPx: 8,
+                            cellHeightPx: 16,
+                            surfaceWidthPx: 640,
+                            surfaceHeightPx: 384,
+                            viewWidthPt: 320,
+                            viewHeightPt: 192,
+                            backingScale: 2
+                        )
+                    ),
+                ],
+                baseColumns: 80,
+                baseRows: 24,
+                pushedColumns: 80,
+                pushedRows: 24,
+                zoomed: false,
+                structureVersion: 3,
+                visibleForSizing: true,
+                containerWidthPt: 320,
+                containerHeightPt: 192,
+                currentFColumns: 80,
+                currentFRows: 24
+            ),
+        ])
+        #expect(await worker.handle(request("remote.tmux.pane_grids", [
+            "host": .string("box"), "session": .string("main"),
+        ])) == .ok(.object([
+            "host": .string("box"),
+            "session": .string("main"),
+            "mirrored": .bool(true),
+            "windows": .array([
+                .object([
+                    "window_id": .string("@7"),
+                    "structure_version": .int(3),
+                    "zoomed": .bool(false),
+                    "base": .object(["cols": .int(80), "rows": .int(24)]),
+                    "panes": .array([
+                        .object([
+                            "pane_id": .string("%9"),
+                            "assigned": .object(["cols": .int(80), "rows": .int(24)]),
+                            "has_panel": .bool(true),
+                            "view_in_window": .bool(true),
+                            "surface_live": .bool(true),
+                            "rendered": .object(["cols": .int(80), "rows": .int(24)]),
+                            "match": .bool(true),
+                            "calibration": .object([
+                                "grid": .object(["cols": .int(80), "rows": .int(24)]),
+                                "cell_px": .object(["w": .int(8), "h": .int(16)]),
+                                "surface_px": .object(["w": .int(640), "h": .int(384)]),
+                                "view_pt": .object(["w": .double(320), "h": .double(192)]),
+                                "scale": .double(2),
+                            ]),
+                        ]),
+                    ]),
+                    "visible_for_sizing": .bool(true),
+                    "pushed": .object(["cols": .int(80), "rows": .int(24)]),
+                    "container_pt": .object(["w": .double(320), "h": .double(192)]),
+                    "current_f": .object(["cols": .int(80), "rows": .int(24)]),
+                ]),
+            ]),
+        ])))
+    }
+
     @Test func thrownErrorRendersVmErrorWithDescription() async {
         let reading = FakeRemoteTmuxReading()
         await reading.setSessions(.failure(FakeError(description: "host unreachable: boom")))
@@ -315,4 +417,7 @@ extension FakeRemoteTmuxReading {
     func setAttach(_ result: Result<[String]?, any Error>) { attachResult = result }
     func setWindow(_ result: Result<ControlRemoteTmuxAttachOutcome, any Error>) { windowResult = result }
     func setSnapshot(_ snapshot: ControlRemoteTmuxStateSnapshot?) { snapshotResult = snapshot }
+    func setSizingSnapshots(_ snapshots: [ControlRemoteTmuxSizingSnapshot]?) {
+        sizingSnapshotsResult = snapshots
+    }
 }

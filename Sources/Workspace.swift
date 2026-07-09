@@ -6681,7 +6681,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             manualIO: true,
             manualInputHandler: onInput
         )
-        surface.onManualGridResize = onResize
+        if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
         let newPanel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(newPanel, allowTextBoxFocusDefault: allowTextBoxFocusDefault)
         panels[newPanel.id] = newPanel

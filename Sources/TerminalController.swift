@@ -1349,7 +1349,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
             // ``runRemotePTYWorker`` is a direct call, not an async bridge.
             return runRemotePTYWorker(request.control)
         case "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach",
-             "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window":
+             "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window",
+             "remote.tmux.pane_grids":
             // The `remote.tmux.*` command bodies live in CmuxControlSocket's
             // ``ControlRemoteTmuxWorker`` (the beta-flag gate, the
             // SSH-injection-hardened param parsing, the per-command timeout +
@@ -1360,6 +1361,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
             // single worker-thread→async bridge lives in ``runRemoteTmuxWorker``
             // (replacing the per-body `v2VmCall` semaphore + `MainActor.run`).
             return runRemoteTmuxWorker(request.control)
+#if DEBUG
+        case "remote.tmux.test_exec":
+            return v2RemoteTmuxTestExec(id: request.id, params: request.params)
+        case "remote.tmux.test_set_frame":
+            return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+#endif
         case "sidebar.custom.validate", "sidebar.custom.reload", "sidebar.custom.select":
             // Worker-lane bodies live in CmuxControlSocket's
             // ``ControlSidebarCustomWorker`` (validation runs on this worker

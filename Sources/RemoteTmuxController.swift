@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 import CmuxSettings
 import OSLog
 
@@ -599,6 +600,10 @@ final class RemoteTmuxController {
     /// Forwards to ``RemoteTmuxConnectionCoordinator/connection(host:sessionName:)``.
     func connection(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxControlConnection? {
         connectionCoordinator.connection(host: host, sessionName: sessionName)
+    }
+
+    func sessionMirror(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxSessionMirror? {
+        mirrorRegistry.mirror(forKey: host.connectionKey(sessionName: sessionName))
     }
 
     /// Caches an already-constructed control connection under its host/session key.
