@@ -230,6 +230,41 @@ extension MobileShellComposite {
         await sendWorkspaceGroupMutation(id: id, action: "delete", title: nil, actionName: "delete_group")
     }
 
+    /// Create a workspace group on the foreground Mac.
+    /// - Parameter title: Optional group title. Whitespace-only titles use the Mac's default auto-name.
+    /// - Returns: `success` when the Mac accepted the request, otherwise the
+    ///   failure the UI should surface.
+    @discardableResult
+    public func createWorkspaceGroup(
+        title: String? = nil
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let target = WorkspaceMutationTarget(
+            client: remoteClient,
+            isForeground: true,
+            macDeviceID: foregroundMacDeviceID
+        )
+        let hostDisplayName = workspaceMutationHostDisplayName(target: target, fallback: nil)
+        guard supportedHostCapabilities.contains("workspace.group_create.v1") else {
+            return .failure(.unsupported(hostDisplayName: hostDisplayName))
+        }
+        guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
+        }
+        var params: [String: Any] = [:]
+        if let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmed.isEmpty {
+            params["title"] = trimmed
+        }
+        return await sendWorkspaceMutation(
+            method: "workspace.group.create",
+            params: params,
+            target: target,
+            hostDisplayName: hostDisplayName,
+            logID: "foreground",
+            actionName: "create_group"
+        )
+    }
+
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
         workspaces.first { $0.id == id }?.actionCapabilities ?? .none
     }

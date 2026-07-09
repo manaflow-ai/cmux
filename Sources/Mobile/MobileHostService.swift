@@ -1322,7 +1322,7 @@ final class MobileHostService {
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
         let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
-        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || createsWorkspaceInGroup
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || request.method == "workspace.group.create" || createsWorkspaceInGroup
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
             return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
@@ -1400,7 +1400,7 @@ final class MobileHostService {
             )
         case "workspace.action", "workspace.close":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
-        case "workspace.group.action":
+        case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or

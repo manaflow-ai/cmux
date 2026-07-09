@@ -92,11 +92,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceCloseCapability = "workspace.close.v1"
     private static let workspaceMoveCapability = "workspace.move.v1"
     private static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
-    private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
+    private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
-
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
     /// runs a bounded host probe; only a failed probe forces the
@@ -318,6 +317,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports creating a workspace directly inside a group.
     public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
+    /// Whether the Mac supports creating workspace groups from iOS.
+    public var supportsWorkspaceGroupCreate: Bool { supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Bumped whenever the applied terminal theme actually changes (a connect
@@ -330,7 +331,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// preserved across a theme change. The counter only advances on a real
     /// value change, so an unchanged theme on reconnect does no work.
     public private(set) var terminalThemeGeneration: UInt64 = 0
-
     /// Applies the Mac's reported terminal theme to the process-wide
     /// ``TerminalThemeStore`` and, when the resolved value actually changes,
     /// bumps ``terminalThemeGeneration`` so the mounted terminal surface (and

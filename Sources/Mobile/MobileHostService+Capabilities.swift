@@ -29,6 +29,7 @@ extension MobileHostService {
             "workspace.close.v1",
             "workspace.move.v1",
             "workspace.group_actions.v1",
+            "workspace.group_create.v1",
             "workspace.create_in_group.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +

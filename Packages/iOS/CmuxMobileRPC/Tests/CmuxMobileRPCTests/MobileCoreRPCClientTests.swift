@@ -274,6 +274,21 @@ import Testing
         #expect(params["title"] as? String == "Project Alpha")
     }
 
+    @Test func workspaceGroupCreateRequestEncodesTitle() throws {
+        let data = try MobileCoreRPCClient.requestData(
+            method: "workspace.group.create",
+            params: [
+                "title": "Ops",
+            ],
+            id: "group-create-request"
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["id"] as? String == "group-create-request")
+        #expect(request["method"] as? String == "workspace.group.create")
+        #expect(params["title"] as? String == "Ops")
+    }
+
     @Test func attachTicketInputDecodesAttachURL() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",

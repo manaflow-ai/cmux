@@ -134,6 +134,16 @@ extension WorkspaceShellView {
         return { groupID in createWorkspaceIfConnected(inGroup: groupID) }
     }
 
+    var createWorkspaceGroupInCompactStackClosure: (() -> Void)? {
+        guard store.supportsWorkspaceGroupCreate else { return nil }
+        return { createWorkspaceGroupIfConnected() }
+    }
+
+    var createWorkspaceGroupIfConnectedClosure: (() -> Void)? {
+        guard store.supportsWorkspaceGroupCreate else { return nil }
+        return { createWorkspaceGroupIfConnected() }
+    }
+
     func createWorkspaceInCompactStack() {
         createWorkspaceInCompactStack(inGroup: nil)
     }
@@ -177,6 +187,14 @@ extension WorkspaceShellView {
                 result,
                 action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
             )
+        }
+    }
+
+    func createWorkspaceGroupIfConnected() {
+        guard canCreateWorkspaceForMacSelection else { return }
+        Task { @MainActor in
+            let result = await store.createWorkspaceGroup()
+            handleWorkspaceActionResult(result, action: .createWorkspaceGroup)
         }
     }
 

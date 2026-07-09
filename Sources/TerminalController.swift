@@ -14034,8 +14034,8 @@ class TerminalController {
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
-        case "workspace.group.action":
-            result = v2MobileWorkspaceGroupAction(params: request.params)
+        case "workspace.group.action", "workspace.group.create":
+            result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
