@@ -66,7 +66,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         guard let adapter = openBrowserTab(
             url: configuration.url,
             shouldActivate: configuration.shouldBeActive,
-            webViewConfiguration: configuration.url.flatMap { controller.extensionContext(for: $0)?.webViewConfiguration }
+            webViewConfiguration: nil
         ) else {
             completionHandler(nil, openTabsUnsupportedError())
             return
@@ -173,6 +173,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             )
         )
         completionHandler(allowed ? permissions : [], nil)
+        persistPermissionStateSoon(for: extensionContext)
     }
 
     func webExtensionController(
@@ -195,6 +196,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             )
         )
         completionHandler(allowed ? urls : [], nil)
+        persistPermissionStateSoon(for: extensionContext)
     }
 
     func webExtensionController(
@@ -217,6 +219,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             )
         )
         completionHandler(allowed ? matchPatterns : [], nil)
+        persistPermissionStateSoon(for: extensionContext)
     }
 
     private func permissionMessage(
