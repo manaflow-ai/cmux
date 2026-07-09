@@ -350,7 +350,7 @@ struct PairingView: View {
         return String(format: format, email)
     }
 
-    private func pair() {
+    func pair() {
         validationError = nil
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty else {
