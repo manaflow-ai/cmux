@@ -626,6 +626,7 @@ describe("account deletion route", () => {
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
       status: "pending",
+      updatedAt: new Date(),
     }]];
 
     const response = await DELETE(accountDeletionRequest());
@@ -640,6 +641,24 @@ describe("account deletion route", () => {
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(listUserVms).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("adopts a stale in-progress account deletion instead of blocking forever", async () => {
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "pending",
+      updatedAt: new Date(Date.now() - 20 * 60 * 1000),
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(routeEvents).toContain("tombstone-upsert");
+    expect(updateStackUser).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("does not treat a selected shared Stack team as account-owned data", async () => {

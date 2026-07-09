@@ -47,6 +47,24 @@ struct AccountDeletionClientTests {
         #expect(result == .completedWithIncompleteServerCleanup)
     }
 
+    @Test func deleteAccountDoesNotTreatPendingAcceptedResponseAsCompleted() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
+            (
+                Data(#"{"ok":true,"deletionPending":true,"destroyedVms":0}"#.utf8),
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 202,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+            )
+        }
+
+        await #expect(throws: AccountDeletionRequestError.completionUnknown) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
+
     @Test func deleteAccountMapsUnauthorizedResponse() async {
         let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
             (

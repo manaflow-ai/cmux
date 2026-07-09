@@ -80,6 +80,8 @@ type RetainedTeamBillingOwner = {
   readonly stackUserId: string;
 };
 
+const ACCOUNT_DELETION_TOMBSTONE_LEASE_MS = 15 * 60 * 1000;
+
 export async function DELETE(request: Request): Promise<Response> {
   const stackUser = await currentDeletableStackUser(request);
   if (!stackUser) return unauthorized();
@@ -223,11 +225,13 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<bool
       .select({
         userIdHash: accountDeletionTombstones.userIdHash,
         status: accountDeletionTombstones.status,
+        updatedAt: accountDeletionTombstones.updatedAt,
       })
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .limit(1);
-    if (existing && (existing.status === "completed" || isBlockingAccountDeletionStatus(existing.status))) {
+    if (existing?.status === "completed") return false;
+    if (existing && isBlockingAccountDeletionStatus(existing.status) && !isStaleAccountDeletionTombstone(existing.updatedAt, now)) {
       return false;
     }
 
@@ -237,6 +241,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<bool
         userId,
         userIdHash,
         status: "pending",
+        attemptCount: 1,
         updatedAt: now,
         errorMessage: null,
       })
@@ -246,11 +251,16 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<bool
           userId,
           status: "pending",
           updatedAt: now,
+          attemptCount: sql`${accountDeletionTombstones.attemptCount} + 1`,
           errorMessage: null,
         },
       });
     return true;
   });
+}
+
+function isStaleAccountDeletionTombstone(updatedAt: Date | null, now: Date): boolean {
+  return !updatedAt || now.getTime() - updatedAt.getTime() >= ACCOUNT_DELETION_TOMBSTONE_LEASE_MS;
 }
 
 async function markAccountDeletionTombstoneCompleted(userId: string): Promise<void> {

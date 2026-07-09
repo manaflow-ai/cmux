@@ -48,7 +48,7 @@ struct AccountDeletionClient: Sendable {
         }
         switch httpResponse.statusCode {
         case 200..<300:
-            return accountDeletionResult(in: data)
+            return try accountDeletionResult(in: data)
         case 401:
             throw AccountDeletionRequestError.unauthorized
         default:
@@ -67,11 +67,16 @@ struct AccountDeletionClient: Sendable {
     }
 }
 
-private func accountDeletionResult(in data: Data) -> AccountDeletionResult {
+private func accountDeletionResult(in data: Data) throws -> AccountDeletionResult {
     guard
-        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        object["cleanupIncomplete"] as? Bool == true
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else {
+        return .completed
+    }
+    if object["deletionPending"] as? Bool == true {
+        throw AccountDeletionRequestError.completionUnknown
+    }
+    guard object["cleanupIncomplete"] as? Bool == true else {
         return .completed
     }
     return .completedWithIncompleteServerCleanup
