@@ -52,6 +52,10 @@ private final class PrewarmTestWebExtensionHost: BrowserWebExtensionHosting {
         attachedConfigurationCount += 1
     }
 
+    func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration? {
+        nil
+    }
+
     func register(panel: BrowserPanel) {}
 
     func unregister(panelID: UUID) {}

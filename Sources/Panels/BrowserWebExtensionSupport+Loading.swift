@@ -35,23 +35,37 @@ extension BrowserWebExtensionSupport {
         loadedByEntryID[actionID]?.context
     }
 
+    func actionSnapshots(for panelID: UUID) -> [BrowserWebExtensionActionSnapshot] {
+        _ = actionSnapshotRevision
+        let tabAdapter = tabAdapters[panelID]
+        return actionSnapshotIDs.compactMap { entryID in
+            guard let record = loadedByEntryID[entryID] else { return nil }
+            return actionSnapshot(for: record, tabAdapter: tabAdapter)
+        }
+    }
+
     func rebuildActionSnapshots() {
-        actionSnapshots = loadedRecordsInOrder.map { actionSnapshot(for: $0) }
+        actionSnapshotIDs = loadedRecordsInOrder.map(\.entryID)
+        refreshActionSnapshots()
     }
 
     func refreshActionSnapshot(for context: WKWebExtensionContext) {
-        guard let record = loadedRecordsInOrder.first(where: { $0.context === context }) else { return }
-        var snapshots = actionSnapshots
-        guard let index = snapshots.firstIndex(where: { $0.id == record.entryID }) else {
+        guard actionSnapshotIDs.contains(where: { loadedByEntryID[$0]?.context === context }) else {
             rebuildActionSnapshots()
             return
         }
-        snapshots[index] = actionSnapshot(for: record)
-        actionSnapshots = snapshots
+        refreshActionSnapshots()
     }
 
-    private func actionSnapshot(for record: BrowserWebExtensionLoadedRecord) -> BrowserWebExtensionActionSnapshot {
-        let action = record.context.action(for: activeTabAdapter)
+    func refreshActionSnapshots() {
+        actionSnapshotRevision &+= 1
+    }
+
+    private func actionSnapshot(
+        for record: BrowserWebExtensionLoadedRecord,
+        tabAdapter: BrowserWebExtensionTabAdapter?
+    ) -> BrowserWebExtensionActionSnapshot {
+        let action = record.context.action(for: tabAdapter)
         return BrowserWebExtensionActionSnapshot(
             id: record.entryID,
             displayName: action?.label ?? record.context.webExtension.displayName ?? String(

@@ -12,7 +12,7 @@ struct BrowserWebExtensionToolbarButtons: View {
     let hitSize: CGFloat
 
     var body: some View {
-        ForEach(support.actionSnapshots) { snapshot in
+        ForEach(support.actionSnapshots(for: panel.id)) { snapshot in
             BrowserWebExtensionActionButton(
                 snapshot: snapshot,
                 panel: panel,
