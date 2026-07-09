@@ -1,0 +1,14 @@
+{"type":"fixture_comment","note":"Mirrors Claude Code 2.1.x project JSONL: message records, content blocks, sidechain records, tool_use/tool_result pairing."}
+{"type":"user","message":{"role":"user","content":"Lorem ipsum prompt for the example project."},"sessionId":"00000000-0000-4000-8000-000000000001","cwd":"/tmp/example"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Lorem ipsum assistant prose."}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Private reasoning placeholder."}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{"command":"echo example"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_001","content":"example output"}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_002","name":"Edit","input":{"file_path":"/tmp/example/file.txt","old_string":"old","new_string":"new"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_003","name":"AskUserQuestion","input":{"question":"Choose an example option?"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","isSidechain":true,"message":{"role":"user","content":"Sidechain placeholder skipped."},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","isMeta":true,"message":{"role":"assistant","content":"Meta placeholder skipped."},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Tool introduction placeholder."},{"type":"tool_use","id":"toolu_004","name":"Bash","input":{"command":"echo combined"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"future_block","value":"placeholder"}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{malformed json
+{"type":"future_record","payload":{"value":"placeholder"}}

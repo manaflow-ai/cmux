@@ -1,0 +1,14 @@
+{"type":"fixture_comment","note":"Mirrors Codex 0.14x rollout JSONL: session_meta, event_msg, response_item message/reasoning/function_call/function_call_output/custom_tool_call/web_search_call, and compaction."}
+{"timestamp":"2026-07-01T00:00:00.000Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000010","timestamp":"2026-07-01T00:00:00.000Z","cwd":"/tmp/example","originator":"codex","cli_version":"0.140.0","model_provider":"openai"}}
+{"timestamp":"2026-07-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Lorem ipsum codex prompt."}]}}
+{"timestamp":"2026-07-01T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Lorem ipsum codex answer."}]}}
+{"timestamp":"2026-07-01T00:00:03.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Reasoning placeholder."}]}}
+{"timestamp":"2026-07-01T00:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call_001","arguments":"{\"command\":[\"bash\",\"-lc\",\"echo example\"],\"cwd\":\"/tmp/example\"}"}}
+{"timestamp":"2026-07-01T00:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_001","output":"example output"}}
+{"timestamp":"2026-07-01T00:00:06.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call_002","input":"patch placeholder"}}
+{"timestamp":"2026-07-01T00:00:07.000Z","type":"response_item","payload":{"type":"web_search_call","call_id":"call_003","action":{"query":"example query"}}}
+{"timestamp":"2026-07-01T00:00:08.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"00000000-0000-4000-8000-000000000020"}}
+{"timestamp":"2026-07-01T00:00:09.000Z","type":"event_msg","payload":{"type":"compacted"}}
+{"timestamp":"2026-07-01T00:00:10.000Z","type":"compacted","payload":{"reason":"manual"}}
+{malformed json
+{"timestamp":"2026-07-01T00:00:11.000Z","type":"response_item","payload":{"type":"future_item","content":"placeholder"}}
