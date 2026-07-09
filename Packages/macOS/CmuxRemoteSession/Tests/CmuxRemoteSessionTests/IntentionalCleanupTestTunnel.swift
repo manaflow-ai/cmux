@@ -12,6 +12,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private var recordedCalls: [Call] = []
     private var bridgeServers: [RemotePTYBridgeServer] = []
     private var shouldFailClose = false
+    private var invalidatedAttachmentCounts: [String: Int] = [:]
 
     var calls: [Call] {
         lock.withLock { recordedCalls }
@@ -20,6 +21,12 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     func failCloseRequests() {
         lock.withLock {
             shouldFailClose = true
+        }
+    }
+
+    func reportInvalidatedPTYBridges(_ attachmentCounts: [String: Int]) {
+        lock.withLock {
+            invalidatedAttachmentCounts = attachmentCounts
         }
     }
 
@@ -44,6 +51,20 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         if lock.withLock({ shouldFailClose }) {
             throw NSError(domain: "cmux.tests.intentional-cleanup", code: 1)
         }
+    }
+
+    func invalidatePTYBridges(sessionID: String) -> [String: Int] {
+        record(name: "invalidate", sessionID: sessionID)
+        let snapshot = lock.withLock {
+            let snapshot = (invalidatedAttachmentCounts, bridgeServers)
+            invalidatedAttachmentCounts = [:]
+            bridgeServers = []
+            return snapshot
+        }
+        for server in snapshot.1 {
+            server.stop()
+        }
+        return snapshot.0
     }
 
     func resizePTY(

@@ -169,6 +169,10 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
 
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
     func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {}
+    func invalidatePTYBridges(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String
+    ) throws -> [String: Int] { [:] }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,

@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxWorkspaces
 import Foundation
 
@@ -691,25 +692,22 @@ extension TerminalController: ControlWorkspaceContext {
     }
 
     func controlWorkspaceRemotePTYAttachEnd(
-        workspaceID workspaceId: UUID,
-        surfaceID surfaceId: UUID,
-        sessionID: String
+        workspaceID workspaceId: UUID, surfaceID surfaceId: UUID, sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution {
         let located = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: workspaceId
-        )
+            panelId: surfaceId, preferredWorkspaceId: workspaceId)
         let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound
         }
+        let controller = workspace.remotePTYSessionControllerForSocketCommand()
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
+        controller?.acknowledgePTYAttachEnd(sessionID: sessionID, attachmentID: surfaceId.uuidString)
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
-            windowID: windowId,
-            workspaceID: workspace.id,
+            windowID: windowId, workspaceID: workspace.id,
             clearedRemotePTYSession: outcome.clearedRemotePTYSession,
             untrackedRemoteTerminal: outcome.untrackedRemoteTerminal,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])

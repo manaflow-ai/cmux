@@ -67,6 +67,11 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         record("closePTY", [sessionID])
     }
 
+    func invalidatePTYBridges(sessionID: String) -> [String: Int] {
+        record("invalidatePTYBridges", [sessionID])
+        return ["a": 2]
+    }
+
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         record("resizePTY", [sessionID, attachmentID, attachmentToken, String(cols), String(rows)])
     }
@@ -435,14 +440,17 @@ struct RemoteProxyBrokerTests {
 
         let sessions = try broker.listPTY(configuration: configuration)
         #expect(sessions.first?["session_id"] as? String == "s-1")
+        let invalidated = try broker.invalidatePTYBridges(configuration: configuration, sessionID: "s-8")
         try broker.closePTY(configuration: configuration, sessionID: "s-9")
         try broker.resizePTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t", cols: 80, rows: 24)
         try broker.detachPTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t")
         let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", attachmentID: "a", command: "top", requireExisting: true)
         #expect(endpoint.port == 4242)
+        #expect(invalidated == ["a": 2])
 
         #expect(tunnel.ptyCalls == [
             FakeProxyTunnel.PTYCall(name: "listPTY", arguments: []),
+            FakeProxyTunnel.PTYCall(name: "invalidatePTYBridges", arguments: ["s-8"]),
             FakeProxyTunnel.PTYCall(name: "closePTY", arguments: ["s-9"]),
             FakeProxyTunnel.PTYCall(name: "resizePTY", arguments: ["s", "a", "t", "80", "24"]),
             FakeProxyTunnel.PTYCall(name: "detachPTY", arguments: ["s", "a", "t"]),

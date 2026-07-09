@@ -121,6 +121,21 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
+    /// Invalidates live local PTY bridges through the ready tunnel.
+    ///
+    /// - Parameters:
+    ///   - configuration: The transport configuration selecting the shared tunnel.
+    ///   - sessionID: The persistent PTY session identifier.
+    /// - Returns: The number of invalidated endpoints for each attachment identifier.
+    public func invalidatePTYBridges(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String
+    ) throws -> [String: Int] {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            tunnel.invalidatePTYBridges(sessionID: sessionID)
+        }
+    }
+
     /// Resizes a PTY attachment through the ready tunnel.
     public func resizePTY(
         configuration: WorkspaceRemoteConfiguration,

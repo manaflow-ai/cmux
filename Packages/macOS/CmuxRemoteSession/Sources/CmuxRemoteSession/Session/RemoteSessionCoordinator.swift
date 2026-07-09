@@ -120,7 +120,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var heartbeatCount: Int = 0
     var connectionAttemptStartedAt: Date?
     var pendingPTYBridgeStarts: [UUID: PendingPTYBridgeStart] = [:]
-    var remotePTYLifecyclesBySessionID: [String: RemotePTYSessionLifecycle] = [:]
+    var remotePTYLifecycleStatesBySessionID: [String: RemotePTYSessionLifecycleState] = [:]
     var remoteRelayWorkspaceAliases: [UUID: UUID] = [:]
     var remoteRelaySurfaceAliases: [UUID: UUID] = [:]
     /// Dev-only source-fingerprint cache: `.none` = not computed yet,

@@ -12565,9 +12565,7 @@ struct CMUXCLI {
     ) throws {
         let response: [String: Any]
         do {
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-            ]
+            var params: [String: Any] = ["workspace_id": workspaceId]
             if let surfaceID {
                 params["surface_id"] = surfaceID
                 params["session_id"] = sessionID

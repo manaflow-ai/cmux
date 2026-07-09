@@ -29,6 +29,12 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// Closes a persistent PTY session on the daemon.
     func closePTY(sessionID: String) throws
 
+    /// Invalidates live local PTY bridges for one persistent session.
+    ///
+    /// - Parameter sessionID: The persistent PTY session identifier.
+    /// - Returns: The number of invalidated endpoints for each attachment identifier.
+    func invalidatePTYBridges(sessionID: String) -> [String: Int]
+
     /// Resizes a PTY attachment.
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws
 

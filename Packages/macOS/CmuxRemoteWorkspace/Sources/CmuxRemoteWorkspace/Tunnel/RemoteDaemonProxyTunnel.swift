@@ -27,16 +27,16 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private let remotePath: String
     private let localPort: Int
     private let strings: RemoteDaemonStrings
-    private let ptyBridgeStrings: any RemotePTYBridgeStrings
-    private let clock: any RemoteProxyRetryClock
+    let ptyBridgeStrings: any RemotePTYBridgeStrings
+    let clock: any RemoteProxyRetryClock
     private let onFatalError: (String) -> Void
-    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
+    let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
-    private var rpcClient: RemoteDaemonRPCClient?
+    var rpcClient: RemoteDaemonRPCClient?
     private var sessions: [UUID: RemoteDaemonProxySession] = [:]
-    private var ptyBridgeServers: [UUID: RemotePTYBridgeServer] = [:]
-    private var isStopped = false
+    var ptyBridgeServers: [UUID: RemotePTYBridgeServerRecord] = [:]
+    var isStopped = false
 
     /// Creates a tunnel for `configuration`.
     ///
@@ -189,36 +189,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 attachmentID: attachmentID,
                 attachmentToken: attachmentToken
             )
-        }
-    }
-
-    /// Starts a single-use loopback PTY bridge server for a terminal attach
-    /// and returns its endpoint.
-    public func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
-        try queue.sync {
-            guard let rpcClient, !isStopped else {
-                throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
-            }
-            let bridgeID = UUID()
-            let server = RemotePTYBridgeServer(
-                rpcClient: rpcClient,
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                command: command,
-                requireExisting: requireExisting,
-                strings: ptyBridgeStrings,
-                clock: clock
-            ) { [weak self] in
-                guard let self else { return }
-                self.queue.async {
-                    self.ptyBridgeServers.removeValue(forKey: bridgeID)
-                }
-            }
-            let endpoint = try server.start()
-            ptyBridgeServers[bridgeID] = server
-            return endpoint
         }
     }
 
@@ -641,7 +611,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         for session in activeSessions {
             session.stop()
         }
-        let activePTYBridges = ptyBridgeServers.values
+        let activePTYBridges = ptyBridgeServers.values.map(\.server)
         ptyBridgeServers.removeAll()
         for bridge in activePTYBridges {
             bridge.stop()

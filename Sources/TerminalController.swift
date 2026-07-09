@@ -4149,15 +4149,15 @@ class TerminalController {
                 "workspace_ref": target.workspaceRef,
             ])
         }
-        if let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !sessionID.isEmpty,
-           (try? controller.ptySessionLifecycle(sessionID: sessionID)) == .intentionallyClosed {
-            var payload = v2RemotePTYTargetPayload(target)
-            payload["sessions"] = [[String: Any]]()
-            payload["requested_session_lifecycle"] = RemotePTYSessionLifecycle.intentionallyClosed.rawValue
-            return .ok(payload)
-        }
         do {
+            if let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !sessionID.isEmpty,
+               try controller.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed {
+                var payload = v2RemotePTYTargetPayload(target)
+                payload["sessions"] = [[String: Any]]()
+                payload["requested_session_lifecycle"] = RemotePTYSessionLifecycle.intentionallyClosed.rawValue
+                return .ok(payload)
+            }
             let sessions = try controller.listPTYSessions()
             var payload = v2RemotePTYTargetPayload(target)
             payload["sessions"] = sessions.map { v2RemotePTYSessionPayload($0, target: target) }

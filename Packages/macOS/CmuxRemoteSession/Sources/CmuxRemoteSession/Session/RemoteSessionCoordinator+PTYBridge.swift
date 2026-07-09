@@ -33,19 +33,32 @@ extension RemoteSessionCoordinator {
                 ])
             }
             let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
-            let previousLifecycle = self.remotePTYLifecyclesBySessionID[normalizedSessionID] ?? .active
-            self.remotePTYLifecyclesBySessionID[normalizedSessionID] = .intentionalCleanupRequested
+            let previousState = self.remotePTYLifecycleStatesBySessionID[normalizedSessionID]
+            var requestedState = previousState ?? RemotePTYSessionLifecycleState(phase: .active)
+            requestedState.phase = .intentionalCleanupRequested
+            self.remotePTYLifecycleStatesBySessionID[normalizedSessionID] = requestedState
             do {
+                let affectedAttachmentCounts = try self.proxyBroker.invalidatePTYBridges(
+                    configuration: self.configuration,
+                    sessionID: normalizedSessionID
+                )
                 try self.proxyBroker.closePTY(
                     configuration: self.configuration,
                     sessionID: normalizedSessionID
                 )
-                self.remotePTYLifecyclesBySessionID[normalizedSessionID] = .intentionallyClosed
-            } catch {
-                if previousLifecycle == .active {
-                    self.remotePTYLifecyclesBySessionID.removeValue(forKey: normalizedSessionID)
+                var closedState = requestedState
+                closedState.phase = .intentionallyClosed
+                closedState.addPendingAttachments(affectedAttachmentCounts)
+                if closedState.hasPendingAttachments {
+                    self.remotePTYLifecycleStatesBySessionID[normalizedSessionID] = closedState
                 } else {
-                    self.remotePTYLifecyclesBySessionID[normalizedSessionID] = previousLifecycle
+                    self.remotePTYLifecycleStatesBySessionID.removeValue(forKey: normalizedSessionID)
+                }
+            } catch {
+                if let previousState {
+                    self.remotePTYLifecycleStatesBySessionID[normalizedSessionID] = previousState
+                } else {
+                    self.remotePTYLifecycleStatesBySessionID.removeValue(forKey: normalizedSessionID)
                 }
                 throw error
             }
@@ -67,7 +80,30 @@ extension RemoteSessionCoordinator {
     ) throws -> RemotePTYSessionLifecycle {
         try runOnControllerQueue(timeout: timeout) {
             let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
-            return self.remotePTYLifecyclesBySessionID[normalizedSessionID] ?? .active
+            return self.remotePTYLifecycleStatesBySessionID[normalizedSessionID]?.phase ?? .active
+        }
+    }
+
+    /// Acknowledges one local attach end after intentional cleanup.
+    ///
+    /// Unknown session/attachment pairs leave cleanup state unchanged.
+    public func acknowledgePTYAttachEnd(
+        sessionID: String,
+        attachmentID: String
+    ) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard var state = self.remotePTYLifecycleStatesBySessionID[normalizedSessionID],
+                  state.phase == .intentionallyClosed else {
+                return
+            }
+            state.acknowledge(attachmentID: attachmentID)
+            if state.hasPendingAttachments {
+                self.remotePTYLifecycleStatesBySessionID[normalizedSessionID] = state
+            } else {
+                self.remotePTYLifecycleStatesBySessionID.removeValue(forKey: normalizedSessionID)
+            }
         }
     }
 
@@ -205,8 +241,8 @@ extension RemoteSessionCoordinator {
             ])
         }
         let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if requireExisting,
-           remotePTYLifecyclesBySessionID[normalizedSessionID] == .intentionallyClosed {
+        if let lifecycleState = remotePTYLifecycleStatesBySessionID[normalizedSessionID],
+           lifecycleState.phase != .active {
             throw NSError(domain: "cmux.remote.pty", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "pty_session_intentionally_closed",
             ])
@@ -218,9 +254,6 @@ extension RemoteSessionCoordinator {
             command: command,
             requireExisting: requireExisting
         )
-        if !requireExisting {
-            remotePTYLifecyclesBySessionID.removeValue(forKey: normalizedSessionID)
-        }
         return endpoint
     }
 

@@ -4,6 +4,6 @@ public enum RemotePTYSessionLifecycle: String, Sendable, Equatable {
     case active
     /// An explicit cleanup is serialized on the coordinator queue but has not completed.
     case intentionalCleanupRequested = "intentional_cleanup_requested"
-    /// Explicit cleanup succeeded; require-existing attachments must end instead of retrying.
+    /// Explicit cleanup succeeded; new attachments remain blocked until affected attach ends.
     case intentionallyClosed = "intentionally_closed"
 }
