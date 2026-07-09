@@ -114,6 +114,7 @@ export async function postAnalyticsEvents(
         });
       } catch (error) {
         console.error("[ios-analytics] identity recording failed", { error });
+        return jsonResponse({ error: "identity_recording_failed" }, 503);
       }
     }
   }

@@ -500,6 +500,7 @@ describe("VM Effect workflows", () => {
     await Effect.runPromise(
       destroyAccountOwnedVm({
         userId: "user-workflow-account-delete",
+        provider: "freestyle",
         providerVmId: "provider-vm-account-delete",
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
@@ -535,11 +536,42 @@ describe("VM Effect workflows", () => {
     await Effect.runPromise(
       destroyAccountOwnedVm({
         userId: "user-workflow-account-delete",
+        provider: "freestyle",
         providerVmId: "provider-vm-account-delete",
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(providerDestroyCalled).toBe(false);
+  });
+
+  test("destroyAccountOwnedVm ignores same provider VM id on another provider", async () => {
+    const vm = testCloudVmRow({
+      userId: "user-workflow-account-delete",
+      provider: "daytona",
+      providerVmId: "shared-provider-vm-id",
+      status: "running",
+    });
+    const destroyedIds: string[] = [];
+    const repo = testWorkflowRepo({ vm, destroyedIds });
+    let providerDestroyCalled = false;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: () =>
+        Effect.sync(() => {
+          providerDestroyCalled = true;
+        }),
+    };
+
+    await Effect.runPromise(
+      destroyAccountOwnedVm({
+        userId: "user-workflow-account-delete",
+        provider: "freestyle",
+        providerVmId: "shared-provider-vm-id",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(providerDestroyCalled).toBe(false);
+    expect(destroyedIds).toEqual([]);
   });
 
   test("createVm destroys provider handle when account deletion claims the provisioning row", async () => {
@@ -4478,9 +4510,9 @@ function testWorkflowRepo(input: {
         ? input.vm
         : null,
       ),
-    findAccountOwnedVm: ({ userId, providerVmId }) =>
+    findAccountOwnedVm: ({ userId, provider, providerVmId }) =>
       Effect.succeed(
-        input.vm.userId === userId && input.vm.providerVmId === providerVmId
+        input.vm.userId === userId && input.vm.provider === provider && input.vm.providerVmId === providerVmId
         ? input.vm
         : null,
       ),

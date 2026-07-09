@@ -172,6 +172,7 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly findAccountOwnedVm: (input: {
     readonly userId: string;
+    readonly provider: ProviderId;
     readonly providerVmId: string;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
@@ -1331,6 +1332,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .where(
           and(
             eq(cloudVms.userId, input.userId),
+            eq(cloudVms.provider, input.provider),
             eq(cloudVms.providerVmId, input.providerVmId),
             ne(cloudVms.status, "destroyed"),
           ),

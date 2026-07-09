@@ -10,7 +10,7 @@ import {
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const calls: string[] = [];
-let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
+let providerBackedVmBatches: Array<Array<{ provider: ProviderId; providerVmId: string | null }>> = [];
 let providerlessProvisioningRows: Array<{ id: string }> = [];
 let providerlessProvisioningSelectsRemaining = 0;
 let providerlessCloudVmUpdateCount = 0;
@@ -20,7 +20,7 @@ let snapshotDeleteError: unknown = null;
 let subrouterTenantRows: Array<{ tenantId: string }> = [];
 let subrouterRevokeError: unknown = null;
 
-type DestroyAccountOwnedVmInput = { userId: string; providerVmId: string };
+type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
   kind: "destroy-account-owned-vm";
   input: DestroyAccountOwnedVmInput;
@@ -31,6 +31,10 @@ type DeleteVmSnapshotWorkflow = {
   input: DeleteVmSnapshotInput;
 };
 type AccountDeletionTestWorkflow = DestroyAccountOwnedVmWorkflow | DeleteVmSnapshotWorkflow;
+
+function providerBackedVm(providerVmId: string, provider: ProviderId = "freestyle") {
+  return { provider, providerVmId };
+}
 
 const destroyAccountOwnedVm = mock((input: unknown): DestroyAccountOwnedVmWorkflow => ({
   kind: "destroy-account-owned-vm",
@@ -175,7 +179,7 @@ describe("account deletion cleanup", () => {
 
   test("claims providerless VMs before destroying provider-backed account VMs", async () => {
     providerBackedVmBatches = [
-      [{ providerVmId: "provider-vm-1" }],
+      [providerBackedVm("provider-vm-1")],
       [],
     ];
 
@@ -195,6 +199,7 @@ describe("account deletion cleanup", () => {
     ]);
     expect(destroyAccountOwnedVm).toHaveBeenCalledWith({
       userId: "user-1",
+      provider: "freestyle",
       providerVmId: "provider-vm-1",
     });
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
@@ -207,7 +212,7 @@ describe("account deletion cleanup", () => {
 
   test("rechecks when a provider-backed VM disappears during account deletion", async () => {
     providerBackedVmBatches = [
-      [{ providerVmId: "provider-vm-1" }],
+      [providerBackedVm("provider-vm-1")],
       [],
     ];
     workflowErrorsByProviderId.set(
@@ -313,10 +318,10 @@ describe("account deletion cleanup", () => {
 
   test("fails closed when provider-backed VM destruction fails", async () => {
     providerBackedVmBatches = [
-      [{ providerVmId: "provider-vm-1" }],
-      [{ providerVmId: "provider-vm-1" }],
-      [{ providerVmId: "provider-vm-1" }],
-      [{ providerVmId: "provider-vm-1" }],
+      [providerBackedVm("provider-vm-1")],
+      [providerBackedVm("provider-vm-1")],
+      [providerBackedVm("provider-vm-1")],
+      [providerBackedVm("provider-vm-1")],
     ];
     workflowErrorsByProviderId.set("provider-vm-1", new Error("provider destroy failed"));
 
@@ -331,10 +336,10 @@ describe("account deletion cleanup", () => {
 
   test("continues a cleanup pass after one provider-backed VM fails", async () => {
     providerBackedVmBatches = [
-      [{ providerVmId: "provider-vm-1" }, { providerVmId: "provider-vm-2" }],
-      [{ providerVmId: "provider-vm-1" }],
-      [{ providerVmId: "provider-vm-1" }],
-      [{ providerVmId: "provider-vm-1" }],
+      [providerBackedVm("provider-vm-1"), providerBackedVm("provider-vm-2", "daytona")],
+      [providerBackedVm("provider-vm-1")],
+      [providerBackedVm("provider-vm-1")],
+      [providerBackedVm("provider-vm-1")],
     ];
     workflowErrorsByProviderId.set("provider-vm-1", new Error("provider destroy failed"));
 
@@ -360,10 +365,10 @@ describe("account deletion cleanup", () => {
 
   test("fails closed when provider-backed VMs keep appearing", async () => {
     providerBackedVmBatches = [
-      [{ providerVmId: "provider-vm-1" }],
-      [{ providerVmId: "provider-vm-2" }],
-      [{ providerVmId: "provider-vm-3" }],
-      [{ providerVmId: "provider-vm-4" }],
+      [providerBackedVm("provider-vm-1")],
+      [providerBackedVm("provider-vm-2", "daytona")],
+      [providerBackedVm("provider-vm-3", "e2b")],
+      [providerBackedVm("provider-vm-4")],
     ];
 
     await expect(deleteCmuxAccountData({

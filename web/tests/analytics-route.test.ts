@@ -124,7 +124,7 @@ describe("iOS analytics route", () => {
     expect(calls).toEqual(["record-identities", "forward-posthog"]);
   });
 
-  test("still forwards analytics when identity recording fails", async () => {
+  test("does not forward analytics when identity recording fails", async () => {
     const originalConsoleError = console.error;
     const consoleError = mock(() => {});
     const identityStoreError = new Error("identity store unavailable");
@@ -147,8 +147,9 @@ describe("iOS analytics route", () => {
         forwardToPostHog,
       });
 
-      expect(response.status).toBe(200);
-      expect(forwardToPostHog).toHaveBeenCalled();
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "identity_recording_failed" });
+      expect(forwardToPostHog).not.toHaveBeenCalled();
       expect(consoleError).toHaveBeenCalledWith(
         "[ios-analytics] identity recording failed",
         { error: identityStoreError },

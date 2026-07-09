@@ -57,6 +57,7 @@ type AccountDeletionRuntime = {
   readonly deleteObject: (key: string) => Promise<void>;
   readonly destroyAccountOwnedVm: (input: {
     readonly userId: string;
+    readonly provider: ProviderId;
     readonly providerVmId: string;
   }) => AccountDeletionWorkflow;
   readonly deleteVmSnapshot?: (input: {
@@ -557,6 +558,7 @@ async function destroyProviderBackedAccountVms(
       try {
         await runtime.runVmWorkflow(runtime.destroyAccountOwnedVm({
           userId,
+          provider: vm.provider,
           providerVmId: vm.providerVmId,
         }));
       } catch (error) {
@@ -576,10 +578,10 @@ async function destroyProviderBackedAccountVms(
 async function providerBackedAccountVms(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<readonly { readonly providerVmId: string | null }[]> {
+): Promise<readonly { readonly provider: ProviderId; readonly providerVmId: string | null }[]> {
   const db = runtime.cloudDb();
   return await db
-    .select({ providerVmId: cloudVms.providerVmId })
+    .select({ provider: cloudVms.provider, providerVmId: cloudVms.providerVmId })
     .from(cloudVms)
     .where(and(
       personalCloudVmRows(userId),

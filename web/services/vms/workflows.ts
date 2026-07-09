@@ -1309,6 +1309,7 @@ export function destroyVm(input: {
 
 export function destroyAccountOwnedVm(input: {
   readonly userId: string;
+  readonly provider: ProviderId;
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
