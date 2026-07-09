@@ -72,6 +72,7 @@ let stripeBillingConfigured = true;
 let vaultSnapshotRows: Array<{ id: string; objectKey: string }> = [];
 let vaultUploadGrantRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 let vaultUploadTombstoneRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
+let deviceDeleteConditions: unknown[] = [];
 
 type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -177,6 +178,7 @@ beforeEach(() => {
   vaultSnapshotRows = [];
   vaultUploadGrantRows = [];
   vaultUploadTombstoneRows = [];
+  deviceDeleteConditions = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
   revokeVmIdentityLease.mockClear();
@@ -366,7 +368,7 @@ describe("account deletion cleanup", () => {
     expect(calls).toContain("destroy:former-member:provider-team-vm-1");
   });
 
-  test("deletes retained team device registry rows", async () => {
+  test("deletes owned team and retained user device registry rows", async () => {
     await deleteCmuxAccountData({
       userId: "user-1",
       ownedTeamIds: ["team-owned-1"],
@@ -378,6 +380,34 @@ describe("account deletion cleanup", () => {
 
     expect(calls).toContain("delete-user-devices");
     expect(calls).not.toContain("anonymize-retained-team-devices");
+    const deletedDeviceColumns = conditionColumnNames(deviceDeleteConditions[0]);
+    expect(deletedDeviceColumns).toContain("user_id");
+    expect(deletedDeviceColumns).toContain("team_id");
+  });
+
+  test("keeps active vault upload tracking rows for expiry cleanup", async () => {
+    vaultUploadGrantRows = [{
+      id: "grant-row-1",
+      objectKey: "vault/u/user-1/grant.jsonl.zst",
+      uploadObjectKey: "vault/uploads/grant",
+    }];
+    vaultUploadTombstoneRows = [{
+      id: "tombstone-row-1",
+      objectKey: "vault/u/user-1/tombstone.jsonl.zst",
+      uploadObjectKey: "vault/uploads/tombstone",
+    }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(deleteObject).toHaveBeenCalledWith("vault/u/user-1/grant.jsonl.zst");
+    expect(deleteObject).toHaveBeenCalledWith("vault/uploads/grant");
+    expect(deleteObject).toHaveBeenCalledWith("vault/u/user-1/tombstone.jsonl.zst");
+    expect(deleteObject).toHaveBeenCalledWith("vault/uploads/tombstone");
+    expect(calls).not.toContain("delete-vault-upload-grants");
+    expect(calls).not.toContain("delete-vault-upload-tombstones");
+    expect(calls).toContain("delete-vault-sessions");
   });
 
   test("rechecks when a provider-backed VM disappears during account deletion", async () => {
@@ -961,7 +991,8 @@ function fakeDbSelectBuilder() {
     },
     innerJoin: () => builder,
     where: () => builder,
-    limit: async () => rows(),
+    limit: () => builder,
+    offset: () => builder,
     then: (
       resolve: (value: unknown[]) => unknown,
       reject: (reason: unknown) => unknown,
@@ -1019,7 +1050,7 @@ function fakeTransaction() {
       return updateBuilder();
     },
     delete: (table: unknown) => {
-      if (table === devices) return writeBuilder("delete-user-devices");
+      if (table === devices) return writeBuilder("delete-user-devices", deviceDeleteConditions);
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
       if (table === cloudVmLeases) return writeBuilder("delete-cloud-vm-leases");
       if (table === cloudVms) return writeBuilder("delete-personal-cloud-vms");
@@ -1104,11 +1135,32 @@ function stripeSubscriptionUpdateLabel(values: Record<string, unknown>): string 
   return undefined;
 }
 
-function writeBuilder(label?: string) {
+function writeBuilder(label?: string, conditions?: unknown[]) {
   return {
-    where: async () => {
+    where: async (condition?: unknown) => {
+      if (conditions) conditions.push(condition);
       if (label) calls.push(label);
       return [];
     },
   };
+}
+
+function conditionColumnNames(condition: unknown): string[] {
+  const names: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const candidate = value as {
+      readonly name?: unknown;
+      readonly table?: unknown;
+      readonly queryChunks?: readonly unknown[];
+    };
+    if (typeof candidate.name === "string" && candidate.table) {
+      names.push(candidate.name);
+    }
+    if (Array.isArray(candidate.queryChunks)) {
+      for (const chunk of candidate.queryChunks) visit(chunk);
+    }
+  };
+  visit(condition);
+  return names;
 }

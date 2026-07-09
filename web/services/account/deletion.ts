@@ -534,10 +534,11 @@ export async function deleteCmuxAccountData(
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, input.userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, input.userId));
-    await tx.delete(devices).where(eq(devices.userId, input.userId));
+    await tx.delete(devices).where(or(
+      eq(devices.userId, input.userId),
+      inArray(devices.teamId, scope.ownedBillingTeamIds),
+    ));
 
-    await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.userId, input.userId));
-    await tx.delete(vaultUploadTombstones).where(eq(vaultUploadTombstones.userId, input.userId));
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, input.userId));
     await tx.delete(vaultSessions).where(eq(vaultSessions.userId, input.userId));
 
@@ -978,8 +979,8 @@ async function deleteAccountVaultObjectBatch(
   runtime: AccountDeletionRuntime,
 ): Promise<boolean> {
   if (await deleteVaultSnapshotObjectBatch(userId, runtime) > 0) return false;
-  if (await deleteVaultUploadGrantObjectBatch(userId, runtime) > 0) return false;
-  if (await deleteVaultUploadTombstoneObjectBatch(userId, runtime) > 0) return false;
+  await deleteVaultUploadGrantObjects(userId, runtime);
+  await deleteVaultUploadTombstoneObjects(userId, runtime);
   return true;
 }
 
@@ -1001,46 +1002,54 @@ async function deleteVaultSnapshotObjectBatch(
   return rows.length;
 }
 
-async function deleteVaultUploadGrantObjectBatch(
+async function deleteVaultUploadGrantObjects(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<number> {
+): Promise<void> {
   const db = runtime.cloudDb();
-  const rows = await db
-    .select({
-      id: vaultUploadGrants.id,
-      objectKey: vaultUploadGrants.objectKey,
-      uploadObjectKey: vaultUploadGrants.uploadObjectKey,
-    })
-    .from(vaultUploadGrants)
-    .where(eq(vaultUploadGrants.userId, userId))
-    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
-  if (rows.length === 0) return 0;
+  let offset = 0;
+  for (;;) {
+    const rows = await db
+      .select({
+        id: vaultUploadGrants.id,
+        objectKey: vaultUploadGrants.objectKey,
+        uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+      })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.userId, userId))
+      .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE)
+      .offset(offset);
+    if (rows.length === 0) return;
 
-  await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
-  await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, rows.map((row) => row.id)));
-  return rows.length;
+    await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
+    if (rows.length < VAULT_ACCOUNT_DELETION_BATCH_SIZE) return;
+    offset += rows.length;
+  }
 }
 
-async function deleteVaultUploadTombstoneObjectBatch(
+async function deleteVaultUploadTombstoneObjects(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<number> {
+): Promise<void> {
   const db = runtime.cloudDb();
-  const rows = await db
-    .select({
-      id: vaultUploadTombstones.id,
-      objectKey: vaultUploadTombstones.objectKey,
-      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
-    })
-    .from(vaultUploadTombstones)
-    .where(eq(vaultUploadTombstones.userId, userId))
-    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
-  if (rows.length === 0) return 0;
+  let offset = 0;
+  for (;;) {
+    const rows = await db
+      .select({
+        id: vaultUploadTombstones.id,
+        objectKey: vaultUploadTombstones.objectKey,
+        uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+      })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.userId, userId))
+      .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE)
+      .offset(offset);
+    if (rows.length === 0) return;
 
-  await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
-  await db.delete(vaultUploadTombstones).where(inArray(vaultUploadTombstones.id, rows.map((row) => row.id)));
-  return rows.length;
+    await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
+    if (rows.length < VAULT_ACCOUNT_DELETION_BATCH_SIZE) return;
+    offset += rows.length;
+  }
 }
 
 async function deleteVaultObjectKeys(
