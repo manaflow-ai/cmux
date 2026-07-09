@@ -331,20 +331,19 @@ export async function applySubscriptionUpdate(
     !mappedStackUserId &&
     metadataStackUserId === stackUserId;
 
+  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db)) return { skipped: true };
+  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  if (!user && isMetadataOnlyUserSubscription) return { skipped: true };
+  if (!user) throw new Error(`Stack user not found for Stripe subscription update: ${stackUserId}`);
+  if (isAccountDeletionInProgress(user)) return { skipped: true };
+
   if (hasUserSubscription) {
     await updateExistingUserStripeSubscription(db, {
       subscription,
       customerId,
       stackUserId,
     });
-  }
-
-  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user && isMetadataOnlyUserSubscription) return { skipped: true };
-  if (!user) throw new Error(`Stack user not found for Stripe subscription update: ${stackUserId}`);
-  if (isAccountDeletionInProgress(user)) return { skipped: true };
-
-  if (!hasUserSubscription) {
+  } else {
     await upsertStripeSubscription(db, {
       subscription,
       customerId,

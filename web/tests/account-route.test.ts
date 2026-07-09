@@ -573,6 +573,15 @@ describe("account deletion route", () => {
     );
     expect(completedTombstone).toBeTruthy();
     expect((completedTombstone as { readonly completedAt?: unknown }).completedAt).toBeInstanceOf(Date);
+    const leaseRefreshes = tombstoneUpdates.filter((update) =>
+      Boolean(
+        update &&
+          typeof update === "object" &&
+          (update as { readonly updatedAt?: unknown }).updatedAt instanceof Date &&
+          !("status" in update),
+      )
+    );
+    expect(leaseRefreshes.length).toBeGreaterThanOrEqual(3);
     expect(routeEvents).toEqual([
       "transaction",
       "transaction-lock",

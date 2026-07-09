@@ -811,7 +811,7 @@ describe("recordCheckoutCompletion", () => {
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
-  test("records known subscription webhooks before skipping deleting account metadata", async () => {
+  test("skips known subscription webhooks before writing rows while account deletion is in progress", async () => {
     const update = mock(async () => undefined);
     const getUser = mock(async () => ({
       id: "user_123",
@@ -832,14 +832,7 @@ describe("recordCheckoutCompletion", () => {
     expect(result).toEqual({ skipped: true });
     expect(getUser).toHaveBeenCalledWith("user_123");
     expect(update).not.toHaveBeenCalled();
-    expect(
-      updates.some(
-        (entry) =>
-          entry.table === stripeSubscriptions &&
-          entry.values.status === "canceled" &&
-          entry.values.stackUserId === "user_123",
-      ),
-    ).toBe(true);
+    expect(updates.some((entry) => entry.table === stripeSubscriptions)).toBe(false);
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
   });
 
@@ -858,14 +851,7 @@ describe("recordCheckoutCompletion", () => {
     ).rejects.toThrow("Stack user not found for Stripe subscription update: user_123");
 
     expect(getUser).toHaveBeenCalledWith("user_123");
-    expect(
-      updates.some(
-        (entry) =>
-          entry.table === stripeSubscriptions &&
-          entry.values.status === "canceled" &&
-          entry.values.stackUserId === "user_123",
-      ),
-    ).toBe(true);
+    expect(updates.some((entry) => entry.table === stripeSubscriptions)).toBe(false);
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
   });
 

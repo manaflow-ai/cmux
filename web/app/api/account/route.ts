@@ -112,6 +112,9 @@ export async function DELETE(request: Request): Promise<Response> {
           restoreBillingEntitlementsOnFailure = false;
           destructiveCleanupStarted = true;
         },
+        afterExternalMutation: async () => {
+          await refreshAccountDeletionTombstoneLease(userId);
+        },
       },
     );
     await removeTestFlightAccessForAccountDeletion(stackUser, {
@@ -120,8 +123,13 @@ export async function DELETE(request: Request): Promise<Response> {
         destructiveCleanupStarted = true;
       },
     });
+    await refreshAccountDeletionTombstoneLease(userId);
     try {
-      destroyedVms = await destroyPersonalCloudVms(userId, accountScope.teamIds);
+      destroyedVms = await destroyPersonalCloudVms(userId, accountScope.teamIds, {
+        afterVmDestroy: async () => {
+          await refreshAccountDeletionTombstoneLease(userId);
+        },
+      });
       if (destroyedVms > 0) destructiveCleanupStarted = true;
     } catch (error) {
       if (error instanceof AccountDeletionDestructiveCleanupError) {
@@ -134,12 +142,16 @@ export async function DELETE(request: Request): Promise<Response> {
       beforeObjectDeletion: () => {
         destructiveCleanupStarted = true;
       },
+      afterObjectDeletion: async () => {
+        await refreshAccountDeletionTombstoneLease(userId);
+      },
     });
     await deletePersonalSubrouterTenant(userId, {
       afterExternalMutation: () => {
         destructiveCleanupStarted = true;
       },
     }, accountScope.teamIds);
+    await refreshAccountDeletionTombstoneLease(userId);
     try {
       const revokedIdentityLeases = await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(userId));
       if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
@@ -147,6 +159,7 @@ export async function DELETE(request: Request): Promise<Response> {
       if (isVmAccountDeletionIdentityRevocationError(error)) destructiveCleanupStarted = true;
       throw error;
     }
+    await refreshAccountDeletionTombstoneLease(userId);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -289,6 +302,21 @@ async function markAccountDeletionTombstoneFailed(userId: string, error: unknown
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 
+async function refreshAccountDeletionTombstoneLease(userId: string): Promise<void> {
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({ updatedAt: new Date() })
+    .where(and(
+      eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)),
+      inArray(accountDeletionTombstones.status, [
+        "pending",
+        "in_progress",
+        "stack_delete_pending",
+        "stack_delete_in_progress",
+      ]),
+    ));
+}
+
 class AccountDeletionDestructiveCleanupError extends Error {
   constructor(
     message: string,
@@ -300,7 +328,11 @@ class AccountDeletionDestructiveCleanupError extends Error {
   }
 }
 
-async function destroyPersonalCloudVms(userId: string, accountTeamIds: readonly string[]): Promise<number> {
+async function destroyPersonalCloudVms(
+  userId: string,
+  accountTeamIds: readonly string[],
+  options: { readonly afterVmDestroy?: () => Promise<void> } = {},
+): Promise<number> {
   const vms = await listAccountDeletionCloudVms(userId, accountTeamIds);
   const failures: unknown[] = [];
   let destroyedVms = 0;
@@ -324,6 +356,7 @@ async function destroyPersonalCloudVms(userId: string, accountTeamIds: readonly 
       destructiveCleanupStarted = true;
       await runVmWorkflow(destroyProgram);
       destroyedVms += 1;
+      await options.afterVmDestroy?.();
     } catch (error) {
       failures.push(error);
       logAccountDeleteError("account.delete.vm_destroy_failed", error);
@@ -374,7 +407,10 @@ function accountDeletionVmKey(vm: { readonly provider: ProviderId; readonly prov
 
 async function deleteVaultRowsAndObjectsForAccount(
   userId: string,
-  options: { readonly beforeObjectDeletion?: () => void } = {},
+  options: {
+    readonly beforeObjectDeletion?: () => void;
+    readonly afterObjectDeletion?: () => Promise<void>;
+  } = {},
 ): Promise<void> {
   const db = cloudDb();
 
@@ -390,6 +426,7 @@ async function deleteVaultRowsAndObjectsForAccount(
     options.beforeObjectDeletion?.();
     await Promise.all(snapshots.map((snapshot) => deleteObject(snapshot.objectKey)));
     await db.delete(vaultSnapshots).where(inArray(vaultSnapshots.id, snapshots.map((snapshot) => snapshot.id)));
+    await options.afterObjectDeletion?.();
     if (snapshots.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
@@ -411,6 +448,7 @@ async function deleteVaultRowsAndObjectsForAccount(
       deleteObject(grant.uploadObjectKey),
     ]));
     await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, grants.map((grant) => grant.id)));
+    await options.afterObjectDeletion?.();
     if (grants.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
@@ -434,6 +472,7 @@ async function deleteVaultRowsAndObjectsForAccount(
     await db
       .delete(vaultUploadTombstones)
       .where(inArray(vaultUploadTombstones.id, tombstones.map((tombstone) => tombstone.id)));
+    await options.afterObjectDeletion?.();
     if (tombstones.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
@@ -448,6 +487,7 @@ async function deleteVaultRowsAndObjectsForAccount(
     options.beforeObjectDeletion?.();
     await Promise.all(sessions.map((session) => deleteObject(session.latestObjectKey)));
     await db.delete(vaultSessions).where(inArray(vaultSessions.id, sessions.map((session) => session.id)));
+    await options.afterObjectDeletion?.();
     if (sessions.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 }
@@ -461,7 +501,10 @@ async function resolveUserBillingForAccountDeletion(
   userId: string,
   accountTeamIds: readonly string[],
   retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[],
-  options: { readonly beforeExternalRequest?: () => void } = {},
+  options: {
+    readonly beforeExternalRequest?: () => void;
+    readonly afterExternalMutation?: () => Promise<void>;
+  } = {},
 ): Promise<void> {
   const db = cloudDb();
   const deletionTeamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
@@ -524,6 +567,7 @@ async function resolveUserBillingForAccountDeletion(
         deletedAccountId: deletedStripeAccountId(userId),
       },
     });
+    await options.afterExternalMutation?.();
     await db
       .update(stripeCustomers)
       .set({
@@ -543,6 +587,7 @@ async function resolveUserBillingForAccountDeletion(
         deletedAccountId: deletedStripeAccountId(userId),
       },
     });
+    await options.afterExternalMutation?.();
     await db
       .update(stripeSubscriptions)
       .set({
@@ -555,10 +600,12 @@ async function resolveUserBillingForAccountDeletion(
   for (const subscription of activeSubscriptions) {
     options.beforeExternalRequest?.();
     await cancelStripeSubscriptionForAccountDeletion(client, subscription.id);
+    await options.afterExternalMutation?.();
   }
   for (const customer of customers) {
     options.beforeExternalRequest?.();
     await deleteStripeCustomerForAccountDeletion(client, customer.id);
+    await options.afterExternalMutation?.();
   }
 }
 
