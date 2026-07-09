@@ -28,6 +28,10 @@ const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+const apnsSenderModule = await import("../services/apns/sender");
+const realNormalizeP8 = apnsSenderModule.normalizeP8;
+const realSendApnsNotification = apnsSenderModule.sendApnsNotification;
+const realSignApnsJwt = apnsSenderModule.signApnsJwt;
 
 const getUser = mock(async () => ({
   id: "user-1",
@@ -45,7 +49,12 @@ let sendApnsNotificationImpl = async () => [{
   status: 200,
   prune: false,
 }];
-const sendApnsNotification = mock(async () => await sendApnsNotificationImpl());
+const sendApnsNotification = mock(async (...args: unknown[]) => {
+  if (args.length >= 5) {
+    return await realSendApnsNotification(...(args as Parameters<typeof realSendApnsNotification>));
+  }
+  return await sendApnsNotificationImpl();
+});
 let useStubDb = false;
 let pushDbCalls: string[] = [];
 let pushDbTransactionOpen = false;
@@ -87,7 +96,9 @@ mock.module("../db/client", () => ({
 }));
 
 mock.module("../services/apns/sender", () => ({
+  normalizeP8: realNormalizeP8,
   sendApnsNotification,
+  signApnsJwt: realSignApnsJwt,
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");
