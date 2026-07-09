@@ -469,19 +469,6 @@ async function claimProviderlessAccountVms(
   const db = runtime.cloudDb();
   const now = new Date();
   const staleBefore = new Date(now.getTime() - ACCOUNT_DELETION_JOB_STALE_MS);
-  const [inFlightCreate] = await db
-    .select({ id: cloudVms.id })
-    .from(cloudVms)
-    .where(and(
-      personalCloudVmRows(userId),
-      eq(cloudVms.status, "provisioning"),
-      isNull(cloudVms.providerVmId),
-    ))
-    .limit(1);
-  if (inFlightCreate) {
-    throw new Error("Cloud VM account deletion cleanup is waiting for provisioning VMs to settle");
-  }
-
   await db
     .update(cloudVms)
     .set({
@@ -497,6 +484,19 @@ async function claimProviderlessAccountVms(
       isNull(cloudVms.providerVmId),
       lt(cloudVms.updatedAt, staleBefore),
     ));
+
+  const [inFlightCreate] = await db
+    .select({ id: cloudVms.id })
+    .from(cloudVms)
+    .where(and(
+      personalCloudVmRows(userId),
+      eq(cloudVms.status, "provisioning"),
+      isNull(cloudVms.providerVmId),
+    ))
+    .limit(1);
+  if (inFlightCreate) {
+    throw new Error("Cloud VM account deletion cleanup is waiting for provisioning VMs to settle");
+  }
 
   await db
     .update(cloudVms)

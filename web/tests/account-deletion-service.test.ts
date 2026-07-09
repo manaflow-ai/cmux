@@ -163,8 +163,8 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     expect(calls.slice(0, 3)).toEqual([
-      "select-providerless-provisioning-vms",
       "expire-stale-providerless-vms",
+      "select-providerless-provisioning-vms",
       "claim-providerless-vms",
     ]);
     expect(calls.slice(3, 6)).toEqual([
@@ -199,8 +199,8 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     expect(calls.slice(0, 4)).toEqual([
-      "select-providerless-provisioning-vms",
       "expire-stale-providerless-vms",
+      "select-providerless-provisioning-vms",
       "claim-providerless-vms",
       "select-provider-backed-vms",
     ]);
@@ -247,8 +247,8 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     expect(calls.slice(0, 3)).toEqual([
-      "select-providerless-provisioning-vms",
       "expire-stale-providerless-vms",
+      "select-providerless-provisioning-vms",
       "claim-providerless-vms",
     ]);
   });
@@ -296,7 +296,7 @@ describe("account deletion cleanup", () => {
       userId: "user-1",
     }, fakeRuntime())).rejects.toThrow("waiting for provisioning VMs to settle");
 
-    expect(calls).toEqual(["select-providerless-provisioning-vms"]);
+    expect(calls).toEqual(["expire-stale-providerless-vms", "select-providerless-provisioning-vms"]);
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
