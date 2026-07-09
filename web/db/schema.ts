@@ -47,6 +47,24 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
+export const teamInviteRole = pgEnum("team_invite_role", ["admin", "member"]);
+
+export const teamInviteRoles = pgTable(
+  "team_invite_roles",
+  {
+    invitationId: text("invitation_id").primaryKey(),
+    stackTeamId: text("stack_team_id").notNull(),
+    role: teamInviteRole("role").notNull().default("member"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("team_invite_roles_stack_team_idx").on(table.stackTeamId),
+  ],
+);
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {

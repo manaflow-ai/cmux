@@ -21,6 +21,7 @@ import {
   stripe,
   type ProBillingInterval,
 } from "../../../../services/billing/stripe";
+import { TEAM_ADMIN_PERMISSION_ID } from "../../../../services/team/invites";
 
 export const dynamic = "force-dynamic";
 
@@ -248,6 +249,7 @@ type CheckoutTeamUser = {
   readonly selectedTeam?: CheckoutTeamCustomer | null;
   listTeams?(): Promise<CheckoutTeamCustomer[]>;
   createTeam?(data: { displayName: string }): Promise<CheckoutTeamCustomer>;
+  grantPermission?(scope: CheckoutTeamCustomer, permissionId: string): Promise<void>;
 };
 
 async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
@@ -262,6 +264,7 @@ async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTea
   }
 
   const team = await user.createTeam({ displayName: "cmux Team" });
+  await user.grantPermission?.(team, TEAM_ADMIN_PERMISSION_ID);
   return team;
 }
 
