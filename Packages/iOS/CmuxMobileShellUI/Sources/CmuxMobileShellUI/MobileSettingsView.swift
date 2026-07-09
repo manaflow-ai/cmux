@@ -32,6 +32,7 @@ struct MobileSettingsView: View {
     @State private var showingDeleteAccountConfirmation = false
     @State private var isDeletingAccount = false
     @State private var accountDeletionErrorMessage: String?
+    @State private var accountDeletionAcceptedMessage: String?
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -370,6 +371,7 @@ struct MobileSettingsView: View {
             .mobileSettingsAccountDeletionAlerts(
                 showingConfirmation: $showingDeleteAccountConfirmation,
                 errorMessage: $accountDeletionErrorMessage,
+                acceptedMessage: $accountDeletionAcceptedMessage,
                 deleteAccount: deleteAccount
             )
         }
@@ -398,11 +400,19 @@ struct MobileSettingsView: View {
         isDeletingAccount = true
         Task {
             do {
-                try await accountDeletionClient.deleteAccount()
+                let result = try await accountDeletionClient.deleteAccount()
                 await MainActor.run {
                     isDeletingAccount = false
-                    signOut?()
-                    dismiss()
+                    switch result {
+                    case .completed:
+                        signOut?()
+                        dismiss()
+                    case .accepted:
+                        accountDeletionAcceptedMessage = L10n.string(
+                            "mobile.settings.deleteAccountAcceptedMessage",
+                            defaultValue: "Your deletion request was accepted and account cleanup is still running. cmux has locked account writes while deletion finishes. If this account is still visible later, try again or contact founders@manaflow.com."
+                        )
+                    }
                 }
             } catch {
                 await MainActor.run {

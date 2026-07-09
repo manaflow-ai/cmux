@@ -5,6 +5,7 @@ import SwiftUI
 private struct MobileSettingsAccountDeletionAlerts: ViewModifier {
     @Binding var showingConfirmation: Bool
     @Binding var errorMessage: String?
+    @Binding var acceptedMessage: String?
     let deleteAccount: () -> Void
 
     func body(content: Content) -> some View {
@@ -33,6 +34,14 @@ private struct MobileSettingsAccountDeletionAlerts: ViewModifier {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .alert(
+                L10n.string("mobile.settings.deleteAccountAcceptedTitle", defaultValue: "Deletion Request Started"),
+                isPresented: Binding(get: { acceptedMessage != nil }, set: { if !$0 { acceptedMessage = nil } })
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(acceptedMessage ?? "")
+            }
     }
 }
 
@@ -40,11 +49,13 @@ extension View {
     func mobileSettingsAccountDeletionAlerts(
         showingConfirmation: Binding<Bool>,
         errorMessage: Binding<String?>,
+        acceptedMessage: Binding<String?>,
         deleteAccount: @escaping () -> Void
     ) -> some View {
         modifier(MobileSettingsAccountDeletionAlerts(
             showingConfirmation: showingConfirmation,
             errorMessage: errorMessage,
+            acceptedMessage: acceptedMessage,
             deleteAccount: deleteAccount
         ))
     }
