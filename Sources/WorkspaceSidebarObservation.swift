@@ -47,12 +47,23 @@ extension View {
         onChange: @MainActor @escaping () -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
+            let aggregateObservation = WorkspaceSidebarProcessTitleObservationModel(
+                settleInterval: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval
+            )
+            let aggregateChanges = aggregateObservation.changes()
             await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    for await _ in aggregateChanges {
+                        if Task.isCancelled { break }
+                        onChange()
+                    }
+                }
                 for model in models {
+                    let changes = model.changes()
                     group.addTask { @MainActor in
-                        for await _ in model.changes() {
+                        for await _ in changes {
                             if Task.isCancelled { break }
-                            onChange()
+                            aggregateObservation.processTitleDidChange()
                         }
                     }
                 }
@@ -71,6 +82,7 @@ final class WorkspaceSidebarProcessTitleObservationModel {
     typealias Scheduler = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Cancellation
 
     nonisolated static let defaultSettleInterval: TimeInterval = 0.5
+    nonisolated static let extensionSidebarAggregateInterval: TimeInterval = 0.05
 
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
@@ -112,12 +124,22 @@ final class WorkspaceSidebarProcessTitleObservationModel {
             let id = UUID()
             changeObservers[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                Task { @MainActor in self?.changeObservers[id] = nil }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.changeObservers[id] = nil
+                    if self.changeObservers.isEmpty {
+                        self.cancelPendingProcessTitleChange()
+                    }
+                }
             }
         }
     }
 
     func processTitleDidChange() {
+        guard !changeObservers.isEmpty else {
+            cancelPendingProcessTitleChange()
+            return
+        }
         cancelPendingProcessTitleChange()
         cancelPendingChange = schedule(settleInterval) { [weak self] in
             guard let self else { return }

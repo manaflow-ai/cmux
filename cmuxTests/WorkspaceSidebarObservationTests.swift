@@ -172,6 +172,7 @@ struct WorkspaceSidebarObservationTests {
         let workspaces = models.map { model in
             Workspace(sidebarProcessTitleObservation: model)
         }
+        let observationStreams = models.map { $0.changes() }
         var immediatePublishCounts = Array(repeating: 0, count: workspaces.count)
         let cancellables = workspaces.enumerated().map { index, workspace in
             workspace.sidebarImmediateObservationPublisher.sink {
@@ -199,19 +200,55 @@ struct WorkspaceSidebarObservationTests {
             models.allSatisfy { $0.changeGeneration == 1 },
             "Each workspace must publish exactly one refresh with its settled process title."
         )
+        withExtendedLifetime(observationStreams) {}
+    }
+
+    @Test func unobservedProcessTitlesDoNotScheduleSettleActions() {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+
+        for frame in 0..<20 {
+            workspace.applyProcessTitle("Agent frame \(frame)")
+        }
+
+        #expect(scheduler.scheduledActionCount == 0)
+        #expect(model.changeGeneration == 0)
+    }
+
+    @Test func extensionSidebarAggregateCoalescesSettledWorkspaceChanges() {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let aggregate = WorkspaceSidebarProcessTitleObservationModel(
+            settleInterval: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval,
+            schedule: scheduler.schedule(delay:action:)
+        )
+        let observationStream = aggregate.changes()
+
+        for _ in 0..<16 {
+            aggregate.processTitleDidChange()
+        }
+
+        #expect(scheduler.scheduledActionCount == 16)
+        #expect(aggregate.changeGeneration == 0)
+        scheduler.fireAll()
+        #expect(aggregate.changeGeneration == 1)
+        withExtendedLifetime(observationStream) {}
     }
 
     @Test func customTitleCancelsPendingProcessTitleRefresh() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
         let workspace = Workspace(sidebarProcessTitleObservation: model)
+        let observationStream = model.changes()
 
         workspace.applyProcessTitle("Agent frame")
+        #expect(scheduler.scheduledActionCount == 1)
         workspace.setCustomTitle("User Edit")
         scheduler.fireAll()
 
         #expect(model.changeGeneration == 0)
         #expect(workspace.title == "User Edit")
+        withExtendedLifetime(observationStream) {}
     }
 
     @Test func coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing() {
