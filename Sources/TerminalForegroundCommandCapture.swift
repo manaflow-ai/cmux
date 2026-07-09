@@ -81,7 +81,8 @@ enum TerminalForegroundCommandCapture {
     /// replays as shell syntax.
     static func commandLine(fromArgv argv: [String]) -> String? {
         let runtimeUnwrapper = JavaScriptRuntimeAgentLaunchUnwrapper(
-            isKnownAgentExecutableName: { knownAgentKind(forExecutableName: $0) != nil }
+            isKnownAgentExecutableName: { knownAgentKind(forExecutableName: $0) != nil },
+            stripsCmuxHookArguments: true
         )
         let argv = runtimeUnwrapper.unwrappedArgv(argv) ?? argv
         guard let executable = argv.first, !executable.isEmpty else { return nil }
@@ -92,7 +93,8 @@ enum TerminalForegroundCommandCapture {
             if let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
                 argv,
                 launcher: "",
-                fallbackKind: agentKind
+                fallbackKind: agentKind,
+                stripCmuxHookArguments: true
             ) {
                 sanitizedArgv = sanitized
             } else {

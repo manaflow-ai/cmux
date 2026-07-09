@@ -329,39 +329,36 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
-    @Test func commandLinePreservesNodeCodexRuntimeHooksAndStripsResume() {
+    @Test func commandLineStripsNodeCodexCmuxHooksAndResume() {
         let command = TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv())
-        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex --enable hooks ") == true)
-        #expect(command?.contains("cmux-codex-hook-stop.sh") == true)
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex ") == true)
+        #expect(command?.contains("cmux-codex-hook") == false)
         #expect(command?.contains("019dad34-d218-7943-b81a-eddac5c87951") == false)
+        #expect(command?.contains("--model gpt-5.5") == true)
     }
 
-    @Test func commandLinePreservesNodeClaudeRuntimeAndSettings() {
-        // Claude Code's real npm entrypoint is cli.js: the basename never
-        // matches "claude", so package-path sanitization preserves the captured
-        // runtime and settings while avoiding a PATH rewrite.
+    @Test func commandLinePreservesNodeClaudeRuntimeAndUserSettingsOnly() {
         let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
         let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
             "node", "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
             "--settings", mergedHookSettings, "--model", "claude-fable-5",
         ])
         #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js --settings ") == true)
-        #expect(command?.contains("hooks claude session-start") == true)
+        #expect(command?.contains("USER_FLAG") == true)
+        #expect(command?.contains("hooks claude session-start") == false)
         #expect(command?.hasPrefix("claude --settings") == false)
     }
 
-    @Test func commandLineKeepsNativeCodexExecutableWhenOnlyHooksLookInjected() {
-        // Codex hook config is normal user-controllable argv, so it is not proof
-        // that cmux's PATH shim launched the captured absolute executable.
+    @Test func commandLineStripsNativeCodexCmuxHooksWithoutRewritingExecutable() {
         let nativeCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
             "/usr/local/bin/codex", "--enable", "hooks", "--dangerously-bypass-hook-trust",
             "-c", "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
             "--model", "gpt-5.5",
         ])
         #expect(nativeCommand?.hasPrefix("/usr/local/bin/codex ") == true)
-        #expect(nativeCommand?.contains("cmux-codex-hook-stop.sh") == true)
+        #expect(nativeCommand?.contains("cmux-codex-hook-stop.sh") == false)
+        #expect(nativeCommand?.contains("--model gpt-5.5") == true)
         #expect(nativeCommand?.hasPrefix("codex ") == false)
-        // Without the marker the user's own absolute-path launch is preserved.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "/usr/local/bin/codex", "--model", "gpt-5.5",
@@ -378,6 +375,7 @@ struct CmuxConfigActionSaverTests {
             "gpt-5.5",
         ])
         #expect(explicitPinnedCommand?.hasPrefix("/opt/pinned/bin/codex ") == true)
+        #expect(explicitPinnedCommand?.contains("cmux-codex-hook-stop.sh") == false)
         #expect(explicitPinnedCommand?.hasPrefix("codex ") == false)
     }
 
@@ -392,6 +390,17 @@ struct CmuxConfigActionSaverTests {
                 "high",
             ]) == "/Users/u/.local/bin/claude --dangerously-skip-permissions --model claude-fable-5 --effort high"
         )
+    }
+
+    @Test func commandLineStripsNativeClaudeCmuxHookSettingsWithoutRewritingExecutable() {
+        let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
+        let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "/opt/homebrew/bin/claude", "--settings", mergedHookSettings, "--model", "claude-fable-5",
+        ])
+        #expect(command?.hasPrefix("/opt/homebrew/bin/claude --settings ") == true)
+        #expect(command?.contains("USER_FLAG") == true)
+        #expect(command?.contains("hooks claude session-start") == false)
+        #expect(command?.hasPrefix("claude ") == false)
     }
 
     @Test func knownAgentKindCoversAliasesAndArchSuffixedBuilds() {

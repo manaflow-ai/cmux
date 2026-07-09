@@ -3,12 +3,19 @@ import Foundation
 /// Rewrites cmux-wrapper-launched JavaScript runtime argv back to the agent executable.
 public struct JavaScriptRuntimeAgentLaunchUnwrapper {
     private let isKnownAgentExecutableName: (String) -> Bool
+    private let stripsCmuxHookArguments: Bool
 
     /// Creates an unwrapper that recognizes agent executable basenames through `isKnownAgentExecutableName`.
     ///
     /// - Parameter isKnownAgentExecutableName: Predicate that returns true for supported agent executable names.
-    public init(isKnownAgentExecutableName: @escaping (String) -> Bool) {
+    /// - Parameter stripsCmuxHookArguments: Whether cmux-owned hook injection should be removed
+    ///   while sanitizing package-manager entrypoint tails.
+    public init(
+        isKnownAgentExecutableName: @escaping (String) -> Bool,
+        stripsCmuxHookArguments: Bool = false
+    ) {
         self.isKnownAgentExecutableName = isKnownAgentExecutableName
+        self.stripsCmuxHookArguments = stripsCmuxHookArguments
     }
 
     /// Rewrites or sanitizes node/bun-hosted known agent argv.
@@ -50,12 +57,15 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
         if let packageAgentName {
             switch packageAgentName {
             case "codex":
-                let preservedTail = preservedCodexLaunchArguments(args: scriptTail, stripCmuxHooks: false) ?? []
+                let preservedTail = preservedCodexLaunchArguments(
+                    args: scriptTail,
+                    stripCmuxHooks: stripsCmuxHookArguments
+                ) ?? []
                 return Array(argv.prefix(scriptIndex + 1)) + preservedTail
             case "claude":
                 let preservedTail = ClaudeLaunchArgumentsPreserver().preservedArguments(
                     args: scriptTail,
-                    stripCmuxHookSettings: false
+                    stripCmuxHookSettings: stripsCmuxHookArguments
                 ) ?? []
                 return Array(argv.prefix(scriptIndex + 1)) + preservedTail
             default:

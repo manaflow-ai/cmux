@@ -32,10 +32,21 @@ public enum AgentLaunchSanitizer {
         var scansOptionsPastPositionals: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
+    /// Returns launch arguments with non-restorable agent resume/session artifacts removed.
+    ///
+    /// - Parameters:
+    ///   - arguments: Captured argv, including the executable as element zero.
+    ///   - launcher: The cmux launcher token associated with the argv, if any.
+    ///   - fallbackKind: Agent kind to use when `launcher` does not select a wrapper.
+    ///   - stripCmuxHookArguments: Remove cmux-owned hook injection even when the captured
+    ///     executable is an absolute path. This keeps save-layout replay commands below
+    ///     pty canonical-line limits without treating hook argv as executable identity proof.
+    /// - Returns: Sanitized argv, or nil when the launch form is not restorable.
     public static func sanitizedLaunchArguments(
         _ arguments: [String],
         launcher: String,
-        fallbackKind: String
+        fallbackKind: String,
+        stripCmuxHookArguments: Bool = false
     ) -> [String]? {
         guard let executable = arguments.first, !executable.isEmpty else { return nil }
         var tail = Array(arguments.dropFirst())
@@ -69,13 +80,13 @@ public enum AgentLaunchSanitizer {
         case "claude":
             guard let preserved = ClaudeLaunchArgumentsPreserver().preservedArguments(
                 args: tail,
-                stripCmuxHookSettings: executable == "claude"
+                stripCmuxHookSettings: stripCmuxHookArguments || executable == "claude"
             ) else { return nil }
             return [executable] + preserved
         case "codex":
             guard let preserved = preservedCodexLaunchArguments(
                 args: tail,
-                stripCmuxHooks: executable == "codex"
+                stripCmuxHooks: stripCmuxHookArguments || executable == "codex"
             ) else { return nil }
             let replayExecutable = codexReplayExecutable(capturedExecutable: executable, launchTail: tail)
             return [replayExecutable] + preserved
