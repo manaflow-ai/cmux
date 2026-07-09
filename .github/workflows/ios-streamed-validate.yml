@@ -261,22 +261,7 @@ jobs:
           idb list-targets >/dev/null 2>&1 || echo "warning: idb list-targets failed (will retry in capture)"
           curl -fsS http://localhost:3000/handler/sign-in >/dev/null || {
             echo "::error::web backend not reachable from capture step"; cat /tmp/webdev.log || true; exit 1; }
-          SIM_ID="$(xcrun simctl list devices booted -j | python3 - <<'PY'
-          import json
-          import sys
-
-          data = json.load(sys.stdin)
-          matches = [
-              device["udid"]
-              for runtime in data.get("devices", {}).values()
-              for device in runtime
-              if device.get("name") == "iPhone 17 Pro Max"
-          ]
-          if not matches:
-              raise SystemExit("no booted iPhone 17 Pro Max simulator found after ios/scripts/reload.sh")
-          print(matches[0])
-          PY
-          )"
+          SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import json, sys; data = json.load(sys.stdin); matches = [device["udid"] for runtime in data.get("devices", {}).values() for device in runtime if device.get("name") == "iPhone 17 Pro Max"]; sys.exit("no booted iPhone 17 Pro Max simulator found after ios/scripts/reload.sh") if not matches else print(matches[0])')"
           echo "sim: $SIM_ID"
           xcrun simctl ui "$SIM_ID" appearance dark || true
           # Launch the tagged Mac app FIRST: mobile-dev-launch --ensure-mac mints
