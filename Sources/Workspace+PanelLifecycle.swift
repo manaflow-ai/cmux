@@ -122,26 +122,26 @@ extension Workspace {
         }
         return didChange
     }
-
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
-        let previousPanelId = agentPIDPanelIdsByKey[key]
+        let previous = (
+            panelId: agentPIDPanelIdsByKey[key],
+            pid: agentPIDs[key],
+            identity: agentPIDProcessIdentitiesByKey[key]
+        )
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId {
-            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
-        }
+        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
+        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
         agentPIDs[key] = pid
-        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
-        if let panelId {
-            recordAgentPIDOwnership(key: key, panelId: panelId)
-        } else {
-            removeAgentPIDOwnership(key: key)
-        }
-        for changedPanelId in (previousPanelId == panelId ? [panelId] : [previousPanelId, panelId]).compactMap({ $0 }) {
-            AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+        agentPIDProcessIdentitiesByKey[key] = processIdentity
+        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
+            for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
+                AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+            }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
-        syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
+        syncTerminalTabAgentIconAssets(forPanelIds: previous.panelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
 
