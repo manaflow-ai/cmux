@@ -96,11 +96,11 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             buf[(0, y)].set_symbol("▎").set_style(rail_style);
             buf[(0, y + 1)].set_symbol("▎").set_style(rail_style);
         }
-        if content_w > 1 {
-            if let Some(color) = workspace_unread_color(&app.config.theme, ws) {
-                let dot_style = style.fg(color).add_modifier(Modifier::BOLD);
-                buf[(0, y)].set_symbol("•").set_style(dot_style);
-            }
+        if content_w > 1
+            && let Some(color) = workspace_unread_color(&app.config.theme, ws)
+        {
+            let dot_style = style.fg(color).add_modifier(Modifier::BOLD);
+            buf[(0, y)].set_symbol("•").set_style(dot_style);
         }
         set_line_from(buf, 1, y, &truncate(&ws.name, content_w - 1), style);
         hits.push((row_rect(y), Hit::Workspace { index: i, id: ws.id }));

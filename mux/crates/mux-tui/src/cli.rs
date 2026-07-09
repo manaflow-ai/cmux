@@ -562,10 +562,10 @@ fn resolve_socket(global: &GlobalArgs) -> PathBuf {
     if let Some(path) = &global.socket {
         return path.clone();
     }
-    if let Some(path) = std::env::var_os("CMUX_MUX_SOCKET") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
+    if let Some(path) = std::env::var_os("CMUX_MUX_SOCKET")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
     }
     let session = global.session.as_deref().unwrap_or("main");
     mux_core::server::default_socket_path(session)

@@ -341,12 +341,12 @@ fn draw_content(
         }
     }
 
-    if focused {
-        if let Some(cursor) = rs.cursor() {
-            if (cursor.x as usize) < max_cols && (cursor.y as usize) < max_rows {
-                return Some((rect.x + cursor.x, rect.y + cursor.y));
-            }
-        }
+    if focused
+        && let Some(cursor) = rs.cursor()
+        && (cursor.x as usize) < max_cols
+        && (cursor.y as usize) < max_rows
+    {
+        return Some((rect.x + cursor.x, rect.y + cursor.y));
     }
     None
 }

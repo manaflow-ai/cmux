@@ -75,12 +75,12 @@ impl RemoteSurface {
         let (cols, rows) = (cols.max(1), rows.max(1));
         self.set_server_size(cols, rows);
         let mut term = self.term.lock().unwrap();
-        if let Some(replay) = replay {
-            if let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default()) {
-                fresh.vt_write(replay);
-                *term = fresh;
-                return;
-            }
+        if let Some(replay) = replay
+            && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
+        {
+            fresh.vt_write(replay);
+            *term = fresh;
+            return;
         }
         let _ = term.resize(cols, rows, 8, 16);
     }

@@ -745,10 +745,10 @@ pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOp
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
-    if let Some(name) = name {
-        if !name.is_empty() {
-            return name.to_string();
-        }
+    if let Some(name) = name
+        && !name.is_empty()
+    {
+        return name.to_string();
     }
     let number = index + 1;
     let suffix = if tabs.show_titles {
