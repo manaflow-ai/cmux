@@ -19,6 +19,7 @@ public struct TerminalSection: View {
     @State private var activeScrollSpeedDragValue: Double?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var inlineImageThumbnails: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -42,6 +43,7 @@ public struct TerminalSection: View {
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _inlineImageThumbnails = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.inlineImageThumbnails))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -67,6 +69,7 @@ public struct TerminalSection: View {
             scrollSpeed,
             scrollBar,
             copyOnSelect,
+            inlineImageThumbnails,
             autoResume,
             hibernation,
             idleSeconds,
@@ -227,6 +230,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.inlineImageThumbnails"),
+                String(localized: "settings.terminal.inlineImageThumbnails", defaultValue: "Inline Image Thumbnails"),
+                subtitle: inlineImageThumbnails.current
+                    ? String(localized: "settings.terminal.inlineImageThumbnails.subtitleOn", defaultValue: "Shows clickable image thumbnails near terminal rows that contain image file paths.")
+                    : String(localized: "settings.terminal.inlineImageThumbnails.subtitleOff", defaultValue: "Image file paths stay plain text in terminal output.")
+            ) {
+                Toggle("", isOn: Binding(get: { inlineImageThumbnails.current }, set: { inlineImageThumbnails.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalInlineImageThumbnailsToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

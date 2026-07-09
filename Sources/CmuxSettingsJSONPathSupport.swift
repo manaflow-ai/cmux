@@ -183,6 +183,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.copyOnSelect"
         ),
         .init(
+            jsonKey: "inlineImageThumbnails",
+            defaultsKey: TerminalInlineImageSettings.inlineImageThumbnailsKey,
+            invalidPath: "terminal.inlineImageThumbnails"
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
@@ -374,6 +379,7 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
+        "terminal.inlineImageThumbnails",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
