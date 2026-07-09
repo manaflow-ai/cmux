@@ -38,7 +38,7 @@ Details:
 | Identifiers, Device ID | Yes | Yes | No | App Functionality, Analytics | App-generated install and device identifiers for pairing, device registry, multi-device sync, and analytics grouping. |
 | Usage Data, Product Interaction | Yes | Yes | No | Analytics | Product events such as launch, foreground/background, session, sign-in result, pairing result, workspace open, push opt-in, and terminal input byte counts. Terminal text is not collected for analytics. |
 | User Content, Other User Content | Yes | Yes | No | App Functionality | User-submitted feedback message. Terminal content, pasted content, images, and files are sent to the user's paired Mac, not collected by Manaflow, unless the user explicitly submits feedback. |
-| Diagnostics, Other Diagnostic Data | Yes | Yes | No | App Functionality | Feedback build stamp, OS version, hardware model, and diagnostic bundle only when the user submits feedback. |
+| Diagnostics, Other Diagnostic Data | Yes | Yes | No | App Functionality, Analytics | Feedback build stamp, OS version, hardware model, and diagnostic bundle when the user submits feedback; OS version and hardware model are also attached to product analytics when sharing is enabled. |
 
 ## Data Types Not Selected
 
