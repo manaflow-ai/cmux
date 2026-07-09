@@ -104,18 +104,18 @@ export async function postAnalyticsEvents(
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  const forwarded = await dependencies.forwardToPostHog(accepted, user?.id ?? null);
-  if (!forwarded.ok) {
-    return jsonResponse({ error: "forward_failed" }, forwarded.status);
-  }
+  const anonymousIds = user ? identifyAnonymousIds(accepted) : [];
   if (user) {
-    const anonymousIds = identifyAnonymousIds(accepted);
     if (anonymousIds.length > 0) {
       await dependencies.recordIOSAnalyticsIdentities({
         userId: user.id,
         anonymousIds,
       });
     }
+  }
+  const forwarded = await dependencies.forwardToPostHog(accepted, user?.id ?? null);
+  if (!forwarded.ok) {
+    return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
   return jsonResponse({ ok: true, forwarded: accepted.length });
 }

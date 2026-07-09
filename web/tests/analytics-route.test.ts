@@ -71,7 +71,33 @@ describe("iOS analytics route", () => {
     expect(forwardToPostHog).toHaveBeenCalled();
   });
 
-  test("does not persist identify mappings when PostHog forwarding fails", async () => {
+  test("records identify mappings before forwarding to PostHog", async () => {
+    const calls: string[] = [];
+
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "stack-user-1",
+        properties: {
+          "$anon_distinct_id": "22222222-2222-4222-8222-222222222222",
+        },
+      }],
+    }), {
+      verifyRequest,
+      recordIOSAnalyticsIdentities: async () => {
+        calls.push("record-identities");
+      },
+      forwardToPostHog: async () => {
+        calls.push("forward-posthog");
+        return { ok: true };
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["record-identities", "forward-posthog"]);
+  });
+
+  test("keeps identify mappings when PostHog forwarding fails", async () => {
     forwardToPostHog.mockResolvedValue({ ok: false, status: 502 });
 
     const response = await postAnalyticsEvents(jsonRequest({
@@ -85,7 +111,10 @@ describe("iOS analytics route", () => {
     }), dependencies());
 
     expect(response.status).toBe(502);
-    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
+    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
+      userId: "stack-user-1",
+      anonymousIds: ["22222222-2222-4222-8222-222222222222"],
+    });
   });
 
   test("does not persist anonymous-only analytics ids without a Stack user", async () => {
