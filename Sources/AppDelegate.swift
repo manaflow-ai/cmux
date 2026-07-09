@@ -16603,6 +16603,16 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
+            // A stale default (e.g. ⌘⇧L after Open Browser is remapped) is free for
+            // web-extension commands like Bitwarden autofill while a browser web
+            // view has focus; otherwise the suppression below would eat it.
+            if #available(macOS 15.4, *), cmuxRespondersContainBrowserWebView(responder),
+               BrowserWebExtensionSupport.shared.performCommand(for: event) {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent routed web-extension command before stale cmux menu shortcut")
+#endif
+                return
+            }
             if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
                 ghosttyView.keyDown(with: event)
 #if DEBUG

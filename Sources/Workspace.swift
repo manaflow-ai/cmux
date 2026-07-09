@@ -9712,6 +9712,9 @@ final class Workspace: Identifiable, ObservableObject {
         focusIntent: PanelFocusIntent? = nil
     ) {
         markExplicitFocusIntent(on: panelId)
+        if #available(macOS 15.4, *), panels[panelId] is BrowserPanel {
+            BrowserWebExtensionSupport.shared.noteActivated(panelID: panelId)
+        }
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"

@@ -3593,6 +3593,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
+        if #available(macOS 15.4, *) {
+            BrowserWebExtensionSupport.shared.attach(to: configuration)
+        }
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 CmuxDiffViewerURLSchemeHandler.shared,
@@ -3976,6 +3979,9 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+        if #available(macOS 15.4, *) {
+            BrowserWebExtensionSupport.shared.register(panel: self)
+        }
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -5326,6 +5332,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        if #available(macOS 15.4, *) {
+            BrowserWebExtensionSupport.shared.unregister(panelID: id)
+        }
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         refreshWebViewLifecycleState()
