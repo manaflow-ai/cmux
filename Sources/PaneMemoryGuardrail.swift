@@ -85,15 +85,12 @@ final class PaneMemoryGuardrail {
         let thresholdBytes = thresholdBytes()
         let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
-        let sampleTask = Task.detached(priority: .utility) {
-            Self.computeCachedSamples(
+        scanApplyTask = Task { @MainActor [weak self] in
+            let batch = await Self.computeCachedSamples(
                 descriptors: descriptors,
                 thresholdBytes: thresholdBytes,
                 includeCMUXScope: includeCMUXScope
             )
-        }
-        scanApplyTask = Task { @MainActor [weak self] in
-            let batch = await sampleTask.value
             guard !Task.isCancelled else { return }
             self?.applySamples(
                 batch,
@@ -106,16 +103,18 @@ final class PaneMemoryGuardrail {
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64,
         includeCMUXScope: Bool = false
-    ) -> PaneMemoryGuardrailSampleBatch {
+    ) async -> PaneMemoryGuardrailSampleBatch {
         // The unscoped maximumAge must stay below pollInterval (4s): serving the
         // guardrail its own previous tick's snapshot would silently halve its
         // effective sampling cadence. 3s only allows reuse of a snapshot another
         // subsystem (autosave, task manager) captured moments earlier; when the
         // guardrail is the sole sampler it still captures fresh each tick, which
         // is the cheap no-details tier and the intended freshness floor.
-        let snapshot = includeCMUXScope
-            ? CmuxTopProcessSnapshot.captureCached(includeCMUXScope: true, maximumAge: 5)
-            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 3)
+        let requirements: CmuxTopProcessSnapshotRequirements = includeCMUXScope ? .cmuxScope : .basic
+        let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: requirements,
+            maximumAge: includeCMUXScope ? 5 : 3
+        )
         let samples = computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,

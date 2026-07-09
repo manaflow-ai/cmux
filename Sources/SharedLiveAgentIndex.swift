@@ -29,13 +29,21 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
+        indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                requirements: [.processDetails, .cmuxScope],
+                maximumAge: 3
+            )
+            return await Task.detached(priority: .utility) {
+                SharedLiveAgentIndexLoader(
+                    processSnapshotProvider: { processSnapshot }
+                ).loadResultSynchronously()
+            }.value
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
@@ -185,9 +193,7 @@ final class SharedLiveAgentIndex {
 
     private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
-        }.value
+        let result = await indexLoader()
         guard !Task.isCancelled else { return }
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty

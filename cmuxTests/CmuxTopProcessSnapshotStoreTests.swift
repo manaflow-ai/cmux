@@ -21,11 +21,11 @@ struct CmuxTopProcessSnapshotStoreTests {
         )
 
         let first = Task {
-            await store.snapshot(requirements: .basic, maximumAge: 0)
+            await store.snapshot(requirements: .basic, maximumAge: 10)
         }
         await capturer.waitForCallCount(1)
         let second = Task {
-            await store.snapshot(requirements: .basic, maximumAge: 0)
+            await store.snapshot(requirements: .basic, maximumAge: 10)
         }
         await capturer.releaseNext()
 

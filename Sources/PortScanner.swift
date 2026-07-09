@@ -1,11 +1,12 @@
 import CmuxFoundation
 import Foundation
 
-/// Batched port scanner that replaces per-shell `ps + lsof` scanning.
+/// Batched port scanner that replaces per-shell process + `lsof` scanning.
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
-/// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` + `lsof -p <pids>` covering every panel that needs scanning.
+/// PortScanner coalesces kicks across all panels, then runs one shared libproc
+/// snapshot + `lsof -p <pids>` covering every panel that
+/// needs scanning.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -30,8 +31,9 @@ final class PortScanner: @unchecked Sendable {
     /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
 
-    /// Monotonic revision per workspace for tracked agent PID changes.
+    /// Monotonic revision per workspace for tracked agent scan results.
     private var agentRevisionByWorkspace: [UUID: UInt64] = [:]
+    private var panelScanRevision: UInt64 = 0
 
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
@@ -168,12 +170,15 @@ final class PortScanner: @unchecked Sendable {
         pendingKicks.removeAll()
 
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
-        let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
+        panelScanRevision &+= 1
+        let scanRevision = panelScanRevision
+        let agentRevisions = nextAgentRevisions(for: workspaceIds)
         guard let agentPIDsProvider, !workspaceIds.isEmpty else {
             finishScan(
                 panelSnapshot: panelSnapshot,
                 agentPIDsByWorkspace: [:],
-                agentRevisions: agentRevisions
+                agentRevisions: agentRevisions,
+                scanRevision: scanRevision
             )
             return
         }
@@ -187,7 +192,8 @@ final class PortScanner: @unchecked Sendable {
                 self?.finishScan(
                     panelSnapshot: panelSnapshot,
                     agentPIDsByWorkspace: agentPIDsByWorkspace,
-                    agentRevisions: agentRevisions
+                    agentRevisions: agentRevisions,
+                    scanRevision: scanRevision
                 )
             }
         }
@@ -196,63 +202,49 @@ final class PortScanner: @unchecked Sendable {
     private func finishScan(
         panelSnapshot: [PanelKey: String],
         agentPIDsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64]
+        agentRevisions: [UUID: UInt64],
+        scanRevision: UInt64
     ) {
-        // Already on `queue`.
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
-
-        // Build TTY set (deduplicated).
-        let uniqueTTYs = Set(panelSnapshot.values)
-        let ttyList = uniqueTTYs.joined(separator: ",")
-
-        // 1. ps -t tty1,tty2,... -o pid=,tty=
-        let pidToTTY = ttyList.isEmpty ? [:] : runPS(ttyList: ttyList)
-        let agentPidToWorkspaces = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
-
-        let allPids = Set(pidToTTY.keys).union(agentPidToWorkspaces.keys)
-        guard !allPids.isEmpty else {
-            let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
-            deliverResults(
-                panelResults,
-                workspaceIds: workspaceIds,
-                agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions
+        Task { [weak self] in
+            guard let self else { return }
+            let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                requirements: .basic,
+                maximumAge: 0.5
             )
-            return
-        }
-
-        // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
-        let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
-
-        // 3. Join: PID→TTY + PID→ports → TTY→ports
-        var portsByTTY: [String: Set<Int>] = [:]
-        for (pid, ports) in pidToPorts {
-            guard let tty = pidToTTY[pid] else { continue }
-            portsByTTY[tty, default: []].formUnion(ports)
-        }
-
-        var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
-        for (pid, ports) in pidToPorts {
-            guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
-            for workspaceId in workspaceIdsForPid {
-                agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
+            let pidToTTY = Self.pidToTTY(
+                panelSnapshot: panelSnapshot,
+                processSnapshot: snapshot
+            )
+            let agentPidToWorkspaces = Self.expandAgentProcessTree(
+                agentPIDsByWorkspace: agentPIDsByWorkspace,
+                processSnapshot: snapshot
+            )
+            let allPIDs = Set(pidToTTY.keys).union(agentPidToWorkspaces.keys)
+            let pidToPorts = await Task.detached(priority: .utility) {
+                guard !allPIDs.isEmpty else { return [Int: Set<Int>]() }
+                return Self.runLsof(pids: allPIDs)
+            }.value
+            let scanResult = Self.scanResult(
+                panelSnapshot: panelSnapshot,
+                pidToTTY: pidToTTY,
+                agentPidToWorkspaces: agentPidToWorkspaces,
+                pidToPorts: pidToPorts
+            )
+            self.queue.async { [weak self] in
+                guard let self else { return }
+                guard self.panelScanRevision == scanRevision else { return }
+                let livePanelResults = scanResult.panelResults.filter { key, _ in
+                    self.ttyNames[key] == panelSnapshot[key]
+                }
+                self.deliverResults(
+                    livePanelResults,
+                    workspaceIds: workspaceIds,
+                    agentPortsByWorkspace: scanResult.agentPortsByWorkspace,
+                    agentRevisions: agentRevisions
+                )
             }
         }
-
-        // 4. Map to per-panel port lists.
-        var results: [(PanelKey, [Int])] = []
-        for (key, tty) in panelSnapshot {
-            let ports = portsByTTY[tty].map { Array($0).sorted() } ?? []
-            results.append((key, ports))
-        }
-
-        deliverResults(
-            results,
-            workspaceIds: workspaceIds,
-            agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
-        )
     }
 
     private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>) {
@@ -300,7 +292,7 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
+        let agentRevisions = nextAgentRevisions(for: workspaceIds)
         guard let agentPIDsProvider else {
             trackedAgentWorkspaces.removeAll()
             updateAgentScanTimerLocked()
@@ -358,31 +350,31 @@ final class PortScanner: @unchecked Sendable {
     ) {
         guard !workspaceIds.isEmpty else { return }
 
-        let agentPidToWorkspaces = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
-        guard !agentPidToWorkspaces.isEmpty else {
-            deliverAgentResults(
-                workspaceIds: workspaceIds,
-                agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions
+        Task { [weak self] in
+            guard let self else { return }
+            let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                requirements: .basic,
+                maximumAge: 0.5
             )
-            return
-        }
-
-        let pidsCsv = agentPidToWorkspaces.keys.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
-        var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
-        for (pid, ports) in pidToPorts {
-            guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
-            for targetWorkspaceId in workspaceIdsForPid {
-                agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
+            let agentPidToWorkspaces = Self.expandAgentProcessTree(
+                agentPIDsByWorkspace: agentPIDsByWorkspace,
+                processSnapshot: snapshot
+            )
+            let pidToPorts = await Task.detached(priority: .utility) {
+                Self.runLsof(pids: Set(agentPidToWorkspaces.keys))
+            }.value
+            let agentPortsByWorkspace = Self.agentPortsByWorkspace(
+                agentPidToWorkspaces: agentPidToWorkspaces,
+                pidToPorts: pidToPorts
+            )
+            self.queue.async { [weak self] in
+                self?.deliverAgentResults(
+                    workspaceIds: workspaceIds,
+                    agentPortsByWorkspace: agentPortsByWorkspace,
+                    agentRevisions: agentRevisions
+                )
             }
         }
-
-        deliverAgentResults(
-            workspaceIds: workspaceIds,
-            agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
-        )
     }
 
     private func deliverResults(
@@ -484,9 +476,9 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    private func agentRevisionSnapshot(for workspaceIds: Set<UUID>) -> [UUID: UInt64] {
+    private func nextAgentRevisions(for workspaceIds: Set<UUID>) -> [UUID: UInt64] {
         workspaceIds.reduce(into: [UUID: UInt64]()) { partial, workspaceId in
-            partial[workspaceId] = agentRevisionByWorkspace[workspaceId, default: 0]
+            partial[workspaceId] = nextAgentRevision(for: workspaceId)
         }
     }
 
@@ -542,7 +534,10 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    private func expandAgentProcessTree(agentPIDsByWorkspace: [UUID: Set<Int>]) -> [Int: Set<UUID>] {
+    static func expandAgentProcessTree(
+        agentPIDsByWorkspace: [UUID: Set<Int>],
+        processSnapshot: CmuxTopProcessSnapshot
+    ) -> [Int: Set<UUID>] {
         let normalizedRoots = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
             let valid = Set(item.value.filter { $0 > 0 })
             guard !valid.isEmpty else { return }
@@ -551,85 +546,79 @@ final class PortScanner: @unchecked Sendable {
         guard !normalizedRoots.isEmpty else { return [:] }
 
         var pidToWorkspaces: [Int: Set<UUID>] = [:]
-        var queue: [(pid: Int, workspaceId: UUID)] = []
         for (workspaceId, roots) in normalizedRoots {
-            for pid in roots {
-                if pidToWorkspaces[pid, default: []].insert(workspaceId).inserted {
-                    queue.append((pid, workspaceId))
-                }
+            for pid in processSnapshot.expandedPIDs(rootPIDs: roots) {
+                pidToWorkspaces[pid, default: []].insert(workspaceId)
             }
         }
-
-        let parentByPid = runAllProcesses()
-        guard !parentByPid.isEmpty else { return pidToWorkspaces }
-
-        var childrenByParent: [Int: [Int]] = [:]
-        for (pid, parentPid) in parentByPid {
-            childrenByParent[parentPid, default: []].append(pid)
-        }
-
-        var index = 0
-        while index < queue.count {
-            let (pid, workspaceId) = queue[index]
-            index += 1
-
-            for childPid in childrenByParent[pid] ?? [] {
-                if pidToWorkspaces[childPid, default: []].insert(workspaceId).inserted {
-                    queue.append((childPid, workspaceId))
-                }
-            }
-        }
-
         return pidToWorkspaces
     }
 
-    private func runPS(ttyList: String) -> [Int: String] {
-        // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="]
-        ) else {
-            return [:]
+    private static func pidToTTY(
+        panelSnapshot: [PanelKey: String],
+        processSnapshot: CmuxTopProcessSnapshot
+    ) -> [Int: String] {
+        var result: [Int: String] = [:]
+        for tty in Set(panelSnapshot.values) {
+            for pid in processSnapshot.pids(forTTYName: tty) {
+                result[pid] = tty
+            }
         }
-
-        var mapping: [Int: String] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]) else { continue }
-            mapping[pid] = String(parts[1])
-        }
-        return mapping
+        return result
     }
 
-    private func runAllProcesses() -> [Int: Int] {
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-ax", "-o", "pid=,ppid="]
-        ) else {
-            return [:]
+    private static func scanResult(
+        panelSnapshot: [PanelKey: String],
+        pidToTTY: [Int: String],
+        agentPidToWorkspaces: [Int: Set<UUID>],
+        pidToPorts: [Int: Set<Int>]
+    ) -> (panelResults: [(PanelKey, [Int])], agentPortsByWorkspace: [UUID: Set<Int>]) {
+        var portsByTTY: [String: Set<Int>] = [:]
+        for (pid, ports) in pidToPorts {
+            if let tty = pidToTTY[pid] {
+                portsByTTY[tty, default: []].formUnion(ports)
+            }
         }
-
-        var mapping: [Int: Int] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]),
-                  let parentPid = Int(parts[1]) else { continue }
-            mapping[pid] = parentPid
+        let panelResults = panelSnapshot.map { key, tty in
+            (key, Array(portsByTTY[tty] ?? []).sorted())
         }
-        return mapping
+        return (
+            panelResults,
+            agentPortsByWorkspace(
+                agentPidToWorkspaces: agentPidToWorkspaces,
+                pidToPorts: pidToPorts
+            )
+        )
     }
 
-    private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
+    private static func agentPortsByWorkspace(
+        agentPidToWorkspaces: [Int: Set<UUID>],
+        pidToPorts: [Int: Set<Int>]
+    ) -> [UUID: Set<Int>] {
+        var result: [UUID: Set<Int>] = [:]
+        for (pid, ports) in pidToPorts {
+            for workspaceID in agentPidToWorkspaces[pid] ?? [] {
+                result[workspaceID, default: []].formUnion(ports)
+            }
+        }
+        return result
+    }
+
+    private static func runLsof(pids: Set<Int>) -> [Int: Set<Int>] {
+        guard !pids.isEmpty else { return [:] }
+        let pidsCSV = pids.sorted().map(String.init).joined(separator: ",")
         // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = Self.captureStandardOutput(
+        guard let output = captureStandardOutput(
             executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
+            arguments: ["-nP", "-a", "-p", pidsCSV, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
         ) else {
             return [:]
         }
 
+        return parseLsofOutput(output)
+    }
+
+    static func parseLsofOutput(_ output: String) -> [Int: Set<Int>] {
         // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
         var result: [Int: Set<Int>] = [:]
         var currentPid: Int?

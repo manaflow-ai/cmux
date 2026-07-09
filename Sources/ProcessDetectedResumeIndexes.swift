@@ -8,8 +8,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
+        let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: [.processDetails, .cmuxScope],
+            maximumAge: 5
+        )
+        return await Task.detached(priority: .utility) {
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                processSnapshot: processSnapshot
+            )
         }.value
     }
 
@@ -18,12 +26,24 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil
     ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
             CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
         } else {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         }
+        return loadSynchronously(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot
+        )
+    }
+
+    static func loadSynchronously(
+        homeDirectory: String,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot
+    ) -> ProcessDetectedResumeIndexes {
+        let capturedAt = Date().timeIntervalSince1970
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
