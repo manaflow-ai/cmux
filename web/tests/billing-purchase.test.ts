@@ -13,15 +13,38 @@ import {
 
 const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+const operations: string[] = [];
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
 let tombstoneSelectResults: unknown[][] = [];
 
-function fakeDb() {
-  return {
+type FakeDb = {
+  insert(table: unknown): {
+    values(values: Record<string, unknown>): {
+      onConflictDoUpdate(): Promise<void>;
+      then(resolve: (value: unknown) => void): void;
+    };
+  };
+  select(): {
+    from(table: unknown): {
+      where(): ReturnType<typeof tombstoneSelectableResult> | ReturnType<typeof selectableResult>;
+    };
+  };
+  update(table: unknown): {
+    set(values: Record<string, unknown>): {
+      where(): Promise<void>;
+    };
+  };
+  execute(statement: unknown): Promise<void>;
+  transaction<T>(run: (tx: FakeDb) => Promise<T>): Promise<T>;
+};
+
+function fakeDb(): FakeDb {
+  const db: FakeDb = {
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
         inserts.push({ table, values });
+        operations.push(tableOperation("insert", table));
         return {
           onConflictDoUpdate: () => {
             const error = insertErrorsByTable.get(table);
@@ -34,20 +57,50 @@ function fakeDb() {
     }),
     select: () => ({
       from: (table: unknown) => ({
-        where: () => table === accountDeletionTombstones
-          ? tombstoneSelectableResult()
-          : selectableResult(),
+        where: () => {
+          operations.push(tableOperation("select", table));
+          return table === accountDeletionTombstones
+            ? tombstoneSelectableResult()
+            : selectableResult();
+        },
       }),
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
           updates.push({ table, values });
+          operations.push(tableOperation("update", table));
           return Promise.resolve();
         },
       }),
     }),
+    execute: async () => {
+      operations.push("account-deletion-lock");
+    },
+    transaction: async (run) => {
+      operations.push("transaction:start");
+      try {
+        return await run(db);
+      } finally {
+        operations.push("transaction:end");
+      }
+    },
   };
+  return db;
+}
+
+function tableOperation(prefix: string, table: unknown): string {
+  if (table === accountDeletionTombstones) return `${prefix}:accountDeletionTombstones`;
+  if (table === billingEmailClaims) return `${prefix}:billingEmailClaims`;
+  if (table === stripeCustomers) return `${prefix}:stripeCustomers`;
+  if (table === stripeSubscriptions) return `${prefix}:stripeSubscriptions`;
+  return `${prefix}:other`;
+}
+
+function operationIndex(label: string): number {
+  const index = operations.indexOf(label);
+  expect(index).toBeGreaterThanOrEqual(0);
+  return index;
 }
 
 function selectableResult() {
@@ -159,6 +212,7 @@ describe("recordCheckoutCompletion", () => {
   beforeEach(() => {
     inserts.length = 0;
     updates.length = 0;
+    operations.length = 0;
     insertErrorsByTable.clear();
     selectResults = [];
     tombstoneSelectResults = [];
@@ -180,6 +234,30 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
+  });
+
+  test("serializes user checkout completion with account deletion", async () => {
+    const update = mock(async () => {
+      operations.push("stack:update");
+    });
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user } as never,
+    });
+
+    const lockIndex = operationIndex("account-deletion-lock");
+    expect(operationIndex("transaction:start")).toBeLessThan(lockIndex);
+    expect(lockIndex).toBeLessThan(operationIndex("select:accountDeletionTombstones"));
+    expect(lockIndex).toBeLessThan(operationIndex("insert:stripeCustomers"));
+    expect(lockIndex).toBeLessThan(operationIndex("insert:stripeSubscriptions"));
+    expect(operationIndex("stack:update")).toBeLessThan(operationIndex("transaction:end"));
   });
 
   test("blocks user checkout completion while account deletion is in progress", async () => {
@@ -810,6 +888,33 @@ describe("recordCheckoutCompletion", () => {
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("serializes user subscription updates with account deletion", async () => {
+    const update = mock(async () => {
+      operations.push("stack:update");
+    });
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    const lockIndex = operationIndex("account-deletion-lock");
+    expect(operationIndex("transaction:start")).toBeLessThan(lockIndex);
+    expect(lockIndex).toBeLessThan(operationIndex("select:accountDeletionTombstones"));
+    expect(lockIndex).toBeLessThan(operationIndex("insert:stripeSubscriptions"));
+    expect(operationIndex("stack:update")).toBeLessThan(operationIndex("transaction:end"));
   });
 
   test("skips user subscription updates while account deletion is in progress", async () => {

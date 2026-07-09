@@ -10,7 +10,10 @@ import {
   stripeSubscriptions,
 } from "../../db/schema";
 import { isStackAccountDeletionBlocked } from "../account/deletion";
-import { accountDeletionUserHash } from "../account/deletionLock";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+} from "../account/deletionLock";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -125,64 +128,66 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
-  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db)) {
-    await cleanupCheckoutStripeObjectsForAccountDeletion({
-      subscription,
+  return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+    if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, lockedDb)) {
+      await cleanupCheckoutStripeObjectsForAccountDeletion({
+        subscription,
+        customerId,
+        stackUserId,
+        clearStackTeamId: false,
+        updateCustomer: true,
+        dependencies,
+      });
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId,
+        subscriptionId: subscription.id,
+      };
+    }
+
+    const user = await loadStackUser(stackUserId, dependencies.stackApp);
+    if (await isStackAccountDeletionBlocked(user, { cloudDb: () => lockedDb })) {
+      await cleanupCheckoutStripeObjectsForAccountDeletion({
+        subscription,
+        customerId,
+        stackUserId,
+        clearStackTeamId: false,
+        updateCustomer: true,
+        dependencies,
+      });
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId,
+        subscriptionId: subscription.id,
+      };
+    }
+
+    const email = checkoutEmail(input.session, input.customer);
+    await upsertStripeCustomer(lockedDb, {
       customerId,
       stackUserId,
-      clearStackTeamId: false,
-      updateCustomer: true,
-      dependencies,
-    });
-    return {
-      skipped: "account_deletion_in_progress",
-      stackUserId,
-      subscriptionId: subscription.id,
-    };
-  }
-
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
-  if (await isStackAccountDeletionBlocked(user, { cloudDb: () => db })) {
-    await cleanupCheckoutStripeObjectsForAccountDeletion({
-      subscription,
-      customerId,
-      stackUserId,
-      clearStackTeamId: false,
-      updateCustomer: true,
-      dependencies,
-    });
-    return {
-      skipped: "account_deletion_in_progress",
-      stackUserId,
-      subscriptionId: subscription.id,
-    };
-  }
-
-  const email = checkoutEmail(input.session, input.customer);
-  await upsertStripeCustomer(db, {
-    customerId,
-    stackUserId,
-    email,
-  });
-  await upsertStripeSubscription(db, {
-    subscription,
-    customerId,
-    stackUserId,
-    scope: "user",
-  });
-
-  if (email) {
-    await attachPurchaseEmailOrRecordClaim(db, {
-      user,
       email,
-      stripeCustomerId: customerId,
-      stackUserId,
-      stackApp: dependencies.stackApp ?? stackServerApp,
     });
-  }
-  await syncProPlanMetadata(user, true);
+    await upsertStripeSubscription(lockedDb, {
+      subscription,
+      customerId,
+      stackUserId,
+      scope: "user",
+    });
 
-  return { scope: "user", stackUserId, subscriptionId: subscription.id };
+    if (email) {
+      await attachPurchaseEmailOrRecordClaim(lockedDb, {
+        user,
+        email,
+        stripeCustomerId: customerId,
+        stackUserId,
+        stackApp: dependencies.stackApp ?? stackServerApp,
+      });
+    }
+    await syncProPlanMetadata(user, true);
+
+    return { scope: "user", stackUserId, subscriptionId: subscription.id };
+  });
 }
 
 export async function applySubscriptionUpdate(
@@ -201,32 +206,39 @@ export async function applySubscriptionUpdate(
 
   const teamScope = teamScopeFromSubscription(subscription);
   if (teamScope) {
-    const guard = await teamBillingDeletionGuard({
+    const stackUserId = await resolveTeamBillingStackUserId({
       db,
       stackTeamId: teamScope.stackTeamId,
       stackUserId: teamScope.stackUserId,
       customerId,
       stackApp: dependencies.stackApp,
     });
-    if (guard.blocked) return { skipped: true };
-    const stackUserId = guard.stackUserId;
-    await upsertTeamStripeCustomer(db, {
-      customerId,
-      stackUserId,
-      stackTeamId: teamScope.stackTeamId,
-    });
-    await upsertStripeSubscription(db, {
-      subscription,
-      customerId,
-      stackUserId,
-      stackTeamId: teamScope.stackTeamId,
-      scope: "team",
-    });
+    return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+      if (
+        await isTeamBillingStackUserDeletionBlocked(stackUserId, {
+          db: lockedDb,
+          stackTeamId: teamScope.stackTeamId,
+          stackApp: dependencies.stackApp,
+        })
+      ) return { skipped: true };
+      await upsertTeamStripeCustomer(lockedDb, {
+        customerId,
+        stackUserId,
+        stackTeamId: teamScope.stackTeamId,
+      });
+      await upsertStripeSubscription(lockedDb, {
+        subscription,
+        customerId,
+        stackUserId,
+        stackTeamId: teamScope.stackTeamId,
+        scope: "team",
+      });
 
-    const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-    const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
-    await syncTeamPlanMetadata(team, isActive);
-    return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
+      const isActive = isActiveStripeSubscriptionStatus(subscription.status);
+      const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
+      await syncTeamPlanMetadata(team, isActive);
+      return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
+    });
   }
 
   if (isDeletedAccountStripeMetadata(subscription.metadata)) return { skipped: true };
@@ -245,24 +257,26 @@ export async function applySubscriptionUpdate(
   const stackUserId = mappedStackUserId ?? metadataStackUserId;
   if (!stackUserId) return { skipped: true };
 
-  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db)) return { skipped: true };
-  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
-  if (await isStackAccountDeletionBlocked(user, { cloudDb: () => db })) return { skipped: true };
+  return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+    if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, lockedDb)) return { skipped: true };
+    const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+    if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
+    if (await isStackAccountDeletionBlocked(user, { cloudDb: () => lockedDb })) return { skipped: true };
 
-  await upsertStripeSubscription(db, {
-    subscription,
-    customerId,
-    stackUserId,
-    scope: "user",
+    await upsertStripeSubscription(lockedDb, {
+      subscription,
+      customerId,
+      stackUserId,
+      scope: "user",
+    });
+
+    const isActive = isActiveStripeSubscriptionStatus(subscription.status);
+    await syncProPlanMetadata(user, isActive);
+    if (!isActive) {
+      await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
+    }
+    return { scope: "user", stackUserId, isActive };
   });
-
-  const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-  await syncProPlanMetadata(user, isActive);
-  if (!isActive) {
-    await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
-  }
-  return { scope: "user", stackUserId, isActive };
 }
 
 export async function latestStripeSubscriptionForSession(
@@ -461,58 +475,65 @@ async function recordTeamCheckoutCompletion(input: {
   | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
 > {
   const db = input.dependencies.db ?? cloudDb();
-  const guard = await teamBillingDeletionGuard({
+  const stackUserId = await resolveTeamBillingStackUserId({
     db,
     stackTeamId: input.stackTeamId,
     stackUserId: input.stackUserId,
     customerId: input.customerId,
     stackApp: input.dependencies.stackApp,
   });
-  if (guard.blocked) {
-    await cleanupCheckoutStripeObjectsForAccountDeletion({
+  return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+    if (
+      await isTeamBillingStackUserDeletionBlocked(stackUserId, {
+        db: lockedDb,
+        stackTeamId: input.stackTeamId,
+        stackApp: input.dependencies.stackApp,
+      })
+    ) {
+      await cleanupCheckoutStripeObjectsForAccountDeletion({
+        subscription: input.subscription,
+        customerId: input.customerId,
+        stackUserId,
+        clearStackTeamId: true,
+        updateCustomer: true,
+        dependencies: input.dependencies,
+      });
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId,
+        subscriptionId: input.subscription.id,
+      };
+    }
+    await upsertTeamStripeCustomer(lockedDb, {
+      customerId: input.customerId,
+      stackUserId,
+      stackTeamId: input.stackTeamId,
+    });
+    await upsertStripeSubscription(lockedDb, {
       subscription: input.subscription,
       customerId: input.customerId,
-      stackUserId: guard.stackUserId,
-      clearStackTeamId: true,
-      updateCustomer: true,
-      dependencies: input.dependencies,
+      stackUserId,
+      stackTeamId: input.stackTeamId,
+      scope: "team",
     });
+
+    const team = await loadStackTeam(input.stackTeamId, input.dependencies.stackApp);
+    await syncTeamPlanMetadata(team, true);
     return {
-      skipped: "account_deletion_in_progress",
-      stackUserId: guard.stackUserId,
+      scope: "team",
+      stackTeamId: input.stackTeamId,
       subscriptionId: input.subscription.id,
     };
-  }
-  const stackUserId = guard.stackUserId;
-  await upsertTeamStripeCustomer(db, {
-    customerId: input.customerId,
-    stackUserId,
-    stackTeamId: input.stackTeamId,
   });
-  await upsertStripeSubscription(db, {
-    subscription: input.subscription,
-    customerId: input.customerId,
-    stackUserId,
-    stackTeamId: input.stackTeamId,
-    scope: "team",
-  });
-
-  const team = await loadStackTeam(input.stackTeamId, input.dependencies.stackApp);
-  await syncTeamPlanMetadata(team, true);
-  return {
-    scope: "team",
-    stackTeamId: input.stackTeamId,
-    subscriptionId: input.subscription.id,
-  };
 }
 
-async function teamBillingDeletionGuard(input: {
+async function resolveTeamBillingStackUserId(input: {
   db: BillingDb;
   stackTeamId: string;
   stackUserId?: string | null;
   customerId: string;
   stackApp: StackBillingApp | null | undefined;
-}): Promise<{ blocked: boolean; stackUserId: string }> {
+}): Promise<string> {
   let stackUserId = legacyTeamOwnerUserId(input.stackUserId, input.stackTeamId);
   if (!stackUserId) {
     stackUserId = legacyTeamOwnerUserId(
@@ -530,15 +551,17 @@ async function teamBillingDeletionGuard(input: {
   }
 
   if (!stackUserId) {
-    return {
-      blocked: false,
-      stackUserId: input.stackTeamId,
-    };
+    return input.stackTeamId;
   }
-  return {
-    blocked: await isBillingStackUserDeletionBlocked(stackUserId, input),
-    stackUserId,
-  };
+  return stackUserId;
+}
+
+async function isTeamBillingStackUserDeletionBlocked(
+  stackUserId: string,
+  input: { db: BillingDb; stackTeamId: string; stackApp: StackBillingApp | null | undefined },
+): Promise<boolean> {
+  if (stackUserId === input.stackTeamId) return false;
+  return await isBillingStackUserDeletionBlocked(stackUserId, input);
 }
 
 function legacyTeamOwnerUserId(
@@ -567,6 +590,17 @@ async function hasCheckoutBlockingAccountDeletionTombstone(
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
     .limit(1);
   return row ? isCheckoutBillingBlockedTombstoneStatus(row.status) : false;
+}
+
+async function withAccountDeletionBillingLock<T>(
+  db: BillingDb,
+  stackUserId: string,
+  run: (lockedDb: BillingDb) => Promise<T>,
+): Promise<T> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(stackUserId)}, 0))`);
+    return await run(tx as unknown as BillingDb);
+  });
 }
 
 function isCheckoutBillingBlockedTombstoneStatus(status: string): boolean {
