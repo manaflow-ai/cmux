@@ -164,6 +164,36 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarImmediateObservationPublisherDefersSustainedProcessTitleChurnUntilSettled() {
+        let workspaces = (0..<16).map { _ in Workspace() }
+        var publishCounts = Array(repeating: 0, count: workspaces.count)
+        let cancellables = workspaces.enumerated().map { index, workspace in
+            workspace.sidebarImmediateObservationPublisher.sink {
+                publishCounts[index] += 1
+            }
+        }
+        defer { cancellables.forEach { $0.cancel() } }
+        publishCounts = Array(repeating: 0, count: workspaces.count)
+
+        for frame in 0..<6 {
+            for (index, workspace) in workspaces.enumerated() {
+                workspace.title = "Agent \(index) frame \(frame)"
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        }
+
+        #expect(
+            publishCounts.allSatisfy { $0 == 0 },
+            "Process-title animation must not continuously invalidate sidebar rows while titles are still changing."
+        )
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        #expect(
+            publishCounts.allSatisfy { $0 == 1 },
+            "Each workspace must publish exactly one refresh with its settled process title."
+        )
+    }
+
     @Test func coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing() {
         let subject = PassthroughSubject<Int, Never>()
         var received: [Int] = []
