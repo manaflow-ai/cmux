@@ -13,12 +13,38 @@ import Testing
 struct AppearanceEffectiveColorSchemeTests {
     @Test
     func effectiveColorSchemeExplicitModesShortCircuit() {
-        // Only the explicit-mode short-circuit is covered here since it doesn't
-        // touch NSApp. The "system" branch is covered by the
-        // SystemAppearanceObserver tests via the injected `effectivePrefersDark`
-        // closure, plus manual QA.
         #expect(AppearanceSettings.effectiveColorScheme(for: AppearanceMode.light.rawValue, fallback: .dark) == .light)
         #expect(AppearanceSettings.effectiveColorScheme(for: AppearanceMode.dark.rawValue, fallback: .light) == .dark)
+    }
+
+    @Test
+    func effectiveColorSchemeSystemModeUsesFallbackBeforeLaunchWithoutReadingEffectiveAppearance() {
+        var effectiveAppearanceReadCount = 0
+
+        let scheme = AppearanceSettings.effectiveColorScheme(
+            for: AppearanceMode.system.rawValue,
+            fallback: .light,
+            isApplicationFinishedLaunching: { false },
+            effectivePrefersDark: {
+                effectiveAppearanceReadCount += 1
+                return true
+            }
+        )
+
+        #expect(scheme == .light)
+        #expect(effectiveAppearanceReadCount == 0)
+    }
+
+    @Test
+    func effectiveColorSchemeSystemModeUsesEffectiveAppearanceAfterLaunch() {
+        let scheme = AppearanceSettings.effectiveColorScheme(
+            for: AppearanceMode.system.rawValue,
+            fallback: .light,
+            isApplicationFinishedLaunching: { true },
+            effectivePrefersDark: { true }
+        )
+
+        #expect(scheme == .dark)
     }
 }
 

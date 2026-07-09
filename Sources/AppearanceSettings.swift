@@ -139,14 +139,25 @@ enum AppearanceSettings {
     }
 
     /// Resolves the color scheme the chrome should render with. Explicit modes
-    /// win; system mode resolves from the app's live effectiveAppearance, which
-    /// (unlike the AppleInterfaceStyle default) stays fresh on scripted
-    /// appearance changes.
+    /// win. After launch, system mode resolves from the app's live
+    /// effectiveAppearance, which (unlike the AppleInterfaceStyle default) stays
+    /// fresh on scripted appearance changes. During launch, use the ambient
+    /// fallback because Tahoe can crash if effectiveAppearance is touched before
+    /// applicationDidFinishLaunching.
     @MainActor
-    static func effectiveColorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
+    static func effectiveColorScheme(
+        for rawValue: String?,
+        fallback: ColorScheme,
+        isApplicationFinishedLaunching: @MainActor () -> Bool = AppIconLaunchState.isApplicationFinishedLaunching,
+        effectivePrefersDark: @MainActor () -> Bool? = {
+            guard let app = NSApp else { return nil }
+            return app.effectiveAppearance.cmuxPrefersDark
+        }
+    ) -> ColorScheme {
         if let override = colorSchemeOverride(for: rawValue) { return override }
-        guard let app = NSApp else { return fallback }
-        return app.effectiveAppearance.cmuxPrefersDark ? .dark : .light
+        guard isApplicationFinishedLaunching() else { return fallback }
+        guard let prefersDark = effectivePrefersDark() else { return fallback }
+        return prefersDark ? .dark : .light
     }
 
     @discardableResult
