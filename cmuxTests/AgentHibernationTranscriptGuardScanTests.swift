@@ -66,6 +66,26 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
+    func restoreIfClobberedDoesNotOverwriteUnclassifiedLiveTranscript() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"before"}}"# + "\n"
+        let liveContent = #"{"type":"summary","summary":"new compacted state"}"# + "\n"
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+        try liveContent.write(to: live, atomically: true, encoding: .utf8)
+
+        let restored = AgentHibernationTranscriptGuard.restoreIfClobbered(
+            .init(transcriptPath: live.path, snapshotPath: snapshot.path)
+        )
+
+        #expect(restored == false)
+        #expect(try String(contentsOf: live, encoding: .utf8) == liveContent)
+    }
+
+    @Test
     func snapshotBeforeTeardownFailsClosedForNonEmptyUnclassifiedTranscripts() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
