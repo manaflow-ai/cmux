@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -13,8 +14,22 @@ import {
   cloudVms,
   cloudVmUsageEvents,
 } from "../../db/schema";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+  isBlockingAccountDeletionTombstone,
+} from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
-import { VmCreateInProgressError, VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
+import {
+  VmCreateDisabledError,
+  VmCreateInProgressError,
+  VmAccountDeletionInProgressError,
+  VmDatabaseError,
+  VmLimitExceededError,
+  isVmAccountDeletionInProgressError,
+  isVmCreateDisabledError,
+  isVmLimitExceededError,
+} from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -73,7 +88,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -84,7 +99,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly baseName?: string;
-  }) => Effect.Effect<BeginBaseCreateResult, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -96,7 +111,7 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
     readonly baseName?: string;
     readonly reason?: string | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -156,6 +171,7 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
+    readonly provider?: ProviderId;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly recordLease: (input: {
@@ -171,6 +187,10 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly expiredIdentityLeases?: (input: {
     readonly now: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
+  readonly accountDeletionIdentityLeases: (input: {
+    readonly userId: string;
     readonly limit: number;
   }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
   readonly markLeaseRevocationRetry?: (input: {
@@ -232,6 +252,33 @@ function dbEffect<A>(
   return Effect.tryPromise({
     try: run,
     catch: (cause) => new VmDatabaseError({ operation, cause }),
+  });
+}
+
+type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+async function assertAccountVmCreateAllowed(
+  tx: CloudDbTransaction,
+  input: { readonly userId: string; readonly provider: ProviderId },
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+  const userIdHash = accountDeletionUserHash(input.userId);
+  const [deletion] = await tx
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  if (
+    deletion?.userIdHash !== userIdHash ||
+    !isBlockingAccountDeletionTombstone(deletion)
+  ) return;
+  throw new VmAccountDeletionInProgressError({
+    provider: input.provider,
+    phase: "create",
   });
 }
 
@@ -401,6 +448,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         const db = cloudDb();
         try {
           return await db.transaction(async (tx) => {
+            await assertAccountVmCreateAllowed(tx, {
+              userId: input.userId,
+              provider: input.provider,
+            });
             if (idempotencyKey) {
               const [existing] = await tx
                 .select()
@@ -474,7 +525,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
     }),
@@ -488,6 +539,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         try {
           return await db.transaction(async (tx) => {
             await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${scope.scopeType}:${scope.scopeId}:${name}`}, 0))`);
+            await assertAccountVmCreateAllowed(tx, {
+              userId: input.userId,
+              provider: input.provider,
+            });
 
             const [existing] = await tx
               .select({
@@ -675,7 +730,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -688,6 +743,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         const name = baseName(input.baseName);
         return await db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${scope.scopeType}:${scope.scopeId}:${name}`}, 0))`);
+          await assertAccountVmCreateAllowed(tx, {
+            userId: input.userId,
+            provider: input.provider,
+          });
           const [existing] = await tx
             .select({
               base: cloudVmBases,
@@ -836,7 +895,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           };
         });
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),
@@ -1149,16 +1208,16 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   findUserVm: (input) =>
     dbEffect("findUserVm", async () => {
       const db = cloudDb();
+      const conditions = [
+        accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        ne(cloudVms.status, "destroyed"),
+      ];
+      if (input.provider) conditions.push(eq(cloudVms.provider, input.provider));
       const [vm] = await db
         .select()
         .from(cloudVms)
-        .where(
-          and(
-            accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
-            eq(cloudVms.providerVmId, input.providerVmId),
-            ne(cloudVms.status, "destroyed"),
-          ),
-        )
+        .where(and(...conditions))
         .limit(1);
       return vm ?? null;
     }),
@@ -1255,6 +1314,37 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           ),
         )
         .orderBy(asc(cloudVmLeases.expiresAt), asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id))
+        .limit(input.limit);
+    }),
+
+  accountDeletionIdentityLeases: (input) =>
+    dbEffect("accountDeletionIdentityLeases", async () => {
+      const db = cloudDb();
+      return await db
+        .select({
+          id: cloudVmLeases.id,
+          vmId: cloudVmLeases.vmId,
+          userId: cloudVmLeases.userId,
+          kind: cloudVmLeases.kind,
+          tokenHash: cloudVmLeases.tokenHash,
+          providerIdentityHandle: cloudVmLeases.providerIdentityHandle,
+          sessionId: cloudVmLeases.sessionId,
+          transport: cloudVmLeases.transport,
+          metadata: cloudVmLeases.metadata,
+          expiresAt: cloudVmLeases.expiresAt,
+          consumedAt: cloudVmLeases.consumedAt,
+          revokedAt: cloudVmLeases.revokedAt,
+          createdAt: cloudVmLeases.createdAt,
+          provider: cloudVms.provider,
+        })
+        .from(cloudVmLeases)
+        .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
+        .where(and(
+          eq(cloudVmLeases.userId, input.userId),
+          isNotNull(cloudVmLeases.providerIdentityHandle),
+          isNull(cloudVmLeases.revokedAt),
+        ))
+        .orderBy(asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id))
         .limit(input.limit);
     }),
 

@@ -8,6 +8,8 @@ import {
 } from "./entitlements";
 import {
   isVmBillingError,
+  isVmAccountDeletionInProgressError,
+  isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
   vmWorkflowErrorCause,
@@ -256,6 +258,29 @@ export function vmRequiresProResponse(): Response {
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  if (isVmAccountDeletionInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "account_deletion_in_progress",
+      status: 409,
+      message: "Account deletion is in progress.",
+      action: "Wait for account deletion to finish before creating Cloud VMs.",
+      phase: workflowError.phase ?? "create",
+      retryable: true,
+    });
+  }
+
+  if (isVmCreateDisabledError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_create_disabled",
+      status: 503,
+      message: "Cloud VM creation is disabled for this environment.",
+      action: "Ask an admin to enable Cloud VM creation, then retry.",
+      reason: workflowError.reason,
+      phase: "create",
+      retryable: true,
+    });
+  }
+
   if (isVmProviderOperationError(workflowError)) {
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
