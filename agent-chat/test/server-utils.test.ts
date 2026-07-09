@@ -114,6 +114,10 @@ const { sources: _sources, ...postTheme } = fakeTheme;
 const cmuxTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux", accent: "#123456" });
 assert(cmuxTheme.source === "cmux" && cmuxTheme.palette.length === 16, "valid cmux theme POST payload should normalize");
 assert(themeVarMap(cmuxTheme)["--accent"] === "#123456", "cmux POST accent override should drive --accent");
+// A cmux push without an accent must inherit the file-configured agent-chat-accent
+// (the Swift payload has no accent field; clobbering would break the documented override).
+const inheritTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux" });
+assert(inheritTheme.accent == null, "cmux payload without accent should validate with null accent");
 // background-opacity = 0 is legal ghostty config; Swift encoders may omit nil optionals entirely.
 const { selectionBackground: _sb, cursorColor: _cc, fontFamily: _ff, fontSize: _fs, ...sparseTheme } = postTheme;
 const sparse = validateCmuxThemePayload({ ...sparseTheme, source: "cmux", opacity: 0 });

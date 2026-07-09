@@ -1627,6 +1627,9 @@ function startServer() {
       if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       try {
         const theme = validateCmuxThemePayload(await req.json());
+        // cmux's payload has no accent field, so a push must not clobber the
+        // file-configured agent-chat-accent override.
+        if (!theme.accent) theme.accent = fileTheme.accent ?? null;
         setCurrentTheme(theme, "cmux");
         broadcastTheme(theme);
         return Response.json(themeForClient(theme));
