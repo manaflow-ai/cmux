@@ -135,7 +135,7 @@ enum AgentChatThemeSync {
     @MainActor
     static func syncNow(agentChat: CmuxAgentChatConfiguration) {
         guard isEnabled else { return }
-        let url = themeURL(for: agentChat.url)
+        let url = themeURL(for: agentChat)
         Task { @MainActor in
             await postResolvedTheme(to: url)
         }
@@ -185,9 +185,19 @@ enum AgentChatThemeSync {
     }
 
     @MainActor
+    static func themeURL(for agentChat: CmuxAgentChatConfiguration) -> URL {
+        if !agentChat.hasExplicitURL,
+           agentChat.startCommand != nil,
+           let session = AgentChatActionInFlightGate.ownedServerSession() {
+            return session.themeURL
+        }
+        return themeURL(for: agentChat.url)
+    }
+
+    @MainActor
     private static func currentThemeURL() -> URL {
         if let store = AppDelegate.shared?.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first {
-            return themeURL(for: store.agentChat.url)
+            return themeURL(for: store.agentChat)
         }
         return themeURL(for: CmuxAgentChatConfiguration.default.url)
     }
@@ -216,9 +226,34 @@ enum AgentChatThemeSync {
                 )
             }
         } catch {
-            agentChatThemeSyncLogger.error(
-                "failed to sync theme: \(String(describing: error), privacy: .public)"
-            )
+            await handleThemePostFailure(error, url: url)
+        }
+    }
+
+    static func handleThemePostFailure(_ error: Error, url: URL) async {
+        agentChatThemeSyncLogger.error(
+            "failed to sync theme: \(String(describing: error), privacy: .public)"
+        )
+        guard shouldClearOwnedSessionAfterThemePostFailure(error) else { return }
+        await MainActor.run {
+            guard let session = AgentChatActionInFlightGate.ownedServerSession(),
+                  session.themeURL == url else { return }
+            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+        }
+    }
+
+    static func shouldClearOwnedSessionAfterThemePostFailure(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .timedOut:
+            return true
+        default:
+            return false
         }
     }
 }
