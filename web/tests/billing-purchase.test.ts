@@ -26,7 +26,7 @@ let selectResults: unknown[][] = [];
 let tombstoneSelectResults: unknown[][] = [];
 
 function fakeDb() {
-  return {
+  const client = {
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
         inserts.push({ table, values });
@@ -56,6 +56,13 @@ function fakeDb() {
         },
       }),
     }),
+  };
+  return {
+    ...client,
+    execute: async (_query?: unknown) => undefined,
+    transaction: async <T>(
+      callback: (tx: typeof client & { execute: (_query?: unknown) => Promise<void> }) => Promise<T>,
+    ) => await callback({ ...client, execute: async (_query?: unknown) => undefined }),
   };
 }
 
@@ -247,6 +254,49 @@ describe("recordCheckoutCompletion", () => {
     expect(deleteCustomer).not.toHaveBeenCalled();
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
+  });
+
+  test("syncs checkout metadata while holding the account deletion lock", async () => {
+    let transactionOpen = false;
+    let lockAcquired = false;
+    const baseDb = fakeDb();
+    const db = {
+      ...baseDb,
+      transaction: async <T>(
+        callback: (tx: typeof baseDb & { execute: (_query?: unknown) => Promise<void> }) => Promise<T>,
+      ) => {
+        transactionOpen = true;
+        try {
+          return await callback({
+            ...baseDb,
+            execute: async (_query?: unknown) => {
+              lockAcquired = true;
+            },
+          });
+        } finally {
+          transactionOpen = false;
+        }
+      },
+    };
+    const update = mock(async () => {
+      expect(transactionOpen).toBe(true);
+      expect(lockAcquired).toBe(true);
+    });
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: db as never,
+      stackApp: { getUser: async () => user } as never,
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
   });
 
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {

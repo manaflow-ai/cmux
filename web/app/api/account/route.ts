@@ -229,7 +229,13 @@ async function markAccountDeletionTombstoneCompleted(userId: string): Promise<vo
   const now = new Date();
   await cloudDb()
     .update(accountDeletionTombstones)
-    .set({ status: "completed", updatedAt: now, completedAt: now, errorMessage: null })
+    .set({
+      userId: null,
+      status: "completed",
+      updatedAt: now,
+      completedAt: now,
+      errorMessage: null,
+    })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 

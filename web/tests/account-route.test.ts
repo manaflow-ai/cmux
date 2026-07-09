@@ -85,7 +85,9 @@ const deleteRows = mock((table: unknown) => {
 });
 const updateRows = mock((table: unknown) => ({
   set: (values: unknown) => {
-    if (table !== accountDeletionTombstones) {
+    if (table === accountDeletionTombstones) {
+      tombstoneUpdates.push(values);
+    } else {
       updatedRows.push({ table, values });
     }
     return {
@@ -177,6 +179,7 @@ let deletedTableCount = 0;
 let deletedTables: unknown[] = [];
 let deletedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
+let tombstoneUpdates: unknown[] = [];
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
@@ -408,6 +411,7 @@ beforeEach(() => {
   deletedTables = [];
   deletedWhere = [];
   updatedRows = [];
+  tombstoneUpdates = [];
   routeEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
@@ -511,6 +515,17 @@ describe("account deletion route", () => {
     });
     expect(getUser).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    const completedTombstone = tombstoneUpdates.find((update) =>
+      Boolean(
+        update &&
+          typeof update === "object" &&
+          (update as { readonly userId?: unknown }).userId === null &&
+          (update as { readonly status?: unknown }).status === "completed" &&
+          (update as { readonly errorMessage?: unknown }).errorMessage === null,
+      )
+    );
+    expect(completedTombstone).toBeTruthy();
+    expect((completedTombstone as { readonly completedAt?: unknown }).completedAt).toBeInstanceOf(Date);
     expect(routeEvents).toEqual([
       "transaction",
       "transaction-lock",

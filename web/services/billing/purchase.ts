@@ -10,6 +10,7 @@ import {
   stripeSubscriptions,
 } from "../../db/schema";
 import {
+  accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
   isBlockingAccountDeletionStatus,
 } from "../account/deletionLock";
@@ -33,6 +34,10 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 
 type BillingDb = ReturnType<typeof cloudDb>;
+type BillingDbClient = Pick<BillingDb, "select" | "insert" | "update">;
+type BillingDbTransaction = BillingDbClient & {
+  execute(query: unknown): Promise<unknown>;
+};
 type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "subscriptions">;
 
 type StripeSubscriptionValuesInput = {
@@ -98,14 +103,15 @@ export type CheckoutCompletionInput = {
   customer?: Stripe.Customer | Stripe.DeletedCustomer | null;
 };
 
+type CheckoutCompletionResult =
+  | { scope: "user"; stackUserId: string; subscriptionId: string }
+  | { scope: "team"; stackTeamId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string };
+
 export async function recordCheckoutCompletion(
   input: CheckoutCompletionInput,
   dependencies: BillingPurchaseDependencies = {},
-): Promise<
-  | { scope: "user"; stackUserId: string; subscriptionId: string }
-  | { scope: "team"; stackTeamId: string; subscriptionId: string }
-  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
-> {
+): Promise<CheckoutCompletionResult> {
   const subscription = input.subscription ?? expandedSubscription(input.session);
   if (!subscription) {
     throw new Error("Stripe checkout session is missing an expanded subscription");
@@ -130,42 +136,65 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
-  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db) || (user && isAccountDeletionInProgress(user))) {
+  const lockedResult = await withAccountDeletionUserLock(
+    db,
+    stackUserId,
+    async (tx): Promise<{
+      result: CheckoutCompletionResult;
+      deleteCheckoutStripeResources: boolean;
+    }> => {
+      const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+      if (
+        await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx) ||
+        (user && isAccountDeletionInProgress(user))
+      ) {
+        return {
+          deleteCheckoutStripeResources: true,
+          result: {
+            skipped: "account_deletion_in_progress",
+            stackUserId,
+            subscriptionId: subscription.id,
+          },
+        };
+      }
+      if (!user) throw new Error(`Stack user not found for checkout completion: ${stackUserId}`);
+
+      const email = checkoutEmail(input.session, input.customer);
+      await upsertStripeCustomer(tx, {
+        customerId,
+        stackUserId,
+        email,
+      });
+      await upsertStripeSubscription(tx, {
+        subscription,
+        customerId,
+        stackUserId,
+        scope: "user",
+      });
+
+      if (email) {
+        await attachPurchaseEmailOrRecordClaim(tx, {
+          user,
+          email,
+          stripeCustomerId: customerId,
+          stackUserId,
+          stackApp: dependencies.stackApp ?? stackServerApp,
+        });
+      }
+      await syncProPlanMetadata(user, true);
+
+      return {
+        deleteCheckoutStripeResources: false,
+        result: { scope: "user", stackUserId, subscriptionId: subscription.id },
+      };
+    },
+  );
+
+  if (lockedResult.deleteCheckoutStripeResources) {
     await deleteCheckoutStripeResourcesForAccountDeletion(subscription, customerId, dependencies);
-    return {
-      skipped: "account_deletion_in_progress",
-      stackUserId,
-      subscriptionId: subscription.id,
-    };
   }
-  if (!user) throw new Error(`Stack user not found for checkout completion: ${stackUserId}`);
 
-  const email = checkoutEmail(input.session, input.customer);
-  await upsertStripeCustomer(db, {
-    customerId,
-    stackUserId,
-    email,
-  });
-  await upsertStripeSubscription(db, {
-    subscription,
-    customerId,
-    stackUserId,
-    scope: "user",
-  });
-
-  if (email) {
-    await attachPurchaseEmailOrRecordClaim(db, {
-      user,
-      email,
-      stripeCustomerId: customerId,
-      stackUserId,
-      stackApp: dependencies.stackApp ?? stackServerApp,
-    });
-  }
-  await syncProPlanMetadata(user, true);
-
-  return { scope: "user", stackUserId, subscriptionId: subscription.id };
+  return lockedResult.result;
 }
 
 async function deleteCheckoutStripeResourcesForAccountDeletion(
@@ -289,7 +318,7 @@ function isAccountDeletionInProgress(user: StackBillingUser): boolean {
 
 async function hasCheckoutBlockingAccountDeletionTombstone(
   stackUserId: string,
-  db: BillingDb,
+  db: BillingDbClient,
 ): Promise<boolean> {
   const [row] = await db
     .select({ status: accountDeletionTombstones.status })
@@ -297,6 +326,20 @@ async function hasCheckoutBlockingAccountDeletionTombstone(
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
     .limit(1);
   return row ? row.status === "completed" || isBlockingAccountDeletionStatus(row.status) : false;
+}
+
+async function withAccountDeletionUserLock<T>(
+  db: BillingDb,
+  stackUserId: string,
+  callback: (tx: BillingDbClient) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    const accountTx = tx as BillingDbTransaction;
+    await accountTx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(stackUserId)}, 0))`,
+    );
+    return callback(accountTx);
+  });
 }
 
 export async function latestStripeSubscriptionForSession(
@@ -446,7 +489,7 @@ async function recordTeamCheckoutCompletion(input: {
 }
 
 async function upsertStripeCustomer(
-  db: BillingDb,
+  db: BillingDbClient,
   input: { customerId: string; stackUserId: string; email: string | null },
 ): Promise<void> {
   const [existingForStackUser] = await db
@@ -515,7 +558,7 @@ async function upsertStripeCustomer(
 }
 
 async function upsertTeamStripeCustomer(
-  db: BillingDb,
+  db: BillingDbClient,
   input: { customerId: string; stackUserId: string; stackTeamId: string },
 ): Promise<void> {
   const [existingForStackTeam] = await db
@@ -567,7 +610,7 @@ async function upsertTeamStripeCustomer(
 }
 
 async function upsertStripeSubscription(
-  db: BillingDb,
+  db: BillingDbClient,
   input: StripeSubscriptionValuesInput,
 ): Promise<void> {
   const values = stripeSubscriptionValues(input);
@@ -585,7 +628,7 @@ async function upsertStripeSubscription(
 }
 
 async function updateExistingUserStripeSubscription(
-  db: BillingDb,
+  db: BillingDbClient,
   input: {
     subscription: Stripe.Subscription;
     customerId: string;
@@ -649,7 +692,7 @@ function mutableStripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
 }
 
 async function userStripeSubscriptionExists(
-  db: BillingDb,
+  db: BillingDbClient,
   input: { subscriptionId: string; stackUserId: string },
 ): Promise<boolean> {
   const [row] = await db
@@ -668,7 +711,7 @@ async function userStripeSubscriptionExists(
 }
 
 async function attachPurchaseEmailOrRecordClaim(
-  db: BillingDb,
+  db: BillingDbClient,
   input: {
     user: StackBillingUser;
     email: string;
@@ -720,7 +763,7 @@ async function findUserIdByEmail(
 }
 
 async function recordBillingEmailClaim(
-  db: BillingDb,
+  db: BillingDbClient,
   input: {
     email: string;
     stripeCustomerId: string;
@@ -749,7 +792,7 @@ async function recordBillingEmailClaim(
 }
 
 async function stackUserIdForStripeCustomer(
-  db: BillingDb,
+  db: BillingDbClient,
   customerId: string,
 ): Promise<string | null> {
   const rows = await db
@@ -762,7 +805,7 @@ async function stackUserIdForStripeCustomer(
 }
 
 async function stackUserIdForTeamStripeCustomer(
-  db: BillingDb,
+  db: BillingDbClient,
   input: { stackTeamId: string; customerId: string },
 ): Promise<string | null> {
   const byTeam = await db
