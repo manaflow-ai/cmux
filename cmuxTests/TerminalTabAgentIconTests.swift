@@ -263,4 +263,28 @@ struct TerminalTabAgentIconTests {
 
         #expect(asset == "AgentIcons/HermesAgent")
     }
+
+    @Test func payloadUsesRenderedImageDataWhenAvailable() {
+        let rendered = Data([0x63, 0x6d, 0x75, 0x78])
+        let payload = TerminalTabAgentIconResolver().payload(assetName: "AgentIcons/Codex") { assetName in
+            assetName == "AgentIcons/Codex" ? rendered : nil
+        }
+
+        #expect(payload.imageData == rendered)
+        #expect(payload.assetName == nil)
+    }
+
+    @Test func payloadFallsBackToAssetNameWhenRenderingMisses() {
+        let payload = TerminalTabAgentIconResolver().payload(assetName: "AgentIcons/Claude") { _ in nil }
+
+        #expect(payload.imageData == nil)
+        #expect(payload.assetName == "AgentIcons/Claude")
+    }
+
+    @Test func payloadClearsBothIconFieldsWhenNoAssetIsResolved() {
+        let payload = TerminalTabAgentIconResolver().payload(assetName: nil) { _ in Data([1]) }
+
+        #expect(payload.imageData == nil)
+        #expect(payload.assetName == nil)
+    }
 }
