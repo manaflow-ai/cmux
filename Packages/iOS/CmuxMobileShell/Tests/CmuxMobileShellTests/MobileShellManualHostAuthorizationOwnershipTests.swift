@@ -150,8 +150,13 @@ import Testing
 
     @Test func staleForegroundAuthorizationFailureDoesNotDisconnectReplacementClient() async throws {
         let oldRouter = LivenessHostRouter()
+        let failureGate = HeldAuthorizationFailureGate()
         let oldRuntime = LivenessTestRuntime(
-            transportFactory: LivenessTransportFactory(router: oldRouter, box: TransportBox()),
+            transportFactory: HeldAuthorizationFailureTransportFactory(
+                method: "workspace.action",
+                gate: failureGate,
+                router: oldRouter
+            ),
             now: { Date() },
             supportedRouteKinds: [.debugLoopback],
             supportsServerPushEvents: false
@@ -180,15 +185,13 @@ import Testing
             ),
         ], foregroundMacDeviceID: "old-mac")
         let rowID = try #require(store.workspaces.first?.id)
-        await oldRouter.holdAuthorizationFailure(for: "workspace.action")
-
         let rename = Task { @MainActor in
             await store.renameWorkspace(id: rowID, title: "Renamed")
         }
-        await oldRouter.waitForCount(of: "workspace.action", atLeast: 1)
+        await failureGate.waitUntilReached()
         store.remoteClient = newClient
         store.setWorkspaceStatesForTesting([:], foregroundMacDeviceID: "new-mac")
-        await oldRouter.releaseAllHeld()
+        await failureGate.release()
         _ = await rename.value
 
         #expect(store.connectionState == .connected)

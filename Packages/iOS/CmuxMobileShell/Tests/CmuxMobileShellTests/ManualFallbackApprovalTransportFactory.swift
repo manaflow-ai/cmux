@@ -1,6 +1,8 @@
 import CMUXMobileCore
 import Foundation
 
+/// Synchronous test probe: every access to mutable state is serialized by `lock`,
+/// and no locked region crosses an async suspension point.
 final class RouteAttemptRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [CmxAttachTransportKind: Int] = [:]

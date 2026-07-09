@@ -99,6 +99,16 @@ import Testing
         #expect(route.endpoint == .hostPort(host: "192.168.1.77", port: 50906))
     }
 
+    @Test func invalidManualHostCannotConstructRoute() {
+        do {
+            _ = try MobileShellRouteSelection().manualHostRoute(
+                host: "https://studio-mac.local/path",
+                port: 50_906
+            )
+            Issue.record("Expected invalid manual host route construction to fail closed")
+        } catch {}
+    }
+
     @Test func reconnectCandidatesKeepFallbackRoutesAfterPreferredRoute() throws {
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
             [try loopback(), try tailscale()],
