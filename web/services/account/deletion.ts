@@ -1025,7 +1025,10 @@ async function accountVmIdentityLeaseRows(
     .from(cloudVmLeases)
     .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
     .where(and(
-      accountOwnedCloudVmRows(scope),
+      or(
+        accountOwnedCloudVmRows(scope),
+        eq(cloudVmLeases.userId, scope.userId),
+      ),
       isNotNull(cloudVmLeases.providerIdentityHandle),
       isNull(cloudVmLeases.revokedAt),
     ))
