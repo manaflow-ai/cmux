@@ -589,14 +589,11 @@ function teamScopedUsageEventsCreatedByUser(userId: string) {
 }
 
 function personalCloudVmUsageEvents(userId: string) {
-  return or(
-    eq(cloudVmUsageEvents.billingTeamId, userId),
-    and(
-      eq(cloudVmUsageEvents.userId, userId),
-      or(
-        isNull(cloudVmUsageEvents.billingTeamId),
-        eq(cloudVmUsageEvents.billingTeamId, userId),
-      ),
+  return and(
+    eq(cloudVmUsageEvents.userId, userId),
+    or(
+      isNull(cloudVmUsageEvents.billingTeamId),
+      eq(cloudVmUsageEvents.billingTeamId, userId),
     ),
   );
 }

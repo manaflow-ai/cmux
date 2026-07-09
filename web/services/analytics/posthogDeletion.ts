@@ -13,7 +13,8 @@ export async function deletePostHogPersonData(
   const environmentId = postHogEnvironmentId();
   const personalApiKey = postHogPersonalApiKey();
   if (!environmentId || !personalApiKey) {
-    throw new Error("PostHog account deletion is not configured");
+    console.error("[account-deletion] PostHog deletion skipped because it is not configured");
+    return;
   }
   const deletionDistinctIds = normalizedDistinctIds([userId, ...distinctIds]);
 

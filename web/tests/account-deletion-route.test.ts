@@ -6,14 +6,9 @@ const realMarkStackUserDeletionInProgress = accountDeletionModule.markStackUserD
 const calls: string[] = [];
 const scheduledCallbacks: Array<() => Promise<void>> = [];
 let stackUserMetadata: unknown = {};
-let postHogPreflightError: Error | null = null;
 let enqueueStatus: "pending" | "in_progress" | "completed" | "failed" = "pending";
 let enqueueError: Error | null = null;
 let markStackError: Error | null = null;
-const assertPostHogDeletionConfigured = mock(() => {
-  calls.push("posthog-preflight");
-  if (postHogPreflightError) throw postHogPreflightError;
-});
 type NativeTokenStore = { accessToken: string; refreshToken: string };
 const markStackUserDeletionInProgress = mock(async (user) => {
   calls.push("mark-deleting");
@@ -58,7 +53,6 @@ function deleteAccount(request: Request): Promise<Response> {
     isStackConfigured: () => true,
     getUser: async (tokenStore) =>
       (await getUser({ tokenStore })) as ReturnType<typeof stackUser> | null,
-    assertPostHogDeletionConfigured,
     markStackUserDeletionInProgress,
     enqueueAccountDeletion: async (input) =>
       await enqueueAccountDeletion(input) as Awaited<ReturnType<typeof accountDeletionModule.enqueueAccountDeletion>>,
@@ -75,11 +69,9 @@ beforeEach(() => {
   calls.length = 0;
   scheduledCallbacks.length = 0;
   stackUserMetadata = {};
-  postHogPreflightError = null;
   enqueueStatus = "pending";
   enqueueError = null;
   markStackError = null;
-  assertPostHogDeletionConfigured.mockClear();
   markStackUserDeletionInProgress.mockClear();
   enqueueAccountDeletion.mockClear();
   processAccountDeletionForUser.mockClear();
@@ -97,7 +89,6 @@ describe("account deletion route", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(getUser).not.toHaveBeenCalled();
-    expect(assertPostHogDeletionConfigured).not.toHaveBeenCalled();
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
     expect(enqueueAccountDeletion).not.toHaveBeenCalled();
     expect(processAccountDeletionForUser).not.toHaveBeenCalled();
@@ -127,14 +118,13 @@ describe("account deletion route", () => {
     expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);
     expect(deleteUser).not.toHaveBeenCalled();
     expect(processAccountDeletionForUser).not.toHaveBeenCalled();
-    expect(calls).toEqual(["posthog-preflight", "enqueue", "mark-deleting", "schedule"]);
+    expect(calls).toEqual(["enqueue", "mark-deleting", "schedule"]);
     expect(scheduledCallbacks).toHaveLength(1);
 
     await scheduledCallbacks[0]();
 
     expect(processAccountDeletionForUser).toHaveBeenCalledWith({ userId: "user-1" });
     expect(calls).toEqual([
-      "posthog-preflight",
       "enqueue",
       "mark-deleting",
       "schedule",
@@ -176,7 +166,7 @@ describe("account deletion route", () => {
       }),
     )).rejects.toThrow("database unavailable");
 
-    expect(calls).toEqual(["posthog-preflight", "enqueue"]);
+    expect(calls).toEqual(["enqueue"]);
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
     expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(false);
     expect(processAccountDeletionForUser).not.toHaveBeenCalled();
@@ -203,7 +193,7 @@ describe("account deletion route", () => {
 
       expect(response.status).toBe(202);
       expect(await response.json()).toEqual({ ok: true, status: "pending" });
-      expect(calls).toEqual(["posthog-preflight", "enqueue", "mark-deleting", "schedule"]);
+      expect(calls).toEqual(["enqueue", "mark-deleting", "schedule"]);
       expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(false);
       expect(scheduledCallbacks).toHaveLength(1);
       expect(consoleError).toHaveBeenCalledWith(
@@ -217,27 +207,6 @@ describe("account deletion route", () => {
     await scheduledCallbacks[0]();
 
     expect(processAccountDeletionForUser).toHaveBeenCalledWith({ userId: "user-1" });
-  });
-
-  test("does not delete the Stack user when PostHog deletion is not configured", async () => {
-    postHogPreflightError = new Error("PostHog account deletion is not configured");
-
-    await expect(deleteAccount(
-      new Request("https://cmux.test/api/account/deletion", {
-        method: "DELETE",
-        headers: {
-          authorization: "Bearer access-1",
-          "x-stack-refresh-token": "refresh-1",
-        },
-      }),
-    )).rejects.toThrow("PostHog account deletion is not configured");
-
-    expect(calls).toEqual(["posthog-preflight"]);
-    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
-    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
-    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
-    expect(scheduledCallbacks).toHaveLength(0);
-    expect(deleteUser).not.toHaveBeenCalled();
   });
 
   test("rejects stale native tokens without deleting anything", async () => {
@@ -255,7 +224,6 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
-    expect(assertPostHogDeletionConfigured).not.toHaveBeenCalled();
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
     expect(enqueueAccountDeletion).not.toHaveBeenCalled();
     expect(processAccountDeletionForUser).not.toHaveBeenCalled();

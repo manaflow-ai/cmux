@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import {
+import type { AccountDeletionJob, AccountDeletionStatus } from "../services/account/deletion";
+import type { AccountDeletionProcessorDependencies } from "../services/account/deletionProcessor";
+
+process.env.RESEND_API_KEY ??= "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
+process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
+process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
+
+const {
   processAccountDeletionForUser,
   processPendingAccountDeletions,
-  type AccountDeletionProcessorDependencies,
-} from "../services/account/deletionProcessor";
-import type { AccountDeletionJob, AccountDeletionStatus } from "../services/account/deletion";
+} = await import("../services/account/deletionProcessor");
 
 const calls: string[] = [];
 let claimResult: AccountDeletionStatus | null = "pending";

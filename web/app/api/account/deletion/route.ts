@@ -7,9 +7,6 @@ import {
   markStackUserDeletionInProgress,
   type StackAccountDeletionMetadataUser,
 } from "../../../../services/account/deletion";
-import {
-  assertPostHogDeletionConfigured,
-} from "../../../../services/analytics/posthogDeletion";
 import { processAccountDeletionForUser } from "../../../../services/account/deletionProcessor";
 
 export const runtime = "nodejs";
@@ -28,7 +25,6 @@ type StackAccountDeletionRouteUser = StackAccountDeletionMetadataUser & {
 export type AccountDeletionRouteDependencies = {
   readonly isStackConfigured: () => boolean;
   readonly getUser: (tokenStore: NativeTokenStore) => Promise<StackAccountDeletionRouteUser | null>;
-  readonly assertPostHogDeletionConfigured: typeof assertPostHogDeletionConfigured;
   readonly markStackUserDeletionInProgress: typeof markStackUserDeletionInProgress;
   readonly enqueueAccountDeletion: typeof enqueueAccountDeletion;
   readonly processAccountDeletionForUser: typeof processAccountDeletionForUser;
@@ -38,7 +34,6 @@ export type AccountDeletionRouteDependencies = {
 const accountDeletionRouteDependencies: AccountDeletionRouteDependencies = {
   isStackConfigured,
   getUser: async (tokenStore) => await getStackServerApp().getUser({ tokenStore }),
-  assertPostHogDeletionConfigured,
   markStackUserDeletionInProgress,
   enqueueAccountDeletion,
   processAccountDeletionForUser,
@@ -57,7 +52,6 @@ export async function deleteAccountWithDependencies(
   const user = await dependencies.getUser(tokenStore);
   if (!user) return unauthorized();
 
-  dependencies.assertPostHogDeletionConfigured();
   const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });
 
   if (deletion.status !== "completed") {

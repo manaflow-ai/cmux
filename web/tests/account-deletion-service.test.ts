@@ -91,7 +91,7 @@ describe("account deletion cleanup", () => {
     await expect(hasAccountDeletionTombstone({ userId: "other-user" }, runtime)).resolves.toBe(false);
   });
 
-  test("blocks auth on retryable failed tombstones", async () => {
+  test("does not block auth on retryable failed tombstones", async () => {
     const runtime = {
       cloudDb: () => ({
         select: () => selectBuilder(() => [{
@@ -104,7 +104,7 @@ describe("account deletion cleanup", () => {
       runVmWorkflow,
     };
 
-    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(true);
+    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
   });
 
   test("does not block auth on completed tombstones", async () => {

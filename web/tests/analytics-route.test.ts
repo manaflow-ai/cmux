@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AuthedUser } from "../services/vms/auth";
 
+process.env.RESEND_API_KEY ??= "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
+process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
+process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
+
 const authedUser: AuthedUser = {
   id: "stack-user-1",
   displayName: null,
@@ -115,6 +122,40 @@ describe("iOS analytics route", () => {
 
     expect(response.status).toBe(200);
     expect(calls).toEqual(["record-identities", "forward-posthog"]);
+  });
+
+  test("still forwards analytics when identity recording fails", async () => {
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    const identityStoreError = new Error("identity store unavailable");
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await postAnalyticsEvents(jsonRequest({
+        batch: [{
+          event: "$identify",
+          distinct_id: "stack-user-1",
+          properties: {
+            "$anon_distinct_id": "77777777-7777-4777-8777-777777777777",
+          },
+        }],
+      }), {
+        verifyRequest,
+        recordIOSAnalyticsIdentities: async () => {
+          throw identityStoreError;
+        },
+        forwardToPostHog,
+      });
+
+      expect(response.status).toBe(200);
+      expect(forwardToPostHog).toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledWith(
+        "[ios-analytics] identity recording failed",
+        { error: identityStoreError },
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 
   test("keeps identify mappings when PostHog forwarding fails", async () => {

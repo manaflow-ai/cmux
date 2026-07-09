@@ -107,10 +107,14 @@ export async function postAnalyticsEvents(
   const anonymousIds = user ? authenticatedAnonymousIds(accepted) : [];
   if (user) {
     if (anonymousIds.length > 0) {
-      await dependencies.recordIOSAnalyticsIdentities({
-        userId: user.id,
-        anonymousIds,
-      });
+      try {
+        await dependencies.recordIOSAnalyticsIdentities({
+          userId: user.id,
+          anonymousIds,
+        });
+      } catch (error) {
+        console.error("[ios-analytics] identity recording failed", { error });
+      }
     }
   }
   const forwarded = await dependencies.forwardToPostHog(accepted, user?.id ?? null);
