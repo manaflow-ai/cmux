@@ -108,7 +108,12 @@ struct NewWorkspaceMenuModelTests {
             templateNames: ["Template A"],
             loadedActions: store.loadedActions,
             newWorkspaceActionID: store.newWorkspaceActionID,
-            deletable: { $0.id == "review-layout" },
+            // `terminal-command` is a non-layout action that is also deletable,
+            // so this guards the `isWorkspaceLayout($0) && deletable($0)` filter:
+            // if that filter regressed to `deletable` alone, the command would
+            // leak into `management.deletableActions` and the assertion below
+            // (== ["review-layout"]) would fail.
+            deletable: { $0.id == "review-layout" || $0.id == "terminal-command" },
             sectionOrder: store.newWorkspaceMenuSectionOrder
         )
 
