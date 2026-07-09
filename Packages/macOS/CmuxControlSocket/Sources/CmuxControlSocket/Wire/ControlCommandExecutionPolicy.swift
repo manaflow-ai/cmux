@@ -28,6 +28,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
+#if DEBUG
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" { self = .socketWorker(mainThreadCallable: false); return }
+#endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
             || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
@@ -65,8 +68,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         return false
     }
 
-    /// Methods that run on the socket-worker thread instead of the main actor.
-    /// Internal (not private) so the package tests can pin the exact set.
+    /// Socket-worker methods; internal so package tests can pin the exact set.
     static let socketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
@@ -87,9 +89,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
-        // `mobile.terminal.set_font` only validates params and emits a
-        // `terminal.set_font` push event via thread-safe MobileHostService
-        // statics (no main-actor UI access), so it runs on the socket worker
+        // `mobile.terminal.set_font` only validates params and emits a push
+        // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
@@ -123,8 +124,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror",
-        "remote.tmux.window",
+        "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",

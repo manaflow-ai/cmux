@@ -6,7 +6,8 @@ import UIKit
 /// Text" capture live in one cohesive file. Everything here is `internal`
 /// (not `private`) only so the main class file's lifecycle/snapshot paths can
 /// keep using the registry across the file boundary; nothing is exported
-/// beyond the module except `copyableTerminalText(surfaceID:)`.
+/// beyond the module except `copyableTerminalText(surfaceID:)` and
+/// `focusInput(surfaceID:)`.
 final class WeakGhosttySurfaceViewBox {
     weak var value: GhosttySurfaceView?
 
@@ -42,6 +43,30 @@ extension GhosttySurfaceView {
 
     static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
         UInt(bitPattern: UnsafeRawPointer(surface))
+    }
+
+    /// Focuses the hidden text input of the mounted terminal surface for a
+    /// shell-level surface id (the id the mounting representable stamped on
+    /// the view as ``hostSurfaceID``).
+    ///
+    /// The chat/browser chrome keeps the terminal surface mounted underneath
+    /// it (an opacity swap, not a remount), so returning to the terminal
+    /// never re-fires the attach-time autofocus in `didMoveToWindow`. This is
+    /// the explicit focus-on-return entrypoint for that path. The lookup is
+    /// id-scoped like ``copyableTerminalText(surfaceID:)`` so a second
+    /// mounted surface (another iPad scene, an in-flight transition) can
+    /// never grab the keyboard for a different workspace's terminal.
+    @MainActor
+    public static func focusInput(surfaceID: String) {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        let matchingView = registeredSurfaceViews
+            .sorted { $0.key < $1.key }
+            .compactMap(\.value.value)
+            .first { candidate in
+                candidate.hostSurfaceID == surfaceID && candidate.window != nil
+                    && !candidate.isDismantled
+            }
+        matchingView?.focusInput()
     }
 
     /// Full-content capture for the "View as Text" copy sheet: the SCREEN
