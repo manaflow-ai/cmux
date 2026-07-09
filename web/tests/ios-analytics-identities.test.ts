@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  listPostHogDeletionDistinctIds,
   recordIOSAnalyticsIdentities,
   type IOSAnalyticsIdentityRuntime,
 } from "../services/analytics/iosAnalyticsIdentities";
@@ -24,7 +25,7 @@ describe("iOS analytics identities", () => {
     );
   });
 
-  test("evicts older aliases after the per-user identity cap", async () => {
+  test("retains older aliases for account deletion", async () => {
     const userId = "stack-user-1";
     const { identities, runtime } = identityRuntime(
       Array.from({ length: 64 }, (_, index) => ({
@@ -37,12 +38,14 @@ describe("iOS analytics identities", () => {
     const newAnonymousIds = Array.from({ length: 16 }, (_, index) => analyticsId(index + 100));
 
     await recordIOSAnalyticsIdentities({ userId, anonymousIds: newAnonymousIds }, runtime);
+    const deletionDistinctIds = await listPostHogDeletionDistinctIds({ userId }, runtime);
 
     const userAnonymousIds = identities
       .filter((row) => row.userId === userId)
       .map((row) => row.anonymousId);
-    expect(userAnonymousIds).toHaveLength(64);
+    expect(userAnonymousIds).toHaveLength(80);
     expect(newAnonymousIds.every((anonymousId) => userAnonymousIds.includes(anonymousId))).toBe(true);
+    expect(deletionDistinctIds).toEqual([userId, ...userAnonymousIds]);
   });
 });
 
@@ -55,8 +58,6 @@ type StoredIdentity = {
 
 function identityRuntime(initialIdentities: StoredIdentity[] = []) {
   const identities = [...initialIdentities];
-  let currentUserId = "";
-  let retainedAnonymousIds = new Set<string>();
   const runtime = {
     cloudDb: () => ({
       transaction: async <T>(fn: (tx: unknown) => Promise<T>) => {
@@ -64,7 +65,6 @@ function identityRuntime(initialIdentities: StoredIdentity[] = []) {
           insert: () => ({
             values: (values: StoredIdentity[]) => ({
               onConflictDoUpdate: async () => {
-                currentUserId = values[0]?.userId ?? "";
                 for (const value of values) {
                   const existing = identities.find((row) =>
                     row.userId === value.userId && row.anonymousId === value.anonymousId
@@ -75,38 +75,13 @@ function identityRuntime(initialIdentities: StoredIdentity[] = []) {
               },
             }),
           }),
-          select: () => ({
-            from: () => ({
-              where: () => ({
-                orderBy: () => ({
-                  limit: async (limit: number) => {
-                    const retained = [...identities]
-                      .filter((row) => row.userId === currentUserId)
-                      .sort((lhs, rhs) =>
-                        rhs.updatedAt.getTime() - lhs.updatedAt.getTime()
-                        || rhs.createdAt.getTime() - lhs.createdAt.getTime()
-                      )
-                      .slice(0, limit)
-                      .map((row) => ({ anonymousId: row.anonymousId }));
-                    retainedAnonymousIds = new Set(retained.slice(0, limit - 1).map((row) => row.anonymousId));
-                    return retained;
-                  },
-                }),
-              }),
-            }),
-          }),
-          delete: () => ({
-            where: async () => {
-              for (let index = identities.length - 1; index >= 0; index -= 1) {
-                const row = identities[index];
-                if (row.userId === currentUserId && !retainedAnonymousIds.has(row.anonymousId)) {
-                  identities.splice(index, 1);
-                }
-              }
-            },
-          }),
         });
       },
+      select: () => ({
+        from: () => ({
+          where: async () => identities.map((row) => ({ anonymousId: row.anonymousId })),
+        }),
+      }),
     }),
   } as unknown as IOSAnalyticsIdentityRuntime;
   return { identities, runtime };

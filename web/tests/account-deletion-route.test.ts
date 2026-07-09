@@ -295,9 +295,7 @@ describe("account deletion route", () => {
   });
 
   test("does not enqueue deletion when local account data cannot be safely deleted", async () => {
-    accountDeletionCanStartError = new Error(
-      "Account deletion retained team billing owner missing for team-shared",
-    );
+    accountDeletionCanStartError = new Error("Stripe account deletion is not configured");
     const originalConsoleError = console.error;
     const consoleError = mock(() => {});
     console.error = consoleError as unknown as typeof console.error;

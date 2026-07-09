@@ -688,7 +688,7 @@ describe("account deletion cleanup", () => {
     expect(stripeSubscriptionCancels).toContain("sub_personal");
   });
 
-  test("fails closed before canceling shared-team Stripe billing without a retained owner", async () => {
+  test("cancels shared-team Stripe billing when no retained owner is available", async () => {
     stripeCustomerRows = [
       { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
     ];
@@ -703,17 +703,27 @@ describe("account deletion cleanup", () => {
       },
     ];
 
-    await expect(deleteCmuxAccountData({
+    await deleteCmuxAccountData({
       userId: "user-1",
-    }, fakeRuntime())).rejects.toThrow("Account deletion retained team billing owner missing for team-shared");
+    }, fakeRuntime());
 
-    expect(stripeCustomerUpdates).toHaveLength(0);
-    expect(stripeSubscriptionUpdates).toHaveLength(0);
-    expect(stripeSubscriptionCancels).toHaveLength(0);
-    expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
+    const sharedCustomerUpdate = stripeCustomerUpdates.find((entry) => entry.id === "cus_shared");
+    expect(sharedCustomerUpdate?.params.email).toBe(
+      `deleted+${accountDeletionUserHash("user-1").slice(0, 24)}@cmux.com`,
+    );
+    expect(sharedCustomerUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(sharedCustomerUpdate?.params.metadata?.stackTeamId).toBe("");
+    expect(sharedCustomerUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
+
+    const sharedSubscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_shared");
+    expect(sharedSubscriptionUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(sharedSubscriptionUpdate?.params.metadata?.stackTeamId).toBe("");
+    expect(sharedSubscriptionUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
+    expect(stripeSubscriptionCancels).toContain("sub_shared");
+    expect(updateSets.some((entry) => entry.label === "cancel-stripe-subscriptions")).toBe(true);
   });
 
-  test("requires a retained owner before account deletion starts with shared-team billing", async () => {
+  test("allows account deletion to start with shared-team billing owned by the deleting user", async () => {
     stripeCustomerRows = [
       { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
     ];
@@ -730,7 +740,7 @@ describe("account deletion cleanup", () => {
 
     await expect(assertAccountDeletionCanStart({
       userId: "user-1",
-    }, fakeRuntime())).rejects.toThrow("Account deletion retained team billing owner missing for team-shared");
+    }, fakeRuntime())).resolves.toBeUndefined();
 
     expect(calls).toEqual([]);
     expect(stripeCustomerUpdates).toHaveLength(0);

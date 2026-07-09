@@ -1,10 +1,9 @@
-import { and, desc, eq, notInArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { iosAnalyticsIdentities } from "../../db/schema";
 
 const MAX_ANALYTICS_DISTINCT_ID_LENGTH = 512;
 const MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST = 16;
-const MAX_IOS_ANALYTICS_IDENTITIES_PER_USER = 64;
 const IOS_INSTALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type IOSAnalyticsIdentityRuntime = {
@@ -54,7 +53,6 @@ export async function recordIOSAnalyticsIdentitiesInTransaction(
       target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
       set: { updatedAt: now },
   });
-  await pruneIOSAnalyticsIdentitiesForUser(db, input.userId);
   return anonymousIds;
 }
 
@@ -90,27 +88,4 @@ function normalizedDistinctId(value: string): string | null {
   if (!trimmed || trimmed.length > MAX_ANALYTICS_DISTINCT_ID_LENGTH) return null;
   if (!IOS_INSTALL_ID_PATTERN.test(trimmed)) return null;
   return trimmed;
-}
-
-async function pruneIOSAnalyticsIdentitiesForUser(
-  db: IOSAnalyticsIdentityDb,
-  userId: string,
-): Promise<void> {
-  const retained = await db
-    .select({ anonymousId: iosAnalyticsIdentities.anonymousId })
-    .from(iosAnalyticsIdentities)
-    .where(eq(iosAnalyticsIdentities.userId, userId))
-    .orderBy(desc(iosAnalyticsIdentities.updatedAt), desc(iosAnalyticsIdentities.createdAt))
-    .limit(MAX_IOS_ANALYTICS_IDENTITIES_PER_USER + 1);
-  if (retained.length <= MAX_IOS_ANALYTICS_IDENTITIES_PER_USER) return;
-
-  const retainedAnonymousIds = retained
-    .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_USER)
-    .map((row) => row.anonymousId);
-  await db
-    .delete(iosAnalyticsIdentities)
-    .where(and(
-      eq(iosAnalyticsIdentities.userId, userId),
-      notInArray(iosAnalyticsIdentities.anonymousId, retainedAnonymousIds),
-    ));
 }
