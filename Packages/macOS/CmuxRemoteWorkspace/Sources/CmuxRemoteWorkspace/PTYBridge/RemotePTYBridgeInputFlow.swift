@@ -22,6 +22,7 @@ final class RemotePTYBridgeInputFlow {
     private let lowWatermarkWrites: Int
     private let lowWatermarkBytes: Int
     private let seqAckEnabled: Bool
+    private let maxWriteBytes: Int
 
     private var nextSeq: UInt64 = 1
     private var pendingWrites: [PendingWrite] = []
@@ -30,28 +31,47 @@ final class RemotePTYBridgeInputFlow {
     private var bufferedBytes = 0
     private(set) var isPaused = false
 
-    init(maxPendingWrites: Int, maxPendingBytes: Int, seqAckEnabled: Bool) {
+    /// `maxWriteBytes` bounds a single `pty.write`: the daemon rejects RPC
+    /// frames over 4 MiB before it can parse attachment identity, so a write
+    /// must stay well under that after base64 (~4/3x) plus JSON overhead.
+    init(
+        maxPendingWrites: Int,
+        maxPendingBytes: Int,
+        seqAckEnabled: Bool,
+        maxWriteBytes: Int = 256 * 1024
+    ) {
         self.maxPendingWrites = max(1, maxPendingWrites)
         self.maxPendingBytes = max(1, maxPendingBytes)
         lowWatermarkWrites = max(0, maxPendingWrites / 2)
         lowWatermarkBytes = max(0, maxPendingBytes / 2)
         self.seqAckEnabled = seqAckEnabled
+        self.maxWriteBytes = max(1, maxWriteBytes)
     }
 
     func enqueue(_ data: Data) -> DrainResult? {
         guard !data.isEmpty else {
             return DrainResult(writes: [], shouldResumeReads: false)
         }
-        if let write = reserveWrite(for: data) {
-            return DrainResult(writes: [write], shouldResumeReads: false)
+        var writes: [Write] = []
+        var offset = data.startIndex
+        while offset < data.endIndex {
+            let end = data.index(offset, offsetBy: maxWriteBytes, limitedBy: data.endIndex) ?? data.endIndex
+            let piece = Data(data[offset..<end])
+            offset = end
+            // Once a piece buffers, every later piece must buffer too or
+            // bytes would reorder around the window boundary.
+            if bufferedInput.isEmpty, let write = reserveWrite(for: piece) {
+                writes.append(write)
+                continue
+            }
+            guard bufferedBytes <= maxPendingBytes - piece.count else {
+                return nil
+            }
+            bufferedInput.append(piece)
+            bufferedBytes += piece.count
+            isPaused = true
         }
-        guard bufferedBytes <= maxPendingBytes - data.count else {
-            return nil
-        }
-        bufferedInput.append(data)
-        bufferedBytes += data.count
-        isPaused = true
-        return DrainResult(writes: [], shouldResumeReads: false)
+        return DrainResult(writes: writes, shouldResumeReads: false)
     }
 
     func complete(_ write: Write, error: (any Error)?) -> DrainResult? {

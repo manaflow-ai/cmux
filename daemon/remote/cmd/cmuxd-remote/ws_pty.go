@@ -1662,6 +1662,12 @@ func (h *wsPTYHub) writeInputChunkLocked(session *wsPTYSession, chunk wsPTYInput
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
 
+	// Deliberately session-scoped, not attachment-scoped: once writeInput
+	// accepted bytes they belong to the persistent session and are written
+	// even if their attachment has since detached (tmux semantics — input
+	// sent before detach still executes). Discarding queued accepted bytes
+	// on detach is the silent-loss bug class this path exists to prevent;
+	// writeInput still rejects NEW writes from detached attachments.
 	h.mu.Lock()
 	current := h.sessions[session.key] == session && !session.closed
 	ptyFile := session.ptyFile
