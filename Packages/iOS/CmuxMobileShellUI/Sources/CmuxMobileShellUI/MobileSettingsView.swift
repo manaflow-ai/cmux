@@ -220,7 +220,7 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
 
-                    debugLayoutSlider(
+                    developerLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.unreadIndicatorLeftness",
                             defaultValue: "Unread Indicator Leftness"
@@ -229,7 +229,7 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
-                    debugLayoutSlider(
+                    developerLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.profilePictureLeftness",
                             defaultValue: "Profile Picture Leftness"
@@ -238,7 +238,7 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.profilePictureLeftShiftRange,
                         identifier: "MobileSettingsProfilePictureLeftness"
                     )
-                    debugLayoutSlider(
+                    developerLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.profilePictureSize",
                             defaultValue: "Profile Picture Size"
