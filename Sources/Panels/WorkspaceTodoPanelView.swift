@@ -57,7 +57,8 @@ private struct WorkspaceTodoPaneContent: View {
     @State private var editingItemId: UUID?
     @State private var editingText = ""
     @FocusState private var editFieldFocused: Bool
-    /// The keyboard-highlighted item (Up/Down arrows); Cmd+Return toggles it.
+    /// The keyboard-highlighted item (Up/Down arrows); Return or Cmd+Return
+    /// toggles it.
     @State private var highlightedItemId: UUID?
     @FocusState private var itemsFocused: Bool
 
@@ -247,15 +248,23 @@ private struct WorkspaceTodoPaneContent: View {
         return .handled
     }
 
-    /// Cmd+Return toggles the highlighted item between completed and pending.
+    /// Return or Cmd+Return toggles the highlighted item between completed and pending.
     /// The action is also registered as the `toggleChecklistItemComplete`
-    /// shortcut for Settings discoverability; the pane handles the keystroke
-    /// locally because the toggle needs the view-local highlight.
+    /// shortcut for Settings discoverability via Cmd+Return; the pane handles
+    /// the keystroke locally because the toggle needs the view-local highlight.
     private func handleItemsKeyPress(
         _ press: KeyPress,
         ordered: [WorkspaceChecklistItem]
     ) -> KeyPress.Result {
-        guard press.key == .return, press.modifiers.contains(.command) else { return .ignored }
+        guard press.key == .return,
+              press.modifiers.isEmpty || press.modifiers.contains(.command) else {
+            return .ignored
+        }
+        // Plain Return must fall through to a live in-row edit's onSubmit
+        // (the edit TextField is a descendant of this handler's scope).
+        if press.modifiers.isEmpty, editingItemId != nil {
+            return .ignored
+        }
         guard let id = highlightedItemId,
               let item = ordered.first(where: { $0.id == id }) else { return .ignored }
         WorkspaceTodoActions.setChecklistItemState(

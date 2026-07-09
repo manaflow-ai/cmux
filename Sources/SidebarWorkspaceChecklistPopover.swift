@@ -32,7 +32,8 @@ struct SidebarWorkspaceChecklistPopover: View {
     @State private var editingItemId: UUID?
     @State private var editingText = ""
     @FocusState private var editFieldFocused: Bool
-    /// The keyboard-highlighted item (Up/Down from the add field); Cmd+Return
+    /// The keyboard-highlighted item: Up/Down from the add field moves it,
+    /// Return toggles it when the add field is empty, and Cmd+Return always
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
 
@@ -225,6 +226,9 @@ struct SidebarWorkspaceChecklistPopover: View {
             .font(.system(size: Self.itemFontSize))
             .foregroundColor(.primary)
             .focused($addFieldFocused)
+            .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
+            .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
+            .onKeyPress(.return) { handleAddFieldReturn(visible: visible) }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
             .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
@@ -234,6 +238,27 @@ struct SidebarWorkspaceChecklistPopover: View {
     }
 
     // MARK: Keyboard navigation + toggle
+
+    /// Moves the highlight up/down through the visible items, clamping at the
+    /// ends.
+    private func moveHighlight(_ delta: Int, in visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        guard !visible.isEmpty else { return .ignored }
+        let currentIndex = visible.firstIndex(where: { $0.id == highlightedItemId })
+            ?? (delta > 0 ? -1 : visible.count)
+        let next = min(max(currentIndex + delta, 0), visible.count - 1)
+        highlightedItemId = visible[next].id
+        return .handled
+    }
+
+    private func handleAddFieldReturn(visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .ignored
+        }
+        guard let id = highlightedItemId,
+              visible.contains(where: { $0.id == id }) else { return .ignored }
+        toggleHighlighted(in: visible)
+        return .handled
+    }
 
     /// A zero-size button that binds Cmd+Return to toggling the highlighted
     /// item. A `.keyboardShortcut` fires even while the add field is focused
@@ -249,8 +274,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             .accessibilityHidden(true)
     }
 
-
-    /// Cmd+Return toggles the highlighted item; no-op when nothing is
+    /// Return/Cmd+Return toggles the highlighted item; no-op when nothing is
     /// highlighted.
     private func toggleHighlighted(in visible: [WorkspaceChecklistItem]) {
         guard let id = highlightedItemId,
