@@ -513,6 +513,32 @@ func TestWebSocketPTYInputSeqEnforcement(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYWriteRejectsMalformedSeq(t *testing.T) {
+	hub, _, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq-invalid", "seq-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	server := &rpcServer{ptyHub: hub, frameWriter: &captureRPCFrameWriter{}}
+	for _, badSeq := range []any{"not-a-number", -1, 1.5} {
+		req := rpcRequest{
+			Method: "pty.write",
+			Params: map[string]any{
+				"session_id":              "sess-seq-invalid",
+				"attachment_id":           "seq-att",
+				"client_attachment_token": "token-1",
+				"data_base64":             base64.StdEncoding.EncodeToString([]byte("x")),
+				"seq":                     badSeq,
+			},
+		}
+		resp := server.handlePTYWrite(req)
+		if resp.OK || resp.Error == nil || resp.Error.Code != "invalid_params" {
+			t.Fatalf("seq=%v response = %+v, want invalid_params", badSeq, resp)
+		}
+	}
+}
+
 func TestWebSocketPTYInputSeqGapNotificationEmitsPTYError(t *testing.T) {
 	hub, _, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq-event", "seq-att", true)
 	defer close(done)

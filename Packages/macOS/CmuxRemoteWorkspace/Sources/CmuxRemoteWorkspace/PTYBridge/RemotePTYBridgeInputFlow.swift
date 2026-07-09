@@ -69,6 +69,11 @@ final class RemotePTYBridgeInputFlow {
         guard seqAckEnabled else {
             return DrainResult(writes: [], shouldResumeReads: false)
         }
+        // An ack for a seq that was never sent is a protocol violation;
+        // nil tells the session to tear down visibly instead of trusting it.
+        guard seq < nextSeq else {
+            return nil
+        }
         while let first = pendingWrites.first,
               let pendingSeq = first.seq,
               pendingSeq <= seq {

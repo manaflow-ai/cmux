@@ -33,9 +33,16 @@ extension SSHPTYAttachReconnectInputFilter {
             pollFDs.append(pollfd(fd: stopSignalFD, events: Int16(POLLIN), revents: 0))
         }
 
+        // Anchor the timeout to an absolute monotonic deadline so EINTR
+        // retries cannot extend the caller's window (e.g. the reconnect
+        // filter deadline) under repeated signal delivery.
+        let deadline: DispatchTime? = timeoutMilliseconds >= 0
+            ? .now() + .milliseconds(Int(timeoutMilliseconds))
+            : nil
+        var remainingTimeout = timeoutMilliseconds
         while true {
             let result = pollFDs.withUnsafeMutableBufferPointer { buffer in
-                Darwin.poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
+                Darwin.poll(buffer.baseAddress, nfds_t(buffer.count), remainingTimeout)
             }
             if result > 0 {
                 let inputReady = (pollFDs[0].revents & inputEvents) != 0
@@ -46,6 +53,14 @@ extension SSHPTYAttachReconnectInputFilter {
                 return (inputReady: false, stopRequested: false)
             }
             if errno == EINTR {
+                if let deadline {
+                    let now = DispatchTime.now()
+                    guard now < deadline else {
+                        return (inputReady: false, stopRequested: false)
+                    }
+                    let remainingNanos = deadline.uptimeNanoseconds - now.uptimeNanoseconds
+                    remainingTimeout = Int32(min(Int64(Int32.max), Int64(remainingNanos / 1_000_000) + 1))
+                }
                 continue
             }
             return nil

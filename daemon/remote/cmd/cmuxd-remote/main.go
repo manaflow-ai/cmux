@@ -2066,7 +2066,18 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 	writeStatus := wsPTYInputWriteNotFound
 	var seq uint64
 	var hasSeq bool
-	if parsedSeq, ok := getIntParam(req.Params, "seq"); ok && parsedSeq >= 0 {
+	if _, provided := req.Params["seq"]; provided {
+		parsedSeq, ok := getIntParam(req.Params, "seq")
+		if !ok || parsedSeq < 0 {
+			return rpcResponse{
+				ID: req.ID,
+				OK: false,
+				Error: &rpcError{
+					Code:    "invalid_params",
+					Message: "seq must be a non-negative integer",
+				},
+			}
+		}
 		seq = uint64(parsedSeq)
 		hasSeq = true
 	}
