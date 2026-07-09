@@ -25,6 +25,7 @@ const signOut = mock((options?: unknown) => {
 });
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
+const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
 const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-and-sign-in/route");
 
 const GET = makeAfterSignInHandler({
@@ -75,6 +76,45 @@ describe("after sign-in native handoff", () => {
     getUserResponses = [];
     getUser.mockClear();
     signOut.mockClear();
+  });
+
+  test("issues and clears the handoff nonce with one cookie contract", async () => {
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+    const afterSignIn = new URL("/handler/after-sign-in", "https://cmux.test");
+    afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+    const startURL = new URL("/handler/native-sign-in", "https://cmux.test");
+    startURL.searchParams.set(
+      "after_auth_return_to",
+      `${afterSignIn.pathname}${afterSignIn.search}`
+    );
+
+    const startResponse = startNativeSignIn(
+      new NextRequest(startURL, {
+        headers: { "sec-fetch-site": "none" },
+      })
+    );
+    const issuedCookie = startResponse.headers.get("set-cookie");
+    expect(issuedCookie).toBeTruthy();
+
+    const signInURL = new URL(startResponse.headers.get("location")!);
+    const callbackURL = new URL(signInURL.searchParams.get("after_auth_return_to")!);
+    const handoffNonce = callbackURL.searchParams.get("cmux_auth_handoff");
+    expect(handoffNonce).toBeTruthy();
+    handoffCookie = handoffNonce!;
+
+    const finishResponse = await GET(signInRequest(nativeReturnTo, handoffNonce!));
+    const clearedCookie = finishResponse.headers.get("set-cookie");
+    expect(clearedCookie).toBeTruthy();
+
+    for (const cookie of [issuedCookie!, clearedCookie!]) {
+      expect(cookie).toContain(`${HANDOFF_COOKIE}=`);
+      expect(cookie).toContain("Path=/handler/after-sign-in");
+      expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=lax");
+      expect(cookie).toContain("Secure");
+    }
+    expect(issuedCookie).toContain("Max-Age=600");
+    expect(clearedCookie).toContain("Max-Age=0");
   });
 
   test("redirects verified native handoffs directly to the native callback", async () => {
