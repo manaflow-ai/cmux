@@ -2,12 +2,13 @@ import AppKit
 
 @MainActor
 final class ResolvedIconAppearanceObserver {
+    @MainActor
     struct Environment {
-        let isApplicationFinishedLaunching: () -> Bool
-        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> NSKeyValueObservation?
-        let addDidFinishLaunchingObserver: (@escaping () -> Void) -> NSObjectProtocol
-        let removeObserver: (NSObjectProtocol) -> Void
-        let syncResolvedIcons: () -> Void
+        let isApplicationFinishedLaunching: @MainActor () -> Bool
+        let startEffectiveAppearanceObservation: (@escaping @MainActor () -> Void) -> NSKeyValueObservation?
+        let addDidFinishLaunchingObserver: (@escaping @MainActor () -> Void) -> NSObjectProtocol
+        let removeObserver: @MainActor (NSObjectProtocol) -> Void
+        let syncResolvedIcons: @MainActor () -> Void
 
         static func live() -> Self {
             Self(
@@ -27,7 +28,9 @@ final class ResolvedIconAppearanceObserver {
                         object: nil,
                         queue: .main
                     ) { _ in
-                        handler()
+                        Task { @MainActor in
+                            handler()
+                        }
                     }
                 },
                 removeObserver: { observer in
@@ -45,8 +48,8 @@ final class ResolvedIconAppearanceObserver {
     private var launchObserver: NSObjectProtocol?
     private var hasDeferredStartPending = false
 
-    init(environment: Environment = .live()) {
-        self.environment = environment
+    init(environment: Environment? = nil) {
+        self.environment = environment ?? .live()
     }
 
     func startObserving() {
