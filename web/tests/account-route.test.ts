@@ -6,6 +6,8 @@ import {
   cloudVmBases,
   cloudVmBillingGrants,
   cloudVmLeases,
+  cloudVmSessions,
+  cloudVmUsageEvents,
   cloudVms,
   devices,
   stripeCustomers,
@@ -758,6 +760,37 @@ describe("account deletion route", () => {
     expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
     const baseDelete = deletedWhere.find((entry) => entry.table === cloudVmBases);
     expect(conditionColumnNames(baseDelete?.condition)).toContain("scope_id");
+  });
+
+  test("deletes account-owned team VM rows created by another user", async () => {
+    listedPersonalVmIds = [];
+    listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
+    stackUserTeams = [stackTeam("team-personal", ["account-user-1"])];
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000768",
+      billingTeamId: "team-personal",
+      providerVmId: "personal-team-vm",
+      status: "destroyed",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "account-user-1",
+      billingTeamId: "team-personal",
+      teamIds: ["account-user-1", "team-personal"],
+      providerVmId: "personal-team-vm",
+    }));
+    expect(deletedTables).toContain(cloudVms);
+    expect(updatedRows.map(({ table }) => table)).not.toContain(cloudVms);
+    const usageDelete = deletedWhere.find((entry) => entry.table === cloudVmUsageEvents);
+    expect(conditionColumnNames(usageDelete?.condition)).toContain("billing_team_id");
+    expect(conditionColumnNames(usageDelete?.condition)).toContain("vm_id");
+    const leaseDelete = deletedWhere.find((entry) => entry.table === cloudVmLeases);
+    expect(conditionColumnNames(leaseDelete?.condition)).toContain("vm_id");
+    const sessionDelete = deletedWhere.find((entry) => entry.table === cloudVmSessions);
+    expect(conditionColumnNames(sessionDelete?.condition)).toContain("vm_id");
   });
 
   test("joins an in-progress account deletion instead of rerunning destructive cleanup", async () => {

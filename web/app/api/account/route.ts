@@ -859,7 +859,10 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         status: cloudVms.status,
       })
       .from(cloudVms)
-      .where(eq(cloudVms.userId, userId))
+      .where(or(
+        eq(cloudVms.userId, userId),
+        inArray(cloudVms.billingTeamId, deletionTeamIds),
+      ))
       .for("update");
     const personalVmRows = userVmRows.filter((vm) =>
       !vm.billingTeamId || deletionTeamIds.includes(vm.billingTeamId)
@@ -877,6 +880,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
       );
     }
+    const personalVmIds = personalVmRows.map((vm) => vm.id);
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
@@ -932,10 +936,30 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       ),
     ));
     await tx.delete(cloudVmNotificationDeliveries).where(eq(cloudVmNotificationDeliveries.userId, userId));
-    await tx.delete(cloudVmNotificationEvents).where(eq(cloudVmNotificationEvents.userId, userId));
-    await tx.delete(cloudVmUsageEvents).where(eq(cloudVmUsageEvents.userId, userId));
-    await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, userId));
-    await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, userId));
+    await tx.delete(cloudVmNotificationEvents).where(
+      personalVmIds.length > 0
+        ? or(eq(cloudVmNotificationEvents.userId, userId), inArray(cloudVmNotificationEvents.vmId, personalVmIds))
+        : eq(cloudVmNotificationEvents.userId, userId),
+    );
+    await tx.delete(cloudVmUsageEvents).where(
+      personalVmIds.length > 0
+        ? or(
+          eq(cloudVmUsageEvents.userId, userId),
+          inArray(cloudVmUsageEvents.billingTeamId, deletionTeamIds),
+          inArray(cloudVmUsageEvents.vmId, personalVmIds),
+        )
+        : or(eq(cloudVmUsageEvents.userId, userId), inArray(cloudVmUsageEvents.billingTeamId, deletionTeamIds)),
+    );
+    await tx.delete(cloudVmLeases).where(
+      personalVmIds.length > 0
+        ? or(eq(cloudVmLeases.userId, userId), inArray(cloudVmLeases.vmId, personalVmIds))
+        : eq(cloudVmLeases.userId, userId),
+    );
+    await tx.delete(cloudVmSessions).where(
+      personalVmIds.length > 0
+        ? or(eq(cloudVmSessions.userId, userId), inArray(cloudVmSessions.vmId, personalVmIds))
+        : eq(cloudVmSessions.userId, userId),
+    );
     if (personalVmRows.length > 0) {
       await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
     }

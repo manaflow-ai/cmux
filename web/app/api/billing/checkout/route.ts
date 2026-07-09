@@ -51,6 +51,9 @@ async function stripeProCheckout(request: NextRequest) {
   const user =
     (await stackServerApp!.getUser({ or: "return-null" })) ??
     (await stackServerApp!.getUser({ or: "anonymous" }));
+  if (isAccountDeletionInProgress(user)) {
+    return accountDeletionCheckoutRedirect(request);
+  }
 
   const status = await resolveProPlanStatus(user);
   if (status.isPro) {
@@ -106,6 +109,9 @@ async function stripeTeamCheckout(request: NextRequest) {
   const user =
     (await stackServerApp!.getUser({ or: "return-null" })) ??
     (await stackServerApp!.getUser({ or: "anonymous" }));
+  if (isAccountDeletionInProgress(user)) {
+    return accountDeletionCheckoutRedirect(request);
+  }
   const team = await checkoutTeamCustomer(user);
   const teamId = team.id;
   if (!teamId) {
@@ -168,6 +174,9 @@ async function legacyStackCheckout(
   const user =
     (await stackServerApp!.getUser({ or: "return-null" })) ??
     (await stackServerApp!.getUser({ or: "anonymous" }));
+  if (isAccountDeletionInProgress(user)) {
+    return accountDeletionCheckoutRedirect(request);
+  }
 
   if (plan === "pro" && (await hasActiveProSubscription(user))) {
     await syncProPlanMetadata(user, true);
@@ -212,6 +221,22 @@ async function legacyStackCheckout(
     }
   }
   return NextResponse.redirect(checkoutUrl);
+}
+
+function accountDeletionCheckoutRedirect(request: NextRequest) {
+  return NextResponse.redirect(
+    new URL("/pricing?billing=account_deletion_in_progress", request.url),
+  );
+}
+
+function isAccountDeletionInProgress(user: { readonly clientReadOnlyMetadata?: unknown }): boolean {
+  const metadata = user.clientReadOnlyMetadata;
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      (metadata as Record<string, unknown>).cmuxAccountDeleting === true
+  );
 }
 
 type CheckoutTeamCustomer = {
