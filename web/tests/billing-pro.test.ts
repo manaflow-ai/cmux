@@ -257,6 +257,7 @@ describe("resolveProPlanStatus", () => {
     await expect(resolveProPlanStatus(user)).resolves.toEqual({
       planId: PRO_PLAN_ID,
       isPro: true,
+      billingManagement: "external",
       metadataPlanId: null,
       hasManualVmPlanOverride: false,
       metadataChanged: true,
@@ -269,6 +270,7 @@ describe("resolveProPlanStatus", () => {
     await expect(resolveProPlanStatus(user)).resolves.toEqual({
       planId: FREE_PLAN_ID,
       isPro: false,
+      billingManagement: "none",
       metadataPlanId: PRO_PLAN_ID,
       hasManualVmPlanOverride: false,
       metadataChanged: true,
@@ -281,6 +283,7 @@ describe("resolveProPlanStatus", () => {
     await expect(resolveProPlanStatus(user)).resolves.toEqual({
       planId: PRO_PLAN_ID,
       isPro: true,
+      billingManagement: "external",
       metadataPlanId: null,
       hasManualVmPlanOverride: true,
       metadataChanged: false,
@@ -297,6 +300,7 @@ describe("resolveProPlanStatus", () => {
     ).resolves.toEqual({
       planId: PRO_PLAN_ID,
       isPro: true,
+      billingManagement: "stripe",
       metadataPlanId: null,
       hasManualVmPlanOverride: false,
       metadataChanged: true,

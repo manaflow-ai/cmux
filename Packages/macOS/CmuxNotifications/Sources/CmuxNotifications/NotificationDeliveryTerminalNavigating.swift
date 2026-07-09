@@ -9,6 +9,11 @@ public protocol NotificationDeliveryTerminalNavigating: AnyObject {
     @discardableResult
     func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool
 
+    /// Opens a stored terminal notification, preserving any app-side context
+    /// that was not included in the delivered OS notification payload.
+    @discardableResult
+    func openNotification(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?) -> Bool
+
     /// Performs a terminal notification click action.
     @discardableResult
     func performClickAction(_ action: NotificationNavClickAction) -> Bool

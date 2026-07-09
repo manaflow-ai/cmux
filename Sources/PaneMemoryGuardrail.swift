@@ -7,9 +7,9 @@ import Observation
 /// One instance owns the background poll timer, scans every live pane each tick,
 /// and attributes process-tree memory by controlling tty. The user-facing
 /// warning badge and dismissible banner were removed in issue #6614, so the scan
-/// now only maintains the engine's monitoring state (surfaced in DEBUG logs) and
-/// the still-wired system memory-pressure response. The heavy libproc scan runs
-/// off the main thread; only the small state updates touch `@MainActor`.
+/// now only maintains the engine's monitoring state (surfaced in DEBUG logs).
+/// The heavy libproc scan runs off the main thread; only the small state updates
+/// touch `@MainActor`.
 @MainActor
 @Observable
 final class PaneMemoryGuardrail {
@@ -26,9 +26,6 @@ final class PaneMemoryGuardrail {
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
     @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
-    /// Invoked when the OS reports warning/critical system memory pressure.
-    @ObservationIgnored
-    var onSystemMemoryPressure: (@MainActor () -> Void)?
 
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
@@ -36,8 +33,6 @@ final class PaneMemoryGuardrail {
     private let timerQueue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
     @ObservationIgnored
     private var timer: DispatchSourceTimer?
-    @ObservationIgnored
-    private var memoryPressureSource: DispatchSourceMemoryPressure?
     @ObservationIgnored
     private var isScanning = false
     @ObservationIgnored
@@ -48,7 +43,6 @@ final class PaneMemoryGuardrail {
     private var lastScopedScanAt = Date.distantPast
 
     func start() {
-        startSystemMemoryPressureSourceIfNeeded()
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(
@@ -61,31 +55,6 @@ final class PaneMemoryGuardrail {
         }
         self.timer = timer
         timer.resume()
-    }
-
-    private func startSystemMemoryPressureSourceIfNeeded() {
-        guard memoryPressureSource == nil else { return }
-        // DispatchSource memory-pressure notifications are the system signal for
-        // freeing nonessential WebKit process memory; no async-native equivalent
-        // exists.
-        let source = DispatchSource.makeMemoryPressureSource(
-            eventMask: [.warning, .critical],
-            queue: timerQueue
-        )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.handleSystemMemoryPressure()
-            }
-        }
-        memoryPressureSource = source
-        source.resume()
-    }
-
-    private func handleSystemMemoryPressure() {
-#if DEBUG
-        cmuxDebugLog("paneMemGuard.systemMemoryPressure")
-#endif
-        onSystemMemoryPressure?()
     }
 
     // MARK: Settings

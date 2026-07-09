@@ -386,7 +386,7 @@ export default async function DeeplinkPage({
           {t("examplePrefix")}{" "}
           <a
             href={definition.exampleHref}
-            className="underline underline-offset-2 decoration-border hover:decoration-foreground"
+            className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {t("exampleLink")}
           </a>

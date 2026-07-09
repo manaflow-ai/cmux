@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+
+const dbClientModule = await import("../db/client");
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = false;
 let proActive = false;
+let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 const proUser = {
   id: "user-pro",
   isAnonymous: false,
@@ -57,12 +63,27 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 
+mock.module("../db/client", () => ({
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: () => ({
+    select: () => ({
+      from: (table: unknown) => ({
+        where: () => ({
+          limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
+        }),
+      }),
+    }),
+  }),
+}));
+
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
   beforeEach(() => {
     stackConfigured = false;
     proActive = false;
+    stripeSubscriptionRows = [];
     getUser.mockClear();
     proUser.listProducts.mockClear();
     proUser.update.mockClear();
@@ -76,9 +97,24 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("Manage billing");
   });
 
-  test("renders Manage billing for Pro snapshots", async () => {
+  test("renders the external billing note without a portal link for Stack Pro snapshots", async () => {
     stackConfigured = true;
     proActive = true;
+
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).not.toContain('href="/api/billing/portal"');
+    expect(html).toContain(
+      "Your subscription is managed by our previous billing system. Contact support to make changes.",
+    );
+    expect(html).toContain("Current plan");
+  });
+
+  test("renders Manage billing for Stripe-managed Pro snapshots", async () => {
+    stackConfigured = true;
+    proActive = true;
+    stripeSubscriptionRows = [{ id: "sub_123" }];
 
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);

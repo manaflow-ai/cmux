@@ -74,6 +74,27 @@ describe("billing complete route", () => {
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?welcome=pending");
   });
 
+  test("redirects paid Team sessions to dashboard billing after recording", async () => {
+    retrievedSession = {
+      id: "cs_team",
+      payment_status: "paid",
+      client_reference_id: "team-1",
+      metadata: { app: "cmux", plan: "team", stackTeamId: "team-1" },
+      subscription: { id: "sub_team" },
+      customer: { id: "cus_team" },
+    };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_team"),
+    );
+
+    expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?welcome=team",
+    );
+  });
+
   test("rejects foreign paid sessions without recording them", async () => {
     retrievedSession = {
       id: "cs_foreign",

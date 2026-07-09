@@ -1,7 +1,18 @@
 import { NextRequest } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
-import { FREE_PLAN_ID, resolveProPlanStatus } from "../../../../services/billing/pro";
+import {
+  FREE_PLAN_ID,
+  TEAM_PLAN_ID,
+  hasActiveTeamSubscriptionForTeam,
+  metadataPlanId,
+  resolveProPlanStatus,
+  type BillingManagementKind,
+} from "../../../../services/billing/pro";
+import {
+  resolveBillingTeam,
+  type BillingTeamUserLike,
+} from "../../../../services/billing/teamResolution";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +25,9 @@ export async function GET(request: NextRequest) {
       billingAvailable: false,
       planId: FREE_PLAN_ID,
       isPro: false,
+      billingManagement: "none",
+      teamPlanId: FREE_PLAN_ID,
+      teamBillingManagement: "none",
       user: null,
     });
   }
@@ -38,16 +52,23 @@ export async function GET(request: NextRequest) {
       billingAvailable: true,
       planId: FREE_PLAN_ID,
       isPro: false,
+      billingManagement: "none",
+      teamPlanId: FREE_PLAN_ID,
+      teamBillingManagement: "none",
       user: null,
     });
   }
 
   const status = await resolveProPlanStatus(user);
+  const teamStatus = await resolveTeamPlanStatus(user);
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable: true,
     planId: status.planId,
     isPro: status.isPro,
+    billingManagement: status.billingManagement,
+    teamPlanId: teamStatus.planId,
+    teamBillingManagement: teamStatus.billingManagement,
     metadataChanged: status.metadataChanged,
     hasManualVmPlanOverride: status.hasManualVmPlanOverride,
     user: {
@@ -56,4 +77,25 @@ export async function GET(request: NextRequest) {
       primaryEmail: user.primaryEmail,
     },
   });
+}
+
+type TeamPlanStatus = {
+  readonly planId: typeof FREE_PLAN_ID | typeof TEAM_PLAN_ID;
+  readonly billingManagement: BillingManagementKind;
+};
+
+async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
+  const team = await resolveBillingTeam(user);
+  if (!team?.id) {
+    return { planId: FREE_PLAN_ID, billingManagement: "none" };
+  }
+  const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
+  const metadataActive = metadataPlanId(team.clientReadOnlyMetadata) === TEAM_PLAN_ID;
+  if (stripeActive) {
+    return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
+  }
+  if (metadataActive) {
+    return { planId: TEAM_PLAN_ID, billingManagement: "external" };
+  }
+  return { planId: FREE_PLAN_ID, billingManagement: "none" };
 }

@@ -114,9 +114,8 @@ import Testing
 }
 
 /// Coverage for the workspace-side resolution that feeds the command above. A
-/// remote-tmux mirror new tab must inherit ONLY a directory the remote actually
-/// reported for the source tab (`panelDirectories`, sourced from
-/// `#{pane_current_path}`) — never the generic resolver's `currentDirectory`
+/// remote-tmux mirror new tab must inherit ONLY a trusted directory the remote
+/// reported for the source tab (`#{pane_current_path}`) — never the generic resolver's `currentDirectory`
 /// fallback, which for a mirror is seeded from the LOCAL workspace it was
 /// created from. A local path is meaningless on the remote and would open the
 /// new tab in the wrong directory.
@@ -126,7 +125,7 @@ import Testing
         let harness = try Harness()
         defer { harness.tearDown() }
 
-        harness.workspace.panelDirectories[harness.sourcePanelId] = "/srv/remote/project"
+        harness.workspace.updateRemotePanelDirectory(panelId: harness.sourcePanelId, directory: "/srv/remote/project")
 
         #expect(
             harness.workspace.remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: harness.sourcePanelId)

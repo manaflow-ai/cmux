@@ -72,7 +72,7 @@ export default function CommunityPage() {
             href={awesomeCmuxSourceUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+            className="font-medium underline underline-offset-2 decoration-link-underline transition-colors hover:decoration-foreground"
           >
             {t("sourceAction")}
           </a>

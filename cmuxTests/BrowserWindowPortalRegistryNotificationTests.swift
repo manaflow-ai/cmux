@@ -32,6 +32,12 @@ struct BrowserWindowPortalRegistryNotificationTests {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     }
 
+    private func hasOmnibarSuggestionsOverlay(in view: NSView) -> Bool {
+        view.subviews.contains {
+            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
+        }
+    }
+
     @Test func registryDoesNotNotifyForUnchangedPortalVisibility() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -161,5 +167,72 @@ struct BrowserWindowPortalRegistryNotificationTests {
             contentView.layoutPassCount == layoutCountBeforeNoOpBurst + 1,
             "A real browser portal visibility change should still wake Workspace layout follow-up"
         )
+    }
+
+    @Test func browserPanelCloseDetachesPortalAndDismissesSuggestionsWhileCallbacksRetainPanel() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let contentView = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        let webView = panel.webView
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        var retainedPanel: BrowserPanel? = panel
+        BrowserWindowPortalRegistry.updateSearchOverlay(
+            for: webView,
+            configuration: BrowserPortalSearchOverlayConfiguration(
+                panelId: panel.id,
+                searchState: BrowserSearchState(),
+                focusRequestGeneration: 0,
+                canApplyFocusRequest: { _ in retainedPanel != nil },
+                onNext: { _ = retainedPanel?.id },
+                onPrevious: { _ = retainedPanel?.id },
+                onClose: { _ = retainedPanel?.id },
+                onFieldDidFocus: { _ = retainedPanel?.id }
+            )
+        )
+        let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
+        BrowserWindowPortalRegistry.updateOmnibarSuggestions(
+            for: webView,
+            configuration: BrowserPortalOmnibarSuggestionsConfiguration(
+                panelId: panel.id,
+                popupFrame: CGRect(x: 16, y: 16, width: 220, height: OmnibarSuggestionsView.popupHeight(for: [item])),
+                colorScheme: .dark,
+                engineName: "Google",
+                items: [item],
+                selectedIndex: 0,
+                isLoadingRemoteSuggestions: false,
+                searchSuggestionsEnabled: true,
+                onCommit: { _ in _ = retainedPanel?.id },
+                onHighlight: { _ in _ = retainedPanel?.id }
+            )
+        )
+
+        let slot = try #require(webView.superview as? WindowBrowserSlotView)
+        #expect(BrowserWindowPortalRegistry.debugSnapshot(for: webView) != nil)
+        #expect(slot.browserPortalTestSearchOverlayView != nil)
+        #expect(hasOmnibarSuggestionsOverlay(in: slot))
+
+        panel.close()
+
+        #expect(BrowserWindowPortalRegistry.debugSnapshot(for: webView) == nil)
+        #expect(slot.superview == nil)
+        #expect(slot.browserPortalTestSearchOverlayView == nil)
+        #expect(!hasOmnibarSuggestionsOverlay(in: slot))
+        retainedPanel = nil
     }
 }
