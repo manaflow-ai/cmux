@@ -90,7 +90,15 @@ export async function DELETE(request: Request): Promise<Response> {
         destroyedVms,
       }, 500);
     }
-    await finishPostStackAccountCleanup(user.id);
+    try {
+      await finishPostStackAccountCleanup(user.id);
+    } catch (error) {
+      logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
+      return jsonResponse({
+        error: "account_delete_incomplete",
+        destroyedVms,
+      }, 500);
+    }
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     if (stackMetadataMarked && !cmuxOwnedRowsDeleted) {
@@ -213,12 +221,8 @@ async function deleteVaultRowsAndObjectsForAccount(userId: string): Promise<void
 }
 
 async function finishPostStackAccountCleanup(userId: string): Promise<void> {
-  try {
-    await deleteVaultRowsAndObjectsForAccount(userId);
-    await deleteCmuxOwnedAccountRows(userId);
-  } catch (error) {
-    logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
-  }
+  await deleteVaultRowsAndObjectsForAccount(userId);
+  await deleteCmuxOwnedAccountRows(userId);
 }
 
 async function resolveUserBillingForAccountDeletion(
@@ -402,6 +406,10 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
       .where(eq(cloudVmBaseGenerations.createdByUserId, userId));
 
     await tx.delete(devices).where(eq(devices.teamId, userId));
+    await tx
+      .update(devices)
+      .set({ userId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+      .where(eq(devices.userId, userId));
 
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, userId));
   });

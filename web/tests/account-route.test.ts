@@ -349,12 +349,14 @@ describe("account deletion route", () => {
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
+      { table: devices, values: { userId: "deleted-account" } },
       { table: stripeSubscriptions, values: { stackUserId: "deleted-account" } },
       { table: stripeCustomers, values: { stackUserId: "deleted-account" } },
       { table: cloudVms, values: { userId: "deleted-account" } },
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
+      { table: devices, values: { userId: "deleted-account" } },
     ]);
     for (const update of updatedRows) {
       expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
@@ -413,7 +415,7 @@ describe("account deletion route", () => {
     );
   });
 
-  test("does not delete shared team devices registered by the deleted user", async () => {
+  test("anonymizes shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
@@ -421,6 +423,10 @@ describe("account deletion route", () => {
     const deviceDelete = deletedWhere.find((entry) => entry.table === devices);
     expect(conditionColumnNames(deviceDelete?.condition)).toContain("team_id");
     expect(conditionColumnNames(deviceDelete?.condition)).not.toContain("user_id");
+    expect(updatedRows.map(({ table, values }) => ({
+      table,
+      values: stripUpdatedAt(values),
+    }))).toContainEqual({ table: devices, values: { userId: "deleted-account" } });
   });
 
   test("deletes vault rows in bounded batches after their objects are removed", async () => {
@@ -598,7 +604,7 @@ describe("account deletion route", () => {
     );
   });
 
-  test("returns success when post-Stack cleanup fails after the account is deleted", async () => {
+  test("returns incomplete deletion when post-Stack cleanup fails after the account is deleted", async () => {
     postStackVaultDeleteError = new Error("post-delete vault unavailable");
     selectResults = [
       [],
@@ -616,9 +622,13 @@ describe("account deletion route", () => {
 
     const response = await DELETE(accountDeletionRequest());
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_incomplete",
+      destroyedVms: 2,
+    });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
       "Error: post-delete vault unavailable",

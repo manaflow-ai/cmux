@@ -100,6 +100,24 @@ struct AccountDeletionClientTests {
         }
     }
 
+    @Test func deleteAccountMapsIncompletePostDeleteCleanupResponse() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
+            (
+                Data(#"{"error":"account_delete_incomplete"}"#.utf8),
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+            )
+        }
+
+        await #expect(throws: AccountDeletionRequestError.completionUnknown) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
+
     @Test func deleteAccountMapsTransportTimeout() async {
         let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { _ in
             throw URLError(.timedOut)
