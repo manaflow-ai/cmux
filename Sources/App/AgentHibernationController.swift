@@ -94,18 +94,12 @@ final class AgentHibernationController {
         let dueAt: TimeInterval
     }
 
-    private struct TailFingerprintSample {
-        let fingerprint: String
-        let stableSince: TimeInterval
-    }
+    private struct TailFingerprintSample { let fingerprint: String; let stableSince: TimeInterval }
 
     private struct InFlightTeardown { let requestID: UUID }
+    struct PostTeardownRestoreTask { let requestID: UUID; let task: Task<Void, Never> }
 
-    struct UnableToProtectMarker {
-        let fingerprint: String
-        let lastActivityAt: TimeInterval
-        let retryAfter: TimeInterval
-    }
+    struct UnableToProtectMarker { let fingerprint: String; let lastActivityAt: TimeInterval; let retryAfter: TimeInterval }
 
     static let unableToProtectRetrySeconds: TimeInterval = 120
 
@@ -118,6 +112,7 @@ final class AgentHibernationController {
     var teardownValidationEpochByPanel: [AgentHibernationPanelKey: UInt64] = [:]
     var teardownValidationGeneration: UInt64 = 0
     var unableToProtectByPanel: [AgentHibernationPanelKey: UnableToProtectMarker] = [:]
+    var postTeardownRestoreTasksByPanel: [AgentHibernationPanelKey: PostTeardownRestoreTask] = [:]
     private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
@@ -185,6 +180,7 @@ final class AgentHibernationController {
         bumpTeardownValidationEpoch(key)
         confirmations.removeValue(forKey: key)
         unableToProtectByPanel.removeValue(forKey: key)
+        cancelPostTeardownRestoreTask(key)
         return key
     }
 
@@ -196,6 +192,7 @@ final class AgentHibernationController {
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         confirmations.removeAll(keepingCapacity: false)
         unableToProtectByPanel.removeAll(keepingCapacity: false)
+        cancelPostTeardownRestoreTasks()
         updateTimerForCurrentSettings()
     }
 
@@ -470,6 +467,7 @@ final class AgentHibernationController {
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
         unableToProtectByPanel.removeAll(keepingCapacity: false)
+        cancelPostTeardownRestoreTasks()
         teardownInFlightByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
@@ -484,6 +482,7 @@ final class AgentHibernationController {
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
+        cancelPostTeardownRestoreTasks(excluding: currentKeys)
         teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)

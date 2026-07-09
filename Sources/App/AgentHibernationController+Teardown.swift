@@ -85,12 +85,55 @@ extension AgentHibernationController {
             )
             guard let snapshot else { return }
             let processIDs = record.processIDs
-            Task.detached(priority: .utility) {
+            let restoreKey = record.key
+            let restoreRequestID = UUID()
+            let restoreTask = Task.detached(priority: .utility) {
                 await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
                     snapshot: snapshot,
                     processIDs: processIDs
                 )
+                await MainActor.run {
+                    AgentHibernationController.shared.clearPostTeardownRestoreTask(
+                        restoreKey,
+                        requestID: restoreRequestID
+                    )
+                }
             }
+            self.storePostTeardownRestoreTask(restoreTask, key: restoreKey, requestID: restoreRequestID)
         }
+    }
+
+    func storePostTeardownRestoreTask(
+        _ task: Task<Void, Never>,
+        key: AgentHibernationPanelKey,
+        requestID: UUID
+    ) {
+        cancelPostTeardownRestoreTask(key)
+        postTeardownRestoreTasksByPanel[key] = PostTeardownRestoreTask(requestID: requestID, task: task)
+    }
+
+    func cancelPostTeardownRestoreTask(workspaceId: UUID, panelId: UUID) {
+        cancelPostTeardownRestoreTask(AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    func cancelPostTeardownRestoreTask(_ key: AgentHibernationPanelKey) {
+        postTeardownRestoreTasksByPanel.removeValue(forKey: key)?.task.cancel()
+    }
+
+    func cancelPostTeardownRestoreTasks() {
+        let tasks = Array(postTeardownRestoreTasksByPanel.values)
+        postTeardownRestoreTasksByPanel.removeAll(keepingCapacity: false)
+        tasks.forEach { $0.task.cancel() }
+    }
+
+    func cancelPostTeardownRestoreTasks(excluding currentKeys: Set<AgentHibernationPanelKey>) {
+        for key in Array(postTeardownRestoreTasksByPanel.keys) where !currentKeys.contains(key) {
+            cancelPostTeardownRestoreTask(key)
+        }
+    }
+
+    func clearPostTeardownRestoreTask(_ key: AgentHibernationPanelKey, requestID: UUID) {
+        guard postTeardownRestoreTasksByPanel[key]?.requestID == requestID else { return }
+        postTeardownRestoreTasksByPanel.removeValue(forKey: key)
     }
 }
