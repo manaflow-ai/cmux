@@ -79,4 +79,18 @@ struct TerminalTranscriptImagePathScannerTests {
         #expect(withCwd.map(\.path) == ["plots/graph.png"])
         #expect(withCwd.map(\.resolvedPath) == ["/work/plots/graph.png"])
     }
+
+    @Test
+    func ignoresUrlsWithoutBreakingWrappedAbsolutePaths() {
+        let urlMatches = scanner.scan(rows: [
+            "open http://example.com/image.png",
+            "fetch https://x.test/a.png",
+        ])
+        let wrappedPathMatches = scanner.scan(rows: [
+            "Read(/tmp/a.png)"
+        ])
+
+        #expect(urlMatches.isEmpty)
+        #expect(wrappedPathMatches.map(\.path) == ["/tmp/a.png"])
+    }
 }

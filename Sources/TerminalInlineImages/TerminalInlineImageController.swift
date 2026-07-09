@@ -13,8 +13,8 @@ final class TerminalInlineImageController {
     private var settingsObserver: TerminalInlineImageSettingsObserver?
     private var observers: [NSObjectProtocol] = []
     private var releaseFrameDemand: (() -> Void)?
-    private var releaseTickDemand: (() -> Void)?
     private var debounceTimer: DispatchSourceTimer?
+    private var pendingScanFirstRequestedAt: DispatchTime?
     private var annotations: [TerminalInlineImageAnnotation] = []
     private var thumbnailsByID: [UUID: TerminalInlineImageThumbnail] = [:]
     private var isEnabled = false
@@ -42,7 +42,6 @@ final class TerminalInlineImageController {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         releaseFrameDemand?()
-        releaseTickDemand?()
         debounceTimer?.cancel()
     }
 
@@ -62,18 +61,10 @@ final class TerminalInlineImageController {
     private func startSurfaceObservers() {
         guard observers.isEmpty, let hostedView else { return }
         releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
-        releaseTickDemand = GhosttyApp.retainTickNotifications()
         let center = NotificationCenter.default
         observers.append(center.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: hostedView.surfaceView,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleScan() }
-        })
-        observers.append(center.addObserver(
-            forName: .ghosttyDidTick,
-            object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleScan() }
@@ -99,20 +90,30 @@ final class TerminalInlineImageController {
         observers.removeAll()
         releaseFrameDemand?()
         releaseFrameDemand = nil
-        releaseTickDemand?()
-        releaseTickDemand = nil
     }
 
     private func scheduleScan() {
         guard isEnabled else { return }
+        let now = DispatchTime.now()
+        if pendingScanFirstRequestedAt == nil {
+            pendingScanFirstRequestedAt = now
+        }
         let timer = debounceTimer ?? makeDebounceTimer()
-        timer.schedule(deadline: .now() + .milliseconds(200), leeway: .milliseconds(40))
+        let deadline: DispatchTime
+        if let firstRequestedAt = pendingScanFirstRequestedAt,
+           now.uptimeNanoseconds - firstRequestedAt.uptimeNanoseconds >= 600_000_000 {
+            deadline = .now()
+        } else {
+            deadline = .now() + .milliseconds(200)
+        }
+        timer.schedule(deadline: deadline, leeway: .milliseconds(40))
     }
 
     private func makeDebounceTimer() -> DispatchSourceTimer {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.setEventHandler { [weak self] in
             Task { @MainActor in
+                self?.pendingScanFirstRequestedAt = nil
                 self?.rescan()
             }
         }
@@ -124,6 +125,7 @@ final class TerminalInlineImageController {
     private func cancelDebounce() {
         debounceTimer?.cancel()
         debounceTimer = nil
+        pendingScanFirstRequestedAt = nil
     }
 
     private func rescan() {

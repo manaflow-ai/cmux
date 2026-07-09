@@ -69,6 +69,7 @@ struct TerminalTranscriptImagePathScanner: Sendable {
     }
 
     private func absoluteOrHomeStart(in token: String) -> String.Index? {
+        guard !token.contains("://") else { return nil }
         var index = token.startIndex
         while index < token.endIndex {
             if token[index] == "/", isPathStartAllowed(in: token, at: index) {

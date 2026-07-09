@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -148,5 +149,40 @@ struct TerminalInlineImageReconcilerTests {
         #expect(second.count == 1)
         #expect(second[0].id == first[0].id)
         #expect(second[0].resolvedPath == "/Users/me/a/shot.png")
+    }
+}
+
+@Suite
+@MainActor
+struct TerminalInlineImageSettingsObserverTests {
+    @Test
+    func firesOnToggleAndDedupesUnchangedWrites() async throws {
+        let suiteName = "TerminalInlineImageSettingsObserverTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(true, forKey: TerminalInlineImageSettings.inlineImageThumbnailsKey)
+
+        var delivered: [Bool] = []
+        await confirmation("inline image setting changes", expectedCount: 2) { confirm in
+            let observer = TerminalInlineImageSettingsObserver(defaults: defaults) { enabled in
+                delivered.append(enabled)
+                confirm()
+            }
+            observer.start()
+            defaults.set(false, forKey: TerminalInlineImageSettings.inlineImageThumbnailsKey)
+            await Task.yield()
+            await Task.yield()
+            defaults.set(false, forKey: TerminalInlineImageSettings.inlineImageThumbnailsKey)
+            defaults.set("ignored", forKey: "terminal.inlineImageThumbnails.unrelated")
+            await Task.yield()
+            await Task.yield()
+            defaults.set(true, forKey: TerminalInlineImageSettings.inlineImageThumbnailsKey)
+            await Task.yield()
+            await Task.yield()
+            observer.stop()
+        }
+
+        #expect(delivered == [false, true])
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }

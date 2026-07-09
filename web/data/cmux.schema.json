@@ -543,6 +543,12 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "inlineImageThumbnails": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.inlineImageThumbnails",
+          "description": "When true, show clickable thumbnails for supported image paths printed in the terminal transcript."
+        },
         "scrollSpeed": {
           "type": "number",
           "minimum": 0.25,

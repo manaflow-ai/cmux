@@ -12,51 +12,56 @@ enum TerminalInlineImageSettings {
     }
 }
 
-final class TerminalInlineImageSettingsObserver: NSObject {
+@MainActor
+final class TerminalInlineImageSettingsObserver {
     private let defaults: UserDefaults
-    private let handler: @MainActor @Sendable (Bool) -> Void
-    private var isObserving = false
+    private let notificationCenter: NotificationCenter
+    private let handler: @MainActor (Bool) -> Void
+    private var observer: NSObjectProtocol?
+    private var lastDeliveredValue: Bool
 
     init(
         defaults: UserDefaults = .standard,
-        handler: @escaping @MainActor @Sendable (Bool) -> Void
+        notificationCenter: NotificationCenter = .default,
+        handler: @escaping @MainActor (Bool) -> Void
     ) {
         self.defaults = defaults
+        self.notificationCenter = notificationCenter
         self.handler = handler
-        super.init()
+        lastDeliveredValue = TerminalInlineImageSettings.isEnabled(defaults: defaults)
     }
 
     func start() {
-        guard !isObserving else { return }
-        isObserving = true
-        defaults.addObserver(
-            self,
-            forKeyPath: TerminalInlineImageSettings.inlineImageThumbnailsKey,
-            options: [.initial, .new],
-            context: nil
-        )
-    }
-
-    func stop() {
-        guard isObserving else { return }
-        defaults.removeObserver(self, forKeyPath: TerminalInlineImageSettings.inlineImageThumbnailsKey)
-        isObserving = false
-    }
-
-    override func observeValue(
-        forKeyPath keyPath: String?,
-        of object: Any?,
-        change: [NSKeyValueChangeKey: Any]?,
-        context: UnsafeMutableRawPointer?
-    ) {
-        guard keyPath == TerminalInlineImageSettings.inlineImageThumbnailsKey else { return }
-        let enabled = TerminalInlineImageSettings.isEnabled(defaults: defaults)
-        Task { @MainActor in
-            handler(enabled)
+        guard observer == nil else { return }
+        lastDeliveredValue = TerminalInlineImageSettings.isEnabled(defaults: defaults)
+        observer = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.deliverCurrentValueIfChanged()
+            }
         }
     }
 
+    func stop() {
+        if let observer {
+            notificationCenter.removeObserver(observer)
+            self.observer = nil
+        }
+    }
+
+    private func deliverCurrentValueIfChanged() {
+        let enabled = TerminalInlineImageSettings.isEnabled(defaults: defaults)
+        guard enabled != lastDeliveredValue else { return }
+        lastDeliveredValue = enabled
+        handler(enabled)
+    }
+
     deinit {
-        stop()
+        if let observer {
+            notificationCenter.removeObserver(observer)
+        }
     }
 }
