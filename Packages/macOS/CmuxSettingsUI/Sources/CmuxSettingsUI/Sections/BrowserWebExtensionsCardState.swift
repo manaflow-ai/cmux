@@ -13,7 +13,7 @@ struct BrowserWebExtensionsCardState {
     }
 
     func canUseImportMenu(supported: Bool, hasObservedValue: Bool) -> Bool {
-        supported && hasObservedValue
+        supported && hasObservedValue && isDiscoveryComplete
     }
 
     mutating func completeDiscovery(_ discovered: [SettingsDiscoveredBrowserExtension]) {
@@ -37,5 +37,6 @@ struct BrowserWebExtensionsCardState {
         guard completedWriteID == pendingWriteID, failed else { return }
         pendingEntries = nil
         pendingWriteID = nil
+        hasWriteError = true
     }
 }
