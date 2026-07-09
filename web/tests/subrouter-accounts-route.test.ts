@@ -419,6 +419,7 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(body)).toEqual({ ok: true, teamId: "team-a" });
     expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
+    expect(upstream.accountDeletesInsideTransaction).toBe(0);
   });
 
   test("blocks account deletes while account deletion is in progress", async () => {
@@ -438,6 +439,27 @@ describe("subrouter accounts route", () => {
     expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
     expect(upstream.fetch).not.toHaveBeenCalled();
     expect(upstream.deletedAccountIds).toEqual([]);
+  });
+
+  test("blocks account deletes when account deletion starts during upstream delete", async () => {
+    seedTenantMapping(fakeDb);
+    upstream.afterDeleteAccount = () => {
+      fakeDb.deletionRows.push({
+        userIdHash: accountDeletionUserHash("user-1"),
+        status: "pending",
+      });
+    };
+
+    const response = await accountRoute.DELETE(
+      request("/api/subrouter/accounts/acct-1?teamId=team-a", { method: "DELETE" }),
+      { params: Promise.resolve({ accountId: "acct-1" }) },
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
+    expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
+    expect(upstream.accountDeletesInsideTransaction).toBe(0);
   });
 
   test("delete is a no-op when no tenant mapping exists", async () => {
@@ -586,7 +608,9 @@ function createMockSubrouter() {
     lastCreateAccountUrl: null as URL | null,
     lastCreateAccountBody: null as unknown,
     accountCreatesInsideTransaction: 0,
+    accountDeletesInsideTransaction: 0,
     afterCreateAccount: null as (() => void | Promise<void>) | null,
+    afterDeleteAccount: null as (() => void | Promise<void>) | null,
     createAccountFailureStatus: null as number | null,
     deleteAccountFailureStatus: null as number | null,
     fetch: undefined as unknown as ReturnType<typeof mock>,
@@ -646,10 +670,12 @@ function createMockSubrouter() {
 
     if (url.pathname.startsWith("/tenant/accounts/") && method === "DELETE") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      if (fakeDb.transactionDepth > 0) state.accountDeletesInsideTransaction += 1;
       state.deletedAccountIds.push(decodeURIComponent(url.pathname.slice("/tenant/accounts/".length)));
       if (state.deleteAccountFailureStatus) {
         return jsonResponse({ error: "delete failed" }, state.deleteAccountFailureStatus);
       }
+      await state.afterDeleteAccount?.();
       return jsonResponse({ ok: true });
     }
 

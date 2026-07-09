@@ -61,21 +61,22 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
 
   try {
     const db = cloudDb();
-    await withAccountDeletionUserMutationLock(
+    const tenant = await withAccountDeletionUserMutationLock(
       db,
       user.id,
-      async (tx) => {
-        const tenant = await getTenantForTeam(
+      async (tx) =>
+        await getTenantForTeam(
           tx,
           team.teamId,
           {
             tenantKeySecret: config.tenantKeySecret,
           },
-        );
-        if (!tenant) return;
-        await client.deleteAccount(tenant.tenantKey, normalizedAccountId);
-      },
+        ),
     );
+    if (!tenant) return jsonResponse({ ok: true, teamId: team.teamId });
+
+    await client.deleteAccount(tenant.tenantKey, normalizedAccountId);
+    await withAccountDeletionUserMutationLock(db, user.id, async () => undefined);
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {
     return subrouterErrorResponse(err);
