@@ -69,6 +69,13 @@ export type AccountDeletionProcessorDependencies = {
   ) => Promise<readonly AccountDeletionJob[]>;
 };
 
+class AccountDeletionTeamScopeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AccountDeletionTeamScopeUnavailableError";
+  }
+}
+
 const defaultAccountDeletionProcessorDependencies: AccountDeletionProcessorDependencies = {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
@@ -161,7 +168,6 @@ export async function accountDeletionTeamScopeForUser(user: StackAccountDeletion
   const retainedTeamBillingOwners: RetainedTeamBillingOwner[] = [];
   for (const team of teams) {
     const memberIds = await accountDeletionTeamMemberIds(team);
-    if (!memberIds) continue;
     if (memberIds.length === 1 && memberIds[0] === user.id) {
       ownedTeamIds.push(team.id);
       continue;
@@ -184,7 +190,9 @@ function retainedTeamBillingOwnerId(
 }
 
 async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser): Promise<readonly unknown[]> {
-  if (typeof user.listTeams !== "function") return [];
+  if (typeof user.listTeams !== "function") {
+    throw new AccountDeletionTeamScopeUnavailableError("Stack account deletion team scope is unavailable.");
+  }
 
   const teams: unknown[] = [];
   const seenCursors = new Set<string>();
@@ -200,8 +208,10 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
   return teams;
 }
 
-async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[] | null> {
-  if (typeof team.listUsers !== "function") return [];
+async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[]> {
+  if (typeof team.listUsers !== "function") {
+    throw new AccountDeletionTeamScopeUnavailableError(`Stack team ${team.id} member scope is unavailable.`);
+  }
 
   const members: unknown[] = [];
   const seenCursors = new Set<string>();
@@ -212,10 +222,14 @@ async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Pro
     members.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
     if (!nextCursor) {
-      if (page.length >= limit && page.nextCursor === undefined) return null;
+      if (page.length >= limit && page.nextCursor === undefined) {
+        throw new AccountDeletionTeamScopeUnavailableError(`Stack team ${team.id} member pagination is incomplete.`);
+      }
       break;
     }
-    if (seenCursors.has(nextCursor)) return null;
+    if (seenCursors.has(nextCursor)) {
+      throw new AccountDeletionTeamScopeUnavailableError(`Stack team ${team.id} member pagination looped.`);
+    }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   } while (true);

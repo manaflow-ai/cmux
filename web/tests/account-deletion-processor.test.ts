@@ -202,6 +202,30 @@ describe("account deletion processor", () => {
     ]);
   });
 
+  test("keeps unknown Stack team scope retryable before cleanup", async () => {
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          return {
+            id: userId,
+            clientReadOnlyMetadata: {},
+            update: async () => {},
+            delete: async () => {
+              calls.push(`stack-delete:${userId}`);
+            },
+          };
+        },
+      })),
+    ).rejects.toThrow("Stack account deletion team scope is unavailable.");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "retry-pending:user-1:Stack account deletion team scope is unavailable.",
+    ]);
+  });
+
   test("completes best-effort cleanup when the Stack user is already gone before cleanup", async () => {
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
       loadStackUser: async (userId) => {
@@ -394,6 +418,7 @@ function dependencies(
       return {
         id: userId,
         clientReadOnlyMetadata: {},
+        listTeams: async () => [],
         update: async () => {},
         delete: async () => {
           calls.push(`stack-delete:${userId}`);

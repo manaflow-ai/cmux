@@ -93,7 +93,7 @@ mock.module("../db/client", () => ({
                   ? mock(async () => stripeCustomerRows)
                   : table === accountDeletionTombstones
                     ? mock(async () => accountDeletionRows)
-                  : stripeLimit,
+                    : stripeLimit,
               }),
             }),
           }),
