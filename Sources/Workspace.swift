@@ -3947,8 +3947,9 @@ final class Workspace: Identifiable, ObservableObject {
         restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread }
     }
 
-    private func normalizePinnedTabs(in paneId: PaneID) {
-        guard !isNormalizingPinnedTabOrder else { return }
+    @discardableResult
+    private func normalizePinnedTabs(in paneId: PaneID) -> Bool {
+        guard !isNormalizingPinnedTabOrder else { return true }
         isNormalizingPinnedTabOrder = true
         defer { isNormalizingPinnedTabOrder = false }
 
@@ -3963,6 +3964,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let desiredOrder = pinnedTabs + unpinnedTabs
 
+        if isRemoteTmuxMirror, desiredOrder.map(\.id) != tabs.map(\.id) {
+            let desiredPanelOrder = desiredOrder.compactMap { panelIdFromSurfaceId($0.id) }
+            guard desiredPanelOrder.count == desiredOrder.count else { return false }
+            return performRemoteTmuxMirrorOrderMutation(in: paneId) {
+                reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
+            }
+        }
+
         for (index, desiredTab) in desiredOrder.enumerated() {
             let currentTabs = bonsplitController.tabs(inPane: paneId)
             guard let currentIndex = currentTabs.firstIndex(where: { $0.id == desiredTab.id }) else { continue }
@@ -3970,6 +3979,7 @@ final class Workspace: Identifiable, ObservableObject {
                 _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
             }
         }
+        return true
     }
 
     private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
@@ -4128,7 +4138,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else { return }
         bonsplitController.updateTab(tabId, isPinned: pinned)
-        normalizePinnedTabs(in: paneId)
+        guard normalizePinnedTabs(in: paneId) else {
+            if wasPinned { pinnedPanelIds.insert(panelId) } else { pinnedPanelIds.remove(panelId) }
+            bonsplitController.updateTab(tabId, isPinned: wasPinned)
+            return
+        }
     }
 
     func markPanelUnread(_ panelId: UUID) {
@@ -9253,22 +9267,13 @@ final class Workspace: Identifiable, ObservableObject {
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
-        let mirrorPanelOrder = mirrorPaneId.map { bonsplitController.tabs(inPane: $0).compactMap { panelIdFromSurfaceId($0.id) } }
-        if isRemoteTmuxMirror, remoteTmuxWindowOrderSync == nil || mirrorPanelOrder == nil { return false }
         let reordered: Bool
-        if let mirrorPaneId, let mirrorPanelOrder {
-            reordered = performRemoteTmuxMirrorMutation {
-                guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
-                let orderedPanelIds = bonsplitController.tabs(inPane: mirrorPaneId).compactMap {
-                    panelIdFromSurfaceId($0.id)
-                }
-                guard remoteTmuxWindowOrderSync?(orderedPanelIds) == true else {
-                    _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: mirrorPanelOrder)
-                    return false
-                }
-                return true
+        if let mirrorPaneId {
+            reordered = performRemoteTmuxMirrorOrderMutation(in: mirrorPaneId) {
+                bonsplitController.reorderTab(tabId, toIndex: index)
             }
         } else {
+            guard !isRemoteTmuxMirror else { return false }
             reordered = bonsplitController.reorderTab(tabId, toIndex: index)
         }
         guard reordered else { return false }
@@ -9279,6 +9284,28 @@ final class Workspace: Identifiable, ObservableObject {
         }
         scheduleTerminalGeometryReconcile()
         return true
+    }
+
+    /// Applies one optimistic mirror order mutation and rolls it back if tmux rejects it.
+    private func performRemoteTmuxMirrorOrderMutation(
+        in paneId: PaneID,
+        _ mutation: () -> Bool
+    ) -> Bool {
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        let previousPanelOrder = tabs.compactMap { panelIdFromSurfaceId($0.id) }
+        guard previousPanelOrder.count == tabs.count, remoteTmuxWindowOrderSync != nil else { return false }
+        return performRemoteTmuxMirrorMutation {
+            guard mutation() else { return false }
+            let desiredPanelOrder = bonsplitController.tabs(inPane: paneId).compactMap {
+                panelIdFromSurfaceId($0.id)
+            }
+            guard desiredPanelOrder.count == tabs.count,
+                  remoteTmuxWindowOrderSync?(desiredPanelOrder) == true else {
+                _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: previousPanelOrder)
+                return false
+            }
+            return true
+        }
     }
 
     /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
