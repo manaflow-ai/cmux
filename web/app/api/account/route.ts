@@ -510,12 +510,12 @@ async function deletePersonalSubrouterTenant(
     .limit(1);
   if (!tenant) return;
 
+  options.afterExternalMutation?.();
   try {
     await createSubrouterClientFromEnv().revokeTenant(tenant.tenantId);
   } catch (error) {
     if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
   }
-  options.afterExternalMutation?.();
   await db.delete(subrouterTenants).where(eq(subrouterTenants.teamId, userId));
 }
 

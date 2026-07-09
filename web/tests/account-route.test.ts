@@ -567,6 +567,37 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps deletion retryable when Subrouter revoke reaches the network before failing", async () => {
+    listedPersonalVmIds = [];
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ tenantId: "tenant-personal" }],
+    ];
+    subrouterRevokeError = new Error("subrouter request timed out");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
+    expect(deletedTables).not.toContain(subrouterTenants);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("does not delete personal VM rows that gained a provider id before account row deletion", async () => {
     transactionSelectResults = [[{
       id: "00000000-0000-4000-8000-000000000764",
