@@ -458,10 +458,7 @@ export async function deleteCmuxAccountData(
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, input.userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, input.userId));
-    await tx.delete(devices).where(personalDeviceRows(scope));
-    await tx.update(devices)
-      .set({ userId: anonymizedUserId, updatedAt: now })
-      .where(teamScopedDeviceRowsRegisteredByUser(scope));
+    await tx.delete(devices).where(eq(devices.userId, input.userId));
 
     await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.userId, input.userId));
     await tx.delete(vaultUploadTombstones).where(eq(vaultUploadTombstones.userId, input.userId));
@@ -744,20 +741,6 @@ function personalCloudVmRows(scope: AccountDeletionScope) {
       isNull(cloudVms.billingTeamId),
       inArray(cloudVms.billingTeamId, scope.ownedBillingTeamIds),
     ),
-  );
-}
-
-function personalDeviceRows(scope: AccountDeletionScope) {
-  return and(
-    eq(devices.userId, scope.userId),
-    inArray(devices.teamId, scope.ownedBillingTeamIds),
-  );
-}
-
-function teamScopedDeviceRowsRegisteredByUser(scope: AccountDeletionScope) {
-  return and(
-    eq(devices.userId, scope.userId),
-    ...scope.ownedBillingTeamIds.map((teamId) => ne(devices.teamId, teamId)),
   );
 }
 

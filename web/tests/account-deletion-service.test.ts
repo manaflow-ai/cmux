@@ -298,7 +298,7 @@ describe("account deletion cleanup", () => {
     expect(calls).toContain("anonymize-team-cloud-vm-usage-events");
   });
 
-  test("preserves retained team device registry rows", async () => {
+  test("deletes retained team device registry rows", async () => {
     await deleteCmuxAccountData({
       userId: "user-1",
       ownedTeamIds: ["team-owned-1"],
@@ -308,10 +308,8 @@ describe("account deletion cleanup", () => {
       }],
     }, fakeRuntime());
 
-    expect(calls).toContain("delete-owned-devices");
-    expect(calls).toContain("anonymize-retained-team-devices");
-    const deviceUpdate = updateSets.find((entry) => entry.label === "anonymize-retained-team-devices");
-    expect(deviceUpdate?.values.userId).toMatch(/^deleted_[0-9a-f]{24}$/);
+    expect(calls).toContain("delete-user-devices");
+    expect(calls).not.toContain("anonymize-retained-team-devices");
   });
 
   test("rechecks when a provider-backed VM disappears during account deletion", async () => {
@@ -813,7 +811,6 @@ function fakeTransaction() {
     },
     select: () => fakeDbSelectBuilder(),
     update: (table: unknown) => {
-      if (table === devices) return updateBuilder("anonymize-retained-team-devices");
       if (table === cloudVms) return updateBuilder("anonymize-team-cloud-vms");
       if (table === cloudVmUsageEvents) return updateBuilder("anonymize-team-cloud-vm-usage-events");
       if (table === stripeCustomers) {
@@ -825,7 +822,7 @@ function fakeTransaction() {
       return updateBuilder();
     },
     delete: (table: unknown) => {
-      if (table === devices) return writeBuilder("delete-owned-devices");
+      if (table === devices) return writeBuilder("delete-user-devices");
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
       if (table === cloudVmLeases) return writeBuilder("delete-cloud-vm-leases");
       if (table === cloudVms) return writeBuilder("delete-personal-cloud-vms");
