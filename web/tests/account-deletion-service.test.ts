@@ -55,7 +55,7 @@ let providerlessProvisioningRows: Array<{ id: string }> = [];
 let providerlessProvisioningSelectsRemaining = 0;
 let providerlessCloudVmUpdateCount = 0;
 let workflowErrorsByProviderId = new Map<string, unknown>();
-let snapshotRows: Array<{ id: string; provider: ProviderId; snapshotId: string }> = [];
+let snapshotRows: Array<{ id: string; eventType?: string; provider: ProviderId; snapshotId: string | null }> = [];
 let snapshotDeleteError: unknown = null;
 let identityLeaseRows: Array<{ id: string; provider: ProviderId; providerIdentityHandle: string | null }> = [];
 let identityLeaseRevokeError: unknown = null;
@@ -531,6 +531,7 @@ describe("account deletion cleanup", () => {
   test("deletes personal Cloud VM snapshots before local usage rows", async () => {
     snapshotRows = [{
       id: "00000000-0000-4000-8000-000000000201",
+      eventType: "vm.snapshot.created",
       provider: "freestyle",
       snapshotId: "snapshot-user-1",
     }];
@@ -627,6 +628,7 @@ describe("account deletion cleanup", () => {
   test("fails closed when provider snapshot deletion fails", async () => {
     snapshotRows = [{
       id: "00000000-0000-4000-8000-000000000202",
+      eventType: "vm.snapshot.created",
       provider: "freestyle",
       snapshotId: "snapshot-user-1",
     }];
@@ -637,6 +639,23 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime())).rejects.toThrow("provider snapshot delete failed");
 
     expect(calls).toContain("delete-snapshot:freestyle:snapshot-user-1");
+    expect(calls).not.toContain("delete-snapshot-usage-events");
+    expect(calls).not.toContain("transaction");
+  });
+
+  test("fails closed while provider snapshot creation is still finalizing", async () => {
+    snapshotRows = [{
+      id: "00000000-0000-4000-8000-000000000203",
+      eventType: "vm.snapshot.pending",
+      provider: "freestyle",
+      snapshotId: null,
+    }];
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("in-flight snapshot");
+
+    expect(calls).toContain("select-snapshot-usage-events");
     expect(calls).not.toContain("delete-snapshot-usage-events");
     expect(calls).not.toContain("transaction");
   });

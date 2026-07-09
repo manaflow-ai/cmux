@@ -164,22 +164,141 @@ describe("VM Effect workflows", () => {
     });
   });
 
-  test("deletes a just-created snapshot when account deletion blocks usage recording", async () => {
+  test("reserves snapshot cleanup before creating a provider snapshot", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000111",
-      userId: "user-workflow-snapshot-delete-race",
+      userId: "user-workflow-snapshot-reserve",
       billingTeamId: null,
-      providerVmId: "provider-vm-snapshot-delete-race",
+      providerVmId: "provider-vm-snapshot-reserve",
       status: "running",
     });
-    const usageEvents: RecordedUsageEvent[] = [];
-    const repo = testWorkflowRepo({ vm, usageEvents, recordUsageEventResult: false });
+    const callOrder: string[] = [];
+    const snapshotReservations: Array<Parameters<VmRepositoryShape["reserveSnapshotUsageEvent"]>[0] & { id: string }> = [];
+    const completedSnapshots: Parameters<VmRepositoryShape["completeSnapshotUsageEvent"]>[0][] = [];
+    const repo = testWorkflowRepo({ vm, snapshotReservations, completedSnapshots, callOrder });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () =>
+        Effect.sync(() => {
+          callOrder.push("provider-snapshot");
+          return {
+            id: "snapshot-reserved",
+            createdAt: Date.now(),
+          };
+        }),
+    };
+
+    const snapshot = await Effect.runPromise(
+      snapshotVm({
+        userId: "user-workflow-snapshot-reserve",
+        providerVmId: "provider-vm-snapshot-reserve",
+        name: "checkpoint",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(snapshot.id).toBe("snapshot-reserved");
+    expect(callOrder).toEqual(["reserve-snapshot", "provider-snapshot", "complete-snapshot"]);
+    expect(snapshotReservations).toEqual([{
+      id: "snapshot-usage-event",
+      userId: "user-workflow-snapshot-reserve",
+      billingTeamId: null,
+      billingPlanId: "free",
+      vmId: vm.id,
+      provider: "freestyle",
+      imageId: "snapshot-test",
+      named: true,
+      name: "checkpoint",
+    }]);
+    expect(completedSnapshots).toEqual([{
+      eventId: "snapshot-usage-event",
+      userId: "user-workflow-snapshot-reserve",
+      snapshotId: "snapshot-reserved",
+      named: true,
+      name: "checkpoint",
+    }]);
+  });
+
+  test("does not create provider snapshots when account deletion blocks snapshot reservation", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000112",
+      userId: "user-workflow-snapshot-reserve-blocked",
+      billingTeamId: null,
+      providerVmId: "provider-vm-snapshot-reserve-blocked",
+      status: "running",
+    });
+    let providerSnapshotCalls = 0;
+    const repo = testWorkflowRepo({ vm, reserveSnapshotUsageEventResult: null });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () =>
+        Effect.sync(() => {
+          providerSnapshotCalls += 1;
+          return {
+            id: "snapshot-should-not-exist",
+            createdAt: Date.now(),
+          };
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      snapshotVm({
+        userId: "user-workflow-snapshot-reserve-blocked",
+        providerVmId: "provider-vm-snapshot-reserve-blocked",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(providerSnapshotCalls).toBe(0);
+  });
+
+  test("removes pending snapshot cleanup when provider snapshot creation fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000114",
+      userId: "user-workflow-snapshot-provider-fails",
+      billingTeamId: null,
+      providerVmId: "provider-vm-snapshot-provider-fails",
+      status: "running",
+    });
+    const deletedSnapshotUsageEventIds: string[] = [];
+    const providerError = providerOperationError("snapshot", "provider snapshot failed");
+    const repo = testWorkflowRepo({ vm, deletedSnapshotUsageEventIds });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.fail(providerError),
+    };
+
+    const error = await Effect.runPromise(
+      snapshotVm({
+        userId: "user-workflow-snapshot-provider-fails",
+        providerVmId: "provider-vm-snapshot-provider-fails",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(error).toBe(providerError);
+    expect(deletedSnapshotUsageEventIds).toEqual(["snapshot-usage-event"]);
+  });
+
+  test("deletes a just-created snapshot when cleanup reservation finalization fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000113",
+      userId: "user-workflow-snapshot-finalize-race",
+      billingTeamId: null,
+      providerVmId: "provider-vm-snapshot-finalize-race",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm, completeSnapshotUsageEventResult: false });
     const deletedSnapshots: string[] = [];
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
       snapshot: () =>
         Effect.succeed({
-          id: "snapshot-delete-race",
+          id: "snapshot-finalize-race",
           createdAt: Date.now(),
         }),
       deleteSnapshot: (_provider, snapshotId) =>
@@ -190,8 +309,8 @@ describe("VM Effect workflows", () => {
 
     const error = await Effect.runPromise(
       snapshotVm({
-        userId: "user-workflow-snapshot-delete-race",
-        providerVmId: "provider-vm-snapshot-delete-race",
+        userId: "user-workflow-snapshot-finalize-race",
+        providerVmId: "provider-vm-snapshot-finalize-race",
       }).pipe(
         Effect.flip,
         Effect.provide(workflowLayer(repo, provider)),
@@ -199,8 +318,7 @@ describe("VM Effect workflows", () => {
     );
 
     expect(error).toBeInstanceOf(VmNotFoundError);
-    expect(usageEvents).toEqual([]);
-    expect(deletedSnapshots).toEqual(["snapshot-delete-race"]);
+    expect(deletedSnapshots).toEqual(["snapshot-finalize-race"]);
   });
 
   test("exec failure with running provider status propagates the original error without retry", async () => {
@@ -1906,14 +2024,17 @@ describe("VM Effect workflows", () => {
       findUserVm: () => Effect.succeed(null),
       findAccountOwnedVm: () => Effect.succeed(null),
       markDestroyed: () => Effect.void,
-      recordLease: () => Effect.void,
-      listVmSessions: () => Effect.succeed([]),
-      upsertVmSession: () => Effect.fail(new Error("unused") as never),
-      activeIdentityLeases: () => Effect.succeed([]),
-      markLeasesRevoked: () => Effect.void,
-      assertAccountMutationAllowed: () => Effect.void,
-      recordUsageEvent: () => Effect.succeed(true),
-      recordUsageEvents: () => {
+        recordLease: () => Effect.void,
+        listVmSessions: () => Effect.succeed([]),
+        upsertVmSession: () => Effect.fail(new Error("unused") as never),
+        activeIdentityLeases: () => Effect.succeed([]),
+        markLeasesRevoked: () => Effect.void,
+        assertAccountMutationAllowed: () => Effect.void,
+        reserveSnapshotUsageEvent: () => Effect.fail(new Error("unused") as never),
+        completeSnapshotUsageEvent: () => Effect.fail(new Error("unused") as never),
+        deleteSnapshotUsageEvent: () => Effect.fail(new Error("unused") as never),
+        recordUsageEvent: () => Effect.succeed(true),
+        recordUsageEvents: () => {
         usageEventAttempts += 1;
         return Effect.fail(new VmDatabaseError({
           operation: "recordUsageEvents",
@@ -4778,18 +4899,24 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 
 function testWorkflowRepo(input: {
   readonly vm: CloudVmRow;
-  readonly usageEvents?: RecordedUsageEvent[];
-  readonly leases?: RecordedLease[];
-  readonly destroyedIds?: string[];
-  readonly activeIdentityLeases?: CloudVmLeaseRow[];
-  readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
-  readonly revokedLeaseIds?: string[];
-  readonly leaseRevocationRetries?: LeaseRevocationRetry[];
-  readonly observedStatuses?: ObservedStatusUpdate[];
-  readonly recordUsageEventResult?: boolean;
-  readonly recordLease?: VmRepositoryShape["recordLease"];
-  readonly assertAccountMutationAllowed?: VmRepositoryShape["assertAccountMutationAllowed"];
-  readonly reservePausedResume?: VmRepositoryShape["reservePausedResume"];
+    readonly usageEvents?: RecordedUsageEvent[];
+    readonly leases?: RecordedLease[];
+    readonly destroyedIds?: string[];
+    readonly activeIdentityLeases?: CloudVmLeaseRow[];
+    readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
+    readonly revokedLeaseIds?: string[];
+    readonly leaseRevocationRetries?: LeaseRevocationRetry[];
+    readonly observedStatuses?: ObservedStatusUpdate[];
+    readonly recordUsageEventResult?: boolean;
+    readonly reserveSnapshotUsageEventResult?: string | null;
+    readonly completeSnapshotUsageEventResult?: boolean;
+    readonly snapshotReservations?: Array<Parameters<VmRepositoryShape["reserveSnapshotUsageEvent"]>[0] & { id: string }>;
+    readonly completedSnapshots?: Parameters<VmRepositoryShape["completeSnapshotUsageEvent"]>[0][];
+    readonly deletedSnapshotUsageEventIds?: string[];
+    readonly callOrder?: string[];
+    readonly recordLease?: VmRepositoryShape["recordLease"];
+    readonly assertAccountMutationAllowed?: VmRepositoryShape["assertAccountMutationAllowed"];
+    readonly reservePausedResume?: VmRepositoryShape["reservePausedResume"];
   readonly upsertVmSession?: VmRepositoryShape["upsertVmSession"];
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
@@ -4889,13 +5016,33 @@ function testWorkflowRepo(input: {
       Effect.sync(() => {
         input.revokedLeaseIds?.push(...leaseIds);
       }),
-    assertAccountMutationAllowed: (accountInput) =>
-      input.assertAccountMutationAllowed
-        ? input.assertAccountMutationAllowed(accountInput)
-        : Effect.void,
-    recordUsageEvent: (event) =>
-      Effect.sync(() => {
-        const inserted = input.recordUsageEventResult ?? true;
+      assertAccountMutationAllowed: (accountInput) =>
+        input.assertAccountMutationAllowed
+          ? input.assertAccountMutationAllowed(accountInput)
+          : Effect.void,
+      reserveSnapshotUsageEvent: (event) =>
+        Effect.sync(() => {
+          input.callOrder?.push("reserve-snapshot");
+          const id = input.reserveSnapshotUsageEventResult === undefined
+            ? "snapshot-usage-event"
+            : input.reserveSnapshotUsageEventResult;
+          if (id) input.snapshotReservations?.push({ id, ...event });
+          return id;
+        }),
+      completeSnapshotUsageEvent: (event) =>
+        Effect.sync(() => {
+          input.callOrder?.push("complete-snapshot");
+          const completed = input.completeSnapshotUsageEventResult ?? true;
+          if (completed) input.completedSnapshots?.push(event);
+          return completed;
+        }),
+      deleteSnapshotUsageEvent: (event) =>
+        Effect.sync(() => {
+          input.deletedSnapshotUsageEventIds?.push(event.eventId);
+        }),
+      recordUsageEvent: (event) =>
+        Effect.sync(() => {
+          const inserted = input.recordUsageEventResult ?? true;
         if (inserted) input.usageEvents?.push(event);
         return inserted;
       }),

@@ -569,22 +569,39 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
+    const reservationId = yield* repo.reserveSnapshotUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      provider: vm.provider,
+      imageId: vm.imageId,
+      named: !!input.name,
+      name: input.name ?? null,
+    });
+    if (!reservationId) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmProviderOperationError({
         provider: vm.provider,
         operation: "snapshot",
         cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
-      })));
-    const recorded = yield* repo.recordUsageEvent({
+      }))).pipe(
+        Effect.catchAll((error) =>
+          repo.deleteSnapshotUsageEvent({ eventId: reservationId, userId: vm.userId }).pipe(
+            Effect.zipRight(Effect.fail(error)),
+          )
+        ),
+      );
+    const recorded = yield* repo.completeSnapshotUsageEvent({
+      eventId: reservationId,
       userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.snapshot.created",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
+      snapshotId: snapshot.id,
+      named: !!input.name,
+      name: input.name ?? null,
     });
     if (!recorded) {
       yield* deleteProviderSnapshot(providers, vm.provider, snapshot.id);

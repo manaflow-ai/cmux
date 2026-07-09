@@ -902,20 +902,25 @@ async function accountVmSnapshotRows(
   const rows = await db
     .select({
       id: cloudVmUsageEvents.id,
+      eventType: cloudVmUsageEvents.eventType,
       provider: cloudVmUsageEvents.provider,
       snapshotId: sql<string | null>`${cloudVmUsageEvents.metadata}->>'snapshotId'`,
     })
     .from(cloudVmUsageEvents)
     .where(and(
       accountOwnedCloudVmUsageEvents(scope),
-      eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+      inArray(cloudVmUsageEvents.eventType, ["vm.snapshot.created", "vm.snapshot.pending"]),
       isNotNull(cloudVmUsageEvents.provider),
-      sql`${cloudVmUsageEvents.metadata}->>'snapshotId' is not null`,
     ))
     .limit(ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE);
   return rows.flatMap((row) => {
+    if (row.eventType === "vm.snapshot.pending") {
+      throw new Error("Cloud VM snapshot cleanup is waiting for an in-flight snapshot to settle");
+    }
     const snapshotId = row.snapshotId?.trim();
-    if (!row.provider || !snapshotId) return [];
+    if (!row.provider || !snapshotId) {
+      throw new Error("Cloud VM snapshot cleanup found a snapshot row without a provider snapshot id");
+    }
     return [{ id: row.id, provider: row.provider, snapshotId }];
   });
 }
