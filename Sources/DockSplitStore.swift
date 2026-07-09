@@ -624,14 +624,13 @@ final class DockSplitStore: BonsplitDelegate {
                         title: resolvedTitle
                     )
                     let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-                    let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
-                        ? .some(self.terminalTabAgentIconAsset(forPanelId: terminal.id))
-                        : nil
-                    guard titleUpdate != nil || iconAssetUpdate != nil else { return }
+                    let iconPayloadUpdate = didMutateTitleDerivedAgent ? self.terminalTabAgentIconPayload(forPanelId: terminal.id) : nil
+                    guard titleUpdate != nil || iconPayloadUpdate != nil else { return }
                     self.bonsplitController.updateTab(
                         tabId,
                         title: titleUpdate,
-                        iconAsset: iconAssetUpdate
+                        iconImageData: iconPayloadUpdate.map(\.imageData),
+                        iconAsset: iconPayloadUpdate.map(\.assetName)
                     )
                 }
             panelCancellables[panel.id] = cancellable
