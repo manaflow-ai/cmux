@@ -291,9 +291,13 @@ enum SidebarAgentRowStateStyle {
     }
 
     /// The row's status line: the reported value, else the lifecycle text.
+    /// Idle intentionally renders nothing: absence of activity needs no label.
     static func statusText(for row: SidebarAgentStatusRow) -> String? {
         if let value = row.value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
             return value
+        }
+        if row.lifecycle == .idle {
+            return nil
         }
         return lifecycleText(for: row)
     }
@@ -545,17 +549,7 @@ private struct SidebarAgentGraphiteRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
-                if let stateColor = SidebarAgentRowStateStyle.stateColor(for: row) {
-                    Circle()
-                        .fill(stateColor)
-                        .frame(width: 5 * fontScale, height: 5 * fontScale)
-                }
-                if let word = SidebarAgentRowStateStyle.stateWord(for: row) {
-                    Text(word)
-                        .cmuxFont(size: 9.5 * fontScale)
-                        .foregroundColor(stateWordColor)
-                        .lineLimit(1)
-                }
+                trailingState
             }
             .padding(.vertical, 3)
             .padding(.horizontal, 7)
@@ -566,6 +560,37 @@ private struct SidebarAgentGraphiteRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .safeHelp(tooltip)
+    }
+
+    /// Running shows a spinner (no state word); waiting keeps the orange
+    /// dot + word; idle shows nothing. Lifecycle-less rows (BYO agents that
+    /// only reported a status) keep their reported color as a small dot.
+    @ViewBuilder
+    private var trailingState: some View {
+        switch row.lifecycle {
+        case .running:
+            SidebarAgentRowSpinner(fontScale: fontScale)
+        case .needsInput:
+            if let stateColor = SidebarAgentRowStateStyle.stateColor(for: row) {
+                Circle()
+                    .fill(stateColor)
+                    .frame(width: 5 * fontScale, height: 5 * fontScale)
+            }
+            if let word = SidebarAgentRowStateStyle.stateWord(for: row) {
+                Text(word)
+                    .cmuxFont(size: 9.5 * fontScale)
+                    .foregroundColor(stateWordColor)
+                    .lineLimit(1)
+            }
+        case .idle, .unknown:
+            EmptyView()
+        case nil:
+            if let raw = row.color, let reported = Color(hex: raw) {
+                Circle()
+                    .fill(reported)
+                    .frame(width: 5 * fontScale, height: 5 * fontScale)
+            }
+        }
     }
 
     @ViewBuilder
@@ -601,5 +626,18 @@ private struct SidebarAgentGraphiteRow: View {
             row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey),
             SidebarAgentRowStateStyle.statusText(for: row),
         ].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+
+/// Small native activity spinner sized for a sidebar agent row.
+struct SidebarAgentRowSpinner: View {
+    let fontScale: CGFloat
+
+    var body: some View {
+        ProgressView()
+            .controlSize(.small)
+            .scaleEffect(0.55 * fontScale)
+            .frame(width: 10 * fontScale, height: 10 * fontScale)
     }
 }

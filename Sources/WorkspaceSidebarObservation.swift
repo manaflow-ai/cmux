@@ -43,6 +43,10 @@ private struct SidebarObservationState: Equatable {
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
     let panelDirectoryDisplayLabels: [UUID: String]
+    // Agent row labels resolve pane rename > surface title, so both must
+    // invalidate the sidebar snapshot or a rename never reaches the row.
+    let panelTitles: [UUID: String]
+    let panelCustomTitles: [UUID: String]
     let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
@@ -158,8 +162,8 @@ extension Workspace {
             remoteFields
         )
             .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
-            .combineLatest(directoryChangeRevision)
-            .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
+            .combineLatest(directoryChangeRevision, Publishers.CombineLatest($panelTitles, $panelCustomTitles))
+            .compactMap { [weak self] values, directoryChangeRevision, panelTitleFields -> SidebarObservationState? in
                 guard let self else { return nil }
                 let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
@@ -172,6 +176,8 @@ extension Workspace {
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
+                    panelTitles: panelTitleFields.0,
+                    panelCustomTitles: panelTitleFields.1,
                     directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
