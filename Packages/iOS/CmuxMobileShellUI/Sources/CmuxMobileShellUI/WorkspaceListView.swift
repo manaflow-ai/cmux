@@ -579,14 +579,6 @@ struct WorkspaceListView: View {
                 )
                 : ""
         )
-        .overlay(alignment: .leading) {
-            if indented {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.22))
-                    .frame(width: 1)
-                    .padding(.leading, 7)
-            }
-        }
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
     }

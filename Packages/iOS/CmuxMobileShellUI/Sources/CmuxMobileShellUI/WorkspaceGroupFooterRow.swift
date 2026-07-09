@@ -5,18 +5,10 @@ struct WorkspaceGroupFooterRow: View {
     let groupName: String?
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.22))
-                .frame(width: 1)
-                .padding(.leading, 7)
-
-            Rectangle()
-                .fill(Color.secondary.opacity(0.42))
-                .frame(width: 14, height: 1)
-                .padding(.leading, 7)
-        }
-        .frame(height: 12)
+        // Invisible spacer row: keeps the end-of-group drop target and
+        // accessibility element without drawing the old indent/corner marks.
+        Color.clear
+            .frame(height: 12)
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel(footerAccessibilityLabel)
