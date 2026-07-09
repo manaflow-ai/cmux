@@ -163,7 +163,11 @@ const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => 
   };
 });
 const destroyVm = mock((...args: unknown[]) => {
-  const [input] = args as [{ readonly userId: string; readonly providerVmId: string }];
+  const [input] = args as [{
+    readonly userId: string;
+    readonly providerVmId: string;
+    readonly afterProviderDestroy?: () => void;
+  }];
   return {
     kind: "destroyVm" as const,
     input,
@@ -193,6 +197,9 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   if (destroyVmFailureProviderIds.has(program.input.providerVmId)) {
     throw vmProviderOperationError("destroy", `destroy failed for ${program.input.providerVmId}`);
   }
+  program.input.afterProviderDestroy?.();
+  const afterProviderError = destroyVmAfterProviderErrorsByProviderId.get(program.input.providerVmId);
+  if (afterProviderError) throw afterProviderError;
   return undefined;
 });
 const deleteObject = mock(async (...args: unknown[]) => {
@@ -267,6 +274,7 @@ let stripeDeleteCustomerError: unknown = null;
 let removeTesterError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
 let destroyVmFailureErrorsByProviderId = new Map<string, unknown>();
+let destroyVmAfterProviderErrorsByProviderId = new Map<string, unknown>();
 let listedPersonalVmIds: ListedAccountVm[] = [];
 let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
@@ -295,6 +303,7 @@ type WorkflowProgram =
         readonly billingTeamId?: string | null;
         readonly providerVmId: string;
         readonly provider?: ProviderId;
+        readonly afterProviderDestroy?: () => void;
       };
     };
 
@@ -543,6 +552,7 @@ beforeEach(() => {
   removeTesterError = null;
   destroyVmFailureProviderIds = new Set();
   destroyVmFailureErrorsByProviderId = new Map();
+  destroyVmAfterProviderErrorsByProviderId = new Map();
   listedPersonalVmIds = ["personal-vm-1", "personal-vm-2"];
   listedPersonalVmIdsByBillingTeam = {};
   revokeIdentityLeasesError = null;
@@ -584,18 +594,18 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(listUserVms).toHaveBeenCalledWith("account-user-1");
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
       provider: "freestyle",
-    });
-    expect(destroyVm).toHaveBeenCalledWith({
+    }));
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-2",
       provider: "freestyle",
-    });
+    }));
     expect(transaction).toHaveBeenCalledTimes(3);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
@@ -688,18 +698,18 @@ describe("account deletion route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "shared-provider-id",
       provider: "freestyle",
-    });
-    expect(destroyVm).toHaveBeenCalledWith({
+    }));
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "shared-provider-id",
       provider: "e2b",
-    });
+    }));
   });
 
   test("destroys personal-team scoped VMs before deleting account rows", async () => {
@@ -725,13 +735,13 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
     expect(listUserVms).toHaveBeenCalledWith("account-user-1");
     expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal");
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       billingTeamId: "team-personal",
       teamIds: ["account-user-1", "team-personal"],
       providerVmId: "personal-team-vm",
       provider: "freestyle",
-    });
+    }));
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active", "sub_team_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user", "cus_team"]);
     const subscriptionSelect = selectedWhere.find((entry) => entry.table === stripeSubscriptions);
@@ -863,13 +873,13 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
     expect(listUserVms).toHaveBeenCalledWith("account-user-1");
     expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal");
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       billingTeamId: "team-personal",
       teamIds: ["account-user-1", "team-personal"],
       providerVmId: "personal-team-vm",
       provider: "freestyle",
-    });
+    }));
   });
 
   test("pages through Stack teams before selecting account-owned data", async () => {
@@ -890,13 +900,13 @@ describe("account deletion route", () => {
     expect(listedTeamsAfterTombstone).toBe(true);
     expect(listUserVms).toHaveBeenCalledWith("account-user-1");
     expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal-page-2");
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       billingTeamId: "team-personal-page-2",
       teamIds: ["account-user-1", "team-personal-page-2"],
       providerVmId: "personal-team-vm",
       provider: "freestyle",
-    });
+    }));
   });
 
   test("accepts non-paginated Stack team member arrays with 100 members", async () => {
@@ -1161,6 +1171,44 @@ describe("account deletion route", () => {
     );
   });
 
+  test("keeps VM cleanup retryable when provider destroy succeeds but DB mark fails", async () => {
+    listedPersonalVmIds = ["personal-vm-1"];
+    revokedIdentityLeaseCount = 0;
+    destroyVmAfterProviderErrorsByProviderId = new Map([
+      ["personal-vm-1", new Error("mark destroyed failed")],
+    ]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-1",
+      provider: "freestyle",
+    }));
+    const destroyVmCalls = (destroyVm as unknown as {
+      mock: { calls: Array<[{ readonly afterProviderDestroy?: unknown }]> };
+    }).mock.calls;
+    const [destroyInput] = destroyVmCalls[0];
+    expect(typeof destroyInput.afterProviderDestroy).toBe("function");
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "AccountDeletionDestructiveCleanupError: Failed to destroy 1 personal cloud VM",
+    );
+  });
+
   test("keeps deletion retryable after Subrouter 404 removes local tenant state", async () => {
     listedPersonalVmIds = [];
     revokedIdentityLeaseCount = 0;
@@ -1310,12 +1358,12 @@ describe("account deletion route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
     expect(destroyVm).toHaveBeenCalledTimes(1);
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
       provider: "freestyle",
-    });
+    }));
     expect(deletedTables).toContain(cloudVms);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
@@ -1507,18 +1555,18 @@ describe("account deletion route", () => {
       destroyedVms: 1,
     });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
       provider: "freestyle",
-    });
-    expect(destroyVm).toHaveBeenCalledWith({
+    }));
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-2",
       provider: "freestyle",
-    });
+    }));
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
@@ -1547,18 +1595,18 @@ describe("account deletion route", () => {
       destroyedVms: 0,
     });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
       provider: "freestyle",
-    });
-    expect(destroyVm).toHaveBeenCalledWith({
+    }));
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-2",
       provider: "freestyle",
-    });
+    }));
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {

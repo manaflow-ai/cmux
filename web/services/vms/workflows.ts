@@ -1250,6 +1250,7 @@ export function destroyVm(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly provider?: ProviderId;
+  readonly afterProviderDestroy?: () => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1263,6 +1264,9 @@ export function destroyVm(input: {
         return Effect.fail(err);
       }),
     );
+    yield* Effect.sync(() => {
+      input.afterProviderDestroy?.();
+    });
     yield* repo.markDestroyed(vm.id);
     yield* repo.recordUsageEvent({
       userId: input.userId,

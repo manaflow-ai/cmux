@@ -417,11 +417,15 @@ async function destroyPersonalCloudVms(
         teamIds: readonly string[];
         providerVmId: string;
         provider: ProviderId;
+        afterProviderDestroy: () => void;
       } = {
         userId,
         teamIds: accountTeamIds,
         providerVmId: vm.providerVmId,
         provider: vm.provider,
+        afterProviderDestroy: () => {
+          destructiveCleanupStarted = true;
+        },
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);
