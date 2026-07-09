@@ -81,6 +81,46 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         withExtendedLifetime(observationStream) {}
     }
 
+    @Test func sustainedChurnPublishesAtDeferralDeadline() {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+        let observationStream = model.changes()
+        let settleDelay = WorkspaceSidebarProcessTitleObservationModel.defaultSettleInterval
+        // The deferral policy contract: publication may lag churn by at most
+        // four settle intervals (2 s for sidebar rows).
+        let deferralDelay = settleDelay * 4
+
+        // Sustained churn: every change lands inside the settle window, so
+        // the settle timer alone never fires and the row would stay stale for
+        // the whole animation (the 10 Hz title-animation hang workload).
+        for frame in 0..<20 {
+            workspace.applyProcessTitle("Agent frame \(frame)")
+        }
+        #expect(model.changeGeneration == 0)
+        #expect(
+            scheduler.scheduledActionCount(delay: deferralDelay) == 1,
+            "A churn burst must arm exactly one non-resetting deferral deadline."
+        )
+
+        scheduler.fire(delay: deferralDelay)
+        #expect(
+            model.changeGeneration == 1,
+            "Churn faster than the settle interval must still publish by the deferral deadline instead of starving the row."
+        )
+
+        // Churn continues: the next deferral window publishes again.
+        workspace.applyProcessTitle("Agent frame 20")
+        scheduler.fire(delay: deferralDelay)
+        #expect(model.changeGeneration == 2)
+
+        // Quiet after the last change: the settle timer delivers the final title.
+        workspace.applyProcessTitle("Agent final")
+        scheduler.fire(delay: settleDelay)
+        #expect(model.changeGeneration == 3)
+        withExtendedLifetime(observationStream) {}
+    }
+
     @Test func customTitleCancelsPendingProcessTitleRefresh() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
@@ -102,26 +142,46 @@ struct WorkspaceSidebarProcessTitleObservationTests {
 private final class ManualProcessTitleSettleScheduler {
     private struct PendingAction {
         var isCancelled = false
+        var hasFired = false
+        let delay: TimeInterval
         let action: @MainActor () -> Void
     }
 
     private var pendingActions: [PendingAction] = []
     var scheduledActionCount: Int { pendingActions.count }
 
+    func scheduledActionCount(delay: TimeInterval) -> Int {
+        pendingActions.filter { $0.delay == delay }.count
+    }
+
     func schedule(
-        delay _: TimeInterval,
+        delay: TimeInterval,
         action: @escaping @MainActor () -> Void
     ) -> WorkspaceSidebarProcessTitleObservationModel.Cancellation {
         let index = pendingActions.count
-        pendingActions.append(PendingAction(action: action))
+        pendingActions.append(PendingAction(delay: delay, action: action))
         return { [weak self] in
             self?.pendingActions[index].isCancelled = true
         }
     }
 
     func fireAll() {
-        for pendingAction in pendingActions where !pendingAction.isCancelled {
-            pendingAction.action()
+        fire { _ in true }
+    }
+
+    func fire(delay: TimeInterval) {
+        fire { $0 == delay }
+    }
+
+    // Re-reads cancellation state per action: a fired publication cancels its
+    // sibling deadline, which must then stay silent within the same pass.
+    private func fire(_ matchesDelay: (TimeInterval) -> Bool) {
+        for index in pendingActions.indices {
+            guard !pendingActions[index].isCancelled,
+                  !pendingActions[index].hasFired,
+                  matchesDelay(pendingActions[index].delay) else { continue }
+            pendingActions[index].hasFired = true
+            pendingActions[index].action()
         }
     }
 }
