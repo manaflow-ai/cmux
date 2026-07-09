@@ -106,6 +106,32 @@ struct SystemAppearanceObserverTests {
         #expect(harness.events == eventsAfterStart)
     }
 
+    @Test
+    func explicitModeFireInvalidatesCachedBaselineBeforeReturningToSystem() {
+        let harness = Harness()
+        harness.prefersDark = true
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        #expect(harness.events == ["effectivePrefersDark(true)"])
+
+        harness.modeRawValue = AppearanceMode.light.rawValue
+        harness.prefersDark = false
+        harness.fireEffectiveAppearanceChanged()
+
+        #expect(harness.events == ["effectivePrefersDark(true)"])
+
+        harness.modeRawValue = AppearanceMode.system.rawValue
+        harness.prefersDark = true
+        harness.fireEffectiveAppearanceChanged()
+
+        #expect(harness.events == [
+            "effectivePrefersDark(true)",
+            "effectivePrefersDark(true)",
+            "postSystemAppearanceDidChange",
+        ])
+    }
+
     // (c) An unchanged value is coalesced (no duplicate post) — including
     // immediately after a real prior transition.
     @Test

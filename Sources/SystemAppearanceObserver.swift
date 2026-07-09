@@ -109,7 +109,10 @@ final class SystemAppearanceObserver {
         // Stale-fire guard: the KVO handler can still be in flight (or
         // re-entrantly triggered, see below) after `stopObserving()` has run.
         guard observation != nil else { return }
-        guard AppearanceSettings.mode(for: environment.currentAppearanceModeRawValue()) == .system else { return }
+        guard AppearanceSettings.mode(for: environment.currentAppearanceModeRawValue()) == .system else {
+            lastResolvedPrefersDark = nil
+            return
+        }
         let prefersDark = environment.effectivePrefersDark()
         guard prefersDark != lastResolvedPrefersDark else { return }
         lastResolvedPrefersDark = prefersDark
