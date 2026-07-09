@@ -215,12 +215,21 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
 
   const teams: unknown[] = [];
   const seenCursors = new Set<string>();
+  const limit = 100;
   let cursor: string | undefined;
   do {
-    const page = await user.listTeams({ cursor, limit: 100 });
+    const page = await user.listTeams({ cursor, limit });
     teams.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
-    if (!nextCursor || seenCursors.has(nextCursor)) break;
+    if (!nextCursor) {
+      if (page.length >= limit && page.nextCursor === undefined) {
+        throw new AccountDeletionTeamScopeUnavailableError("Stack account deletion team pagination is incomplete.");
+      }
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new AccountDeletionTeamScopeUnavailableError("Stack account deletion team pagination looped.");
+    }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   } while (true);

@@ -160,6 +160,60 @@ describe("account deletion processor", () => {
     expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2:retained=team-shared->user-2");
   });
 
+  test("keeps looping Stack team pagination retryable before cleanup", async () => {
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          return {
+            id: userId,
+            clientReadOnlyMetadata: {},
+            listTeams: async () => stackTeamPage([], "repeat"),
+            update: async () => {},
+            delete: async () => {
+              calls.push(`stack-delete:${userId}`);
+            },
+          };
+        },
+      })),
+    ).rejects.toThrow("Stack account deletion team pagination looped.");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "retry-pending:user-1:Stack account deletion team pagination looped.",
+    ]);
+  });
+
+  test("keeps incomplete Stack team pagination retryable before cleanup", async () => {
+    const teams = Array.from({ length: 100 }, (_, index) =>
+      stackTeam(`team-${index}`, ["user-1", `member-${index}`])
+    );
+
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          return {
+            id: userId,
+            clientReadOnlyMetadata: {},
+            listTeams: async () => stackTeamPage(teams),
+            update: async () => {},
+            delete: async () => {
+              calls.push(`stack-delete:${userId}`);
+            },
+          };
+        },
+      })),
+    ).rejects.toThrow("Stack account deletion team pagination is incomplete.");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "retry-pending:user-1:Stack account deletion team pagination is incomplete.",
+    ]);
+  });
+
   test("pages through Stack team members before selecting owned-team cleanup scope", async () => {
     const requestedCursors: Array<string | undefined> = [];
     const requestedLimits: Array<number | undefined> = [];
@@ -491,6 +545,8 @@ function stackUserPage(userIds: readonly string[], nextCursor: string | null) {
   return Object.assign(userIds.map((userId) => ({ id: userId })), { nextCursor });
 }
 
-function stackTeamPage(teams: readonly ReturnType<typeof stackTeam>[], nextCursor: string | null) {
-  return Object.assign([...teams], { nextCursor });
+function stackTeamPage(teams: readonly ReturnType<typeof stackTeam>[], nextCursor?: string | null) {
+  const page = [...teams] as ReturnType<typeof stackTeam>[] & { nextCursor?: string | null };
+  if (nextCursor !== undefined) page.nextCursor = nextCursor;
+  return page;
 }
