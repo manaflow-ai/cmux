@@ -50,6 +50,79 @@ struct AppearanceEffectiveColorSchemeTests {
 
 @MainActor
 @Suite
+struct GhosttyAppearanceSyncColorSchemeTests {
+    @Test
+    func nilSystemAppearanceUsesLiveEffectiveAppearanceAfterLaunchWhenDefaultsAreStale() throws {
+        let suiteName = "GhosttyAppearanceSyncColorSchemeTests.Live.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        defaults.set("Dark", forKey: "AppleInterfaceStyle")
+        var liveAppearanceReadCount = 0
+
+        let result = GhosttyConfig.appearanceSyncColorSchemePreference(
+            passedAppearance: nil,
+            defaults: defaults,
+            isApplicationFinishedLaunching: { true },
+            liveEffectiveAppearance: {
+                liveAppearanceReadCount += 1
+                return NSAppearance(named: .aqua)
+            }
+        )
+
+        #expect(result.preference == .light)
+        #expect(result.source == "liveEffectiveAppearance")
+        #expect(liveAppearanceReadCount == 1)
+    }
+
+    @Test
+    func nilSystemAppearanceFallsBackBeforeLaunchWithoutReadingLiveEffectiveAppearance() throws {
+        let suiteName = "GhosttyAppearanceSyncColorSchemeTests.BeforeLaunch.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        defaults.set("Dark", forKey: "AppleInterfaceStyle")
+        var liveAppearanceReadCount = 0
+
+        let result = GhosttyConfig.appearanceSyncColorSchemePreference(
+            passedAppearance: nil,
+            defaults: defaults,
+            isApplicationFinishedLaunching: { false },
+            liveEffectiveAppearance: {
+                liveAppearanceReadCount += 1
+                return NSAppearance(named: .aqua)
+            }
+        )
+
+        #expect(result.preference == .dark)
+        #expect(result.source == "currentPreference")
+        #expect(liveAppearanceReadCount == 0)
+    }
+
+    @Test
+    func explicitAppearanceModeIgnoresPassedAndLiveEffectiveAppearance() throws {
+        let suiteName = "GhosttyAppearanceSyncColorSchemeTests.Explicit.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        defaults.set("Dark", forKey: "AppleInterfaceStyle")
+
+        let result = GhosttyConfig.appearanceSyncColorSchemePreference(
+            passedAppearance: NSAppearance(named: .darkAqua),
+            defaults: defaults,
+            isApplicationFinishedLaunching: { true },
+            liveEffectiveAppearance: {
+                NSAppearance(named: .darkAqua)
+            }
+        )
+
+        #expect(result.preference == .light)
+        #expect(result.source == "currentPreference")
+    }
+}
+
+@MainActor
+@Suite
 struct SystemAppearanceObserverTests {
     private final class ObservationToken: EffectiveAppearanceObservation {
         private(set) var invalidateCallCount = 0

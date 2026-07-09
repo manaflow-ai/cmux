@@ -11,23 +11,38 @@ extension GhosttyConfig {
     /// can remain stale on exactly that path. So when the app is following
     /// the system (`AppearanceMode.system`) and a non-nil appearance was
     /// passed in, it is the more trustworthy source and wins over the
-    /// defaults-based read. Explicit light/dark modes always win over both,
-    /// and a `nil` appearance (as passed by `AppearanceSettings.applyLiveMode`
-    /// when steady-state in system mode) falls back to the existing
-    /// defaults-based resolution unchanged.
+    /// defaults-based read. Explicit light/dark modes always win over both. A
+    /// `nil` appearance still resolves through the live app effectiveAppearance
+    /// after launch so later reloads cannot flip back to a stale
+    /// AppleInterfaceStyle value; before launch, it falls back to the existing
+    /// defaults-based resolution to avoid touching NSApp.effectiveAppearance.
     static func appearanceSyncColorSchemePreference(
-        passedAppearance: NSAppearance?
-    ) -> (preference: ColorSchemePreference, usedPassedAppearance: Bool) {
-        let isSystemMode = AppearanceSettings.mode(
-            for: UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        ) == .system
-        let usedPassedAppearance = isSystemMode && passedAppearance != nil
-        let currentColorScheme: ColorSchemePreference
-        if isSystemMode, let passedAppearance {
-            currentColorScheme = passedAppearance.cmuxPrefersDark ? .dark : .light
-        } else {
-            currentColorScheme = currentColorSchemePreference()
+        passedAppearance: NSAppearance?,
+        defaults: UserDefaults = .standard,
+        isApplicationFinishedLaunching: () -> Bool = AppIconLaunchState.isApplicationFinishedLaunching,
+        liveEffectiveAppearance: () -> NSAppearance? = {
+            guard Thread.isMainThread else { return nil }
+            return NSApp?.effectiveAppearance
         }
-        return (preference: currentColorScheme, usedPassedAppearance: usedPassedAppearance)
+    ) -> (preference: ColorSchemePreference, source: String) {
+        let isSystemMode = AppearanceSettings.mode(
+            for: defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+        ) == .system
+        if isSystemMode, let passedAppearance {
+            return (
+                preference: passedAppearance.cmuxPrefersDark ? .dark : .light,
+                source: "passedAppearance"
+            )
+        }
+        if isSystemMode, isApplicationFinishedLaunching(), let liveEffectiveAppearance = liveEffectiveAppearance() {
+            return (
+                preference: liveEffectiveAppearance.cmuxPrefersDark ? .dark : .light,
+                source: "liveEffectiveAppearance"
+            )
+        }
+        return (
+            preference: currentColorSchemePreference(defaults: defaults),
+            source: "currentPreference"
+        )
     }
 }

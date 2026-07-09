@@ -1774,7 +1774,7 @@ class GhosttyApp {
                 AppDelegate.shared?.reloadCmuxConfigStores(source: source)
             }
         }
-        let reloadColorScheme = preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference()
+        let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -1860,7 +1860,7 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        let (currentColorScheme, usedPassedAppearance) =
+        let (currentColorScheme, colorSchemeSource) =
             GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
@@ -1878,7 +1878,7 @@ class GhosttyApp {
             }
             let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
             logBackground(
-                "appearance sync source=\(source) usedPassedAppearance=\(usedPassedAppearance) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
+                "appearance sync source=\(source) colorSchemeSource=\(colorSchemeSource) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
         guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
