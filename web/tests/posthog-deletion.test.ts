@@ -52,6 +52,23 @@ describe("PostHog account deletion", () => {
     expect(() => assertPostHogDeletionConfigured()).not.toThrow();
   });
 
+  test("fails closed when PostHog reports per-person deletion errors", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({
+        deletion_errors: [{ distinct_id: "anon-1", error: "not found" }],
+      }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion failed: 1 deletion error(s)");
+  });
+
   test("fails closed when PostHog deletion is not configured", async () => {
     delete process.env.POSTHOG_ENVIRONMENT_ID;
     delete process.env.POSTHOG_PROJECT_ID;

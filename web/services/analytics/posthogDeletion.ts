@@ -32,6 +32,7 @@ export async function deletePostHogPersonData(
   if (!response.ok) {
     throw new Error(`PostHog account deletion failed: ${response.status}`);
   }
+  await assertBulkDeleteResponseSucceeded(response);
 }
 
 function postHogEnvironmentId(): string | null {
@@ -49,4 +50,29 @@ function trimmedEnv(name: string): string | null {
 
 function normalizedDistinctIds(values: readonly string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+async function assertBulkDeleteResponseSucceeded(response: Response): Promise<void> {
+  const responseText = await response.text();
+  if (!responseText.trim()) return;
+
+  let responseBody: unknown;
+  try {
+    responseBody = JSON.parse(responseText);
+  } catch {
+    throw new Error("PostHog account deletion failed: invalid response");
+  }
+
+  if (!isRecord(responseBody) || !("deletion_errors" in responseBody)) return;
+  const deletionErrors = responseBody.deletion_errors;
+  if (!Array.isArray(deletionErrors)) {
+    throw new Error("PostHog account deletion failed: invalid deletion errors");
+  }
+  if (deletionErrors.length > 0) {
+    throw new Error(`PostHog account deletion failed: ${deletionErrors.length} deletion error(s)`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
