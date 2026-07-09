@@ -1,0 +1,268 @@
+import AppKit
+import Bonsplit
+import CmuxControlSocket
+import Foundation
+import GhosttyKit
+
+@MainActor
+extension TerminalController {
+    func controlTabManager(surfaceID: UUID) -> TabManager? {
+        AppDelegate.shared?.locateSurface(surfaceId: surfaceID)?.tabManager
+            ?? locateDockSurface(surfaceID)?.tabManager
+            ?? locateRemoteTmuxControlSurface(surfaceID)?.tabManager
+    }
+
+    func controlTabManager(paneID: UUID) -> TabManager? {
+        v2LocatePane(paneID)?.tabManager
+            ?? locateDockPane(paneID)?.tabManager
+            ?? locateRemoteTmuxControlPane(paneID)?.tabManager
+    }
+
+    func locateRemoteTmuxControlSurface(
+        _ surfaceID: UUID
+    ) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            if let workspace = tabManager.tabs.first(where: {
+                $0.remoteTmuxControlPane(surfaceID: surfaceID) != nil
+            }) {
+                return (summary.windowId, workspace.id, tabManager)
+            }
+        }
+        return nil
+    }
+
+    func locateRemoteTmuxControlPane(
+        _ paneID: UUID
+    ) -> (windowId: UUID, tabManager: TabManager, workspace: Workspace, paneId: PaneID)? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            for workspace in tabManager.tabs {
+                guard let location = workspace.remoteTmuxControlPane(paneID: paneID) else { continue }
+                return (summary.windowId, tabManager, workspace, location.pane.paneID)
+            }
+        }
+        return nil
+    }
+
+    func controlPaneList(
+        workspace: Workspace,
+        tabManager: TabManager
+    ) -> ControlPaneListSnapshot {
+        let snapshot = workspace.bonsplitController.layoutSnapshot()
+        let remotePanes = workspace.selectedRemoteTmuxControlPanes()
+        let panes = remotePanes.isEmpty
+            ? standardControlPaneSummaries(workspace: workspace, snapshot: snapshot)
+            : remotePanes.map { pane in
+                ControlPaneSummary(
+                    paneID: pane.paneID.id,
+                    isFocused: pane.isFocused,
+                    surfaceIDs: [pane.panel.id],
+                    selectedSurfaceID: pane.panel.id,
+                    pixelFrame: nil,
+                    gridSize: controlGridSize(panel: pane.panel)
+                )
+            }
+        return ControlPaneListSnapshot(
+            workspaceID: workspace.id,
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            panes: panes,
+            containerWidth: snapshot.containerFrame.width,
+            containerHeight: snapshot.containerFrame.height
+        )
+    }
+
+    private func standardControlPaneSummaries(
+        workspace: Workspace,
+        snapshot: LayoutSnapshot
+    ) -> [ControlPaneSummary] {
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let geometryByPaneId = Dictionary(
+            snapshot.panes.map { ($0.paneId, $0.frame) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return workspace.bonsplitController.allPaneIds.map { paneID in
+            let tabs = workspace.bonsplitController.tabs(inPane: paneID)
+            let surfaceIDs = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedSurfaceID = workspace.bonsplitController
+                .selectedTab(inPane: paneID)
+                .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+            let frame = geometryByPaneId[paneID.id.uuidString].map {
+                ControlPanePixelFrame(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+            }
+            return ControlPaneSummary(
+                paneID: paneID.id,
+                isFocused: paneID == focusedPaneId,
+                surfaceIDs: surfaceIDs,
+                selectedSurfaceID: selectedSurfaceID,
+                pixelFrame: frame,
+                gridSize: selectedSurfaceID
+                    .flatMap { workspace.terminalPanel(for: $0) }
+                    .flatMap { controlGridSize(panel: $0) }
+            )
+        }
+    }
+
+    private func controlGridSize(panel: TerminalPanel) -> ControlPaneGridSize? {
+        guard panel.surface.hasLiveSurface, let surface = panel.surface.surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, size.rows > 0 else { return nil }
+        return ControlPaneGridSize(
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            cellWidthPx: Int(size.cell_width_px),
+            cellHeightPx: Int(size.cell_height_px)
+        )
+    }
+
+    func controlPaneSurfaces(
+        workspace: Workspace,
+        paneID requestedPaneID: UUID?,
+        tabManager: TabManager
+    ) -> ControlPaneSurfacesSnapshot? {
+        let remoteLocation = requestedPaneID.flatMap { workspace.remoteTmuxControlPane(paneID: $0) }
+        let remotePane = remoteLocation?.pane ?? (requestedPaneID == nil
+            ? workspace.selectedRemoteTmuxControlPanes().first(where: \.isFocused)
+            : nil)
+        if let remotePane {
+            return ControlPaneSurfacesSnapshot(
+                workspaceID: workspace.id,
+                paneID: remotePane.paneID.id,
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                surfaces: [ControlPaneSurfaceSummary(
+                    surfaceID: remotePane.panel.id,
+                    title: remotePane.title,
+                    typeRawValue: remotePane.panel.panelType.rawValue,
+                    isSelected: true
+                )]
+            )
+        }
+
+        let paneID = requestedPaneID.flatMap { requested in
+            workspace.bonsplitController.allPaneIds.first(where: { $0.id == requested })
+        } ?? workspace.bonsplitController.focusedPaneId
+        guard let paneID else { return nil }
+        let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneID)
+        let surfaces = workspace.bonsplitController.tabs(inPane: paneID).map { tab in
+            let panelID = workspace.panelIdFromSurfaceId(tab.id)
+            let panel = panelID.flatMap { workspace.panels[$0] }
+            return ControlPaneSurfaceSummary(
+                surfaceID: panelID,
+                title: tab.title,
+                typeRawValue: panel?.panelType.rawValue,
+                isSelected: tab.id == selectedTab?.id
+            )
+        }
+        return ControlPaneSurfacesSnapshot(
+            workspaceID: workspace.id,
+            paneID: paneID.id,
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            surfaces: surfaces
+        )
+    }
+
+    func controlPaneFocus(
+        workspace: Workspace,
+        paneID requestedPaneID: UUID,
+        tabManager: TabManager
+    ) -> ControlPaneFocusResolution {
+        if let location = workspace.remoteTmuxControlPane(paneID: requestedPaneID) {
+            if let windowID = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
+                setActiveTabManager(tabManager)
+            }
+            if tabManager.selectedTabId != workspace.id {
+                tabManager.selectWorkspace(workspace)
+            }
+            workspace.focusPanel(location.containerPanelID)
+            location.mirror.focus(pane: location.pane.tmuxPaneID)
+            return .focused(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: requestedPaneID
+            )
+        }
+        guard let paneID = workspace.bonsplitController.allPaneIds.first(where: {
+            $0.id == requestedPaneID
+        }) else {
+            return .paneNotFound(requestedPaneID)
+        }
+        if let windowID = v2ResolveWindowId(tabManager: tabManager) {
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
+            setActiveTabManager(tabManager)
+        }
+        if tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
+        }
+        workspace.bonsplitController.focusPane(paneID)
+        return .focused(
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            workspaceID: workspace.id,
+            paneID: paneID.id
+        )
+    }
+
+    func controlSurfaceSummaries(workspace: Workspace) -> [ControlSurfaceSummary] {
+        var paneByPanelID: [UUID: UUID] = [:]
+        var indexInPaneByPanelID: [UUID: Int] = [:]
+        var selectedInPaneByPanelID: [UUID: Bool] = [:]
+        for paneID in workspace.bonsplitController.allPaneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneID)
+            let selected = workspace.bonsplitController.selectedTab(inPane: paneID)
+            for (index, tab) in tabs.enumerated() {
+                guard let panelID = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelID[panelID] = paneID.id
+                indexInPaneByPanelID[panelID] = index
+                selectedInPaneByPanelID[panelID] = tab.id == selected?.id
+            }
+        }
+
+        return orderedPanels(in: workspace).flatMap { panel -> [ControlSurfaceSummary] in
+            if let mirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
+                return mirror.controlPanes().map { remotePane in
+                    ControlSurfaceSummary(
+                        surfaceID: remotePane.panel.id,
+                        typeRawValue: remotePane.panel.panelType.rawValue,
+                        title: remotePane.title,
+                        isFocused: panel.id == workspace.focusedPanelId && remotePane.isFocused,
+                        paneID: remotePane.paneID.id,
+                        indexInPane: 0,
+                        selectedInPane: true,
+                        developerToolsVisible: nil,
+                        requestedWorkingDirectory: v2NonEmptyString(remotePane.panel.requestedWorkingDirectory),
+                        initialCommand: v2NonEmptyString(remotePane.panel.surface.debugInitialCommand()),
+                        tmuxStartCommand: v2NonEmptyString(remotePane.panel.surface.debugTmuxStartCommand()),
+                        isTerminal: true,
+                        resumeBinding: nil
+                    )
+                }
+            }
+            let terminalPanel = panel as? TerminalPanel
+            return [ControlSurfaceSummary(
+                surfaceID: panel.id,
+                typeRawValue: panel.panelType.rawValue,
+                title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                isFocused: panel.id == workspace.focusedPanelId,
+                paneID: paneByPanelID[panel.id],
+                indexInPane: indexInPaneByPanelID[panel.id],
+                selectedInPane: selectedInPaneByPanelID[panel.id],
+                developerToolsVisible: (panel as? BrowserPanel)?.isDeveloperToolsVisible(),
+                requestedWorkingDirectory: terminalPanel.flatMap {
+                    v2NonEmptyString($0.requestedWorkingDirectory)
+                },
+                initialCommand: terminalPanel.flatMap {
+                    v2NonEmptyString($0.surface.debugInitialCommand())
+                },
+                tmuxStartCommand: terminalPanel.flatMap {
+                    v2NonEmptyString($0.surface.debugTmuxStartCommand())
+                },
+                isTerminal: terminalPanel != nil,
+                resumeBinding: terminalPanel != nil
+                    ? controlResumeBinding(from: workspace.surfaceResumeBinding(panelId: panel.id))
+                    : nil
+            )]
+        }
+    }
+}

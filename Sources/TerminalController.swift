@@ -3593,8 +3593,7 @@ class TerminalController {
         // methods are the only routing key for cross-window group ops, and
         // CLI helpers always inject caller workspace_id/surface_id, which
         // would otherwise win even when the group belongs to a different
-        // window). Fall back to workspace/surface/pane lookup, then the
-        // active window's TabManager.
+        // window). Then use workspace/surface/pane lookup and the active window.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -3620,10 +3619,10 @@ class TerminalController {
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            if let located = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) }) { return located.tabManager }
+            if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
         }
         if let paneId = v2UUID(params, "pane_id") {
-            if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager }) {
+            if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
                 return tm
             }
         }
@@ -3672,10 +3671,10 @@ class TerminalController {
             }
         }
         if let surfaceId = routing.surfaceID {
-            if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) { return located.tabManager }
+            if let manager = controlTabManager(surfaceID: surfaceId) { return manager }
         }
         if let paneId = routing.paneID,
-           let tm = v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager {
+           let tm = controlTabManager(paneID: paneId) {
             return tm
         }
         return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
@@ -5390,21 +5389,22 @@ class TerminalController {
                         return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
                     }
                     surfaceId = id
+                    guard let panel = ws.controlTerminalPanel(for: id) else {
+                        return .finished(.err(
+                            code: "invalid_params",
+                            message: "Surface is not a terminal",
+                            data: ["surface_id": id.uuidString]
+                        ))
+                    }
+                    terminalPanel = panel
                 } else {
-                    guard let focused = ws.focusedPanelId else {
+                    guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                     }
-                    surfaceId = focused
-                }
-                guard let wsPanel = ws.terminalPanel(for: surfaceId) else {
-                    return .finished(.err(
-                        code: "invalid_params",
-                        message: "Surface is not a terminal",
-                        data: ["surface_id": surfaceId.uuidString]
-                    ))
+                    surfaceId = focused.surfaceID
+                    terminalPanel = focused.panel
                 }
                 workspaceID = ws.id
-                terminalPanel = wsPanel
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(

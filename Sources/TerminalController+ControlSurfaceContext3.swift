@@ -247,7 +247,8 @@ extension TerminalController {
     private func resolveSendSurface(
         in ws: Workspace,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        paneID: UUID?
     ) -> SendSurfaceTarget {
         if hasSurfaceIDParam {
             guard let surfaceId = surfaceID else {
@@ -255,7 +256,7 @@ extension TerminalController {
             }
             return .surface(surfaceId)
         }
-        guard let focused = ws.focusedPanelId else {
+        guard let focused = ws.controlDefaultTerminalTarget(paneID: paneID)?.surfaceID else {
             return .unresolved(.noFocusedSurface)
         }
         return .surface(focused)
@@ -311,11 +312,16 @@ extension TerminalController {
             return .workspaceNotFound
         }
         let surfaceId: UUID
-        switch resolveSendSurface(in: ws, surfaceID: surfaceID, hasSurfaceIDParam: hasSurfaceIDParam) {
+        switch resolveSendSurface(
+            in: ws,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            paneID: routing.paneID
+        ) {
         case .unresolved(let resolution): return resolution
         case .surface(let id): surfaceId = id
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+        guard let terminalPanel = ws.controlTerminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
         }
         let queued: Bool
@@ -391,11 +397,16 @@ extension TerminalController {
             return .workspaceNotFound
         }
         let surfaceId: UUID
-        switch resolveSendSurface(in: ws, surfaceID: surfaceID, hasSurfaceIDParam: hasSurfaceIDParam) {
+        switch resolveSendSurface(
+            in: ws,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            paneID: routing.paneID
+        ) {
         case .unresolved(let resolution): return resolution
         case .surface(let id): surfaceId = id
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+        guard let terminalPanel = ws.controlTerminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
         }
         let sendResult = terminalPanel.sendNamedKeyResult(key)

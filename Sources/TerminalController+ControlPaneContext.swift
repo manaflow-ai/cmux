@@ -33,6 +33,11 @@ extension TerminalController: ControlPaneContext {
             if let workspace = tabManager.tabs.first(where: { $0.panels[surfaceId] != nil }) {
                 return workspace
             }
+            if let workspace = tabManager.tabs.first(where: {
+                $0.remoteTmuxControlPane(surfaceID: surfaceId) != nil
+            }) {
+                return workspace
+            }
             guard windowDockContainingPanel(surfaceId) == nil else { return nil }
             return tabManager.tabs.first(where: { $0.containsDockPanel(surfaceId) })
         }
@@ -40,6 +45,11 @@ extension TerminalController: ControlPaneContext {
             if let located = v2LocatePane(paneId) {
                 guard located.tabManager === tabManager else { return nil }
                 return located.workspace
+            }
+            if let workspace = tabManager.tabs.first(where: {
+                $0.remoteTmuxControlPane(paneID: paneId) != nil
+            }) {
+                return workspace
             }
             guard windowDockContainingPane(paneId) == nil else { return nil }
             if let located = locateDockPane(paneId), located.tabManager === tabManager {
@@ -61,57 +71,7 @@ extension TerminalController: ControlPaneContext {
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
-        let focusedPaneId = ws.bonsplitController.focusedPaneId
-        let snapshot = ws.bonsplitController.layoutSnapshot()
-        let geometryByPaneId = Dictionary(
-            snapshot.panes.map { ($0.paneId, $0.frame) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        let panes: [ControlPaneSummary] = ws.bonsplitController.allPaneIds.map { paneId in
-            let tabs = ws.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { ws.panelIdFromSurfaceId($0.id) }
-            let selectedTab = ws.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { ws.panelIdFromSurfaceId($0.id) }
-
-            let pixelFrame: ControlPanePixelFrame? = geometryByPaneId[paneId.id.uuidString].map { frame in
-                ControlPanePixelFrame(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
-            }
-
-            var gridSize: ControlPaneGridSize?
-            if let panelUUID = selectedSurfaceUUID,
-               let panel = ws.panels[panelUUID] as? TerminalPanel,
-               panel.surface.hasLiveSurface,
-               let ghosttySurface = panel.surface.surface {
-                let size = ghostty_surface_size(ghosttySurface)
-                if size.columns > 0 && size.rows > 0 {
-                    gridSize = ControlPaneGridSize(
-                        columns: Int(size.columns),
-                        rows: Int(size.rows),
-                        cellWidthPx: Int(size.cell_width_px),
-                        cellHeightPx: Int(size.cell_height_px)
-                    )
-                }
-            }
-
-            return ControlPaneSummary(
-                paneID: paneId.id,
-                isFocused: paneId == focusedPaneId,
-                surfaceIDs: surfaceUUIDs,
-                selectedSurfaceID: selectedSurfaceUUID,
-                pixelFrame: pixelFrame,
-                gridSize: gridSize
-            )
-        }
-
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return ControlPaneListSnapshot(
-            workspaceID: ws.id,
-            windowID: windowId,
-            panes: panes,
-            containerWidth: snapshot.containerFrame.width,
-            containerHeight: snapshot.containerFrame.height
-        )
+        return controlPaneList(workspace: ws, tabManager: tabManager)
     }
 
     private func controlDockPaneList(
@@ -190,19 +150,7 @@ extension TerminalController: ControlPaneContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
-            return .paneNotFound(paneID)
-        }
-        if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
-        }
-        if tabManager.selectedTabId != ws.id {
-            tabManager.selectWorkspace(ws)
-        }
-        ws.bonsplitController.focusPane(paneId)
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .focused(windowID: windowId, workspaceID: ws.id, paneID: paneId.id)
+        return controlPaneFocus(workspace: ws, paneID: paneID, tabManager: tabManager)
     }
 
     // MARK: - surfaces
@@ -245,35 +193,7 @@ extension TerminalController: ControlPaneContext {
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
-        let paneId: PaneID? = {
-            if let paneID {
-                return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneID })
-            }
-            return ws.bonsplitController.focusedPaneId
-        }()
-        guard let paneId else { return nil }
-
-        let selectedTab = ws.bonsplitController.selectedTab(inPane: paneId)
-        let tabs = ws.bonsplitController.tabs(inPane: paneId)
-
-        let surfaces: [ControlPaneSurfaceSummary] = tabs.map { tab in
-            let panelId = ws.panelIdFromSurfaceId(tab.id)
-            let panel = panelId.flatMap { ws.panels[$0] }
-            return ControlPaneSurfaceSummary(
-                surfaceID: panelId,
-                title: tab.title,
-                typeRawValue: panel?.panelType.rawValue,
-                isSelected: tab.id == selectedTab?.id
-            )
-        }
-
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return ControlPaneSurfacesSnapshot(
-            workspaceID: ws.id,
-            paneID: paneId.id,
-            windowID: windowId,
-            surfaces: surfaces
-        )
+        return controlPaneSurfaces(workspace: ws, paneID: paneID, tabManager: tabManager)
     }
 
     // MARK: - create
