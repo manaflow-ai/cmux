@@ -157,6 +157,7 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks user checkout completion while account deletion is in progress", async () => {
     const update = mock(async () => undefined);
+    const cancelSubscription = mock(async () => undefined);
     const user = {
       id: "user_123",
       primaryEmail: null,
@@ -168,9 +169,17 @@ describe("recordCheckoutCompletion", () => {
       recordCheckoutCompletion(checkoutInput() as never, {
         db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+        }) as never,
       }),
-    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
 
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(update).not.toHaveBeenCalled();
@@ -450,6 +459,7 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks Team checkout completion while owner account deletion is in progress", async () => {
     const updateTeam = mock(async () => undefined);
+    const cancelSubscription = mock(async () => undefined);
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
@@ -469,15 +479,24 @@ describe("recordCheckoutCompletion", () => {
             update: updateTeam,
           }),
         } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+        }) as never,
       }),
-    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
 
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(updateTeam).not.toHaveBeenCalled();
   });
 
   test("blocks Team checkout completion when the singleton team owner is deleting", async () => {
+    const cancelSubscription = mock(async () => undefined);
     const input = teamCheckoutInput() as unknown as {
       session: { metadata: Record<string, string> };
       subscription: { metadata: Record<string, string> };
@@ -505,10 +524,18 @@ describe("recordCheckoutCompletion", () => {
           getUser: async () => owner,
           getTeam: async () => team,
         } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+        }) as never,
       }),
-    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
 
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
   });

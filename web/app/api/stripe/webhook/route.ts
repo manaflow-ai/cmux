@@ -10,7 +10,6 @@ import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
 import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
-  isAccountDeletionBillingBlockedError,
   isCmuxCheckoutSession,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
@@ -133,18 +132,12 @@ async function processStripeEvent(
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
-      try {
-        await dependencies.recordCheckoutCompletion({
-          session: expanded,
-          subscription: expandedSubscription(expanded),
-          customer: expandedCustomer(expanded),
-        });
-      } catch (error) {
-        if (isAccountDeletionBillingBlockedError(error)) {
-          return { skipped: "account_deletion_in_progress" };
-        }
-        throw error;
-      }
+      const result = await dependencies.recordCheckoutCompletion({
+        session: expanded,
+        subscription: expandedSubscription(expanded),
+        customer: expandedCustomer(expanded),
+      });
+      if ("skipped" in result) return { skipped: result.skipped };
       return { processed: "checkout.session.completed" };
     }
     case "customer.subscription.created":

@@ -16,6 +16,7 @@ import {
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import { removeTester } from "../asc/testflight";
 import { captureAscError } from "../errors";
@@ -27,19 +28,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 
 type BillingDb = ReturnType<typeof cloudDb>;
-
-export class AccountDeletionBillingBlockedError extends Error {
-  constructor(readonly stackUserId: string) {
-    super("Billing writes are disabled while account deletion is in progress.");
-    this.name = "AccountDeletionBillingBlockedError";
-  }
-}
-
-export function isAccountDeletionBillingBlockedError(
-  error: unknown,
-): error is AccountDeletionBillingBlockedError {
-  return error instanceof AccountDeletionBillingBlockedError;
-}
+type StripeBillingClient = Pick<ReturnType<typeof stripe>, "subscriptions">;
 
 type StackBillingUser = {
   readonly id: string;
@@ -84,6 +73,7 @@ type StackBillingApp = {
 type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
+  stripeClient?: () => StripeBillingClient;
   testflight?: {
     isAscConfigured?: () => boolean;
     removeTester?: (email: string) => Promise<void>;
@@ -106,6 +96,7 @@ export async function recordCheckoutCompletion(
 ): Promise<
   | { scope: "user"; stackUserId: string; subscriptionId: string }
   | { scope: "team"; stackTeamId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
 > {
   const subscription = input.subscription ?? expandedSubscription(input.session);
   if (!subscription) {
@@ -134,7 +125,12 @@ export async function recordCheckoutCompletion(
   const db = dependencies.db ?? cloudDb();
   const user = await loadStackUser(stackUserId, dependencies.stackApp);
   if (await isStackAccountDeletionBlocked(user, { cloudDb: () => db })) {
-    throw new AccountDeletionBillingBlockedError(stackUserId);
+    await cancelCheckoutSubscriptionForAccountDeletion(subscription, dependencies);
+    return {
+      skipped: "account_deletion_in_progress",
+      stackUserId,
+      subscriptionId: subscription.id,
+    };
   }
 
   const email = checkoutEmail(input.session, input.customer);
@@ -251,6 +247,34 @@ export function isActiveStripeSubscriptionStatus(status: string): boolean {
   return ACTIVE_STRIPE_SUBSCRIPTION_STATUSES.has(status);
 }
 
+async function cancelCheckoutSubscriptionForAccountDeletion(
+  subscription: Stripe.Subscription,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  const client = (dependencies.stripeClient ?? stripe)();
+  try {
+    await client.subscriptions.cancel(subscription.id);
+  } catch (error) {
+    if (isStripeSubscriptionAlreadyCanceledError(error)) return;
+    throw error;
+  }
+}
+
+function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
+  const statusCode =
+    error && typeof error === "object"
+      ? (error as { statusCode?: unknown; raw?: { statusCode?: unknown } }).statusCode ??
+        (error as { raw?: { statusCode?: unknown } }).raw?.statusCode
+      : undefined;
+  if (statusCode === 404) return true;
+
+  const message =
+    error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : String(error);
+  return /already been canceled/i.test(message);
+}
+
 export function isCmuxCheckoutSession(
   session: Pick<Stripe.Checkout.Session, "client_reference_id" | "metadata">,
 ): boolean {
@@ -313,7 +337,10 @@ async function recordTeamCheckoutCompletion(input: {
   stackTeamId: string;
   stackUserId?: string | null;
   dependencies: BillingPurchaseDependencies;
-}): Promise<{ scope: "team"; stackTeamId: string; subscriptionId: string }> {
+}): Promise<
+  | { scope: "team"; stackTeamId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
+> {
   const db = input.dependencies.db ?? cloudDb();
   const guard = await teamBillingDeletionGuard({
     db,
@@ -324,7 +351,12 @@ async function recordTeamCheckoutCompletion(input: {
     missingOwnerMessage: `Stack user not found for Team Stripe purchase: ${input.stackTeamId}`,
   });
   if (guard.blocked) {
-    throw new AccountDeletionBillingBlockedError(guard.stackUserId);
+    await cancelCheckoutSubscriptionForAccountDeletion(input.subscription, input.dependencies);
+    return {
+      skipped: "account_deletion_in_progress",
+      stackUserId: guard.stackUserId,
+      subscriptionId: input.subscription.id,
+    };
   }
   const stackUserId = guard.stackUserId;
   await upsertTeamStripeCustomer(db, {
