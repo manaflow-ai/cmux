@@ -1163,10 +1163,9 @@ private func browserOpenExternalNavigationURL(
     _ url: URL,
     source: String,
     webView: WKWebView,
-    presentAlert: BrowserAlertPresenter = browserPresentAlert,
-    openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    presentAlert: BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
-    let opened = openURL(url)
+    let opened = NSWorkspace.shared.open(url)
     if !opened {
         browserPresentExternalNavigationFailure(for: url, in: webView, presentAlert: presentAlert)
     }
@@ -5950,9 +5949,8 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool,
-        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void,
-        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+        recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
@@ -5962,12 +5960,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch response {
         case .alertFirstButtonReturn:
-            guard browserOpenExternalNavigationURL(
-                url,
-                source: "insecure_http",
-                webView: webView,
-                openURL: openExternalURL
-            ) else { return }
+            if !openExternalURL(url) { return }
             onResolution(.openedExternally)
         case .alertSecondButtonReturn:
             switch intent {

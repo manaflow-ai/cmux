@@ -373,11 +373,11 @@ struct BrowserDiscardRestorePolicyCancelTests {
             url: url,
             intent: .currentTab,
             recordTypedNavigation: false,
-            onResolution: { resolutions.append($0) },
             openExternalURL: { url in
                 openedURL = url
                 return false
-            }
+            },
+            onResolution: { resolutions.append($0) }
         )
 
         #expect(openedURL == url)
