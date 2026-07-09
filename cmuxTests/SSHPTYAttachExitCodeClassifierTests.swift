@@ -23,11 +23,35 @@ import Testing
     @Test(arguments: [
         "pty_session_not_found",
         "persistent SSH PTY session abc is not running",
+        // Canonical app-side RPC message from v2RemotePTYUserFacingErrorMessage.
+        "persistent SSH PTY session is no longer running",
     ])
     func sessionNotFoundDescriptionsExitForRespawn(_ description: String) {
         #expect(
             SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(description) ==
                 SSHPTYAttachExitCode.sessionNotFound
+        )
+    }
+
+    @Test func remotePTYErrorCodeWithSessionLostMessageExitsForRespawn() {
+        // The v2 RPC wraps session loss in the generic remote_pty_error code;
+        // the canonical message must still classify as session-not-found.
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "remote_pty_error",
+                message: "persistent SSH PTY session is no longer running"
+            ) == SSHPTYAttachExitCode.sessionNotFound
+        )
+    }
+
+    @Test func remotePTYErrorCodeWithTransientMessageStaysRetryable() {
+        // remote_pty_error also wraps transient shapes, so the generic code
+        // itself must never force a classification; the message decides.
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "remote_pty_error",
+                message: "remote connection is not active"
+            ) == SSHPTYAttachExitCode.retryableTransient
         )
     }
 
