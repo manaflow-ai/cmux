@@ -323,6 +323,53 @@ describe("VM Effect workflows", () => {
     expect(deletedSnapshotUsageEventIds).toEqual(["snapshot-usage-event"]);
   });
 
+  dbTest("keeps provider snapshot id durable when account deletion races snapshot finalization", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-workflow-snapshot-finalize-deleting";
+    await sql`truncate account_deletion_tombstones, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const [event] = await sql<{ id: string }[]>`
+      insert into cloud_vm_usage_events (
+        user_id, billing_team_id, billing_plan_id, event_type, provider, image_id, metadata
+      )
+      values (
+        ${userId}, null, 'free', 'vm.snapshot.pending', 'freestyle', 'snapshot-test', '{"named":true,"name":"checkpoint"}'::jsonb
+      )
+      returning id
+    `;
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash(userId)}, ${userId}, 'in_progress')
+    `;
+
+    const completed = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.completeSnapshotUsageEvent({
+          eventId: event.id,
+          userId,
+          snapshotId: "snapshot-finalize-deleting",
+          named: true,
+          name: "checkpoint",
+        });
+      }).pipe(Effect.provide(providerLayer(unusedProviderGateway()))),
+    );
+
+    expect(completed).toBe(false);
+    const [row] = await sql<{ eventType: string; metadata: Record<string, unknown> }[]>`
+      select event_type as "eventType", metadata
+      from cloud_vm_usage_events
+      where id = ${event.id}
+    `;
+    expect(row).toEqual({
+      eventType: "vm.snapshot.pending",
+      metadata: {
+        snapshotId: "snapshot-finalize-deleting",
+        named: true,
+        name: "checkpoint",
+      },
+    });
+  });
+
   test("deletes a just-created snapshot when cleanup reservation finalization throws", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000115",

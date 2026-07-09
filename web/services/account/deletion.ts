@@ -953,18 +953,22 @@ async function accountVmSnapshotRows(
     .limit(ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE);
   const cleanupRows: Array<{ id: string; provider: ProviderId; snapshotId: string | null }> = [];
   for (const row of rows) {
+    const snapshotId = row.snapshotId?.trim();
+    if (!row.provider) {
+      throw new Error("Cloud VM snapshot cleanup found a snapshot row without a provider");
+    }
     if (row.eventType === "vm.snapshot.pending") {
+      if (snapshotId) {
+        cleanupRows.push({ id: row.id, provider: row.provider, snapshotId });
+        continue;
+      }
       if (row.createdAt > stalePendingBefore) {
         throw new Error("Cloud VM snapshot cleanup is waiting for an in-flight snapshot to settle");
-      }
-      if (!row.provider) {
-        throw new Error("Cloud VM snapshot cleanup found a snapshot row without a provider");
       }
       cleanupRows.push({ id: row.id, provider: row.provider, snapshotId: null });
       continue;
     }
-    const snapshotId = row.snapshotId?.trim();
-    if (!row.provider || !snapshotId) {
+    if (!snapshotId) {
       throw new Error("Cloud VM snapshot cleanup found a snapshot row without a provider snapshot id");
     }
     cleanupRows.push({ id: row.id, provider: row.provider, snapshotId });

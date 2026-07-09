@@ -1663,11 +1663,11 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("completeSnapshotUsageEvent", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
-        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return false;
+        const accountDeletionBlocked = await hasAccountDeletionTombstoneWithLock(tx, input.userId);
         const [updated] = await tx
           .update(cloudVmUsageEvents)
           .set({
-            eventType: "vm.snapshot.created",
+            eventType: accountDeletionBlocked ? "vm.snapshot.pending" : "vm.snapshot.created",
             metadata: {
               snapshotId: input.snapshotId,
               named: input.named,
@@ -1680,7 +1680,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             eq(cloudVmUsageEvents.eventType, "vm.snapshot.pending"),
           ))
           .returning({ id: cloudVmUsageEvents.id });
-        return !!updated;
+        return !!updated && !accountDeletionBlocked;
       });
     }),
 

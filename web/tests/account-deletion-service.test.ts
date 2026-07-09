@@ -710,6 +710,27 @@ describe("account deletion cleanup", () => {
     expect(calls).not.toContain("transaction");
   });
 
+  test("deletes pending provider snapshots once their provider id is durable", async () => {
+    snapshotRows = [{
+      id: "00000000-0000-4000-8000-000000000205",
+      eventType: "vm.snapshot.pending",
+      provider: "freestyle",
+      snapshotId: "snapshot-finalizing-user-1",
+      createdAt: new Date(),
+    }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("select-snapshot-usage-events");
+    expect(calls).toContain("delete-snapshot:freestyle:snapshot-finalizing-user-1");
+    expect(calls).toContain("delete-snapshot-usage-events");
+    expect(calls.indexOf("delete-snapshot:freestyle:snapshot-finalizing-user-1")).toBeLessThan(
+      calls.indexOf("delete-snapshot-usage-events"),
+    );
+  });
+
   test("drops stale pending provider snapshot reservations during account deletion", async () => {
     snapshotRows = [{
       id: "00000000-0000-4000-8000-000000000204",
