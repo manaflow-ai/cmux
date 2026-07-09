@@ -29,6 +29,7 @@ import {
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
+  TEAM_PLAN_ID,
 } from "../billing/pro";
 import { isStripeBillingConfigured, stripe } from "../billing/stripe";
 import type { ProviderId } from "../vms/drivers";
@@ -90,6 +91,12 @@ type StackJsonObject = { [key: string]: StackJson };
 
 export type AccountDeletionInput = {
   readonly userId: string;
+  readonly ownedTeamIds?: readonly string[];
+};
+
+type AccountDeletionScope = {
+  readonly userId: string;
+  readonly ownedBillingTeamIds: readonly string[];
 };
 
 export type AccountDeletionStatus =
@@ -390,11 +397,12 @@ export async function deleteCmuxAccountData(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
 ): Promise<void> {
+  const scope = accountDeletionScope(input);
   const anonymizedUserId = deletedAccountId(input.userId);
-  await claimProviderlessAccountVms(input.userId, runtime);
-  await destroyProviderBackedAccountVms(input.userId, runtime);
-  await deleteAccountVmSnapshots(input.userId, runtime);
-  await deletePersonalSubrouterTenant(input.userId, runtime);
+  await claimProviderlessAccountVms(scope, runtime);
+  await destroyProviderBackedAccountVms(scope, runtime);
+  await deleteAccountVmSnapshots(scope, runtime);
+  await deletePersonalSubrouterTenants(scope, runtime);
   await withVaultUserQuotaLock(
     runtime.cloudDb(),
     input.userId,
@@ -407,7 +415,7 @@ export async function deleteCmuxAccountData(
     { allowAccountDeletion: true },
   );
 
-  await cancelStripeAccountBilling(input.userId, anonymizedUserId, runtime);
+  await cancelStripeAccountBilling(scope, anonymizedUserId, runtime);
 
   const anonymizedEmail = `${anonymizedUserId}@deleted.cmux.invalid`;
   const now = new Date();
@@ -430,23 +438,35 @@ export async function deleteCmuxAccountData(
       .where(eq(cloudVmNotificationEvents.userId, input.userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, input.userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, input.userId));
-    await tx.delete(cloudVmUsageEvents).where(personalCloudVmUsageEvents(input.userId));
+    await tx.delete(cloudVmUsageEvents).where(personalCloudVmUsageEvents(scope));
     await tx.update(cloudVmUsageEvents)
       .set({ userId: anonymizedUserId })
-      .where(teamScopedUsageEventsCreatedByUser(input.userId));
+      .where(teamScopedUsageEventsCreatedByUser(scope));
     await tx.delete(cloudVmBaseEvents).where(eq(cloudVmBaseEvents.userId, input.userId));
-    await tx.delete(cloudVmBillingGrants).where(and(
-      eq(cloudVmBillingGrants.billingCustomerType, "user"),
-      eq(cloudVmBillingGrants.billingCustomerId, input.userId),
+    await tx.delete(cloudVmBillingGrants).where(or(
+      and(
+        eq(cloudVmBillingGrants.billingCustomerType, "user"),
+        eq(cloudVmBillingGrants.billingCustomerId, input.userId),
+      ),
+      and(
+        eq(cloudVmBillingGrants.billingCustomerType, "team"),
+        inArray(cloudVmBillingGrants.billingCustomerId, scope.ownedBillingTeamIds),
+      ),
     ));
-    await tx.delete(cloudVmBases).where(and(
-      eq(cloudVmBases.scopeType, "user"),
-      eq(cloudVmBases.scopeId, input.userId),
+    await tx.delete(cloudVmBases).where(or(
+      and(
+        eq(cloudVmBases.scopeType, "user"),
+        eq(cloudVmBases.scopeId, input.userId),
+      ),
+      and(
+        eq(cloudVmBases.scopeType, "team"),
+        inArray(cloudVmBases.scopeId, scope.ownedBillingTeamIds),
+      ),
     ));
-    await tx.delete(cloudVms).where(personalCloudVmRows(input.userId));
+    await tx.delete(cloudVms).where(personalCloudVmRows(scope));
     await tx.update(cloudVms)
       .set({ userId: anonymizedUserId, updatedAt: now })
-      .where(teamScopedCloudVmRowsCreatedByUser(input.userId));
+      .where(teamScopedCloudVmRowsCreatedByUser(scope));
 
     await tx.update(cloudVmBases)
       .set({ createdByUserId: anonymizedUserId, updatedAt: now })
@@ -460,16 +480,28 @@ export async function deleteCmuxAccountData(
 
     await tx.update(stripeCustomers)
       .set({ stackUserId: anonymizedUserId, email: null, updatedAt: now })
-      .where(eq(stripeCustomers.stackUserId, input.userId));
+      .where(or(
+        eq(stripeCustomers.stackUserId, input.userId),
+        inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
+      ));
     await tx.update(stripeSubscriptions)
       .set({ status: "canceled", cancelAtPeriodEnd: false, raw: null, updatedAt: now })
-      .where(and(
-        eq(stripeSubscriptions.stackUserId, input.userId),
-        eq(stripeSubscriptions.scope, "user"),
+      .where(or(
+        and(
+          eq(stripeSubscriptions.stackUserId, input.userId),
+          eq(stripeSubscriptions.scope, "user"),
+        ),
+        and(
+          inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
+          eq(stripeSubscriptions.scope, "team"),
+        ),
       ));
     await tx.update(stripeSubscriptions)
       .set({ stackUserId: anonymizedUserId, raw: null, updatedAt: now })
-      .where(eq(stripeSubscriptions.stackUserId, input.userId));
+      .where(or(
+        eq(stripeSubscriptions.stackUserId, input.userId),
+        inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
+      ));
     await tx.update(billingEmailClaims)
       .set({ stackUserId: anonymizedUserId, email: anonymizedEmail })
       .where(eq(billingEmailClaims.stackUserId, input.userId));
@@ -477,6 +509,22 @@ export async function deleteCmuxAccountData(
       .set({ claimedByUserId: null })
       .where(eq(billingEmailClaims.claimedByUserId, input.userId));
   });
+}
+
+function accountDeletionScope(input: AccountDeletionInput): AccountDeletionScope {
+  return {
+    userId: input.userId,
+    ownedBillingTeamIds: uniqueStrings([input.userId, ...(input.ownedTeamIds ?? [])]),
+  };
+}
+
+async function deletePersonalSubrouterTenants(
+  scope: AccountDeletionScope,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  for (const teamId of scope.ownedBillingTeamIds) {
+    await deletePersonalSubrouterTenant(teamId, runtime);
+  }
 }
 
 async function deletePersonalSubrouterTenant(
@@ -496,7 +544,7 @@ async function deletePersonalSubrouterTenant(
 }
 
 async function claimProviderlessAccountVms(
-  userId: string,
+  scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
   const db = runtime.cloudDb();
@@ -512,7 +560,7 @@ async function claimProviderlessAccountVms(
       failureMessage: "Account deletion cleaned up a stale providerless provisioning VM.",
     })
     .where(and(
-      personalCloudVmRows(userId),
+      personalCloudVmRows(scope),
       eq(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
       lt(cloudVms.updatedAt, staleBefore),
@@ -522,7 +570,7 @@ async function claimProviderlessAccountVms(
     .select({ id: cloudVms.id })
     .from(cloudVms)
     .where(and(
-      personalCloudVmRows(userId),
+      personalCloudVmRows(scope),
       eq(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
     ))
@@ -539,7 +587,7 @@ async function claimProviderlessAccountVms(
       updatedAt: now,
     })
     .where(and(
-      personalCloudVmRows(userId),
+      personalCloudVmRows(scope),
       ne(cloudVms.status, "destroyed"),
       ne(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
@@ -556,18 +604,18 @@ async function revokeSubrouterTenantFromEnv(tenantId: string): Promise<void> {
 }
 
 async function destroyProviderBackedAccountVms(
-  userId: string,
+  scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
   let lastWorkflowError: unknown = null;
   for (let pass = 0; pass < MAX_ACCOUNT_VM_CLEANUP_PASSES; pass += 1) {
-    const activeVms = await providerBackedAccountVms(userId, runtime);
+    const activeVms = await providerBackedAccountVms(scope, runtime);
     if (activeVms.length === 0) return;
     for (const vm of activeVms) {
       if (!vm.providerVmId) continue;
       try {
         await runtime.runVmWorkflow(runtime.destroyAccountOwnedVm({
-          userId,
+          userId: scope.userId,
           provider: vm.provider,
           providerVmId: vm.providerVmId,
         }));
@@ -578,7 +626,7 @@ async function destroyProviderBackedAccountVms(
     }
   }
 
-  const remaining = await providerBackedAccountVms(userId, runtime);
+  const remaining = await providerBackedAccountVms(scope, runtime);
   if (remaining.length > 0) {
     if (lastWorkflowError) throw lastWorkflowError;
     throw new Error("Cloud VM account deletion cleanup did not settle");
@@ -586,7 +634,7 @@ async function destroyProviderBackedAccountVms(
 }
 
 async function providerBackedAccountVms(
-  userId: string,
+  scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
 ): Promise<readonly { readonly provider: ProviderId; readonly providerVmId: string | null }[]> {
   const db = runtime.cloudDb();
@@ -594,47 +642,50 @@ async function providerBackedAccountVms(
     .select({ provider: cloudVms.provider, providerVmId: cloudVms.providerVmId })
     .from(cloudVms)
     .where(and(
-      personalCloudVmRows(userId),
+      personalCloudVmRows(scope),
       ne(cloudVms.status, "destroyed"),
       isNotNull(cloudVms.providerVmId),
     ));
 }
 
-function personalCloudVmRows(userId: string) {
+function personalCloudVmRows(scope: AccountDeletionScope) {
   return and(
-    eq(cloudVms.userId, userId),
-    or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
+    eq(cloudVms.userId, scope.userId),
+    or(
+      isNull(cloudVms.billingTeamId),
+      inArray(cloudVms.billingTeamId, scope.ownedBillingTeamIds),
+    ),
   );
 }
 
-function teamScopedCloudVmRowsCreatedByUser(userId: string) {
+function teamScopedCloudVmRowsCreatedByUser(scope: AccountDeletionScope) {
   return and(
-    eq(cloudVms.userId, userId),
+    eq(cloudVms.userId, scope.userId),
     isNotNull(cloudVms.billingTeamId),
-    ne(cloudVms.billingTeamId, userId),
+    ...scope.ownedBillingTeamIds.map((teamId) => ne(cloudVms.billingTeamId, teamId)),
   );
 }
 
-function teamScopedUsageEventsCreatedByUser(userId: string) {
+function teamScopedUsageEventsCreatedByUser(scope: AccountDeletionScope) {
   return and(
-    eq(cloudVmUsageEvents.userId, userId),
+    eq(cloudVmUsageEvents.userId, scope.userId),
     isNotNull(cloudVmUsageEvents.billingTeamId),
-    ne(cloudVmUsageEvents.billingTeamId, userId),
+    ...scope.ownedBillingTeamIds.map((teamId) => ne(cloudVmUsageEvents.billingTeamId, teamId)),
   );
 }
 
-function personalCloudVmUsageEvents(userId: string) {
+function personalCloudVmUsageEvents(scope: AccountDeletionScope) {
   return and(
-    eq(cloudVmUsageEvents.userId, userId),
+    eq(cloudVmUsageEvents.userId, scope.userId),
     or(
       isNull(cloudVmUsageEvents.billingTeamId),
-      eq(cloudVmUsageEvents.billingTeamId, userId),
+      inArray(cloudVmUsageEvents.billingTeamId, scope.ownedBillingTeamIds),
     ),
   );
 }
 
 async function deleteAccountVmSnapshots(
-  userId: string,
+  scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
   const db = runtime.cloudDb();
@@ -644,7 +695,7 @@ async function deleteAccountVmSnapshots(
   }
 
   for (;;) {
-    const snapshots = await accountVmSnapshotRows(userId, runtime);
+    const snapshots = await accountVmSnapshotRows(scope, runtime);
     if (snapshots.length === 0) return;
     for (const snapshot of snapshots) {
       await runtime.runVmWorkflow(buildWorkflow({
@@ -657,7 +708,7 @@ async function deleteAccountVmSnapshots(
 }
 
 async function accountVmSnapshotRows(
-  userId: string,
+  scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
 ): Promise<readonly { readonly id: string; readonly provider: ProviderId; readonly snapshotId: string }[]> {
   const db = runtime.cloudDb();
@@ -669,7 +720,7 @@ async function accountVmSnapshotRows(
     })
     .from(cloudVmUsageEvents)
     .where(and(
-      personalCloudVmUsageEvents(userId),
+      personalCloudVmUsageEvents(scope),
       eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
       isNotNull(cloudVmUsageEvents.provider),
       sql`${cloudVmUsageEvents.metadata}->>'snapshotId' is not null`,
@@ -765,7 +816,7 @@ async function deleteVaultObjectKeys(
 }
 
 async function cancelStripeAccountBilling(
-  userId: string,
+  scope: AccountDeletionScope,
   anonymizedUserId: string,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
@@ -773,18 +824,30 @@ async function cancelStripeAccountBilling(
   const customerRows = await db
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)
-    .where(and(
-      eq(stripeCustomers.stackUserId, userId),
-      isNull(stripeCustomers.stackTeamId),
+    .where(or(
+      and(
+        eq(stripeCustomers.stackUserId, scope.userId),
+        isNull(stripeCustomers.stackTeamId),
+      ),
+      inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
     ));
   const subscriptionRows = await db
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
     .where(and(
-      eq(stripeSubscriptions.stackUserId, userId),
-      eq(stripeSubscriptions.scope, "user"),
-      eq(stripeSubscriptions.plan, PRO_PLAN_ID),
       inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+      or(
+        and(
+          eq(stripeSubscriptions.stackUserId, scope.userId),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        ),
+        and(
+          inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
+          eq(stripeSubscriptions.scope, "team"),
+          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+        ),
+      ),
     ));
 
   if (customerRows.length === 0 && subscriptionRows.length === 0) return;
@@ -891,6 +954,18 @@ function stripeErrorMessage(error: unknown): string {
     if (typeof message === "string") return message;
   }
   return "";
+}
+
+function uniqueStrings(values: readonly (string | undefined | null)[]): readonly string[] {
+  const seen = new Set<string>();
+  const strings: string[] = [];
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    strings.push(trimmed);
+  }
+  return strings;
 }
 
 function stackJsonObject(value: unknown): StackJsonObject {

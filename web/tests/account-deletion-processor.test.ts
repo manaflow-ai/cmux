@@ -18,6 +18,7 @@ const calls: string[] = [];
 let claimResult: AccountDeletionStatus | null = "pending";
 let cleanupError: Error | null = null;
 let stackDeleteError: Error | null = null;
+let completionError: Error | null = null;
 let pendingJobs: AccountDeletionJob[] = [];
 
 beforeEach(() => {
@@ -25,6 +26,7 @@ beforeEach(() => {
   claimResult = "pending";
   cleanupError = null;
   stackDeleteError = null;
+  completionError = null;
   pendingJobs = [];
 });
 
@@ -53,6 +55,31 @@ describe("account deletion processor", () => {
       "stack-delete:user-1",
       "completed:user-1",
     ]);
+  });
+
+  test("passes only single-member Stack team ids into cmux cleanup", async () => {
+    const personalTeam = stackTeam("team-personal", ["user-1"]);
+    const sharedTeam = stackTeam("team-shared", ["user-1", "user-2"]);
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          selectedTeam: sharedTeam,
+          listTeams: async () => [personalTeam, sharedTeam],
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toContain("cleanup:user-1:team-personal");
+    expect(calls).not.toContain("cleanup:user-1:team-shared");
   });
 
   test("keeps cleanup-started failures blocking so the durable job can retry", async () => {
@@ -104,6 +131,35 @@ describe("account deletion processor", () => {
       "stack-delete-pending:user-1",
       "stack-delete:user-1",
       "stack-delete-pending:user-1:Stack delete failed",
+    ]);
+  });
+
+  test("completion failures after Stack deletion retry without replaying cleanup", async () => {
+    completionError = new Error("completion write failed");
+
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies()),
+    ).rejects.toThrow("completion write failed");
+
+    completionError = null;
+    claimResult = "stack_delete_pending";
+    await expect(processAccountDeletionForUser({ userId: "user-1" }, dependencies())).resolves.toBe("processed");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "cleanup:user-1",
+      "list-analytics-identities:user-1",
+      "posthog:user-1:user-1,anon-1",
+      "delete-analytics-identities:user-1",
+      "stack-delete-pending:user-1",
+      "stack-delete:user-1",
+      "completed:user-1",
+      "stack-delete-pending:user-1:completion write failed",
+      "claim:user-1",
+      "load-stack:user-1",
+      "stack-delete:user-1",
+      "completed:user-1",
     ]);
   });
 
@@ -163,8 +219,11 @@ function dependencies(
       calls.push(`claim:${userId}`);
       return claimResult;
     },
-    deleteCmuxAccountData: async ({ userId }) => {
-      calls.push(`cleanup:${userId}`);
+    deleteCmuxAccountData: async ({ userId, ownedTeamIds }) => {
+      const scope = ownedTeamIds && ownedTeamIds.length > 0
+        ? `:${ownedTeamIds.join(",")}`
+        : "";
+      calls.push(`cleanup:${userId}${scope}`);
       if (cleanupError) throw cleanupError;
     },
     deleteIOSAnalyticsIdentities: async ({ userId }) => {
@@ -191,6 +250,7 @@ function dependencies(
     },
     markAccountDeletionCompleted: async ({ userId }) => {
       calls.push(`completed:${userId}`);
+      if (completionError) throw completionError;
     },
     markAccountDeletionFailed: async ({ userId, error }) => {
       calls.push(`failed:${userId}:${error instanceof Error ? error.message : "unknown"}`);
@@ -205,5 +265,13 @@ function dependencies(
     },
     listPendingAccountDeletionJobs: async () => pendingJobs,
     ...overrides,
+  };
+}
+
+function stackTeam(id: string, userIds: readonly string[]) {
+  return {
+    id,
+    displayName: id,
+    listUsers: async () => userIds.map((userId) => ({ id: userId })),
   };
 }

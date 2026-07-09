@@ -254,6 +254,24 @@ describe("account deletion cleanup", () => {
     expect(calls.indexOf("delete-subrouter-tenant")).toBeLessThan(calls.indexOf("transaction"));
   });
 
+  test("revokes singleton Stack team Subrouter tenants during account deletion", async () => {
+    subrouterTenantRows = [
+      { tenantId: "tenant-user-1" },
+      { tenantId: "tenant-team-personal" },
+    ];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+      ownedTeamIds: ["team-personal"],
+    }, fakeRuntime());
+
+    expect(calls).toContain("revoke-subrouter-tenant:tenant-user-1");
+    expect(calls).toContain("revoke-subrouter-tenant:tenant-team-personal");
+    expect(calls.indexOf("revoke-subrouter-tenant:tenant-team-personal")).toBeLessThan(
+      calls.indexOf("transaction"),
+    );
+  });
+
   test("fails closed when personal Subrouter tenant revoke fails", async () => {
     subrouterTenantRows = [{ tenantId: "tenant-user-1" }];
     subrouterRevokeError = new Error("subrouter revoke failed");
@@ -424,9 +442,7 @@ function fakeDbSelectBuilder() {
     }
     if (table === subrouterTenants && subrouterTenantRows.length > 0) {
       calls.push("select-subrouter-tenant");
-      const selected = subrouterTenantRows;
-      subrouterTenantRows = [];
-      return selected;
+      return subrouterTenantRows.splice(0, 1);
     }
     if (table === cloudVmUsageEvents && snapshotRows.length > 0) {
       calls.push("select-snapshot-usage-events");

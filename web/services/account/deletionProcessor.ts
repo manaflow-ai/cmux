@@ -19,12 +19,21 @@ import {
 
 type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
   readonly id: string;
+  readonly selectedTeam?: unknown;
+  readonly listTeams?: () => Promise<readonly unknown[]>;
   delete(): Promise<void>;
+};
+
+type StackAccountDeletionTeam = {
+  readonly id: string;
+  readonly listUsers?: () => Promise<readonly unknown[]>;
 };
 
 export type AccountDeletionProcessorDependencies = {
   readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<AccountDeletionStatus | null>;
-  readonly deleteCmuxAccountData: (input: { readonly userId: string }) => Promise<void>;
+  readonly deleteCmuxAccountData: (
+    input: { readonly userId: string; readonly ownedTeamIds?: readonly string[] },
+  ) => Promise<void>;
   readonly deleteIOSAnalyticsIdentities: (input: { readonly userId: string }) => Promise<void>;
   readonly deletePostHogPersonData: (
     userId: string,
@@ -74,7 +83,8 @@ export async function processAccountDeletionForUser(
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
-      await dependencies.deleteCmuxAccountData({ userId: input.userId });
+      const ownedTeamIds = user ? await accountDeletionOwnedTeamIds(user) : [];
+      await dependencies.deleteCmuxAccountData({ userId: input.userId, ownedTeamIds });
       const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
       await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
       await dependencies.deleteIOSAnalyticsIdentities({ userId: input.userId });
@@ -82,6 +92,8 @@ export async function processAccountDeletionForUser(
       stackDeletePending = true;
     }
     if (user) await user.delete();
+    // If this write fails after Stack deletion, the catch below keeps the
+    // tombstone in stack-delete state so retry skips cmux and PostHog cleanup.
     await dependencies.markAccountDeletionCompleted({ userId: input.userId });
     return "processed";
   } catch (error) {
@@ -115,4 +127,56 @@ export async function processPendingAccountDeletions(
   }
 
   return { scanned: jobs.length, processed, skipped, failed };
+}
+
+async function accountDeletionOwnedTeamIds(user: StackAccountDeletionUser): Promise<readonly string[]> {
+  const listedTeams = typeof user.listTeams === "function"
+    ? await user.listTeams()
+    : [];
+  const teams = uniqueStackTeams([
+    stackTeamFromUnknown(user.selectedTeam),
+    ...listedTeams.map(stackTeamFromUnknown),
+  ]);
+  const ownedTeamIds: string[] = [];
+  for (const team of teams) {
+    if (await isOnlyTeamMember(team, user.id)) ownedTeamIds.push(team.id);
+  }
+  return ownedTeamIds;
+}
+
+async function isOnlyTeamMember(team: StackAccountDeletionTeam, userId: string): Promise<boolean> {
+  if (typeof team.listUsers !== "function") return false;
+  const members = await team.listUsers();
+  const memberIds = members.flatMap((member) => {
+    if (!member || typeof member !== "object") return [];
+    const id = (member as { readonly id?: unknown }).id;
+    return typeof id === "string" && id.trim() ? [id.trim()] : [];
+  });
+  return memberIds.length === 1 && memberIds[0] === userId;
+}
+
+function stackTeamFromUnknown(value: unknown): StackAccountDeletionTeam | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as { readonly id?: unknown }).id;
+  if (typeof id !== "string" || !id.trim()) return null;
+  const listUsers = (value as { readonly listUsers?: unknown }).listUsers;
+  return {
+    id: id.trim(),
+    listUsers: typeof listUsers === "function"
+      ? async () => await listUsers.call(value)
+      : undefined,
+  };
+}
+
+function uniqueStackTeams(
+  values: readonly (StackAccountDeletionTeam | null)[],
+): readonly StackAccountDeletionTeam[] {
+  const teams: StackAccountDeletionTeam[] = [];
+  const seen = new Set<string>();
+  for (const team of values) {
+    if (!team || seen.has(team.id)) continue;
+    seen.add(team.id);
+    teams.push(team);
+  }
+  return teams;
 }
