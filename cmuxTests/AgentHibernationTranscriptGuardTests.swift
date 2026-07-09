@@ -267,6 +267,10 @@ struct AgentHibernationTranscriptGuardTests {
         try writeFile(populatedTranscript, to: nestedPopulated)
         let nested = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent(sessionId: nestedSession, workingDirectory: cwd), homeDirectory: home.path, snapshotDirectory: snapshots)))
         #expect(nested.transcriptPath == nestedPopulated.path)
+        let duplicateSession = "standard-duplicates"
+        try writeFile(populatedTranscript, to: transcriptURL(home: home, cwd: cwd, sessionId: duplicateSession))
+        try writeFile(populatedTranscript, to: nestedTranscriptURL(home: home, cwd: cwd, sessionId: duplicateSession))
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent(sessionId: duplicateSession, workingDirectory: cwd), homeDirectory: home.path, snapshotDirectory: snapshots)))
         let stubsSession = "all-stubs"
         try writeFile(metadataStub, to: transcriptURL(home: home, cwd: cwd, sessionId: stubsSession))
         try writeFile(metadataStub, to: nestedTranscriptURL(home: home, cwd: cwd, sessionId: stubsSession))
@@ -454,10 +458,8 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     private func nestedTranscriptURL(home: URL, cwd: String, sessionId: String) -> URL {
-        home
-            .appendingPathComponent(".claude", isDirectory: true)
-            .appendingPathComponent("projects", isDirectory: true)
-            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd), isDirectory: true)
+        transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+            .deletingLastPathComponent()
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("messages", isDirectory: true)
             .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)

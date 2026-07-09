@@ -359,21 +359,16 @@ struct AgentHibernationTranscriptGuardScanTests {
         let cwd = "/tmp/ambiguous-workflow"
         let sessionId = "ambiguous-workflow-session"
         let directTranscript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
-        let firstWorkflowTranscript = workflowTranscriptURL(
-            home: home,
-            cwd: cwd,
-            containerSessionId: "workflow-one",
-            sessionId: sessionId
-        )
-        let secondWorkflowTranscript = workflowTranscriptURL(
-            home: home,
-            cwd: cwd,
-            containerSessionId: "workflow-two",
-            sessionId: sessionId
-        )
         try writeFile(metadataStub, to: directTranscript)
-        try writeFile(#"{"type":"user","message":{"content":"first"}}"# + "\n", to: firstWorkflowTranscript)
-        try writeFile(#"{"type":"user","message":{"content":"second"}}"# + "\n", to: secondWorkflowTranscript)
+        for containerSessionId in ["workflow-one", "workflow-two"] {
+            let workflowTranscript = workflowTranscriptURL(
+                home: home,
+                cwd: cwd,
+                containerSessionId: containerSessionId,
+                sessionId: sessionId
+            )
+            try writeFile(#"{"type":"user","message":{"content":"turn"}}"# + "\n", to: workflowTranscript)
+        }
 
         #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
             agent: agent(sessionId: sessionId, workingDirectory: cwd),

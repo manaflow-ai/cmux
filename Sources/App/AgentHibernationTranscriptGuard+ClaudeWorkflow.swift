@@ -48,7 +48,7 @@ extension AgentHibernationTranscriptGuard {
                     appendCandidate(candidate, to: &workflowCandidates)
                 }
             }
-            let standardResolution = resolve(standardCandidates)
+            let standardResolution = resolve(standardCandidates, requireUniqueConversation: true)
             if standardResolution.shouldStop { return standardResolution.path }
             let workflowResolution = resolve(workflowCandidates, requireUniqueConversation: true)
             if workflowResolution.shouldStop { return workflowResolution.path }
