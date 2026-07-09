@@ -84,7 +84,7 @@ struct AgentHibernationTranscriptGuardTests {
         let sessionId = "session-123"
         let direct = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
         try FileManager.default.createDirectory(at: direct.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "metadata\n".write(to: direct, atomically: true, encoding: .utf8)
+        try metadataStub.write(to: direct, atomically: true, encoding: .utf8)
 
         #expect(
             AgentHibernationTranscriptGuard.resolveTranscriptPath(
@@ -96,7 +96,7 @@ struct AgentHibernationTranscriptGuardTests {
         try FileManager.default.removeItem(at: direct)
         let nested = nestedTranscriptURL(home: home, cwd: cwd, sessionId: sessionId)
         try FileManager.default.createDirectory(at: nested.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "metadata\n".write(to: nested, atomically: true, encoding: .utf8)
+        try metadataStub.write(to: nested, atomically: true, encoding: .utf8)
 
         #expect(
             AgentHibernationTranscriptGuard.resolveTranscriptPath(
@@ -167,7 +167,7 @@ struct AgentHibernationTranscriptGuardTests {
         let sessionId = "session-override"
         let direct = transcriptURL(configRoot: customConfig, cwd: cwd, sessionId: sessionId)
         try FileManager.default.createDirectory(at: direct.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "metadata\n".write(to: direct, atomically: true, encoding: .utf8)
+        try metadataStub.write(to: direct, atomically: true, encoding: .utf8)
 
         let launch = AgentLaunchCommandSnapshot(
             launcher: "claude",

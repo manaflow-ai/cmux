@@ -16,8 +16,12 @@ extension AgentHibernationTranscriptGuard {
             candidates.append(path)
         }
 
-        func resolve(_ candidates: [String]) -> (path: String?, shouldStop: Bool) {
-            let resolution = transcriptCandidateResolution(candidates, fileManager: fileManager)
+        func resolve(_ candidates: [String], requireUniqueConversation: Bool = false) -> (path: String?, shouldStop: Bool) {
+            let resolution = transcriptCandidateResolution(
+                candidates,
+                requireUniqueConversation: requireUniqueConversation,
+                fileManager: fileManager
+            )
             metadataOnlyCandidate = metadataOnlyCandidate ?? resolution.metadataOnlyPath
             return (resolution.path, resolution.shouldStop)
         }
@@ -56,7 +60,7 @@ extension AgentHibernationTranscriptGuard {
                 }
             }
         }
-        let directFallbackResolution = resolve(directFallbackCandidates)
+        let directFallbackResolution = resolve(directFallbackCandidates, requireUniqueConversation: true)
         if directFallbackResolution.shouldStop { return directFallbackResolution.path }
 
         var workflowFallbackCandidates: [String] = []
@@ -70,19 +74,26 @@ extension AgentHibernationTranscriptGuard {
                 }
             }
         }
-        let workflowFallbackResolution = resolve(workflowFallbackCandidates)
+        let workflowFallbackResolution = resolve(workflowFallbackCandidates, requireUniqueConversation: true)
         if workflowFallbackResolution.shouldStop { return workflowFallbackResolution.path }
         return metadataOnlyCandidate
     }
 
     private static func transcriptCandidateResolution(
         _ candidates: [String],
+        requireUniqueConversation: Bool = false,
         fileManager: FileManager
     ) -> (path: String?, metadataOnlyPath: String?, shouldStop: Bool) {
         var metadataOnlyPath: String?
+        var conversationPath: String?
         for candidate in candidates {
             if transcriptHasConversationTurns(atPath: candidate, fileManager: fileManager) {
-                return (candidate, metadataOnlyPath, true)
+                guard requireUniqueConversation else {
+                    return (candidate, metadataOnlyPath, true)
+                }
+                if conversationPath != nil { return (nil, metadataOnlyPath, true) }
+                conversationPath = candidate
+                continue
             }
             if transcriptContainsOnlyNonProtectiveMetadata(atPath: candidate, fileManager: fileManager) {
                 metadataOnlyPath = metadataOnlyPath ?? candidate
@@ -90,6 +101,7 @@ extension AgentHibernationTranscriptGuard {
             }
             return (nil, metadataOnlyPath, true)
         }
+        if let conversationPath { return (conversationPath, metadataOnlyPath, true) }
         return (nil, metadataOnlyPath, false)
     }
 

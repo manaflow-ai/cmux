@@ -328,6 +328,29 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
+    func resolveTranscriptPathFailsClosedOnDuplicateAnyProjectFallbackCandidates() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionId = "duplicate-any-project"
+        let firstTranscript = transcriptURL(home: home, cwd: "/tmp/first", sessionId: sessionId)
+        let secondTranscript = transcriptURL(home: home, cwd: "/tmp/second", sessionId: sessionId)
+        try writeFile(#"{"type":"user","message":{"content":"first"}}"# + "\n", to: firstTranscript)
+        try writeFile(#"{"type":"user","message":{"content":"second"}}"# + "\n", to: secondTranscript)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: nil),
+            homeDirectory: home.path
+        ) == nil)
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: sessionId, workingDirectory: nil),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
+    }
+
+    @Test
     func resolveTranscriptPathFindsWorkflowResolvedClaudeTranscript() throws {
         let home = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
