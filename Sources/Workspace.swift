@@ -4639,7 +4639,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let preparation = terminalPanel.prepareAgentHibernationResume()
         guard preparation.didResume else { return false }
-        AgentHibernationController.shared.cancelPostTeardownRestoreTask(workspaceId: id, panelId: panelId)
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
             restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
                 ? .awaitingAutoResumeCommand
