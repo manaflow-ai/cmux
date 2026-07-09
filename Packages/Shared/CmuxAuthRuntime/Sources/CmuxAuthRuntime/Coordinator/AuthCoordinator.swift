@@ -68,6 +68,8 @@ public final class AuthCoordinator {
     let timeouts: AuthTimeouts
     let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
+    /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
+    let isTokenStorageAvailable: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
@@ -148,6 +150,7 @@ public final class AuthCoordinator {
     ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
+    ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
@@ -162,6 +165,7 @@ public final class AuthCoordinator {
         timeouts: AuthTimeouts = .default,
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
+        isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
         onSignedIn: @escaping @Sendable () async -> Void = {}
     ) {
         self.client = client
@@ -174,6 +178,7 @@ public final class AuthCoordinator {
         self.timeouts = timeouts
         self.clock = clock
         self.isOnline = isOnline
+        self.isTokenStorageAvailable = isTokenStorageAvailable
         self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()

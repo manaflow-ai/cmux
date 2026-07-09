@@ -33,6 +33,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -128,6 +129,15 @@ struct WorkspaceDetailView: View {
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
+        }
+        if let selectedTerminalID,
+           store.isAlternateScreen(surfaceID: selectedTerminalID),
+           displaySettings.showAltScreenNotice {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                AltScreenNoticeButton {
+                    displaySettings.showAltScreenNotice = false
+                }
+            }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster

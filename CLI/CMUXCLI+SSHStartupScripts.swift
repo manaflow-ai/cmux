@@ -335,6 +335,17 @@ extension CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
+        if retryPTYAttachStatus {
+            // Advertise per attempt whether another 254|255 retry is queued so
+            // ssh-pty-attach only suppresses its pty_attach_end cleanup while a
+            // retry is actually pending; see CMUXCLI.sshPTYAttachWrapperRetryPending
+            // and keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines /
+            // SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
+            scriptLines += [
+                "  if [ \"$cmux_ssh_retry\" -lt \"$cmux_ssh_reconnect_limit\" ]; then CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1; else CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=0; fi",
+                "  export CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY",
+            ]
+        }
         if isShellSnippet {
             scriptLines += [
                 "  (",

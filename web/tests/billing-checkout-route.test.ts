@@ -169,6 +169,25 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("blocks direct checkout requests from the iOS App Store distribution", async () => {
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=pro&cmux_distribution=appstore&cmux_scheme=cmux",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&cmux_scheme=cmux",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+    expect(anonymousUser.createCheckoutUrl).not.toHaveBeenCalled();
+  });
+
   test("keeps signed-in checkout on the existing Stack user", async () => {
     userResponses = [signedInUser];
 
@@ -340,7 +359,7 @@ describe("billing checkout route", () => {
     expect(resolveTeamPrice).toHaveBeenCalled();
     expect(createStripeCustomer).toHaveBeenCalledWith({
       name: "Signed Team",
-      metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", app: "cmux" },
+      metadata: { stackTeamId: "team-signed-in", app: "cmux" },
     });
     expect(insertedStripeCustomers).toContainEqual({
       id: "cus_team",
@@ -359,9 +378,9 @@ describe("billing checkout route", () => {
       ],
       customer: "cus_team",
       client_reference_id: "team-signed-in",
-      metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
       subscription_data: {
-        metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
       },
       allow_promotion_codes: true,
       success_url:
