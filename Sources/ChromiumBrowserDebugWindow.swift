@@ -17,8 +17,6 @@ final class ChromiumBrowserDebugSessionController {
     static let defaultURL = "https://www.google.com"
 
     private(set) var phase: Phase = .idle
-    // The Chromium runtime cannot be unloaded; keep one instance for the process.
-    private var runtime: ChromiumRuntime?
 
     func startIfNeeded() {
         switch phase {
@@ -42,30 +40,14 @@ final class ChromiumBrowserDebugSessionController {
 
     private func start() async {
         do {
-            let bundle = try ChromiumRuntimeLocator().locate()
-            let runtime = self.runtime ?? ChromiumRuntime(bundle: bundle)
-            self.runtime = runtime
-            try await runtime.start()
-            let session = try await runtime.openSession(
+            let (session, model, webView) = try await ChromiumRuntimeManager.shared.acquireSession(
                 initialURL: Self.defaultURL,
-                userDataDirectory: profileDirectory(),
-                enableDevTools: true
+                profileID: UUID()
             )
-            let model = ChromiumBrowserModel()
-            let webView = ChromiumWebView(session: session, model: model)
             phase = .running(session: session, model: model, webView: webView)
         } catch {
             phase = .failed(message: error.localizedDescription)
         }
-    }
-
-    private func profileDirectory() -> URL? {
-        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let directory = base.appendingPathComponent("cmux/chromium-debug-profile", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
     }
 }
 

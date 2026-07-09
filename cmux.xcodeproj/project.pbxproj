@@ -282,6 +282,7 @@
 		CA52B0070000000000000000 /* CanvasPaneContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0070000000000000000 /* CanvasPaneContent.swift */; };
 		C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570030000000000000002 /* CanvasShortcutContextTests.swift */; };
 		CB40311200000000000000B1 /* ChromiumBrowserDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB40311200000000000000B2 /* ChromiumBrowserDebugWindow.swift */; };
+		0B75D85617EB5A82135BD2DC /* ChromiumRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBD32253619B7CBB06A5EA5 /* ChromiumRuntimeManager.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
@@ -1878,6 +1879,7 @@
 		CA52C0070000000000000000 /* CanvasPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasPaneContent.swift"; sourceTree = "<group>"; };
 		C4A570030000000000000002 /* CanvasShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasShortcutContextTests.swift; sourceTree = "<group>"; };
 		CB40311200000000000000B2 /* ChromiumBrowserDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumBrowserDebugWindow.swift; sourceTree = "<group>"; };
+		DBBD32253619B7CBB06A5EA5 /* ChromiumRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumRuntimeManager.swift; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
@@ -3696,6 +3698,7 @@
 				D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */,
 				D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */,
 				CB40311200000000000000B2 /* ChromiumBrowserDebugWindow.swift */,
+				DBBD32253619B7CBB06A5EA5 /* ChromiumRuntimeManager.swift */,
 				E7E000000000000000000006 /* CmuxEventBus.swift */,
 				E7E00000000000000000000E /* CmuxEventLogWriter.swift */,
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
@@ -5333,6 +5336,7 @@
 				CA52B0060000000000000000 /* CanvasLayoutSettings.swift in Sources */,
 				CA52B0070000000000000000 /* CanvasPaneContent.swift in Sources */,
 					CB40311200000000000000B1 /* ChromiumBrowserDebugWindow.swift in Sources */,
+				0B75D85617EB5A82135BD2DC /* ChromiumRuntimeManager.swift in Sources */,
 				C7A533000000000000000002 /* ClaudeSessionCanonicalizationContext.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
