@@ -105,4 +105,12 @@ extension RemoteDaemonProxyTunnel {
             )
         }
     }
+
+    public func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
+        queue.sync {
+            ptyLifecycleRegistry.acknowledgeIfKnown(
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
 }

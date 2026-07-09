@@ -55,6 +55,15 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         }
     }
 
+    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
+        lock.withLock {
+            let key = Key(sessionID: sessionID, lifecycleID: lifecycleID)
+            guard lifecycleByKey[key] != nil else { return false }
+            lifecycleByKey[key] = .intentionallyClosed
+            return true
+        }
+    }
+
     func resizePTY(
         sessionID: String,
         attachmentID: String,

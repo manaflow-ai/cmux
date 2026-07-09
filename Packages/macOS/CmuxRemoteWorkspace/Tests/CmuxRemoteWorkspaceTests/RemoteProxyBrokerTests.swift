@@ -14,11 +14,11 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     let remotePath: String
     let localPort: Int
     private let startError: NSError?
-    private let lock = NSLock()
+    let lock = NSLock()
     private var _startCount = 0
     private var _stopCount = 0
     private var _ptyCalls: [PTYCall] = []
-    private var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
+    var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
 
     init(remotePath: String, localPort: Int, startError: NSError?) {
         self.remotePath = remotePath

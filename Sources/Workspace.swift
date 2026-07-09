@@ -5222,14 +5222,6 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController
     }
 
-    func acknowledgeRemotePTYLifecycleAfterWrapperEnd(sessionID: String?, lifecycleID: String?) {
-        guard let sessionID, let lifecycleID else { return }
-        remoteSessionController?.acknowledgePTYLifecycleAfterWrapperEnd(
-            sessionID: sessionID,
-            lifecycleID: lifecycleID
-        )
-    }
-
     func kickRemotePortScan(panelId: UUID, reason: PortScanKickReason = .command) {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()

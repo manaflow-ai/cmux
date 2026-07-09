@@ -372,6 +372,7 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
         sessionID: String,
         lifecycleID: String
     ) throws {}
+    func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {}
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,

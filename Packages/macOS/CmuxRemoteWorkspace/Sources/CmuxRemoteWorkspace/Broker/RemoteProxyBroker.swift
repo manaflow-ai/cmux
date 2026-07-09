@@ -160,6 +160,28 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
+    /// Retires a wrapper-owned generation across transport ownership changes.
+    /// Unknown generations are ignored instead of creating tombstones in
+    /// unrelated shared tunnels.
+    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {
+        queue.sync {
+            for entry in entries.values {
+                if let tunnel = entry.tunnel {
+                    _ = tunnel.acknowledgePTYLifecycleIfKnown(
+                        sessionID: sessionID,
+                        lifecycleID: lifecycleID
+                    )
+                } else if var snapshot = entry.ptyLifecycleSnapshot,
+                          snapshot.acknowledgePTYLifecycleIfKnown(
+                            sessionID: sessionID,
+                            lifecycleID: lifecycleID
+                          ) {
+                    entry.ptyLifecycleSnapshot = snapshot
+                }
+            }
+        }
+    }
+
     /// Resizes a PTY attachment through the ready tunnel.
     public func resizePTY(
         configuration: WorkspaceRemoteConfiguration,

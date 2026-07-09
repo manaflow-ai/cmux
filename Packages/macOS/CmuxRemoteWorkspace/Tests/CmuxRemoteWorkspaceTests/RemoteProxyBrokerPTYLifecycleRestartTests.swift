@@ -3,6 +3,16 @@ import Foundation
 import Testing
 @testable import CmuxRemoteWorkspace
 
+extension FakeProxyTunnel {
+    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
+        lock.withLock {
+            ptyLifecycleRegistry.acknowledgeIfKnown(
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+}
+
 @Suite("RemoteProxyBroker PTY lifecycle restart", .serialized)
 struct RemoteProxyBrokerPTYLifecycleRestartTests {
     @Test("intentional-close lifecycle survives a failed automatic tunnel replacement")
@@ -78,8 +88,7 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         fatalError("transport died")
         #expect(clock.waitForSleeps(1))
 
-        try broker.acknowledgePTYLifecycle(
-            configuration: configuration,
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(
             sessionID: "UPPERCASE-SESSION",
             lifecycleID: "generation"
         )
@@ -92,6 +101,40 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             sessionID: "UPPERCASE-SESSION",
             lifecycleID: "generation"
         ) == .intentionallyClosed)
+    }
+
+    @Test("wrapper retirement finds its owner without tombstoning unrelated generations")
+    func wrapperRetirementFindsOnlyKnownGeneration() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "known",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "known")
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unknown")
+
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "known"
+        ) == .intentionallyClosed)
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "unknown",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
     }
 
     @Test("forced local proxy port is used verbatim")

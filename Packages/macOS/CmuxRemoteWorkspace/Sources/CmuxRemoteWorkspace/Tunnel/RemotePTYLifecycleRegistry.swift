@@ -114,6 +114,13 @@ struct RemotePTYLifecycleRegistry: Sendable {
         retire(key)
     }
 
+    @discardableResult
+    mutating func acknowledgeIfKnown(_ key: RemotePTYLifecycleKey) -> Bool {
+        guard generations[key] != nil || retiredKeys.contains(key) else { return false }
+        retire(key)
+        return true
+    }
+
     mutating func removeAll() {
         generations.removeAll(keepingCapacity: false)
         generationOrder.removeAll(keepingCapacity: false)

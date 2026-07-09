@@ -41,6 +41,9 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// Retires one logical PTY attach generation after CLI reconciliation.
     func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String)
 
+    /// Retires the generation only when this tunnel owns it.
+    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool
+
     /// Resizes a PTY attachment.
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws
 

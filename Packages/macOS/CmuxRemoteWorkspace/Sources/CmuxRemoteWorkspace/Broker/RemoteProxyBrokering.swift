@@ -46,6 +46,10 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         lifecycleID: String
     ) throws
 
+    /// Synchronously retires a wrapper-owned generation in whichever shared
+    /// tunnel or replacement snapshot currently owns it.
+    func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String)
+
     /// Resizes a PTY attachment through the ready tunnel.
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,

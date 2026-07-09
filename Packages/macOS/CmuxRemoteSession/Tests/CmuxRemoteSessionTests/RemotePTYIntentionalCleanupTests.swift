@@ -55,15 +55,16 @@ struct RemotePTYIntentionalCleanupTests {
         #expect(provider.makeCount == 1)
     }
 
-    @Test("terminal wrapper end asynchronously retires its shared generation")
-    func wrapperEndRetiresGeneration() throws {
+    @Test("terminal wrapper end retires its shared generation after coordinator shutdown")
+    func wrapperEndRetiresGenerationAfterCoordinatorShutdown() throws {
         let provider = IntentionalCleanupTestTunnelProvider()
         let broker = RemoteProxyBroker(tunnelProvider: provider)
         let configuration = Self.configuration()
         let coordinator = Self.coordinator(configuration: configuration, broker: broker)
         let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
+        let survivorLease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
         Self.markReady(coordinator, lease: lease)
-        defer { coordinator.stop(); provider.tunnel.stop() }
+        defer { survivorLease.release(); provider.tunnel.stop() }
 
         _ = try coordinator.startPTYBridge(
             sessionID: "UPPERCASE-SESSION",
@@ -72,12 +73,14 @@ struct RemotePTYIntentionalCleanupTests {
             command: nil,
             requireExisting: false
         )
+        coordinator.stop()
+        coordinator.queue.sync {}
         coordinator.acknowledgePTYLifecycleAfterWrapperEnd(
             sessionID: "UPPERCASE-SESSION",
             lifecycleID: "wrapper-generation"
         )
 
-        #expect(try coordinator.ptySessionLifecycle(
+        #expect(provider.tunnel.ptySessionLifecycle(
             sessionID: "UPPERCASE-SESSION",
             lifecycleID: "wrapper-generation"
         ) == .intentionallyClosed)

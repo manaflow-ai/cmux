@@ -719,11 +719,11 @@ extension TerminalController: ControlWorkspaceContext {
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
+        if let sessionID, let lifecycleID { remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID) }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
-        workspace.acknowledgeRemotePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID)
         if !lifecycleOnly { workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort) }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
