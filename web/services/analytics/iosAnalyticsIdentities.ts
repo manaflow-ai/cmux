@@ -1,9 +1,9 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { iosAnalyticsIdentities } from "../../db/schema";
 
 const MAX_ANALYTICS_DISTINCT_ID_LENGTH = 512;
-const MAX_IOS_ANALYTICS_IDENTITIES_PER_USER = 16;
+const MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST = 16;
 const IOS_INSTALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type IOSAnalyticsIdentityRuntime = {
@@ -23,7 +23,7 @@ export async function recordIOSAnalyticsIdentities(
 ): Promise<void> {
   const anonymousIds = normalizedDistinctIds(input.anonymousIds)
     .filter((id) => id !== input.userId)
-    .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_USER);
+    .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST);
   if (anonymousIds.length === 0) return;
 
   const now = new Date();
@@ -40,18 +40,6 @@ export async function recordIOSAnalyticsIdentities(
         target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
         set: { updatedAt: now },
       });
-
-    await tx.execute(sql`
-      delete from ${iosAnalyticsIdentities}
-      where ${iosAnalyticsIdentities.userId} = ${input.userId}
-        and ${iosAnalyticsIdentities.anonymousId} not in (
-          select ${iosAnalyticsIdentities.anonymousId}
-          from ${iosAnalyticsIdentities}
-          where ${iosAnalyticsIdentities.userId} = ${input.userId}
-          order by ${iosAnalyticsIdentities.updatedAt} desc, ${iosAnalyticsIdentities.anonymousId} desc
-          limit ${MAX_IOS_ANALYTICS_IDENTITIES_PER_USER}
-        )
-    `);
   });
 }
 
@@ -62,8 +50,7 @@ export async function listPostHogDeletionDistinctIds(
   const rows = await runtime.cloudDb()
     .select({ anonymousId: iosAnalyticsIdentities.anonymousId })
     .from(iosAnalyticsIdentities)
-    .where(eq(iosAnalyticsIdentities.userId, input.userId))
-    .limit(MAX_IOS_ANALYTICS_IDENTITIES_PER_USER);
+    .where(eq(iosAnalyticsIdentities.userId, input.userId));
   return Array.from(new Set([
     input.userId,
     ...normalizedDistinctIds(rows.map((row) => row.anonymousId)),
