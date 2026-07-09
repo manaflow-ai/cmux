@@ -54,6 +54,26 @@ struct BrowserWebExtensionSupportTests {
     }
 
     @Test
+    func reconciliationDeduplicatesRepeatedEnvironmentPaths() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let extensionPath = "/tmp/cmux-web-extensions/../cmux-web-extensions/Example"
+        let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedPath(extensionPath)
+        let plan = planner.plan(
+            settingsEntries: [],
+            environmentPaths: [
+                extensionPath,
+                standardizedPath,
+            ],
+            loadedEntries: []
+        )
+
+        #expect(plan.desiredEntries.map(\.id) == [extensionPath])
+        #expect(plan.desiredEntries.map(\.path) == [extensionPath])
+        #expect(plan.loadEntries.map(\.id) == [extensionPath])
+        #expect(plan.unloadEntryIDs.isEmpty)
+    }
+
+    @Test
     func reconciliationReloadsWhenPathChangesForSameEntryID() {
         let planner = BrowserWebExtensionReconciliationPlanner()
         let oldPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"

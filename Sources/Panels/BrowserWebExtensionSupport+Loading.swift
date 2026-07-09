@@ -50,22 +50,19 @@ extension BrowserWebExtensionSupport {
 
     private func unload(entryID: String) {
         guard let record = loadedByEntryID[entryID] else { return }
-        var didUnload = true
         do {
             try controller.unload(record.context)
         } catch {
-            didUnload = false
             recordLoadError(error.localizedDescription, entryID: entryID)
 #if DEBUG
             cmuxDebugLog("browser.webext.unloadFailed id=\(entryID) error=\(error.localizedDescription)")
 #endif
+            return
         }
 
         loadedByEntryID[entryID] = nil
         loadedEntryIDsInOrder.removeAll { $0 == entryID }
-        if didUnload {
-            loadErrorsByEntryID.removeValue(forKey: entryID)
-        }
+        loadErrorsByEntryID.removeValue(forKey: entryID)
         refreshLoadErrors()
 
         let closingPopouts = popouts.filter { $0.extensionContext === record.context }
@@ -73,9 +70,7 @@ extension BrowserWebExtensionSupport {
             popout.closeFromExtensionOrUser()
         }
 #if DEBUG
-        if didUnload {
-            cmuxDebugLog("browser.webext.unloaded id=\(entryID)")
-        }
+        cmuxDebugLog("browser.webext.unloaded id=\(entryID)")
 #endif
     }
 

@@ -206,8 +206,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             localized: "browser.webExtension.action.help",
             defaultValue: "Extension"
         )
-        return String(
-            format: String(localized: key, defaultValue: defaultValue),
+        return String.localizedStringWithFormat(
+            String(localized: key, defaultValue: defaultValue),
             extensionName,
             details
         )
