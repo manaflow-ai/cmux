@@ -27,10 +27,13 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 /// ### Privacy gate
 ///
 /// ``capture(_:_:)`` consults the injected ``AnalyticsConsentProviding`` *before*
-/// yielding, so when telemetry is disabled nothing is even buffered, and no
-/// fire-site can bypass the opt-out. Identity and super-property updates still
-/// enter the actor while opted out so local attribution state cannot go stale,
-/// but the network identify call remains consent-gated.
+/// yielding ordinary events, so when telemetry is disabled they are not buffered
+/// and no fire-site can bypass the opt-out. The one exception is the local
+/// `ios_app_first_launch` replay intent: a fresh install records it in memory
+/// while opted out, but it is only enqueued and uploaded after consent is
+/// granted. Identity and super-property updates still enter the actor while
+/// opted out so local attribution state cannot go stale, but the network
+/// identify call remains consent-gated.
 ///
 /// ### Flush barrier
 ///
@@ -41,6 +44,7 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 public actor AnalyticsEmitter: AnalyticsEmitting {
     private enum Item: Sendable {
         case event(name: String, properties: [String: AnalyticsValue], timestamp: Date)
+        case firstLaunch(properties: [String: AnalyticsValue], timestamp: Date)
         case identify(
             userID: String?,
             alias: String?,
@@ -60,6 +64,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private let flushBatchSize: Int
     private let flushInterval: Duration
     private let maxPendingEvents: Int
+    private static let firstLaunchEventName = "ios_app_first_launch"
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
@@ -68,6 +73,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private var distinctID: String?
     private var lastAuthenticatedIdentify: AnalyticsIdentifyRequest?
     private var authenticatedIdentifyReplayPending = false
+    private var deferredFirstLaunchEvent: AnalyticsEvent?
     private var telemetryEventsEnabled: Bool
     private var pending: [AnalyticsEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
@@ -139,6 +145,10 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     // MARK: AnalyticsEmitting (non-blocking surface)
 
     public nonisolated func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
+        if event == Self.firstLaunchEventName {
+            continuation.yield(.firstLaunch(properties: properties, timestamp: now()))
+            return
+        }
         guard consent.isTelemetryEnabled else { return }
         continuation.yield(.event(name: event, properties: properties, timestamp: now()))
     }
@@ -203,6 +213,20 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 if pending.count >= flushBatchSize && !uploadOutageOpen {
                     await drain()
                 }
+            case let .firstLaunch(properties, timestamp):
+                if telemetryEventsEnabled, consent.isTelemetryEnabled {
+                    appendEvent(
+                        name: Self.firstLaunchEventName,
+                        properties: properties,
+                        timestamp: timestamp
+                    )
+                    startCadenceIfNeeded()
+                    if pending.count >= flushBatchSize && !uploadOutageOpen {
+                        await drain()
+                    }
+                } else {
+                    rememberDeferredFirstLaunch(properties: properties, timestamp: timestamp)
+                }
             case let .identify(userID, alias, properties, networkAllowed):
                 await applyIdentify(
                     userID: userID,
@@ -219,8 +243,11 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                     uploadOutageOpen = false
                 } else {
                     await replayAuthenticatedIdentifyIfNeeded()
+                    enqueueDeferredFirstLaunchIfAllowed()
+                    await drain()
                 }
             case let .barrier(id):
+                enqueueDeferredFirstLaunchIfAllowed()
                 await drain()
                 barriers.removeValue(forKey: id)?.resume()
             }
@@ -228,17 +255,23 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     }
 
     private func appendEvent(name: String, properties: [String: AnalyticsValue], timestamp: Date) {
+        appendPendingEvent(makeEvent(name: name, properties: properties, timestamp: timestamp))
+    }
+
+    private func makeEvent(name: String, properties: [String: AnalyticsValue], timestamp: Date) -> AnalyticsEvent {
         var merged = superProperties
         for (key, value) in properties { merged[key] = value }
-        pending.append(
-            AnalyticsEvent(
-                name: name,
-                properties: merged,
-                distinctID: distinctID,
-                anonymousID: anonymousID == distinctID ? nil : anonymousID,
-                timestamp: timestamp
-            )
+        return AnalyticsEvent(
+            name: name,
+            properties: merged,
+            distinctID: distinctID,
+            anonymousID: anonymousID == distinctID ? nil : anonymousID,
+            timestamp: timestamp
         )
+    }
+
+    private func appendPendingEvent(_ event: AnalyticsEvent) {
+        pending.append(event)
         // Bound the backlog so a sustained upload outage (`.retry` keeps the
         // buffer intact) cannot grow memory without limit. Drop the oldest events
         // first: the freshest signal is the most useful, and dropping here is
@@ -246,6 +279,29 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         if pending.count > maxPendingEvents {
             pending.removeFirst(pending.count - maxPendingEvents)
         }
+    }
+
+    private func rememberDeferredFirstLaunch(
+        properties: [String: AnalyticsValue],
+        timestamp: Date
+    ) {
+        guard deferredFirstLaunchEvent == nil else { return }
+        deferredFirstLaunchEvent = makeEvent(
+            name: Self.firstLaunchEventName,
+            properties: properties,
+            timestamp: timestamp
+        )
+    }
+
+    private func enqueueDeferredFirstLaunchIfAllowed() {
+        guard telemetryEventsEnabled,
+              consent.isTelemetryEnabled,
+              let event = deferredFirstLaunchEvent else {
+            return
+        }
+        deferredFirstLaunchEvent = nil
+        appendPendingEvent(event)
+        startCadenceIfNeeded()
     }
 
     private func applyIdentify(

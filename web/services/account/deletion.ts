@@ -1010,10 +1010,7 @@ function teamScopedUsageEventsCreatedByUser(scope: AccountDeletionScope) {
 }
 
 function accountOwnedCloudVmUsageEvents(scope: AccountDeletionScope) {
-  return or(
-    personalCloudVmUsageEventsCreatedByUser(scope),
-    inArray(cloudVmUsageEvents.billingTeamId, scope.ownedBillingTeamIds),
-  );
+  return personalCloudVmUsageEventsCreatedByUser(scope);
 }
 
 function personalCloudVmUsageEventsCreatedByUser(scope: AccountDeletionScope) {

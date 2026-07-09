@@ -64,6 +64,31 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(events.isEmpty)
     }
 
+    @Test func firstLaunchCapturedWhileOptedOutReplaysOnceOnOptIn() async {
+        let consent = MutableConsent(enabled: false)
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent, anonymousID: "anon-9")
+
+        emitter.setSuperProperties(["app_version": .string("1.2.3")])
+        emitter.capture("ios_app_first_launch", ["client_id": .string("anon-9")])
+        await emitter.flush()
+        #expect(await uploader.uploadedEvents.isEmpty)
+
+        consent.set(true)
+        emitter.setTelemetryConsentEnabled(true)
+        await emitter.flush()
+
+        let events = await uploader.uploadedEvents
+        #expect(events.count == 1)
+        #expect(events.first?.name == "ios_app_first_launch")
+        #expect(events.first?.properties["client_id"] == .string("anon-9"))
+        #expect(events.first?.properties["app_version"] == .string("1.2.3"))
+
+        emitter.setTelemetryConsentEnabled(true)
+        await emitter.flush()
+        #expect(await uploader.uploadedEvents.count == 1)
+    }
+
     @Test func batchSizeTriggersAutomaticFlush() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = makeEmitter(uploader: uploader, flushBatchSize: 3)

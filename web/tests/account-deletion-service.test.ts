@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { cloudDb } from "../db/client";
 import {
   accountDeletionTombstones,
@@ -86,6 +87,7 @@ let vaultSnapshotRows: Array<{ id: string; objectKey: string }> = [];
 let vaultUploadGrantRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 let vaultUploadTombstoneRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 let deviceDeleteConditions: unknown[] = [];
+let cloudVmUsageEventDeleteConditions: unknown[] = [];
 let accountDeletionTombstoneRows: Array<{ status: string }> = [];
 
 type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
@@ -194,6 +196,7 @@ beforeEach(() => {
   vaultUploadGrantRows = [];
   vaultUploadTombstoneRows = [];
   deviceDeleteConditions = [];
+  cloudVmUsageEventDeleteConditions = [];
   accountDeletionTombstoneRows = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
@@ -676,6 +679,28 @@ describe("account deletion cleanup", () => {
 
     expect(calls).toContain("select-exec-usage-events");
     expect(calls).not.toContain("destroy:user-1:provider-vm-with-exec");
+  });
+
+  test("keeps other users' usage events on owned billing teams while cleaning the deleted user's usage", async () => {
+    await deleteCmuxAccountData({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned-1"],
+    }, fakeRuntime());
+
+    expect(calls).toContain("delete-account-owned-cloud-vm-usage-events");
+    expect(calls).toContain("anonymize-team-cloud-vm-usage-events");
+
+    const deleteCondition = cloudVmUsageEventDeleteConditions.at(0);
+    expect(deleteCondition).toBeDefined();
+    const renderedDeleteCondition = renderConditionSql(deleteCondition);
+    expect(renderedDeleteCondition.sql).toContain(`"cloud_vm_usage_events"."user_id" = $1`);
+    expect(renderedDeleteCondition.sql).toContain(`"cloud_vm_usage_events"."billing_team_id" in ($2, $3)`);
+    expect(renderedDeleteCondition.params).toEqual(["user-1", "user-1", "team-owned-1"]);
+
+    const anonymizeUsageUpdate = updateSets.find((entry) =>
+      entry.label === "anonymize-team-cloud-vm-usage-events"
+    );
+    expect(anonymizeUsageUpdate?.values.userId).toMatch(/^deleted_[0-9a-f]{24}$/);
   });
 
   test("marks blank VM identity lease handles without retrying forever", async () => {
@@ -1285,6 +1310,9 @@ function fakeTransaction() {
       if (table === devices) return writeBuilder("delete-user-devices", deviceDeleteConditions);
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
       if (table === cloudVmLeases) return writeBuilder("delete-cloud-vm-leases");
+      if (table === cloudVmUsageEvents) {
+        return writeBuilder("delete-account-owned-cloud-vm-usage-events", cloudVmUsageEventDeleteConditions);
+      }
       if (table === cloudVms) return writeBuilder("delete-personal-cloud-vms");
       if (table === vaultSnapshots) return writeBuilder("delete-vault-snapshots");
       if (table === vaultUploadGrants) return writeBuilder("delete-vault-upload-grants");
@@ -1352,6 +1380,11 @@ function updateBuilder(label?: string | ((values: Record<string, unknown>) => st
     },
   };
   return builder;
+}
+
+function renderConditionSql(condition: unknown) {
+  type SqlCondition = Parameters<PgDialect["sqlToQuery"]>[0];
+  return new PgDialect().sqlToQuery(condition as SqlCondition);
 }
 
 function stripeCustomerUpdateLabel(values: Record<string, unknown>): string | undefined {
