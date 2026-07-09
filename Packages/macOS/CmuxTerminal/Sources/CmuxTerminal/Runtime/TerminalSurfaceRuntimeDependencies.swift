@@ -21,6 +21,9 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// Live settings reads folded into spawn environments.
     public let spawnPolicy: any TerminalSurfaceSpawnPolicyProviding
 
+    /// Optional app-owned blocking gate for local terminal process spawns.
+    public let spawnGate: (any TerminalSurfaceSpawnGating)?
+
     /// The mobile PTY byte-tee installer.
     public let byteTee: any TerminalByteTeeBinding
 
@@ -60,6 +63,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         engine: any TerminalEngineHosting,
         viewProvider: any TerminalSurfaceViewProviding,
         spawnPolicy: any TerminalSurfaceSpawnPolicyProviding,
+        spawnGate: (any TerminalSurfaceSpawnGating)? = nil,
         byteTee: any TerminalByteTeeBinding,
         rendererRealization: any TerminalRendererRealizationScheduling,
         hibernationRecorder: any AgentHibernationRecording,
@@ -75,6 +79,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.engine = engine
         self.viewProvider = viewProvider
         self.spawnPolicy = spawnPolicy
+        self.spawnGate = spawnGate
         self.byteTee = byteTee
         self.rendererRealization = rendererRealization
         self.hibernationRecorder = hibernationRecorder

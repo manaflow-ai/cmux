@@ -16,7 +16,9 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        claudeShim: ClaudeCommandShim?
+        claudeShim: ClaudeCommandShim?,
+        spawnGrant: TerminalSurfaceSpawnGrant? = nil,
+        forceManualIO: Bool = false
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
@@ -36,13 +38,19 @@ extension TerminalSurface {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
-        if manualIO {
+        if manualIO || forceManualIO {
             // MANUAL I/O: ghostty spawns no process; typed input is delivered
             // to our callback and output is injected through
             // ghostty_surface_process_output.
             manualIOContext?.release()
+            let writeHandler: @Sendable (Data) -> Void
+            if forceManualIO {
+                writeHandler = { _ in }
+            } else {
+                writeHandler = manualInputHandler ?? { _ in }
+            }
             let box = Unmanaged.passRetained(
-                TerminalManualIOWriteBox(onWrite: manualInputHandler ?? { _ in })
+                TerminalManualIOWriteBox(onWrite: writeHandler)
             )
             manualIOContext = box
             surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
@@ -211,6 +219,11 @@ extension TerminalSurface {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
+        if let spawnGrant {
+            for (key, value) in spawnGrant.environmentOverrides {
+                env[key] = value
+            }
+        }
         env["CMUX_SOCKET"] = ""
 
         if !env.isEmpty {
@@ -228,12 +241,18 @@ extension TerminalSurface {
         }
 
         let resolvedWorkingDirectory: String? = {
+            if let workingDirectory = spawnGrant?.workingDirectory, !workingDirectory.isEmpty {
+                return workingDirectory
+            }
             if let workingDirectory, !workingDirectory.isEmpty {
                 return workingDirectory
             }
             return baseConfig.workingDirectory
         }()
         let resolvedCommand: String? = {
+            if let spawnGrant {
+                return spawnGrant.command
+            }
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }

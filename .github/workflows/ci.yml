@@ -946,6 +946,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxHooks
             CmuxSettings
             CmuxSettingsUI
             CmuxTerminal

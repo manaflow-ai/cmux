@@ -149,6 +149,30 @@ extension TerminalSurfaceRuntimeFilesystem {
 
 // MARK: Construction
 
+extension GhosttyApp {
+    /// The injected collaborators for every `TerminalSurface` (transitional:
+    /// dissolves into composition-root injection when `GhosttyAppService`
+    /// replaces this type).
+    @MainActor
+    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
+        registry: GhosttyApp.terminalSurfaceRegistry,
+        engine: GhosttyApp.shared,
+        viewProvider: TerminalSurfaceViewFactory(),
+        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
+        spawnGate: CmuxHooksRuntime.shared.spawnGateBridge,
+        byteTee: TerminalMobileByteTeeBridge(),
+        rendererRealization: RendererRealizationController.shared,
+        hibernationRecorder: TerminalAgentHibernationRecorder(),
+        runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
+        restoreSpawnScheduler: GhosttyApp.terminalSurfaceRestoreSpawnScheduler,
+        runtimeFilesystem: .live(),
+        sessionPortBase: GhosttyApp.terminalSessionPortBase,
+        sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey,
+        globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+    )
+}
+
 extension TerminalSurface {
     /// The legacy app-target initializer signature, forwarding to the package
     /// initializer with the process-wide collaborator bundle. Keeps every

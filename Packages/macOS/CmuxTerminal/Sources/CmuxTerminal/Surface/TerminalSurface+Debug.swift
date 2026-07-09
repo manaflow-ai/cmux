@@ -189,6 +189,7 @@ extension TerminalSurface {
 
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        resetSpawnGateStateForRuntimeTeardown()
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
