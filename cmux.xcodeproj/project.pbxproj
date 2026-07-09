@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		C77320010000000000000001 /* AgentChatActionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C77320010000000000000002 /* AgentChatActionState.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */; };
 		C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A531000000000000000001 /* AgentChatObservationHandle.swift */; };
@@ -1694,6 +1695,7 @@
 /* Begin PBXFileReference section */
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		C77320010000000000000002 /* AgentChatActionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatActionState.swift; sourceTree = "<group>"; };
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatHookSessionStore.swift"; sourceTree = "<group>"; };
 		C7A531000000000000000001 /* AgentChatObservationHandle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationHandle.swift"; sourceTree = "<group>"; };
@@ -4002,6 +4004,7 @@
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				C77320010000000000000002 /* AgentChatActionState.swift */,
 				C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */,
 				C0DE71A00000000000000002 /* AgentChatThemeSync.swift */,
 				B1F0C0080000000000000002 /* AppDelegateDetachedInspectorClose.swift */,
@@ -5394,6 +5397,7 @@
 			buildActionMask = 2147483647;
 			files = (
 
+				C77320010000000000000001 /* AgentChatActionState.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
 				ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */,
 				C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */,
