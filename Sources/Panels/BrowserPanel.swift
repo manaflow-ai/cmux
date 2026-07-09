@@ -2747,6 +2747,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
     let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+    private var isRegisteredForWebExtensions = false
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3978,13 +3979,14 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserWebExtensionHost = browserWebExtensionHost
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if browserWebExtensionHost == nil, let prewarmed = Self.claimedPrewarmedWebView(
+        if let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
             initialURL: initialURL,
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         ) {
             webView = prewarmed
             adoptedPrewarmedWebView = true
@@ -4000,7 +4002,6 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
-        browserWebExtensionHost?.register(panel: self)
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -5312,7 +5313,21 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func performWebExtensionCommand(for event: NSEvent) -> Bool {
-        browserWebExtensionHost?.performCommand(for: event) ?? false
+        guard let browserWebExtensionHost else { return false }
+        noteWebExtensionActivated()
+        return browserWebExtensionHost.performCommand(for: event)
+    }
+
+    func registerWebExtensionIfNeeded() {
+        guard !isRegisteredForWebExtensions, let browserWebExtensionHost else { return }
+        isRegisteredForWebExtensions = true
+        browserWebExtensionHost.register(panel: self)
+    }
+
+    private func unregisterWebExtensionIfNeeded() {
+        guard isRegisteredForWebExtensions else { return }
+        isRegisteredForWebExtensions = false
+        browserWebExtensionHost?.unregister(panelID: id)
     }
 
     @available(macOS 15.4, *)
@@ -5321,7 +5336,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
-        browserWebExtensionHost?.unregister(panelID: id)
+        unregisterWebExtensionIfNeeded()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         refreshWebViewLifecycleState()

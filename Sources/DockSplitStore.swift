@@ -576,6 +576,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
+            browser.registerWebExtensionIfNeeded()
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
@@ -586,12 +587,9 @@ final class DockSplitStore: BonsplitDelegate {
             .sink { [weak self, weak browser] _ in
                 guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
                       let existing = self.bonsplitController.tab(tabId) else { return }
-                // Only push fields that actually changed. CombineLatest4 fires on
-                // ANY of the four publishers, so an `isLoading` flicker during a
-                // page load would otherwise re-publish the (unchanged) title and
-                // favicon, mutating the @Observable BonsplitController and
-                // re-rendering the Dock tree for nothing. Mirrors the main area's
-                // guarded path in Workspace.installBrowserPanelSubscription.
+                // Only push fields that actually changed; otherwise unchanged metadata
+                // would mutate Bonsplit and re-render the Dock tree for nothing.
+                // Mirrors the main area's guarded path in Workspace.installBrowserPanelSubscription.
                 let resolvedTitle = browser.displayTitle
                 let favicon = browser.faviconPNGData
                 let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
