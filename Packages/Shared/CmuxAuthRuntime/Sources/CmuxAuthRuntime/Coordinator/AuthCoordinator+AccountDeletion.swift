@@ -5,13 +5,13 @@ extension AuthCoordinator {
     ///
     /// Callers clear local shell/auth state through their normal sign-out owner
     /// after this succeeds so app-level teardown hooks run in the right order.
-    public func deleteAccount() async throws {
+    public func deleteAccount() async throws -> AccountDeletionResult {
         let apiBaseURL = apiBaseURL
         let timeout = timeouts.network
         let tokens = try await runTokenTouchingPhase(.accountDeletion, timeout: timeout) {
             try await self.currentTokens()
         }
-        try await AccountDeletionClient(
+        return try await AccountDeletionClient(
             apiBaseURL: apiBaseURL,
             requestTimeout: timeout.urlRequestTimeoutInterval
         ).deleteAccount(

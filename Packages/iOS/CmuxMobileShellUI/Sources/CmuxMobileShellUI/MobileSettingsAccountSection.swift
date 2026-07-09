@@ -94,13 +94,15 @@ struct MobileSettingsAccountSection: View {
                 deletingAccount = false
             }
             do {
-                try await authManager.deleteAccount()
-                if let signOut {
-                    signOut()
-                } else {
-                    await authManager.signOut()
+                let result = try await authManager.deleteAccount()
+                await signOutDeletedAccount()
+                switch result {
+                case .completed:
+                    dismiss()
+                case .completedWithIncompleteServerCleanup:
+                    deleteAccountFailureKind = .serverCleanupIncomplete
+                    showingDeleteAccountFailure = true
                 }
-                dismiss()
             } catch {
                 if case AccountDeletionRequestError.stackDeleteIncomplete = error {
                     deleteAccountFailureKind = .stackDeleteIncomplete
@@ -117,6 +119,14 @@ struct MobileSettingsAccountSection: View {
                 }
                 showingDeleteAccountFailure = true
             }
+        }
+    }
+
+    private func signOutDeletedAccount() async {
+        if let signOut {
+            signOut()
+        } else {
+            await authManager.signOut()
         }
     }
 

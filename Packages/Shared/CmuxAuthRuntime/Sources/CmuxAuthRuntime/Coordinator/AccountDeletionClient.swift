@@ -20,7 +20,7 @@ struct AccountDeletionClient: Sendable {
     }
 
     @concurrent
-    func deleteAccount(accessToken: String, refreshToken: String) async throws {
+    func deleteAccount(accessToken: String, refreshToken: String) async throws -> AccountDeletionResult {
         let trimmedBaseURL = apiBaseURL.hasSuffix("/") ? String(apiBaseURL.dropLast()) : apiBaseURL
         guard let url = URL(string: trimmedBaseURL + "/api/account") else {
             throw AccountDeletionRequestError.invalidAPIBaseURL
@@ -48,7 +48,7 @@ struct AccountDeletionClient: Sendable {
         }
         switch httpResponse.statusCode {
         case 200..<300:
-            return
+            return accountDeletionResult(in: data)
         case 401:
             throw AccountDeletionRequestError.unauthorized
         default:
@@ -65,6 +65,16 @@ struct AccountDeletionClient: Sendable {
             throw AccountDeletionRequestError.rejected(statusCode: httpResponse.statusCode)
         }
     }
+}
+
+private func accountDeletionResult(in data: Data) -> AccountDeletionResult {
+    guard
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        object["cleanupIncomplete"] as? Bool == true
+    else {
+        return .completed
+    }
+    return .completedWithIncompleteServerCleanup
 }
 
 private func accountDeletionErrorCode(in data: Data) -> String? {

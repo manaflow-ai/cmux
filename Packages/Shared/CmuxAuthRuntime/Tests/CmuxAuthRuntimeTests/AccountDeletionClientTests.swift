@@ -18,14 +18,33 @@ struct AccountDeletionClientTests {
             )
         }
 
-        try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        let result = try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
 
         let request = await recorder.request
+        #expect(result == .completed)
         #expect(request?.url?.absoluteString == "https://cmux.test/base/api/account")
         #expect(request?.httpMethod == "DELETE")
         #expect(request?.timeoutInterval == 12)
         #expect(request?.value(forHTTPHeaderField: "Authorization") == "Bearer access-token")
         #expect(request?.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh-token")
+    }
+
+    @Test func deleteAccountMapsCleanupIncompleteAcceptedResponse() async throws {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
+            (
+                Data(#"{"ok":true,"cleanupIncomplete":true}"#.utf8),
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 202,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+            )
+        }
+
+        let result = try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+
+        #expect(result == .completedWithIncompleteServerCleanup)
     }
 
     @Test func deleteAccountMapsUnauthorizedResponse() async {
