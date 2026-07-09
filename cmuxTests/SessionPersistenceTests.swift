@@ -501,6 +501,23 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
         XCTAssertEqual(decoded.engineKind, "chromium")
         XCTAssertEqual(BrowserSurfaceEngineKind(rawValue: decoded.engineKind ?? ""), .chromium)
+
+        let webkitSource = SessionBrowserPanelSnapshot(
+            urlString: source.urlString,
+            profileID: source.profileID,
+            shouldRenderWebView: source.shouldRenderWebView,
+            pageZoom: source.pageZoom,
+            developerToolsVisible: source.developerToolsVisible,
+            isMuted: source.isMuted,
+            omnibarVisible: source.omnibarVisible,
+            backHistoryURLStrings: source.backHistoryURLStrings,
+            forwardHistoryURLStrings: source.forwardHistoryURLStrings,
+            engineKind: BrowserSurfaceEngineKind.webkit.rawValue
+        )
+        let webkitData = try JSONEncoder().encode(webkitSource)
+        let webkitDecoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: webkitData)
+        XCTAssertEqual(webkitDecoded.engineKind, "webkit")
+        XCTAssertEqual(BrowserSurfaceEngineKind(rawValue: webkitDecoded.engineKind ?? ""), .webkit)
     }
 
     func testBrowserPanelEngineKindResolution() {

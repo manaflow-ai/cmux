@@ -648,9 +648,11 @@ extension BrowserEngineSettings {
     /// once-per-run fallback notification when a Chromium request degrades to WebKit.
     @MainActor
     static func resolveEngineKindForNewSurface(workspaceId: UUID) -> BrowserSurfaceEngineKind {
+        let configured = configuredEngine()
+        let runtimeAvailable = configured == .chromium ? ChromiumRuntimeManager.shared.isRuntimeAvailable() : false
         let resolution = BrowserPanel.resolveEngineKind(
-            configured: configuredEngine(),
-            runtimeAvailable: ChromiumRuntimeManager.shared.isRuntimeAvailable()
+            configured: configured,
+            runtimeAvailable: runtimeAvailable
         )
         if resolution.didFallBack {
             postFallbackNotificationIfNeeded(workspaceId: workspaceId)
