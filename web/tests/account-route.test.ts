@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  cloudVmBaseGenerations,
+  cloudVmBases,
   cloudVmBillingGrants,
+  cloudVms,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -52,6 +55,14 @@ const deleteRows = mock((table: unknown) => {
     where: async () => {},
   };
 });
+const updateRows = mock((table: unknown) => ({
+  set: (values: unknown) => {
+    updatedRows.push({ table, values });
+    return {
+      where: async () => {},
+    };
+  },
+}));
 const listUserVms = mock((...args: unknown[]) => {
   const [userId] = args as [string];
   return { kind: "listUserVms" as const, userId };
@@ -102,6 +113,7 @@ const deleteCustomer = mock(async (...args: unknown[]) => {
 
 let deletedTableCount = 0;
 let deletedTables: unknown[] = [];
+let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
@@ -125,6 +137,9 @@ type WorkflowProgram =
 
 type MockTransaction = {
   readonly delete: (table: unknown) => { readonly where: (condition: unknown) => Promise<void> };
+  readonly update: (table: unknown) => {
+    readonly set: (values: unknown) => { readonly where: (condition: unknown) => Promise<void> };
+  };
 };
 
 type SelectResult = Promise<unknown[]> & {
@@ -135,6 +150,7 @@ type SelectResult = Promise<unknown[]> & {
 
 const mockTransaction: MockTransaction = {
   delete: deleteRows,
+  update: updateRows,
 };
 
 function nextSelectResult(): unknown[] {
@@ -235,6 +251,7 @@ beforeEach(() => {
   getUser.mockClear();
   transaction.mockClear();
   deleteRows.mockClear();
+  updateRows.mockClear();
   mockDb.select.mockClear();
   listUserVms.mockClear();
   destroyVm.mockClear();
@@ -244,6 +261,7 @@ beforeEach(() => {
   deleteCustomer.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
+  updatedRows = [];
   routeEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
@@ -293,6 +311,22 @@ describe("account deletion route", () => {
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
+    expect(updatedRows.map(({ table, values }) => ({
+      table,
+      values: stripUpdatedAt(values),
+    }))).toEqual([
+      { table: cloudVms, values: { userId: "deleted-account" } },
+      { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
+      { table: cloudVmBases, values: { lastOpenedByUserId: null } },
+      { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
+      { table: cloudVms, values: { userId: "deleted-account" } },
+      { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
+      { table: cloudVmBases, values: { lastOpenedByUserId: null } },
+      { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
+    ]);
+    for (const update of updatedRows) {
+      expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
+    }
     expect(deletedVaultObjects).toEqual([
       "vault/u/account-user-1/snapshot.jsonl.zst",
       "vault/u/account-user-1/grant.jsonl.zst",
@@ -535,6 +569,12 @@ function stackUser(id = "account-user-1") {
     update: updateStackUser,
     delete: deleteStackUser,
   };
+}
+
+function stripUpdatedAt(values: unknown): Record<string, unknown> {
+  const copy = { ...(values as Record<string, unknown>) };
+  delete copy.updatedAt;
+  return copy;
 }
 
 function isAccountDeletionVaultObject(objectKey: string): boolean {

@@ -5,6 +5,7 @@ import { cloudDb } from "../../../db/client";
 import {
   billingEmailClaims,
   cloudVmBaseEvents,
+  cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
   cloudVmLeases,
@@ -39,6 +40,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
+const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 
 type DeletableStackUser = {
   readonly id: string;
@@ -284,6 +286,7 @@ function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: r
 async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
   const db = cloudDb();
   await db.transaction(async (tx) => {
+    const now = new Date();
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
 
@@ -307,7 +310,7 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
     ));
     await tx.delete(cloudVmNotificationDeliveries).where(eq(cloudVmNotificationDeliveries.userId, userId));
     await tx.delete(cloudVmNotificationEvents).where(eq(cloudVmNotificationEvents.userId, userId));
-    await tx.delete(cloudVmUsageEvents).where(personalUsageScope(userId));
+    await tx.delete(cloudVmUsageEvents).where(eq(cloudVmUsageEvents.userId, userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, userId));
     await tx.delete(cloudVms).where(personalVmScope(userId));
@@ -316,6 +319,22 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
       eq(cloudVmBases.scopeType, "user"),
       eq(cloudVmBases.scopeId, userId),
     ));
+    await tx
+      .update(cloudVms)
+      .set({ userId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+      .where(eq(cloudVms.userId, userId));
+    await tx
+      .update(cloudVmBases)
+      .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+      .where(eq(cloudVmBases.createdByUserId, userId));
+    await tx
+      .update(cloudVmBases)
+      .set({ lastOpenedByUserId: null, updatedAt: now })
+      .where(eq(cloudVmBases.lastOpenedByUserId, userId));
+    await tx
+      .update(cloudVmBaseGenerations)
+      .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+      .where(eq(cloudVmBaseGenerations.createdByUserId, userId));
 
     await tx.delete(devices).where(eq(devices.userId, userId));
 
@@ -327,13 +346,6 @@ function personalVmScope(userId: string) {
   return and(
     eq(cloudVms.userId, userId),
     or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
-  );
-}
-
-function personalUsageScope(userId: string) {
-  return and(
-    eq(cloudVmUsageEvents.userId, userId),
-    or(isNull(cloudVmUsageEvents.billingTeamId), eq(cloudVmUsageEvents.billingTeamId, userId)),
   );
 }
 
