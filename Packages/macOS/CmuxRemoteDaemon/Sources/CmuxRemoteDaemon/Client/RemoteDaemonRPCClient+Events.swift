@@ -128,6 +128,7 @@ extension RemoteDaemonRPCClient {
         guard let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
             return
         }
+        lastInboundFrameAt = .now()
         if let responseID = Self.responseID(in: payload) {
             _ = pendingCalls.resolve(id: responseID, payload: payload)
             return
@@ -145,6 +146,9 @@ extension RemoteDaemonRPCClient {
     }
 
     func consumeEventPayload(_ payload: [String: Any]) {
+        if consumeCLIRequestPayload(payload) {
+            return
+        }
         if consumePTYEventPayload(payload) {
             return
         }
@@ -186,6 +190,50 @@ extension RemoteDaemonRPCClient {
         }
     }
 
+    func consumeCLIRequestPayload(_ payload: [String: Any]) -> Bool {
+        guard let eventName = (payload["event"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              eventName == "cli.request" else {
+            return false
+        }
+        guard let requestID = (payload["request_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !requestID.isEmpty else {
+            return true
+        }
+        guard let cliRequestHandler else {
+            sendCLIResponseAsync(requestID: requestID, data: nil, error: "cloud CLI bridge is not configured")
+            return true
+        }
+        guard cliRequestsInFlight < Self.maxCloudCLIRequestsInFlight else {
+            sendCLIResponseAsync(requestID: requestID, data: nil, error: "cloud CLI bridge is busy")
+            return true
+        }
+        cliRequestsInFlight += 1
+        let request = Self.decodeBase64Data(payload["data_base64"])
+        cliRequestQueue.async { [weak self] in
+            guard let self else { return }
+            defer {
+                self.stateQueue.async { [weak self] in
+                    guard let self else { return }
+                    self.cliRequestsInFlight = max(0, self.cliRequestsInFlight - 1)
+                }
+            }
+            do {
+                self.sendCLIResponse(requestID: requestID, data: try cliRequestHandler(request), error: nil)
+            } catch {
+                self.sendCLIResponse(requestID: requestID, data: nil, error: error.localizedDescription)
+            }
+        }
+        return true
+    }
+
+    private func sendCLIResponseAsync(requestID: String, data: Data?, error: String?) {
+        cliRequestQueue.async { [weak self] in
+            self?.sendCLIResponse(requestID: requestID, data: data, error: error)
+        }
+    }
+
     func consumePTYEventPayload(_ payload: [String: Any]) -> Bool {
         guard let eventName = (payload["event"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -218,6 +266,10 @@ extension RemoteDaemonRPCClient {
             subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
             event = .data(Self.decodeBase64Data(payload["data_base64"]))
 
+        case "pty.input_ack":
+            subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
+            event = .inputAck(seq: rpcEventUInt64Value(payload["seq"]))
+
         case "pty.exit":
             subscription = ptySubscriptions.removeValue(forKey: key)
                 ?? ptySubscriptions.removeValue(forKey: legacyKey)
@@ -239,6 +291,23 @@ extension RemoteDaemonRPCClient {
             subscription.handler(event)
         }
         return true
+    }
+
+    func sendCLIResponse(requestID: String, data: Data?, error: String?) {
+        var params: [String: Any] = ["request_id": requestID]
+        if let data {
+            params["ok"] = true
+            params["data_base64"] = data.base64EncodedString()
+        } else {
+            params["ok"] = false
+            params["error"] = error ?? "cmux app rejected cloud CLI request"
+        }
+        do {
+            _ = try call(method: "cli.response", params: params, timeout: 4.0)
+        } catch {
+            // The originating terminal command will time out and show the
+            // daemon-side failure. There is no local UI surface to report here.
+        }
     }
 
     func handleProcessTermination(_ process: Process) {
@@ -312,5 +381,18 @@ extension RemoteDaemonRPCClient {
             attachmentID.trimmingCharacters(in: .whitespacesAndNewlines),
             token,
         ].joined(separator: "\u{1f}")
+    }
+}
+
+private func rpcEventUInt64Value(_ value: Any?) -> UInt64 {
+    switch value {
+    case let number as UInt64:
+        return number
+    case let number as Int:
+        return number > 0 ? UInt64(number) : 0
+    case let number as NSNumber:
+        return number.uint64Value
+    default:
+        return 0
     }
 }

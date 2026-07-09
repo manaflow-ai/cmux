@@ -139,6 +139,7 @@ export const agentReadablePages = [
   { path: "/docs", title: "Docs" },
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
+  { path: "/docs/base", title: "Base" },
   { path: "/docs/workspace-groups", title: "Workspace Groups" },
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/textbox", title: "TextBox" },
@@ -165,6 +166,10 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-codex",
     title: "oh-my-codex",
+  },
+  {
+    path: "/docs/agent-integrations/oh-my-pi",
+    title: "oh-my-pi",
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",

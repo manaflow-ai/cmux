@@ -9,62 +9,70 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onOuterFocus: () -> Void
-    @State private var sizingRetryTask: Task<Void, Never>?
+    @Environment(\.displayScale) private var displayScale
+    @State private var containerSize: CGSize = .zero
 
     var body: some View {
-        GeometryReader { geo in
-            BonsplitView(controller: mirror.bonsplitController) { tab, paneId in
-                if let tmuxPaneId = mirror.tmuxPaneId(forTab: tab.id),
-                   let panel = mirror.panel(forPane: tmuxPaneId) {
-                    TerminalPanelView(
-                        panel: panel,
-                        paneId: paneId,
-                        isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
-                        isVisibleInUI: isVisibleInUI,
-                        portalPriority: portalPriority,
-                        isSplit: true,
-                        appearance: appearance,
-                        hasUnreadNotification: false,
-                        terminalAgentContext: "",
-                        onFocus: {
-                            onOuterFocus()
-                            mirror.setActivePane(tmuxPaneId, fromTmux: false)
-                        },
-                        onResumeAgentHibernation: {},
-                        onAutoResumeAgentHibernation: {},
-                        onTriggerFlash: {}
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onTapGesture {
+        BonsplitView(controller: mirror.bonsplitController) { tab, paneId in
+            if let tmuxPaneId = mirror.tmuxPaneId(forTab: tab.id),
+               let panel = mirror.panel(forPane: tmuxPaneId) {
+                TerminalPanelView(
+                    panel: panel,
+                    paneId: paneId,
+                    isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    isSplit: true,
+                    appearance: appearance,
+                    hasUnreadNotification: false,
+                    terminalAgentContext: "",
+                    onFocus: {
                         onOuterFocus()
-                        mirror.bonsplitController.focusPane(paneId)
-                    }
-                } else {
-                    Color(nsColor: appearance.backgroundColor)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        mirror.setActivePane(tmuxPaneId, fromTmux: false)
+                    },
+                    onResumeAgentHibernation: {},
+                    onAutoResumeAgentHibernation: {},
+                    onTriggerFlash: {}
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onTapGesture {
+                    onOuterFocus()
+                    mirror.bonsplitController.focusPane(paneId)
                 }
-            } emptyPane: { _ in
+            } else {
                 Color(nsColor: appearance.backgroundColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .internalOnlyTabDrag()
-            .frame(width: geo.size.width, height: geo.size.height)
-            .onAppear { scheduleClientSize(geo.size) }
-            .onChange(of: geo.size) { _, newSize in scheduleClientSize(newSize) }
-            .onDisappear { sizingRetryTask?.cancel() }
+        } emptyPane: { _ in
+            Color(nsColor: appearance.backgroundColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .internalOnlyTabDrag()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.backgroundColor))
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { newSize in
+            containerSize = newSize
+            pushClientSize(pointSize: newSize)
+        }
+        .onAppear {
+            mirror.isVisibleForSizing = isVisibleInUI
+            if isVisibleInUI { pushClientSize(pointSize: containerSize) }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            mirror.isVisibleForSizing = visible
+            if visible { pushClientSize(pointSize: containerSize) }
+        }
+        .onChange(of: mirror.layoutStructureVersion) { _, _ in
+            pushClientSize(pointSize: containerSize)
+        }
     }
 
-    private func scheduleClientSize(_ size: CGSize) {
-        sizingRetryTask?.cancel()
-        if mirror.updateClientSize(contentSizePoints: size) { return }
-        sizingRetryTask = Task { @MainActor in
-            for _ in 0..<20 {
-                do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
-                if mirror.updateClientSize(contentSizePoints: size) { return }
-            }
-        }
+    private func pushClientSize(pointSize: CGSize) {
+        mirror.isVisibleForSizing = isVisibleInUI
+        guard pointSize.width > 0, pointSize.height > 0 else { return }
+        mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
+        _ = mirror.updateClientSize()
     }
 }

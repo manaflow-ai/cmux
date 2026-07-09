@@ -140,6 +140,7 @@ final class MobileWorkspaceListObserver {
         for tabs: [Workspace],
         notificationStore: TerminalNotificationStore?
     ) -> [UUID: Int] {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasStore=\(notificationStore != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let notificationStore else { return [:] }
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
@@ -185,6 +186,16 @@ final class MobileWorkspaceListObserver {
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                // Todo status override + checklist are workspace-list-facing
+                // (status lane, checklist progress) and live in their own
+                // sub-model, so a pure todo mutation would otherwise never
+                // re-emit to external listeners.
+                workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryChangeRevisionPublisher()
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
+                workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
@@ -199,6 +210,7 @@ final class MobileWorkspaceListObserver {
     }
 
     private func emitIfNeeded(force: Bool) {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
         let hash = Self.summaryHash(
             for: tabManager.tabs,
@@ -241,6 +253,7 @@ final class MobileWorkspaceListObserver {
         selectedTabID: UUID?,
         previewSignatures: [UUID: Int]
     ) -> Int {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         var hasher = Hasher()
         hasher.combine(tabs.count)
         hasher.combine(selectedTabID)
@@ -274,9 +287,13 @@ final class MobileWorkspaceListObserver {
             hasher.combine(panelIDs)
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
-                hasher.combine(workspace.panelDirectories[id])
+                hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
-            hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.presentedCurrentDirectory)
+            // Todo mutations change the list-facing shape; without these the
+            // hash-diff would suppress the re-emit the publishers above fire.
+            hasher.combine(workspace.todoState.statusOverride)
+            hasher.combine(workspace.todoState.checklist)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel
             // registers. The ordered loop above already covers in-panel

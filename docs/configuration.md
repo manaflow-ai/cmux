@@ -61,6 +61,29 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `ui.newWorkspace.menuSectionOrder`
+
+Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
+
+Values: `customFirst`, `cloudFirst`.
+
+Default: `cloudFirst`.
+
+```json
+{
+  "ui": {
+    "newWorkspace": {
+      "menuSectionOrder": "customFirst",
+      "contextMenu": [
+        "newWorkspace"
+      ]
+    }
+  }
+}
+```
+
+`sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
+
 ## `terminal.agentHibernation`
 
 Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.
@@ -82,6 +105,26 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `sidebar.showAgentActivity`
+
+Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).
+
+```json
+{
+  "sidebar": {
+    "showAgentActivity": true,
+    "loadingSpinnerPosition": "leading",
+    "notificationBadgePosition": "leading"
+  }
+}
+```
+
+- `showAgentActivity`: show the spinner at all. Default: `true`. It is a live status signal, so it stays visible even when `sidebar.hideAllDetails` is on. Toggle it from **Settings > Sidebar > Show Loading Spinner**.
+- `loadingSpinnerPosition`: `leading` (left, sharing the unread-badge slot) or `trailing` (right, in the close-button corner). Default: `leading`.
+- `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `leading`.
+
+The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
@@ -226,3 +269,31 @@ Default: `unified`.
 ```
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
+
+## `sidebar.beta.workspaceTodos.checklistStyle`
+
+Workspace todos are always available. Status is inferred from live signals (agent needs input / agent running / open PR / merged PRs / dirty tree) and can be pinned manually from the glyph's status popover, the row's context menu (Status submenu, Mark as Done), the command palette, or `cmux workspace status set <lane|auto>`; checklists are managed from the row, the workspace todo pane (`cmux todo open`), `cmux todo ...`, or by agents over the control socket.
+
+`checklistStyle` picks how a row's checklist opens from its summary line: `popover` (default) anchors a checklist popover to the summary line; `inline` expands the items under the row like round one.
+
+```json
+{
+  "sidebar": {
+    "beta": {
+      "workspaceTodos": {
+        "checklistStyle": "popover"
+      }
+    }
+  }
+}
+```
+
+Default: `enabled: false`. The setting turns on automatically the first time a status or checklist mutation succeeds from any entrypoint.
+
+Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyboard Shortcuts** or `shortcuts.bindings`:
+
+- `markWorkspaceDone` (default `cmd+;`) pins the selected workspace's status to done.
+- `cycleWorkspaceStatus` (default `cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
+- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
+
+cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.

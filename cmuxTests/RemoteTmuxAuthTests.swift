@@ -378,14 +378,18 @@ import Testing
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         connection.handleMessageForTesting(.layoutChange(
             windowId: 1,
-            layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
+            layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}",
+            visibleLayout: nil,
+            zoomed: false
         ))
         connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
         connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
         connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
         connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
 
-        connection.handleMessageForTesting(.layoutChange(windowId: 1, layout: "f92f,80x24,0,0,4"))
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1, layout: "f92f,80x24,0,0,4", visibleLayout: nil, zoomed: false
+        ))
 
         #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
         #expect(connection.snapshot().paneOutputByteCounts[5] == nil)

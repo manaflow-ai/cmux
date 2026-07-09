@@ -1,5 +1,6 @@
 import Combine
 import CmuxCore
+import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
 import SwiftUI
@@ -35,6 +36,9 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let taskStatusOverride: WorkspaceTaskStatusOverride?
+    let statusHidden: Bool
+    let checklist: [WorkspaceChecklistItem]
 }
 
 private struct SidebarObservationState: Equatable {
@@ -43,6 +47,7 @@ private struct SidebarObservationState: Equatable {
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
     let panelDirectoryDisplayLabels: [UUID: String]
+    let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -85,10 +90,18 @@ extension Workspace {
             $latestSubmittedMessage,
             $latestSubmittedAt
         )
+        // Todo state is row-affecting (status pill, checklist progress) but
+        // lives in its own sub-model, so fold its publishers in here the same
+        // way the workspace's own @Published fields are.
+        let todoFields = Publishers.CombineLatest3(
+            todoState.$statusOverride,
+            todoState.$statusHidden,
+            todoState.$checklist
+        )
 
         return workspaceFields
-            .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
+            .combineLatest(conversationFields, todoFields)
+            .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
                     title: workspaceFields.0,
                     customDescription: workspaceFields.1,
@@ -96,7 +109,10 @@ extension Workspace {
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
-                    latestSubmittedAt: conversationFields.2
+                    latestSubmittedAt: conversationFields.2,
+                    taskStatusOverride: todoFields.0,
+                    statusHidden: todoFields.1,
+                    checklist: todoFields.2
                 )
             }
             .removeDuplicates()
@@ -149,6 +165,7 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
+        let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
@@ -156,8 +173,10 @@ extension Workspace {
             remoteFields
         )
             .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
-            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
+            .combineLatest(directoryChangeRevision)
+            .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
+                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -168,6 +187,7 @@ extension Workspace {
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
+                    directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,

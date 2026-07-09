@@ -1,0 +1,285 @@
+{
+  "defaults": { "timeout_ms": 5000 },
+  "fixtures": [
+    {
+      "name": "identify",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "identify" },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 6 } },
+          "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "server-client-control",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "ping" },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 6 } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "set-window-title", "title": "cmux-conformance" },
+          "expect": { "id": 2, "ok": true, "data": {} },
+          "match": "exact"
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "clear-window-title" },
+          "expect": { "id": 3, "ok": true, "data": {} },
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "name": "workspace-tab-split-rename",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-tree", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "list-workspaces" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial",
+          "bind": {
+            "workspace0": "data.workspaces[0].id",
+            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+          }
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "new-tab", "pane": "$pane0" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial",
+          "bind": { "surface1": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "split", "pane": "$pane0", "dir": "right" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial",
+          "bind": { "surface2": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 5, "cmd": "rename-surface", "surface": "$surface1", "name": "renamed-tab" },
+          "expect": { "id": 5, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 6, "cmd": "list-workspaces" },
+          "expect": { "id": 6, "ok": true },
+          "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "move-tab-same-position",
+      "requires": { "commands": ["move-tab"] },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-move-tab", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "list-workspaces" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial",
+          "bind": { "pane0": "data.workspaces[1].screens[0].panes[0].id" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "move-tab", "surface": "$surface0", "pane": "$pane0", "index": 0 },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "window-manager-layout-ops",
+      "requires": { "commands": ["export-layout", "pane-neighbor", "zoom-pane"] },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-wm", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "list-workspaces" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial",
+          "bind": { "pane0": "data.workspaces[2].screens[0].panes[0].id" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "split", "pane": "$pane0", "dir": "right" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "list-workspaces" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial",
+          "bind": { "pane1": "data.workspaces[2].screens[0].panes[1].id" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 5, "cmd": "export-layout" },
+          "expect": {
+            "id": 5,
+            "ok": true,
+            "data": {
+              "layout": { "type": "split", "dir": "right", "ratio": 0.5 },
+              "panes": [{ "pane": "$pane0" }, { "pane": "$pane1" }]
+            }
+          },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 6, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
+          "expect": { "id": 6, "ok": true, "data": { "pane": "$pane1" } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 7, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
+          "expect": { "id": 7, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
+          "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "subscribe-tree-changed",
+      "steps": [
+        {
+          "type": "stream",
+          "name": "events",
+          "request": { "id": 1, "cmd": "subscribe" },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "new-workspace", "name": "conf-events", "cols": 80, "rows": 24 },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "events",
+          "expect": [
+            { "event": "tree-changed" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "send-read-screen-round-trip",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-io", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "send", "surface": "$surface0", "text": "printf 'cmux-conformance-marker\\n'\r" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "wait_contains",
+          "request": { "id": 3, "cmd": "read-screen", "surface": "$surface0" },
+          "path": "data.text",
+          "contains": "cmux-conformance-marker",
+          "timeout_ms": 10000
+        }
+      ]
+    },
+    {
+      "name": "implemented-verbs-json",
+      "requires": {
+        "commands": ["run", "wait-for", "send-key", "copy", "ids", "notify", "list-agents", "report-agent"]
+      },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "run", "command": "printf 'cmux-run-marker\\n'; cat", "name": "conf-run", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "wait_contains",
+          "request": { "id": 2, "cmd": "copy", "surface": "$surface0", "mode": "screen" },
+          "path": "data.text",
+          "contains": "cmux-run-marker",
+          "timeout_ms": 10000
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "wait-for", "surface": "$surface0", "pattern": "cmux-run-marker", "timeout_ms": 5000 },
+          "expect": { "id": 3, "ok": true, "data": { "matched": true } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "ids", "kind": "surface" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 5, "cmd": "notify", "title": "Build", "body": "ok", "level": "info", "surface": "$surface0" },
+          "expect": { "id": 5, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 6, "cmd": "report-agent", "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" },
+          "expect": { "id": 6, "ok": true, "data": { "state": "working", "source": "socket", "session": "conf" } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 7, "cmd": "list-agents", "surface": "$surface0", "state": "working" },
+          "expect": { "id": 7, "ok": true, "data": { "agents": [ { "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" } ] } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 8, "cmd": "send-key", "surface": "$surface0", "keys": ["h", "i", "enter"] },
+          "expect": { "id": 8, "ok": true, "data": {} },
+          "match": "partial"
+        },
+        {
+          "type": "wait_contains",
+          "request": { "id": 9, "cmd": "copy", "surface": "$surface0", "mode": "scrollback" },
+          "path": "data.text",
+          "contains": "hi",
+          "timeout_ms": 10000
+        }
+      ]
+    }
+  ]
+}

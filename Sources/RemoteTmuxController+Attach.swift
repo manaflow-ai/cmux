@@ -32,14 +32,20 @@ extension RemoteTmuxController {
         try Task.checkCancellation()
         try await ensureControlMasterReadyForBurst(host: host)
 
-        // Post-await re-resolve: prefer the manager already hosting this host's
-        // mirrors, then the dispatch-time requested manager — but only while its
-        // window is still open (a mid-flight close must not mirror into a dead
-        // manager) — then the key window.
+        // Post-await re-resolve against the app's authoritative window registry:
+        // a closing manager may still retain an NSWindow after it is no longer a
+        // valid routing target.
+        let liveRequestedManager = requestedManager.flatMap { manager in
+            appDelegate.windowId(for: manager) == nil ? nil : manager
+        }
+        let liveFallbackManager = appDelegate.tabManager.flatMap { manager in
+            appDelegate.windowId(for: manager) == nil ? nil : manager
+        }
         let targetManager = existingMirrorManager(for: host)
-            ?? (requestedManager?.window != nil ? requestedManager : nil)
-            ?? appDelegate.tabManager
-        guard let targetManager else {
+            ?? liveRequestedManager
+            ?? liveFallbackManager
+        guard let targetManager,
+              let resolvedWindowId = appDelegate.windowId(for: targetManager) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
 
@@ -50,14 +56,11 @@ extension RemoteTmuxController {
             throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
         }
 
-        let resolvedWindowId = appDelegate.windowId(for: targetManager)
-            ?? workspaceIds.lazy.compactMap { appDelegate.tabManagerFor(tabId: $0) }.compactMap { appDelegate.windowId(for: $0) }.first
-            ?? appDelegate.tabManager.flatMap { appDelegate.windowId(for: $0) }
-        if activate, let windowId = resolvedWindowId {
+        if activate {
             selectFirstMirrorWorkspace(for: host, in: targetManager)
-            _ = appDelegate.focusMainWindow(windowId: windowId)
+            _ = appDelegate.focusMainWindow(windowId: resolvedWindowId)
         }
-        return .mirrored(windowId: resolvedWindowId ?? Self.unresolvedMirrorWindowId, workspaceIds: workspaceIds)
+        return .mirrored(windowId: resolvedWindowId, workspaceIds: workspaceIds)
     }
 
     @discardableResult
@@ -97,7 +100,4 @@ extension RemoteTmuxController {
         tabManager.selectWorkspace(workspace)
     }
 
-    private static var unresolvedMirrorWindowId: UUID {
-        UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
-    }
 }

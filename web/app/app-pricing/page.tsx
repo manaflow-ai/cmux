@@ -6,7 +6,7 @@ import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { validatedNativeCallbackScheme } from "../lib/native-callback";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import { appPricingCheckoutURL } from "../lib/billing";
+import { appPricingCheckoutURL, isAppStoreDistributionMode } from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   CurrentPlanBadge,
@@ -46,6 +46,7 @@ export default async function AppPricingPage({
     firstParam(params.cmux_scheme),
     appPricingRequest(headersList),
   );
+  const appStorePaymentGated = isAppStoreDistributionMode(params);
   const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
   const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
   const banner = appPricingBanner(params);
@@ -98,7 +99,7 @@ export default async function AppPricingPage({
               <p className="mt-5 text-sm font-medium text-muted">
                 {pricing.free.featuresLead}
               </p>
-              <FeatureList items={pricing.free.features} muted />
+              <FeatureList items={pricing.free.features} />
             </PlanCard>
 
             <PlanCard
@@ -114,10 +115,18 @@ export default async function AppPricingPage({
               {snapshot.isPro ? (
                 <div className="space-y-2">
                   <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                  <SecondaryLink href="/api/billing/portal">
-                    {pricing.manageBilling}
-                  </SecondaryLink>
+                  {snapshot.billingManagement === "stripe" && !appStorePaymentGated ? (
+                    <SecondaryLink href="/api/billing/portal">
+                      {pricing.manageBilling}
+                    </SecondaryLink>
+                  ) : (
+                    <p className="text-sm leading-6 text-muted">
+                      {pricing.billingExternal}
+                    </p>
+                  )}
                 </div>
+              ) : appStorePaymentGated ? (
+                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
               ) : (
                 <PrimaryLink href={proCheckoutURL}>{pricing.pro.cta}</PrimaryLink>
               )}
@@ -132,7 +141,11 @@ export default async function AppPricingPage({
               price={pricing.team.price}
               period={pricing.perUserMonth}
             >
-              <PrimaryLink href={teamCheckoutURL}>{pricing.team.cta}</PrimaryLink>
+              {appStorePaymentGated ? (
+                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+              ) : (
+                <PrimaryLink href={teamCheckoutURL}>{pricing.team.cta}</PrimaryLink>
+              )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.team.featuresLead}
               </p>
@@ -143,9 +156,13 @@ export default async function AppPricingPage({
               name={pricing.enterprise.name}
               price={pricing.enterprise.price}
             >
-              <SecondaryLink href={ENTERPRISE_CTA_URL}>
-                {pricing.enterprise.cta}
-              </SecondaryLink>
+              {appStorePaymentGated ? (
+                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+              ) : (
+                <SecondaryLink href={ENTERPRISE_CTA_URL}>
+                  {pricing.enterprise.cta}
+                </SecondaryLink>
+              )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.enterprise.featuresLead}
               </p>
@@ -180,17 +197,23 @@ export default async function AppPricingPage({
                   ),
                 pro: snapshot.isPro ? (
                   <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
+                ) : appStorePaymentGated ? (
+                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
                 ) : (
                   <PrimaryLink href={proCheckoutURL} size="compact">
                     {pricing.pro.cta}
                   </PrimaryLink>
                 ),
-                team: (
+                team: appStorePaymentGated ? (
+                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
+                ) : (
                   <PrimaryLink href={teamCheckoutURL} size="compact">
                     {pricing.team.cta}
                   </PrimaryLink>
                 ),
-                enterprise: (
+                enterprise: appStorePaymentGated ? (
+                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
+                ) : (
                   <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
                     {pricing.enterprise.cta}
                   </SecondaryLink>
@@ -231,17 +254,30 @@ type AppPlanSnapshot = {
   authenticated: boolean;
   planId: string;
   isPro: boolean;
+  billingManagement: "stripe" | "external" | "none";
   email: string | null;
 };
 
 async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
   if (!isStackConfigured()) {
-    return { authenticated: false, planId: FREE_PLAN_ID, isPro: false, email: null };
+    return {
+      authenticated: false,
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+      email: null,
+    };
   }
 
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { authenticated: false, planId: FREE_PLAN_ID, isPro: false, email: null };
+    return {
+      authenticated: false,
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+      email: null,
+    };
   }
 
   const status = await resolveProPlanStatus(user);
@@ -249,6 +285,7 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
     authenticated: !user.isAnonymous,
     planId: status.planId,
     isPro: status.isPro,
+    billingManagement: status.billingManagement,
     email: user.primaryEmail,
   };
 }
@@ -285,6 +322,9 @@ function appPricingBanner(
   if (billing === "unavailable") {
     return { message: pricing.billingUnavailable };
   }
+  if (billing === "external") {
+    return { message: pricing.billingExternal };
+  }
   if (billing === "cancelled") {
     return { message: pricing.billingCancelled };
   }
@@ -311,7 +351,7 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
           {" "}
           <a
             href={banner.action.href}
-            className="underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+            className="underline underline-offset-2 decoration-link-underline transition-colors hover:decoration-foreground"
           >
             {banner.action.label}
           </a>

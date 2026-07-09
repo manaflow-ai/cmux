@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Freestyle } from "freestyle";
 import {
   cloudAgentToolPackageSpecs,
@@ -6,6 +9,9 @@ import {
   cloudImageSmokeTestCommands,
   cloudShellPackageNames,
   cloudToolInstallCommands,
+  daytonaEntrypointCommands,
+  toDockerfileRunCommand,
+  daytonaSnapshotImage,
   findFreestyleSnapshotByName,
   freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
@@ -184,6 +190,88 @@ describe("Cloud VM image build helpers", () => {
     );
     expect(browserSmoke).toContain("--socket /tmp/cmux-browser-smoke.sock browser");
     expect(browserSmoke).toContain("requires a subcommand");
+  });
+
+  test("image smoke checks include useful shell tools", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("gh --version");
+    expect(smoke).toContain("htop --version");
+    expect(smoke).toContain("btop --version");
+    expect(smoke).toContain("tmux -V");
+    expect(smoke).toContain("zsh --version");
+    expect(smoke).toContain("/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh");
+  });
+
+  test("image smoke checks require the VM-local cmux CLI on PATH", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux");
+    expect(smoke).toContain("cmux --help");
+  });
+
+  test("Freestyle Dockerfile bakes signed-admin service from public key only", () => {
+    const previousPublic = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY;
+    const previousPrivate = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED;
+    try {
+      process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = "LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=";
+      process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = "private-seed-must-not-be-baked";
+      const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+      expect(dockerfile).toContain(
+        "CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=",
+      );
+      expect(dockerfile).toContain("multi-user.target.wants/cmuxd-ws.service");
+      expect(dockerfile).not.toContain("private-seed-must-not-be-baked");
+    } finally {
+      if (previousPublic === undefined) {
+        delete process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY;
+      } else {
+        process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = previousPublic;
+      }
+      if (previousPrivate === undefined) {
+        delete process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED;
+      } else {
+        process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = previousPrivate;
+      }
+    }
+  });
+
+  test("Daytona image bakes the entrypoint supervisor for cmuxd-remote on 7777", () => {
+    // Image.addLocalFile validates the context file at construction time.
+    const daemonPath = path.join(tmpdir(), `cmuxd-remote-test-${process.pid}`);
+    writeFileSync(daemonPath, "stub");
+    const dockerfile = daytonaSnapshotImage(daemonPath).dockerfile;
+    expect(dockerfile).toContain("FROM ubuntu:24.04");
+    expect(dockerfile).toContain("/usr/local/bin/cmuxd-remote");
+    expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/cmux-daytona-entrypoint"]');
+    // Every line must be a real Dockerfile instruction: multi-line shell (heredoc profile and
+    // entrypoint writers) has to be wrapped by toDockerfileRunCommand, or the Daytona builder
+    // fails with "unknown instruction" at snapshot-create time.
+    const instruction = /^(#|FROM|RUN|ENV|COPY|ADD|ENTRYPOINT|CMD|WORKDIR|USER|ARG|LABEL|EXPOSE|SHELL)\b/;
+    for (const line of dockerfile.split("\n")) {
+      if (line.trim() === "") continue;
+      expect(line).toMatch(instruction);
+    }
+    // Daytona attach is preview-URL WebSockets and even Daytona's own SSH gateway
+    // terminates in the runner daemon, so no sshd belongs in the image.
+    expect(dockerfile).not.toContain("openssh-server");
+    expect(dockerfile).not.toContain("sshd");
+  });
+
+  test("toDockerfileRunCommand wraps multi-line shell and round-trips it", () => {
+    expect(toDockerfileRunCommand("echo one-liner")).toBe("echo one-liner");
+    const multi = daytonaEntrypointCommands()[0]!;
+    const wrapped = toDockerfileRunCommand(multi);
+    expect(wrapped).not.toContain("\n");
+    const encoded = wrapped.match(/printf '%s' '([^']+)' \| base64 -d \| sh/)?.[1];
+    expect(encoded).toBeTruthy();
+    expect(Buffer.from(encoded!, "base64").toString("utf8")).toBe(multi);
+  });
+
+  test("Daytona entrypoint restarts the daemon and keeps lease dir private", () => {
+    const script = daytonaEntrypointCommands().join("\n");
+    expect(script).toContain("mkdir -p /tmp/cmux");
+    expect(script).toContain("chmod 700 /tmp/cmux");
+    expect(script).toContain("while true; do");
+    expect(script).toContain("chmod 0755 /usr/local/bin/cmux-daytona-entrypoint");
   });
 
   test("image smoke checks cover baked toolchain commands", () => {

@@ -76,7 +76,7 @@ export function PlanCard({
   children: ReactNode;
 }) {
   return (
-    <div className="relative flex h-full flex-col border border-border p-6">
+    <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
       <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
       <div className="mt-3 flex items-baseline gap-1.5">
@@ -88,19 +88,9 @@ export function PlanCard({
   );
 }
 
-export function FeatureList({
-  items,
-  muted,
-}: {
-  items: string[];
-  muted?: boolean;
-}) {
+export function FeatureList({ items }: { items: string[] }) {
   return (
-    <ul
-      className={`mt-4 space-y-2.5 text-[15px] leading-relaxed ${
-        muted ? "text-muted" : ""
-      }`}
-    >
+    <ul className="mt-4 space-y-2.5 text-[15px] leading-relaxed">
       {items.map((item, i) => (
         <li key={i} className="flex gap-2.5">
           <CheckIcon />
@@ -194,46 +184,48 @@ export function PricingCompareTable({
   const gridTemplateColumns = "minmax(12rem,2fr) repeat(4,minmax(8rem,1fr))";
 
   return (
-    <div>
-      <div
-        className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
-        style={{ gridTemplateColumns }}
-      >
-        <div className="pr-4" />
-        <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
-        <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
-        <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
-        <ColumnHead
-          name={names.enterprise}
-          price={prices.enterprise}
-          action={actions?.enterprise}
-        />
+    <div className="max-md:overflow-x-auto">
+      <div className="max-md:min-w-[44rem]">
+        <div
+          className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
+          style={{ gridTemplateColumns }}
+        >
+          <div className="pr-4" />
+          <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
+          <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
+          <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
+          <ColumnHead
+            name={names.enterprise}
+            price={prices.enterprise}
+            action={actions?.enterprise}
+          />
+        </div>
+        <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
+          <colgroup>
+            <col className="w-[33.333%]" />
+            <col className="w-[16.667%]" />
+            <col className="w-[16.667%]" />
+            <col className="w-[16.667%]" />
+            <col className="w-[16.667%]" />
+          </colgroup>
+          <tbody>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <th
+                scope="row"
+                className="border-b border-border py-3 pr-4 text-left align-top font-normal"
+              >
+                {row.label}
+              </th>
+              <CompareCell value={row.free} />
+              <CompareCell value={row.pro} />
+              <CompareCell value={row.team} />
+              <CompareCell value={row.enterprise} />
+            </tr>
+          ))}
+          </tbody>
+        </table>
       </div>
-      <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
-        <colgroup>
-          <col className="w-[33.333%]" />
-          <col className="w-[16.667%]" />
-          <col className="w-[16.667%]" />
-          <col className="w-[16.667%]" />
-          <col className="w-[16.667%]" />
-        </colgroup>
-        <tbody>
-        {rows.map((row, i) => (
-          <tr key={i}>
-            <th
-              scope="row"
-              className="border-b border-border py-3 pr-4 text-left align-top font-normal"
-            >
-              {row.label}
-            </th>
-            <CompareCell value={row.free} />
-            <CompareCell value={row.pro} />
-            <CompareCell value={row.team} />
-            <CompareCell value={row.enterprise} />
-          </tr>
-        ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -259,8 +251,8 @@ export function PricingSizeTable({
         {title}
       </h2>
       <p className="max-w-2xl text-[15px] text-muted">{body}</p>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full border-collapse text-[15px]">
+      <div className="mt-4 max-md:overflow-x-auto">
+        <table className="w-full max-md:min-w-[42rem] border-collapse text-[15px]">
           <thead>
             <tr className="border-b border-border">
               <th className="py-3 pr-4 text-left align-bottom font-medium min-w-[10rem]">

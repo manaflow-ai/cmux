@@ -17,7 +17,7 @@ import Testing
             ])
         )
 
-        let grid = RemoteTmuxMirrorLayoutMath.clientGrid(
+        let grid = RemoteTmuxWindowMirror.clientGrid(
             layout: layout,
             contentSize: CGSize(width: 800, height: 300),
             cellSize: CGSize(width: 10, height: 10),
@@ -38,7 +38,7 @@ import Testing
             ])
         )
 
-        let grid = RemoteTmuxMirrorLayoutMath.clientGrid(
+        let grid = RemoteTmuxWindowMirror.clientGrid(
             layout: layout,
             contentSize: CGSize(width: 800, height: 300),
             cellSize: CGSize(width: 10, height: 10),
@@ -55,7 +55,7 @@ import Testing
             "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}"
         ))
 
-        let grid = RemoteTmuxMirrorLayoutMath.clientGrid(
+        let grid = RemoteTmuxWindowMirror.clientGrid(
             layout: layout,
             contentSize: CGSize(width: 1_200, height: 400),
             cellSize: CGSize(width: 10, height: 10),
@@ -75,7 +75,7 @@ import Testing
             Issue.record("Expected horizontal root")
             return
         }
-        #expect(RemoteTmuxMirrorLayoutMath.dividerFraction(
+        #expect(RemoteTmuxWindowMirror.dividerFraction(
             first: rootChildren[0],
             rest: [rootChildren[1]],
             horizontal: true
@@ -85,7 +85,7 @@ import Testing
             Issue.record("Expected nested vertical split")
             return
         }
-        #expect(RemoteTmuxMirrorLayoutMath.dividerFraction(
+        #expect(RemoteTmuxWindowMirror.dividerFraction(
             first: nestedChildren[0],
             rest: [nestedChildren[1]],
             horizontal: false
@@ -94,7 +94,7 @@ import Testing
 
     @Test func tinyAreaClampsToMinimumGrid() {
         let layout = RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(1))
-        let grid = RemoteTmuxMirrorLayoutMath.clientGrid(
+        let grid = RemoteTmuxWindowMirror.clientGrid(
             layout: layout,
             contentSize: CGSize(width: 20, height: 20),
             cellSize: CGSize(width: 10, height: 10),
@@ -107,8 +107,8 @@ import Testing
     }
 
     @Test func paneTitleUsesCommandThenShellCwdThenNil() {
-        #expect(RemoteTmuxMirrorLayoutMath.paneTitle(command: "vim", cwd: "/tmp/project") == "vim")
-        #expect(RemoteTmuxMirrorLayoutMath.paneTitle(command: "zsh", cwd: "/tmp/project") == "project")
-        #expect(RemoteTmuxMirrorLayoutMath.paneTitle(command: "", cwd: nil) == nil)
+        #expect(RemoteTmuxWindowMirror.paneTitle(command: "vim", cwd: "/tmp/project") == "vim")
+        #expect(RemoteTmuxWindowMirror.paneTitle(command: "zsh", cwd: "/tmp/project") == "project")
+        #expect(RemoteTmuxWindowMirror.paneTitle(command: "", cwd: nil) == nil)
     }
 }

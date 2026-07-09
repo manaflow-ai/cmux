@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 const linkClass =
-  "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+  "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
 export default function IosPage() {
   const t = useTranslations("docs.ios");

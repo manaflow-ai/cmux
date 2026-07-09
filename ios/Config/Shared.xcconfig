@@ -13,7 +13,7 @@ PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios
 // release with ios/scripts/bump-ios-version.sh. Keep this human-meaningful and
 // tellable; CFBundleVersion (CURRENT_PROJECT_VERSION) is the monotonic build id
 // (a UTC timestamp stamped by ios/scripts/upload-testflight.sh on TestFlight).
-MARKETING_VERSION = 1.0.3
+MARKETING_VERSION = 1.0.1
 CURRENT_PROJECT_VERSION = 1
 
 // Dev-build identity, surfaced in-app (Settings > About) so a DEBUG dogfood

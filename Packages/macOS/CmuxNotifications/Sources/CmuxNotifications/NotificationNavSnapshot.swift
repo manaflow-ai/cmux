@@ -15,26 +15,38 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     /// The id of the surface within the workspace, when the notification is
     /// scoped to a specific surface rather than the workspace as a whole.
     public let surfaceId: UUID?
+    /// The owning terminal panel id, when known by the app target.
+    public let panelId: UUID?
     /// Whether the notification has already been read.
     public let isRead: Bool
     /// The notification's click action, if any. When present the notification
     /// opens via ``NotificationClickRouting`` (a side effect such as revealing a
     /// path in Finder) rather than focusing a terminal surface.
     public let clickAction: NotificationNavClickAction?
+    /// Bottom-relative terminal scrollback row captured when the notification was recorded.
+    public let scrollRow: Int?
+    /// Total terminal scrollback rows visible to Ghostty when `scrollRow` was captured.
+    public let scrollTotalRows: Int?
 
     /// Creates a navigation snapshot of a notification.
     public init(
         id: UUID,
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID? = nil,
         isRead: Bool,
-        clickAction: NotificationNavClickAction?
+        clickAction: NotificationNavClickAction?,
+        scrollRow: Int? = nil,
+        scrollTotalRows: Int? = nil
     ) {
         self.id = id
         self.tabId = tabId
         self.surfaceId = surfaceId
+        self.panelId = panelId
         self.isRead = isRead
         self.clickAction = clickAction
+        self.scrollRow = scrollRow
+        self.scrollTotalRows = scrollTotalRows
     }
 
     /// Whether the notification carries a click action.

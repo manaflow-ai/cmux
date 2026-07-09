@@ -73,7 +73,7 @@ export default async function PricingPage({
   const faqItems = visibleFaqItems(t.raw("faq.items") as FaqItem[]);
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   return (
     <div className="min-h-screen">
@@ -100,7 +100,7 @@ export default async function PricingPage({
             <p className="mt-5 text-sm font-medium text-muted">
               {t("free.featuresLead")}
             </p>
-            <FeatureList items={freeFeatures} muted />
+            <FeatureList items={freeFeatures} />
           </PlanCard>
 
           {/* Pro */}
@@ -117,9 +117,15 @@ export default async function PricingPage({
             {snapshot.isPro ? (
               <div className="space-y-2">
                 <DisabledButton>{t("currentPlan")}</DisabledButton>
-                <SecondaryLink href="/api/billing/portal">
-                  {t("manageBilling")}
-                </SecondaryLink>
+                {snapshot.billingManagement === "stripe" ? (
+                  <SecondaryLink href="/api/billing/portal">
+                    {t("manageBilling")}
+                  </SecondaryLink>
+                ) : (
+                  <p className="text-sm leading-6 text-muted">
+                    {t("billingExternal")}
+                  </p>
+                )}
               </div>
             ) : (
               <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
@@ -157,9 +163,8 @@ export default async function PricingPage({
         </div>
 
         {/* Compare plans. Header row is sticky under the 48px h-12 site header.
-            No overflow-x wrapper: an overflow container becomes a scroll context
-            on both axes and would anchor the sticky header to itself instead of
-            the page. */}
+            Horizontal scrolling is mobile-only so desktop keeps the page as the
+            sticky scroll container. */}
         <section className="mt-16">
           <PricingCompareTable
             rows={compareRows}
@@ -270,16 +275,19 @@ export default async function PricingPage({
   );
 }
 
-async function currentPlanSnapshot(): Promise<{ isPro: boolean }> {
+async function currentPlanSnapshot(): Promise<{
+  isPro: boolean;
+  billingManagement: "stripe" | "external" | "none";
+}> {
   if (!isStackConfigured()) {
-    return { isPro: false };
+    return { isPro: false, billingManagement: "none" };
   }
 
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { isPro: false };
+    return { isPro: false, billingManagement: "none" };
   }
 
   const status = await resolveProPlanStatus(user);
-  return { isPro: status.isPro };
+  return { isPro: status.isPro, billingManagement: status.billingManagement };
 }
