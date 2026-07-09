@@ -19,6 +19,7 @@ import {
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
   isAllowedAnalyticsEvent,
+  isAllowedAnalyticsProperty,
 } from "../../../../services/analytics/iosEventPolicy";
 import {
   recordIOSAnalyticsIdentities,
@@ -270,7 +271,7 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   let count = 0;
   for (const [key, value] of Object.entries(rawProperties)) {
     if (count >= MAX_ANALYTICS_EVENT_PROPERTIES) break;
-    if (isScalar(value)) {
+    if (isScalar(value) && isAllowedAnalyticsProperty(record.event, key)) {
       properties[key] = value;
       count += 1;
     }

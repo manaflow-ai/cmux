@@ -125,6 +125,39 @@ describe("iOS analytics route", () => {
     });
   });
 
+  test("drops unapproved properties from allowed analytics events", async () => {
+    let forwardedProperties: Record<string, unknown> | null = null;
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "ios_terminal_input_submitted",
+        distinct_id: "stack-user-1",
+        properties: {
+          client_id: "66666666-6666-4666-8666-666666666666",
+          byte_count: 42,
+          line_count: 2,
+          had_attachment: false,
+          terminal_text: "cat ~/.ssh/id_rsa",
+          auth_token: "secret-token",
+          prompt: "ship it",
+        },
+      }],
+    }), {
+      ...dependencies(),
+      forwardToPostHog: async (events: readonly { readonly properties: Record<string, unknown> }[]) => {
+        forwardedProperties = events[0]?.properties ?? null;
+        return { ok: true };
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(forwardedProperties).toEqual({
+      client_id: "66666666-6666-4666-8666-666666666666",
+      byte_count: 42,
+      line_count: 2,
+      had_attachment: false,
+    });
+  });
+
   test("strips authenticated identify aliases that are not durably recorded", async () => {
     let forwardedProperties: Record<string, unknown> | null = null;
     const response = await postAnalyticsEvents(jsonRequest({
