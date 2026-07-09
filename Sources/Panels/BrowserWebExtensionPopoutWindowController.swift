@@ -72,7 +72,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
             webView.load(URLRequest(url: url))
         }
         if configuration.shouldBeFocused {
-            NSApp.activate(ignoringOtherApps: false)
+            NSApp.activate()
             window.makeKeyAndOrderFront(nil)
         } else {
             window.orderFront(nil)
@@ -128,6 +128,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     }
 
     func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         completionHandler(nil)
     }

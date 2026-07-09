@@ -84,15 +84,7 @@ struct BrowserWebExtensionsCard: View {
             configurationReview: .json("browser.webExtensions"),
             searchAnchorID: "setting:browser:web-extensions",
             String(localized: "settings.browser.webExtensions", defaultValue: "Extensions"),
-            subtitle: supported
-                ? String(
-                    localized: "settings.browser.webExtensions.subtitle",
-                    defaultValue: "Safari web extensions from installed apps, or unpacked extension folders."
-                )
-                : String(
-                    localized: "settings.browser.webExtensions.unsupported",
-                    defaultValue: "Web extensions require macOS 15.4 or later."
-                )
+            subtitle: headerSubtitle
         ) {
             HStack(spacing: 8) {
                 importMenu
@@ -134,6 +126,25 @@ struct BrowserWebExtensionsCard: View {
             hasObservedValue: model.hasObservedValue
         ))
         .accessibilityIdentifier("BrowserWebExtensionsImportMenu")
+    }
+
+    private var headerSubtitle: String {
+        if !supported {
+            return String(
+                localized: "settings.browser.webExtensions.unsupported",
+                defaultValue: "Web extensions require macOS 15.4 or later."
+            )
+        }
+        if cardState.hasWriteError {
+            return String(
+                localized: "settings.browser.webExtensions.saveFailed.subtitle",
+                defaultValue: "Couldn’t save extension changes. Check cmux.json and try again."
+            )
+        }
+        return String(
+            localized: "settings.browser.webExtensions.subtitle",
+            defaultValue: "Safari web extensions from installed apps, or unpacked extension folders."
+        )
     }
 
     private var emptyRow: some View {
