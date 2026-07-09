@@ -32,7 +32,7 @@ actor MobileCoreRPCSession {
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     private let makeTransport: TransportFactory
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
-    private var transport: (any CmxByteTransport)?
+    private(set) var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
@@ -140,11 +140,6 @@ actor MobileCoreRPCSession {
     }
 
     func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
-
-    func connectionDiagnostics() async -> CmxConnectionDiagnostics? {
-        guard let transport else { return nil }
-        return await transport.connectionDiagnostics()
-    }
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }

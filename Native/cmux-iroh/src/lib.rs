@@ -930,9 +930,7 @@ fn connection_rtt_ms_impl(connection: &ConnectionInner) -> f64 {
         }
     }
 
-    fallback
-        .map(|rtt| rtt.as_secs_f64() * 1_000.0)
-        .unwrap_or(-1.0)
+    fallback.map_or(-1.0, |rtt| rtt.as_secs_f64() * 1_000.0)
 }
 
 /// Returns aggregate UDP bytes sent/received for a live iroh connection.
@@ -985,7 +983,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_stats_bytes(
     }
 }
 
-/// Returns the remote peer's EndpointId. Free with `cmux_iroh_string_free`.
+/// Returns the remote peer's `EndpointId`. Free with `cmux_iroh_string_free`.
 /// Null if the connection handle cannot be resolved.
 ///
 /// # Safety
@@ -1571,7 +1569,7 @@ mod ffi_seam_tests {
 
     #[test]
     fn relay_only_connect_requires_relay_url_and_ignores_direct_addrs() {
-        let _bind_symbol: unsafe extern "C" fn(
+        let _: unsafe extern "C" fn(
             *const u8,
             usize,
             bool,

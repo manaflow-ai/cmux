@@ -88,7 +88,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     private var didMigrate = false
 
     /// Run schema migrations exactly once, on first store access (actor-isolated).
-    private func ensureReady() throws {
+    /// Package-internal (not `private`) so the `+IrohEndpointPin` extension file
+    /// can call it; every other in-file caller is unaffected.
+    func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
         didMigrate = true
@@ -298,19 +300,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id, owner_key);")
     }
 
-    /// v5: device-local iroh EndpointId trust pin. Additive and nullable so
-    /// existing rows start unpinned; route refresh/upsert writes deliberately do
-    /// not touch this column.
-    private func migrateToV5() throws {
-        let existing = try tableColumns("paired_macs")
-        if !existing.contains("pinned_iroh_endpoint_id") {
-            try exec("ALTER TABLE paired_macs ADD COLUMN pinned_iroh_endpoint_id TEXT;")
-        }
-    }
-
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
-    /// additive column migrations idempotent.
-    private func tableColumns(_ table: String) throws -> Set<String> {
+    /// additive column migrations idempotent. Package-internal so the
+    /// `+IrohEndpointPin` extension file's `migrateToV5()` can call it.
+    func tableColumns(_ table: String) throws -> Set<String> {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let rc = sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &statement, nil)
@@ -446,27 +439,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             customColor.map(BindValue.text) ?? .null,
             customIcon.map(BindValue.text) ?? .null,
             .real(now.timeIntervalSince1970),
-            .text(macDeviceID),
-            .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")"),
-        ])
-    }
-
-    /// Persist the device-local iroh EndpointId trust pin for one paired Mac.
-    public func setPinnedIrohEndpointID(
-        macDeviceID: String,
-        endpointID: String,
-        stackUserID: String? = nil,
-        teamID: String? = nil,
-        now: Date = Date()
-    ) throws {
-        _ = now
-        try ensureReady()
-        try exec("""
-            UPDATE paired_macs
-            SET pinned_iroh_endpoint_id = ?
-            WHERE mac_device_id = ? AND owner_key = ?;
-        """, binding: [
-            .text(endpointID),
             .text(macDeviceID),
             .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")"),
         ])
@@ -779,14 +751,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     // MARK: - Statement helpers
 
-    private enum BindValue {
+    // Package-internal (not `private`) so the `+IrohEndpointPin` extension file
+    // can call `exec(_:binding:)` with typed bindings; widening `exec` to
+    // internal also requires `BindValue` to be at least internal.
+    enum BindValue {
         case text(String)
         case int(Int64)
         case real(Double)
         case null
     }
 
-    private func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
+    func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
         if parameters.isEmpty {
             let rc = sqlite3_exec(db, sql, nil, nil, nil)
             guard rc == SQLITE_OK else {
