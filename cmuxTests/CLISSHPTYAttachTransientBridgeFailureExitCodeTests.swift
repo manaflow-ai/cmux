@@ -25,6 +25,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHPTYAttachBridgeRPCTransientFailureWithoutPendingWrapperRetryCleansUp() throws {
+        // Final wrapper attempt (or direct invocation): no retry is queued,
+        // so the CLI must send pty_attach_end and release the surface.
+        try assertSSHPTYAttachBridgeRPCFailureExitCode(
+            socketName: "sshptyexhausted",
+            error: [
+                "code": "remote_pty_bridge_timeout",
+                "message": "workspace.remote.pty_bridge timed out waiting for the remote daemon",
+            ],
+            expectedStatus: 255,
+            wrapperRetryPending: false
+        )
+    }
+
     func testSSHPTYAttachUnknownFlagStaysFatal() throws {
         let cliPath = try bundledCLIPath()
         let result = runProcess(
@@ -44,7 +58,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private func assertSSHPTYAttachBridgeRPCFailureExitCode(
         socketName: String,
         error: [String: Any],
-        expectedStatus: Int32
+        expectedStatus: Int32,
+        wrapperRetryPending: Bool = true
     ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath(socketName)
@@ -93,6 +108,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
+        var environment = sshPTYAttachTestEnvironment(socketPath: socketPath)
+        if wrapperRetryPending {
+            environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+        } else {
+            environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY")
+        }
+
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
@@ -103,7 +125,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "--session-id", sessionId,
                 "--attachment-id", surfaceId,
             ],
-            environment: sshPTYAttachTestEnvironment(socketPath: socketPath),
+            environment: environment,
             timeout: 5
         )
 
@@ -113,10 +135,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
-        // Wrapper-retryable failures re-run the attach on this same surface;
-        // sending pty_attach_end here would untrack it app-side and a
-        // successful retry never re-tracks it.
-        XCTAssertFalse(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
+        if wrapperRetryPending {
+            // The wrapper re-runs the attach on this same surface; sending
+            // pty_attach_end here would untrack it app-side and a successful
+            // retry never re-tracks it.
+            XCTAssertFalse(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
+        } else {
+            // No retry is queued: the CLI must release the surface.
+            XCTAssertTrue(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
+        }
     }
 
     func testSSHPTYAttachSilentBridgeTimesOutRetryable() throws {
@@ -178,6 +205,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var environment = sshPTYAttachTestEnvironment(socketPath: socketPath)
         environment["CMUX_SSH_PTY_BRIDGE_READY_TIMEOUT_SECONDS"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
