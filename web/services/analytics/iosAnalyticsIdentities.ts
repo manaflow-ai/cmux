@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { iosAnalyticsIdentities } from "../../db/schema";
 
 const MAX_ANALYTICS_DISTINCT_ID_LENGTH = 512;
+const MAX_IOS_ANALYTICS_IDENTITIES_PER_USER = 16;
 
 export type IOSAnalyticsIdentityRuntime = {
   readonly cloudDb: typeof cloudDb;
@@ -20,22 +21,37 @@ export async function recordIOSAnalyticsIdentities(
   runtime: IOSAnalyticsIdentityRuntime = defaultIOSAnalyticsIdentityRuntime,
 ): Promise<void> {
   const anonymousIds = normalizedDistinctIds(input.anonymousIds)
-    .filter((id) => id !== input.userId);
+    .filter((id) => id !== input.userId)
+    .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_USER);
   if (anonymousIds.length === 0) return;
 
   const now = new Date();
-  await runtime.cloudDb()
-    .insert(iosAnalyticsIdentities)
-    .values(anonymousIds.map((anonymousId) => ({
-      userId: input.userId,
-      anonymousId,
-      createdAt: now,
-      updatedAt: now,
-    })))
-    .onConflictDoUpdate({
-      target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
-      set: { updatedAt: now },
-    });
+  await runtime.cloudDb().transaction(async (tx) => {
+    await tx
+      .insert(iosAnalyticsIdentities)
+      .values(anonymousIds.map((anonymousId) => ({
+        userId: input.userId,
+        anonymousId,
+        createdAt: now,
+        updatedAt: now,
+      })))
+      .onConflictDoUpdate({
+        target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
+        set: { updatedAt: now },
+      });
+
+    await tx.execute(sql`
+      delete from ${iosAnalyticsIdentities}
+      where ${iosAnalyticsIdentities.userId} = ${input.userId}
+        and ${iosAnalyticsIdentities.anonymousId} not in (
+          select ${iosAnalyticsIdentities.anonymousId}
+          from ${iosAnalyticsIdentities}
+          where ${iosAnalyticsIdentities.userId} = ${input.userId}
+          order by ${iosAnalyticsIdentities.updatedAt} desc, ${iosAnalyticsIdentities.anonymousId} desc
+          limit ${MAX_IOS_ANALYTICS_IDENTITIES_PER_USER}
+        )
+    `);
+  });
 }
 
 export async function listPostHogDeletionDistinctIds(
@@ -45,7 +61,8 @@ export async function listPostHogDeletionDistinctIds(
   const rows = await runtime.cloudDb()
     .select({ anonymousId: iosAnalyticsIdentities.anonymousId })
     .from(iosAnalyticsIdentities)
-    .where(eq(iosAnalyticsIdentities.userId, input.userId));
+    .where(eq(iosAnalyticsIdentities.userId, input.userId))
+    .limit(MAX_IOS_ANALYTICS_IDENTITIES_PER_USER);
   return normalizedDistinctIds([
     input.userId,
     ...rows.map((row) => row.anonymousId),

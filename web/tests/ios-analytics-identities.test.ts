@@ -1,0 +1,44 @@
+import { describe, expect, test } from "bun:test";
+import {
+  recordIOSAnalyticsIdentities,
+  type IOSAnalyticsIdentityRuntime,
+} from "../services/analytics/iosAnalyticsIdentities";
+
+describe("iOS analytics identities", () => {
+  test("caps per-request identity writes and evicts older per-user rows", async () => {
+    const inserted: Array<{ readonly anonymousId: string }> = [];
+    let evicted = false;
+    const runtime = {
+      cloudDb: () => ({
+        transaction: async (fn: (tx: unknown) => Promise<void>) => {
+          await fn({
+            insert: () => ({
+              values: (values: Array<{ readonly anonymousId: string }>) => {
+                inserted.push(...values);
+                return {
+                  onConflictDoUpdate: async () => {},
+                };
+              },
+            }),
+            execute: async () => {
+              evicted = true;
+            },
+          });
+        },
+      }),
+    } as unknown as IOSAnalyticsIdentityRuntime;
+
+    await recordIOSAnalyticsIdentities({
+      userId: "stack-user-1",
+      anonymousIds: [
+        "stack-user-1",
+        ...Array.from({ length: 25 }, (_, index) => `anon-${index}`),
+      ],
+    }, runtime);
+
+    expect(inserted.map((row) => row.anonymousId)).toEqual(
+      Array.from({ length: 16 }, (_, index) => `anon-${index}`),
+    );
+    expect(evicted).toBe(true);
+  });
+});
