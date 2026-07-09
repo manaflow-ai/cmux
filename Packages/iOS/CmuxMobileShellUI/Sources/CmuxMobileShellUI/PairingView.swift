@@ -352,6 +352,9 @@ struct PairingView: View {
 
     func pair() {
         validationError = nil
+        if versionWarning != nil || manualHostTrustWarning != nil {
+            cancelPairing()
+        }
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty else {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
