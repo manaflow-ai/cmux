@@ -101,9 +101,13 @@ final class SnapshotUITests: XCTestCase {
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 8)
         // The app requests notification authorization on appear; approve the
         // springboard system alert so the banner can be delivered.
-        let allow = springboard.buttons["Allow"]
-        if allow.waitForExistence(timeout: 10) {
-            allow.tap()
+        let allowLabels = ["Allow", "許可", "許可する"]
+        for label in allowLabels {
+            let allow = springboard.buttons[label]
+            if allow.waitForExistence(timeout: 4) {
+                allow.tap()
+                break
+            }
         }
         // The scheduled local notification fires ~0.6s after the grant and the
         // foreground banner is on screen for ~5s. Querying the banner element is
