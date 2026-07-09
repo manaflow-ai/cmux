@@ -33,6 +33,29 @@ struct BrowserWebExtensionSupportTests {
     }
 
     @Test
+    func reconciliationSkipsEnvResourceRootWhenSettingsEntryIsDisabled() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
+        let resourcePath = "\(appexPath)/Contents/Resources"
+        let plan = planner.plan(
+            settingsEntries: [
+                BrowserWebExtensionEntry(
+                    id: "com.bitwarden.desktop.safari",
+                    kind: .safariAppExtension,
+                    path: appexPath,
+                    enabled: false
+                ),
+            ],
+            environmentPaths: [resourcePath],
+            loadedEntries: []
+        )
+
+        #expect(plan.desiredEntries.isEmpty)
+        #expect(plan.loadEntries.isEmpty)
+        #expect(plan.unloadEntryIDs.isEmpty)
+    }
+
+    @Test
     func reconciliationDoesNotLoadSamePathTwice() {
         let planner = BrowserWebExtensionReconciliationPlanner()
         let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
@@ -46,6 +69,34 @@ struct BrowserWebExtensionSupportTests {
                 ),
             ],
             environmentPaths: [appexPath],
+            loadedEntries: []
+        )
+
+        #expect(plan.desiredEntries.map(\.id) == ["com.bitwarden.desktop.safari"])
+        #expect(plan.loadEntries.map(\.id) == ["com.bitwarden.desktop.safari"])
+    }
+
+    @Test
+    func reconciliationDoesNotLoadBundleAndResourceRootTwice() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
+        let resourcePath = "\(appexPath)/Contents/Resources"
+        let plan = planner.plan(
+            settingsEntries: [
+                BrowserWebExtensionEntry(
+                    id: "com.bitwarden.desktop.safari",
+                    kind: .safariAppExtension,
+                    path: appexPath,
+                    enabled: true
+                ),
+                BrowserWebExtensionEntry(
+                    id: resourcePath,
+                    kind: .unpackedDirectory,
+                    path: resourcePath,
+                    enabled: true
+                ),
+            ],
+            environmentPaths: [],
             loadedEntries: []
         )
 
