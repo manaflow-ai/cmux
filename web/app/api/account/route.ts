@@ -62,10 +62,15 @@ export async function DELETE(request: Request): Promise<Response> {
   const originalStackMetadata = stackUser.clientReadOnlyMetadata;
   let stackMetadataMarked = false;
   let cmuxOwnedRowsDeleted = false;
+  let restoreBillingEntitlementsOnFailure = true;
   try {
-    await resolveUserBillingForAccountDeletion(user.id);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
+    await resolveUserBillingForAccountDeletion(user.id, {
+      beforeExternalMutation: () => {
+        restoreBillingEntitlementsOnFailure = false;
+      },
+    });
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultRowsAndObjectsForAccount(user.id);
     await deletePersonalSubrouterTenant(user.id);
@@ -89,7 +94,9 @@ export async function DELETE(request: Request): Promise<Response> {
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     if (stackMetadataMarked && !cmuxOwnedRowsDeleted) {
-      await restoreStackMetadataAfterAccountDeletionFailure(stackUser, originalStackMetadata);
+      await restoreStackMetadataAfterAccountDeletionFailure(stackUser, originalStackMetadata, {
+        restoreBillingEntitlements: restoreBillingEntitlementsOnFailure,
+      });
     }
     logAccountDeleteError("account.delete.failed", error);
     return jsonResponse({ error: "account_delete_failed" }, 500);
@@ -214,7 +221,10 @@ async function finishPostStackAccountCleanup(userId: string): Promise<void> {
   }
 }
 
-async function resolveUserBillingForAccountDeletion(userId: string): Promise<void> {
+async function resolveUserBillingForAccountDeletion(
+  userId: string,
+  options: { readonly beforeExternalMutation?: () => void } = {},
+): Promise<void> {
   const db = cloudDb();
   const activeSubscriptions = await db
     .select({ id: stripeSubscriptions.id })
@@ -239,10 +249,18 @@ async function resolveUserBillingForAccountDeletion(userId: string): Promise<voi
   }
 
   const client = stripe();
+  let externalMutationMarked = false;
+  const markExternalMutation = () => {
+    if (externalMutationMarked) return;
+    externalMutationMarked = true;
+    options.beforeExternalMutation?.();
+  };
   for (const subscription of activeSubscriptions) {
+    markExternalMutation();
     await cancelStripeSubscriptionForAccountDeletion(client, subscription.id);
   }
   for (const customer of customers) {
+    markExternalMutation();
     await deleteStripeCustomerForAccountDeletion(client, customer.id);
   }
 }
@@ -257,9 +275,14 @@ async function markAccountDeletingAndClearBillingEntitlements(user: DeletableSta
 async function restoreStackMetadataAfterAccountDeletionFailure(
   user: DeletableStackUser,
   metadata: unknown,
+  options: { readonly restoreBillingEntitlements?: boolean } = {},
 ): Promise<void> {
   try {
-    await user.update({ clientReadOnlyMetadata: stackMetadataRecord(metadata) as ProMetadataJson });
+    const restored = stackMetadataRecord(metadata);
+    if (options.restoreBillingEntitlements === false) {
+      delete restored.cmuxPlan;
+    }
+    await user.update({ clientReadOnlyMetadata: restored as ProMetadataJson });
   } catch (error) {
     logAccountDeleteError("account.delete.metadata_restore_failed", error);
   }

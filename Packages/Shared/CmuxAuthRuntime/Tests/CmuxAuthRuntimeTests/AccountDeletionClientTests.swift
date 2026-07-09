@@ -82,6 +82,24 @@ struct AccountDeletionClientTests {
         }
     }
 
+    @Test func deleteAccountMapsDefinitiveFailedResponse() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
+            (
+                Data(#"{"error":"account_delete_failed"}"#.utf8),
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+            )
+        }
+
+        await #expect(throws: AccountDeletionRequestError.rejected(statusCode: 500)) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
+
     @Test func deleteAccountMapsTransportTimeout() async {
         let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { _ in
             throw URLError(.timedOut)

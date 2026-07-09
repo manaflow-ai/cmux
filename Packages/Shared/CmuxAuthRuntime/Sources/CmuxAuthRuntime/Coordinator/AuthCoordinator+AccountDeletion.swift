@@ -69,8 +69,12 @@ struct AccountDeletionClient: Sendable {
         case 401:
             throw AccountDeletionRequestError.unauthorized
         default:
-            if Self.isRetryablePartialDeletionError(Self.errorCode(in: data)) {
+            let errorCode = Self.errorCode(in: data)
+            if Self.isRetryablePartialDeletionError(errorCode) {
                 throw AccountDeletionRequestError.stackDeleteIncomplete
+            }
+            if Self.isDefinitiveFailureError(errorCode) {
+                throw AccountDeletionRequestError.rejected(statusCode: httpResponse.statusCode)
             }
             if Self.isAmbiguousHTTPStatus(httpResponse.statusCode) {
                 throw AccountDeletionRequestError.completionUnknown
@@ -86,6 +90,10 @@ struct AccountDeletionClient: Sendable {
     private static func isRetryablePartialDeletionError(_ code: String?) -> Bool {
         code == "account_delete_retryable" ||
             code == "account_stack_delete_failed_after_data_delete"
+    }
+
+    private static func isDefinitiveFailureError(_ code: String?) -> Bool {
+        code == "account_delete_failed"
     }
 
     private static func isAmbiguousHTTPStatus(_ statusCode: Int) -> Bool {

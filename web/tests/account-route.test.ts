@@ -374,9 +374,9 @@ describe("account deletion route", () => {
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(routeEvents).toEqual([
+      "metadata-update",
       "stripe-cancel",
       "stripe-delete-customer",
-      "metadata-update",
       "list-vms",
       "destroy-vm",
       "destroy-vm",
@@ -483,6 +483,33 @@ describe("account deletion route", () => {
     });
   });
 
+  test("does not restore Pro metadata when cleanup fails after Stripe cancellation", async () => {
+    selectResults = [
+      [{ id: "sub_user_active" }],
+      [{ id: "cus_user" }],
+      [{ id: "snapshot-1", objectKey: "vault/u/account-user-1/snapshot.jsonl.zst" }],
+      [],
+      [],
+      [],
+    ];
+    vaultDeleteError = new Error("vault unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
+    expect(deletedStripeCustomers).toEqual(["cus_user"]);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: {},
+    });
+  });
+
   test("attempts every personal VM before failing account deletion on VM teardown errors", async () => {
     destroyVmFailureProviderIds = new Set(["personal-vm-1"]);
 
@@ -529,7 +556,12 @@ describe("account deletion route", () => {
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
   });
 
   test("returns a retryable partial-failure response when Stack deletion fails after cmux data deletion", async () => {
