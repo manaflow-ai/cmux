@@ -20,16 +20,35 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// Canonical tagged-build slug shared by the Mac and iOS bundle.
     public let value: String
 
-    /// Create a scope from a nonempty tagged-build slug.
+    /// Create a scope from a tag, canonicalized with the reload tooling's ASCII
+    /// slug rules (lowercase, non-alphanumerics collapsed to `-`).
     ///
     /// `default` is a valid explicit dev tag. Stable builds stay unscoped by
     /// failing the bundle-family checks in ``currentIOS(devTag:bundleIdentifier:)``
     /// and ``currentMac(environment:bundleIdentifier:)``, not through a tag-value
     /// sentinel that could make a tagged build silently share stable state.
     public init?(_ rawValue: String?) {
-        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        self.value = trimmed
+        var bytes: [UInt8] = []
+        for scalar in (rawValue ?? "").unicodeScalars {
+            let byte: UInt8
+            switch scalar.value {
+            case 48...57, 97...122:
+                byte = UInt8(scalar.value)
+            case 65...90:
+                byte = UInt8(scalar.value + 32)
+            default:
+                if !bytes.isEmpty, bytes.last != 45 {
+                    bytes.append(45)
+                }
+                continue
+            }
+            bytes.append(byte)
+        }
+        while bytes.last == 45 {
+            bytes.removeLast()
+        }
+        guard !bytes.isEmpty else { return nil }
+        self.value = String(decoding: bytes, as: UTF8.self)
     }
 
     /// Resolve the tagged iOS bundle identity. Release/TestFlight bundles stay
@@ -88,7 +107,7 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// presence records may omit the bundle id, so the exact dev tag is the
     /// authority; a supplied bundle id must still identify a Mac DEV build.
     public func matchesMacInstance(tag: String, bundleIdentifier: String?) -> Bool {
-        guard tag.trimmingCharacters(in: .whitespacesAndNewlines) == value else { return false }
+        guard CmxPairedMacClientScope(tag)?.value == value else { return false }
         let bundle = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         return bundle.isEmpty || bundle.hasPrefix("com.cmuxterm.app.debug.")
     }
