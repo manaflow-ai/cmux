@@ -166,11 +166,21 @@ export async function accountDeletionTeamScopeForUser(user: StackAccountDeletion
       ownedTeamIds.push(team.id);
       continue;
     }
-    // Stack team membership has no stable owner/admin field here. Do not infer
-    // a retained billing owner from member order; local billing cleanup fails
-    // closed when a shared-team Stripe row needs an explicit replacement.
+    const retainedOwnerId = retainedTeamBillingOwnerId(user.id, memberIds);
+    if (retainedOwnerId) {
+      retainedTeamBillingOwners.push({ stackTeamId: team.id, stackUserId: retainedOwnerId });
+    }
   }
   return { ownedTeamIds, retainedTeamBillingOwners };
+}
+
+function retainedTeamBillingOwnerId(
+  deletedUserId: string,
+  memberIds: readonly string[],
+): string | null {
+  return memberIds
+    .filter((memberId) => memberId !== deletedUserId)
+    .sort((left, right) => left.localeCompare(right))[0] ?? null;
 }
 
 async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser): Promise<readonly unknown[]> {

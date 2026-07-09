@@ -57,9 +57,9 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("passes owned team ids into cmux cleanup without inferring shared-team billing owners", async () => {
+  test("passes owned team ids and retained shared-team billing owners into cmux cleanup", async () => {
     const personalTeam = stackTeam("team-personal", ["user-1"]);
-    const sharedTeam = stackTeam("team-shared", ["user-1", "user-2"]);
+    const sharedTeam = stackTeam("team-shared", ["user-1", "user-3", "user-2"]);
 
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
       loadStackUser: async (userId) => {
@@ -78,8 +78,7 @@ describe("account deletion processor", () => {
     }));
 
     expect(result).toBe("processed");
-    expect(calls).toContain("cleanup:user-1:owned=team-personal");
-    expect(calls).not.toContain("cleanup:user-1:owned=team-personal:retained=team-shared->user-2");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal:retained=team-shared->user-2");
   });
 
   test("pages through Stack teams before selecting owned-team cleanup scope", async () => {
@@ -109,7 +108,7 @@ describe("account deletion processor", () => {
 
     expect(result).toBe("processed");
     expect(requestedCursors).toEqual([undefined, "page-2"]);
-    expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2:retained=team-shared->user-2");
   });
 
   test("pages through Stack team members before selecting owned-team cleanup scope", async () => {
