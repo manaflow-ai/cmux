@@ -7,7 +7,6 @@ final class BrowserPanelChromiumState {
     let session: ChromiumSession
     let model: ChromiumBrowserModel
     let webView: ChromiumWebView
-    var eventTask: Task<Void, Never>?
     var pollTask: Task<Void, Never>?
 
     init(session: ChromiumSession, model: ChromiumBrowserModel, webView: ChromiumWebView) {
@@ -17,8 +16,6 @@ final class BrowserPanelChromiumState {
     }
 
     func teardown() {
-        eventTask?.cancel()
-        eventTask = nil
         pollTask?.cancel()
         pollTask = nil
         session.close()

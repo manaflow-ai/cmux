@@ -5859,6 +5859,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 let state = BrowserPanelChromiumState(session: session, model: model, webView: webView)
                 self.chromium = state
                 self.startChromiumMirroring(state)
+                if let pendingURL = self.pendingInitialChromiumURL, pendingURL != initialURL {
+                    self.pendingInitialChromiumURL = nil
+                    Task { try? await session.navigate(to: pendingURL) }
+                }
             } catch {
 #if DEBUG
                 cmuxDebugLog("browser.chromium.activate.failed panel=\(self.id.uuidString.prefix(5)) error=\(error)")
@@ -5885,9 +5889,9 @@ final class BrowserPanel: Panel, ObservableObject {
             _ = model.pageTitle
             _ = model.isLoading
             _ = model.isDisconnected
-        } onChange: { [weak self] in
+        } onChange: { [weak self, weak state] in
             Task { @MainActor in
-                guard let self, self.chromium === state else { return }
+                guard let self, let state, self.chromium === state else { return }
                 if state.model.isDisconnected {
                     self.handleChromiumDisconnected()
                 } else {
@@ -6734,6 +6738,14 @@ extension BrowserPanel {
 
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
+        if engineKind == .chromium {
+            if chromiumDisconnected {
+                restartChromiumAfterDisconnect()
+            } else if let session = chromium?.session {
+                Task { _ = try? await session.executeJavaScript("location.reload(true)") }
+            }
+            return
+        }
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
@@ -8122,6 +8134,11 @@ extension BrowserPanel {
     }
 
     private func refreshNavigationAvailability() {
+        if engineKind == .chromium {
+            canGoBack = true
+            canGoForward = true
+            return
+        }
         let availability = restoredSessionHistory.availability(
             nativeCanGoBack: nativeCanGoBack,
             nativeCanGoForward: nativeCanGoForward
