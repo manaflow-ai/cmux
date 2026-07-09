@@ -54,7 +54,7 @@ While the sidebar is focused, key and paste input are forwarded as PTY bytes usi
 - `prefix <command>` leaves sidebar focus and runs the normal cmux prefixed command.
 - `prefix S` leaves sidebar focus when already focused.
 
-Mouse input is not forwarded to sidebar plugins in this round because ordinary PTY pane mouse forwarding is not implemented in this TUI path. Clicking inside the plugin sidebar focuses it.
+Mouse input is not forwarded to sidebar plugins in this round. PTY pane mouse forwarding applies only to pane content; clicking inside the plugin sidebar focuses it.
 
 ### Manifest
 

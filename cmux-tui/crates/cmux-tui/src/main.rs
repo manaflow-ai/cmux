@@ -70,10 +70,10 @@ KEYS (prefix: Ctrl-b)
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
-  Right-click a pane for rename/new tab/split/close; right-click a
-  sidebar workspace or a status-bar screen for rename/close. Click
-  tab-bar entries to switch tabs (+ for a new tab), and status-bar
-  screen entries to switch screens (+ for a new screen).
+  Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
+  to select text or open the cmux pane menu. Click tab-bar entries to
+  switch tabs (+ for a new tab), and status-bar screen entries to switch
+  screens (+ for a new screen).
 
 CLI VERBS
   identify, ping, reload-config, set-window-title, clear-window-title,

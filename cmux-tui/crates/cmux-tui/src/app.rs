@@ -26,7 +26,10 @@ use crossterm::event::{
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ghostty_vt::{KeyEncoder, RenderState, Screen};
+use ghostty_vt::{
+    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseEncoder, MouseInput,
+    RenderState, Screen,
+};
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
@@ -368,6 +371,8 @@ enum Drag {
     Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
     Browser { surface: SurfaceId, content: Rect },
+    /// Mouse reporting owned by the PTY application in this pane.
+    PtyMouse { surface: SurfaceId, content: Rect, button: MouseButton },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
     /// Sidebar width override drag.
@@ -422,6 +427,7 @@ pub struct App {
     browser_input: BrowserInputDispatcher,
     drag: Option<Drag>,
     encoder: KeyEncoder,
+    mouse_encoder: MouseEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
 }
@@ -565,6 +571,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     });
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
+    let mouse_encoder = MouseEncoder::new()?;
     let stdout_lock = Arc::new(Mutex::new(()));
 
     let (tx, rx) = channel::<AppEvent>();
@@ -666,6 +673,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         browser_input: BrowserInputDispatcher::spawn()?,
         drag: None,
         encoder,
+        mouse_encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
     };
@@ -1997,31 +2005,310 @@ impl App {
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                self.handle_left_down(mouse.column, mouse.row)
+                self.handle_left_down(mouse.column, mouse.row, mouse.modifiers)
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                self.handle_left_drag(mouse.column, mouse.row)
+                if self.forward_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Left,
+                    mouse.modifiers,
+                ) {
+                    Ok(RenderAction::Draw)
+                } else {
+                    self.handle_left_drag(mouse.column, mouse.row)
+                }
             }
-            MouseEventKind::Up(MouseButton::Left) => self.handle_left_up(mouse.column, mouse.row),
+            MouseEventKind::Up(MouseButton::Left) => {
+                if self.finish_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Left,
+                    mouse.modifiers,
+                ) {
+                    Ok(RenderAction::Draw)
+                } else {
+                    self.handle_left_up(mouse.column, mouse.row)
+                }
+            }
             MouseEventKind::Down(MouseButton::Right) => {
                 if self.prompt.is_some() {
                     self.shake_frames = 6;
+                    return Ok(RenderAction::Draw);
+                }
+                if self.begin_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Right,
+                    mouse.modifiers,
+                ) {
                     return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
                 Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
-                self.handle_right_drag(mouse.column, mouse.row)
+                if self.forward_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Right,
+                    mouse.modifiers,
+                ) {
+                    Ok(RenderAction::Draw)
+                } else {
+                    self.handle_right_drag(mouse.column, mouse.row)
+                }
             }
-            MouseEventKind::Up(MouseButton::Right) => self.handle_right_up(mouse.column, mouse.row),
-            MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row),
+            MouseEventKind::Up(MouseButton::Right) => {
+                if self.finish_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Right,
+                    mouse.modifiers,
+                ) {
+                    Ok(RenderAction::Draw)
+                } else {
+                    self.handle_right_up(mouse.column, mouse.row)
+                }
+            }
+            MouseEventKind::Down(MouseButton::Middle) => Ok(
+                if self.begin_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Middle,
+                    mouse.modifiers,
+                ) {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                },
+            ),
+            MouseEventKind::Drag(MouseButton::Middle) => Ok(
+                if self.forward_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Middle,
+                    mouse.modifiers,
+                ) {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                },
+            ),
+            MouseEventKind::Up(MouseButton::Middle) => Ok(
+                if self.finish_pty_mouse_drag(
+                    mouse.column,
+                    mouse.row,
+                    MouseButton::Middle,
+                    mouse.modifiers,
+                ) {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                },
+            ),
+            MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row, mouse.modifiers),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
-                self.handle_scroll(mouse.column, mouse.row, down)
+                self.handle_scroll(mouse.column, mouse.row, down, mouse.modifiers)
             }
             _ => Ok(RenderAction::None),
         }
+    }
+
+    fn begin_pty_mouse_drag(
+        &mut self,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        if modifiers.contains(KeyModifiers::SHIFT) || self.menu.is_some() || self.prompt.is_some() {
+            return false;
+        }
+        let Some(area) = self.pane_area_at(x, y).copied() else { return false };
+        if !area.content.contains(x, y)
+            || self.surface_kind(area.surface) != SurfaceKind::Pty
+            || !self.pty_mouse_tracking(area.surface)
+        {
+            return false;
+        }
+
+        self.session.focus_pane(area.pane);
+        self.selection = None;
+        self.forward_pty_mouse_to_surface(
+            area.surface,
+            area.content,
+            x,
+            y,
+            MouseAction::Press,
+            Some(Self::ghostty_mouse_button(button)),
+            modifiers,
+            true,
+        );
+        self.drag = Some(Drag::PtyMouse { surface: area.surface, content: area.content, button });
+        true
+    }
+
+    fn forward_pty_mouse_drag(
+        &mut self,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        let Some(Drag::PtyMouse { surface, content, button: active_button }) = self.drag else {
+            return false;
+        };
+        if active_button != button {
+            return false;
+        }
+        self.forward_pty_mouse_to_surface(
+            surface,
+            content,
+            x,
+            y,
+            MouseAction::Motion,
+            Some(Self::ghostty_mouse_button(button)),
+            modifiers,
+            true,
+        );
+        true
+    }
+
+    fn finish_pty_mouse_drag(
+        &mut self,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        let Some(Drag::PtyMouse { surface, content, button: active_button }) = self.drag else {
+            return false;
+        };
+        if active_button != button {
+            return false;
+        }
+        self.drag = None;
+        self.forward_pty_mouse_to_surface(
+            surface,
+            content,
+            x,
+            y,
+            MouseAction::Release,
+            Some(Self::ghostty_mouse_button(button)),
+            modifiers,
+            false,
+        );
+        true
+    }
+
+    fn forward_pty_mouse_at(
+        &mut self,
+        x: u16,
+        y: u16,
+        action: MouseAction,
+        button: Option<GhosttyMouseButton>,
+        modifiers: KeyModifiers,
+        any_button_pressed: bool,
+    ) -> bool {
+        if modifiers.contains(KeyModifiers::SHIFT) {
+            return false;
+        }
+        let Some(area) = self.pane_area_at(x, y).copied() else { return false };
+        if !area.content.contains(x, y)
+            || self.surface_kind(area.surface) != SurfaceKind::Pty
+            || !self.pty_mouse_tracking(area.surface)
+        {
+            return false;
+        }
+        self.forward_pty_mouse_to_surface(
+            area.surface,
+            area.content,
+            x,
+            y,
+            action,
+            button,
+            modifiers,
+            any_button_pressed,
+        );
+        true
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn forward_pty_mouse_to_surface(
+        &mut self,
+        surface_id: SurfaceId,
+        content: Rect,
+        x: u16,
+        y: u16,
+        action: MouseAction,
+        button: Option<GhosttyMouseButton>,
+        modifiers: KeyModifiers,
+        any_button_pressed: bool,
+    ) {
+        let Some(surface) = self.session.surface(surface_id) else { return };
+        let cell_width = u32::from(self.cell_pixels.0.max(1));
+        let cell_height = u32::from(self.cell_pixels.1.max(1));
+        let position = (
+            (x as f32 - content.x as f32 + 0.5) * cell_width as f32,
+            (y as f32 - content.y as f32 + 0.5) * cell_height as f32,
+        );
+        let input = MouseInput {
+            action,
+            button,
+            mods: Self::ghostty_mouse_mods(modifiers),
+            position,
+            screen_size: (
+                u32::from(content.width).saturating_mul(cell_width),
+                u32::from(content.height).saturating_mul(cell_height),
+            ),
+            cell_size: (cell_width, cell_height),
+            any_button_pressed,
+        };
+
+        self.encode_buf.clear();
+        let Some(encoded) = surface.with_terminal(|terminal| {
+            self.mouse_encoder.sync_from_terminal(terminal);
+            self.mouse_encoder.encode(input, &mut self.encode_buf)
+        }) else {
+            return;
+        };
+        if encoded.is_ok() && !self.encode_buf.is_empty() {
+            surface.write_bytes(&self.encode_buf);
+        }
+    }
+
+    fn pty_mouse_tracking(&self, surface_id: SurfaceId) -> bool {
+        self.session
+            .surface(surface_id)
+            .and_then(|surface| surface.with_terminal(|terminal| terminal.mouse_tracking()))
+            .unwrap_or(false)
+    }
+
+    fn ghostty_mouse_button(button: MouseButton) -> GhosttyMouseButton {
+        match button {
+            MouseButton::Left => GhosttyMouseButton::Left,
+            MouseButton::Right => GhosttyMouseButton::Right,
+            MouseButton::Middle => GhosttyMouseButton::Middle,
+        }
+    }
+
+    fn ghostty_mouse_mods(modifiers: KeyModifiers) -> Mods {
+        let mut mods = Mods::default();
+        if modifiers.contains(KeyModifiers::SHIFT) {
+            mods = mods | Mods::SHIFT;
+        }
+        if modifiers.contains(KeyModifiers::CONTROL) {
+            mods = mods | Mods::CTRL;
+        }
+        if modifiers.contains(KeyModifiers::ALT) {
+            mods = mods | Mods::ALT;
+        }
+        if modifiers.contains(KeyModifiers::SUPER) {
+            mods = mods | Mods::SUPER;
+        }
+        mods
     }
 
     /// Whether the cell is over something clickable (any hit, a menu row,
@@ -2068,7 +2355,12 @@ impl App {
     /// item, and track the mouse position so tab-bar controls (+, ‹, ›)
     /// and the scrollbar render a hover state. Only redraws when the
     /// hovered element actually changes.
-    fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+    fn handle_hover(
+        &mut self,
+        x: u16,
+        y: u16,
+        modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut()
             && let Some(item) = menu.item_at(x, y)
@@ -2080,6 +2372,7 @@ impl App {
             return Ok(RenderAction::None);
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
+            let _ = self.forward_pty_mouse_at(x, y, MouseAction::Motion, None, modifiers, false);
             let mut over_browser = false;
             if let Some(area) = self
                 .pane_areas
@@ -2167,7 +2460,12 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
-    fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+    fn handle_left_down(
+        &mut self,
+        x: u16,
+        y: u16,
+        modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
         self.selection = None;
         self.drag = None;
 
@@ -2291,6 +2589,8 @@ impl App {
                     );
                     self.drag =
                         Some(Drag::Browser { surface: area.surface, content: area.content });
+                } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers) {
+                    return Ok(RenderAction::Draw);
                 } else {
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
@@ -2372,6 +2672,7 @@ impl App {
                 );
                 Ok(RenderAction::Draw)
             }
+            Some(Drag::PtyMouse { .. }) => Ok(RenderAction::None),
             Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset }) => {
                 let (surface, track, anchor_y, anchor_offset) =
                     (*surface, *track, *anchor_y, *anchor_offset);
@@ -2709,7 +3010,13 @@ impl App {
         }
     }
 
-    fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<RenderAction> {
+    fn handle_scroll(
+        &mut self,
+        x: u16,
+        y: u16,
+        down: bool,
+        modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.active_pane() != Some(area.pane) {
             self.session.focus_pane(area.pane);
@@ -2733,6 +3040,22 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             return Ok(RenderAction::None);
+        }
+        if area.content.contains(x, y)
+            && self.forward_pty_mouse_at(
+                x,
+                y,
+                MouseAction::Press,
+                Some(if down {
+                    GhosttyMouseButton::WheelDown
+                } else {
+                    GhosttyMouseButton::WheelUp
+                }),
+                modifiers,
+                true,
+            )
+        {
+            return Ok(RenderAction::Draw);
         }
         let Some(sent_arrows) = surface.with_terminal(|term| {
             term.active_screen() == Screen::Alternate && !term.mouse_tracking()
@@ -2868,14 +3191,15 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
+        App, Drag, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
         pane_parts_for_rect,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
-    use ghostty_vt::{KeyEncoder, RenderState};
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ghostty_vt::{KeyEncoder, MouseEncoder, RenderState};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -2919,6 +3243,66 @@ mod tests {
             false
         ));
         assert!(!browser_hover_forward_allowed(None, false));
+    }
+
+    #[test]
+    fn pty_mouse_tracking_forwards_click_release_and_wheel_with_shift_override() {
+        let mux = Mux::new(
+            "mouse-passthrough-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = app.session.tree();
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+
+        let event = |kind, modifiers| MouseEvent {
+            kind,
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers,
+        };
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3M");
+        assert!(app.selection.is_none());
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(event(MouseEventKind::ScrollDown, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<65;5;3M");
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.selection.is_some());
+        assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id);
     }
 
     #[test]
@@ -3011,6 +3395,7 @@ mod tests {
             browser_input: BrowserInputDispatcher::spawn().unwrap(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
+            mouse_encoder: MouseEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
         }
