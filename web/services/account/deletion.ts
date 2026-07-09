@@ -494,6 +494,7 @@ export async function assertAccountDeletionCanStart(
   const { customerRows, subscriptionRows } = await accountDeletionStripeBillingRows(scope, runtime);
   const hasStripeBillingRows = customerRows.length > 0 || subscriptionRows.length > 0;
   assertNoUnretainedSharedTeamBilling(scope, customerRows, subscriptionRows);
+  if (hasStripeBillingRows) await assertNoDeletingRetainedTeamBillingOwners(scope, runtime);
   const isBillingConfigured = runtime.isStripeBillingConfigured ?? isStripeBillingConfigured;
   if (hasStripeBillingRows && !isBillingConfigured()) {
     throw new Error("Stripe account deletion is not configured");
@@ -1084,6 +1085,7 @@ async function cancelStripeAccountBilling(
 
   if (customerRows.length === 0 && subscriptionRows.length === 0) return;
   assertNoUnretainedSharedTeamBilling(scope, customerRows, subscriptionRows);
+  await assertNoDeletingRetainedTeamBillingOwners(scope, runtime);
   const isBillingConfigured = runtime.isStripeBillingConfigured ?? isStripeBillingConfigured;
   if (!isBillingConfigured()) {
     throw new Error("Stripe account deletion is not configured");
@@ -1375,6 +1377,23 @@ function assertNoUnretainedSharedTeamBilling(
   const teamIds = unretainedSharedTeamBillingTeamIds(scope, customerRows, subscriptionRows);
   if (teamIds.length === 0) return;
   throw new Error(`Shared team Stripe billing requires retained owner for account deletion: ${teamIds.join(", ")}`);
+}
+
+async function assertNoDeletingRetainedTeamBillingOwners(
+  scope: AccountDeletionScope,
+  runtime: Pick<AccountDeletionRuntime, "cloudDb">,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  for (const [teamId, ownerUserId] of scope.retainedTeamBillingOwners) {
+    const [deletion] = await db
+      .select({ status: accountDeletionTombstones.status })
+      .from(accountDeletionTombstones)
+      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(ownerUserId)))
+      .limit(1);
+    if (deletion && isBlockingAccountDeletionStatus(deletion.status)) {
+      throw new Error(`Retained team Stripe billing owner is deleting for account deletion: ${teamId}`);
+    }
+  }
 }
 
 function unretainedSharedTeamBillingTeamIds(

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
 import {
+  accountDeletionTombstones,
   cloudVmLeases,
   cloudVmSessions,
   cloudVmUsageEvents,
@@ -83,6 +84,7 @@ let vaultSnapshotRows: Array<{ id: string; objectKey: string }> = [];
 let vaultUploadGrantRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 let vaultUploadTombstoneRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 let deviceDeleteConditions: unknown[] = [];
+let accountDeletionTombstoneRows: Array<{ status: string }> = [];
 
 type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -189,6 +191,7 @@ beforeEach(() => {
   vaultUploadGrantRows = [];
   vaultUploadTombstoneRows = [];
   deviceDeleteConditions = [];
+  accountDeletionTombstoneRows = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
   revokeVmIdentityLease.mockClear();
@@ -950,6 +953,38 @@ describe("account deletion cleanup", () => {
     expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
   });
 
+  test("does not allow account deletion to start with a deleting retained shared-team owner", async () => {
+    stripeCustomerRows = [
+      { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
+    ];
+    stripeSubscriptionRows = [
+      {
+        id: "sub_shared",
+        stackUserId: "user-1",
+        stackTeamId: "team-shared",
+        status: "active",
+        scope: "team",
+        plan: TEAM_PLAN_ID,
+      },
+    ];
+    accountDeletionTombstoneRows = [{ status: "pending" }];
+
+    await expect(assertAccountDeletionCanStart({
+      userId: "user-1",
+      retainedTeamBillingOwners: [{
+        stackTeamId: "team-shared",
+        stackUserId: "user-2",
+      }],
+    }, fakeRuntime())).rejects.toThrow(
+      "Retained team Stripe billing owner is deleting for account deletion: team-shared",
+    );
+
+    expect(calls).toEqual([]);
+    expect(stripeCustomerUpdates).toHaveLength(0);
+    expect(stripeSubscriptionUpdates).toHaveLength(0);
+    expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
+  });
+
   test("preflights Stripe configuration before account deletion starts", async () => {
     stripeBillingConfigured = false;
     stripeSubscriptionRows = [{
@@ -1068,6 +1103,7 @@ function fakeDbSelectBuilder() {
     if (table === vaultSnapshots) return vaultSnapshotRows.splice(0, 50);
     if (table === vaultUploadGrants) return vaultUploadGrantRows.splice(0, 50);
     if (table === vaultUploadTombstones) return vaultUploadTombstoneRows.splice(0, 50);
+    if (table === accountDeletionTombstones) return accountDeletionTombstoneRows;
     if (table === stripeCustomers) return stripeCustomerRows;
     if (table === stripeSubscriptions) return stripeSubscriptionRows;
     return [];

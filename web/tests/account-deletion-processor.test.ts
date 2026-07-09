@@ -104,6 +104,32 @@ describe("account deletion processor", () => {
     expect(calls).toContain("cleanup:user-1:retained=team-shared->user-2");
   });
 
+  test("does not retain shared-team billing owner on a deleting member", async () => {
+    const sharedTeam = stackTeamMembers("team-shared", [
+      { id: "user-1" },
+      { id: "user-2", clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true } },
+      { id: "user-3" },
+    ]);
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          listTeams: async () => [sharedTeam],
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toContain("cleanup:user-1:retained=team-shared->user-3");
+  });
+
   test("pages through Stack teams before selecting owned-team cleanup scope", async () => {
     const firstPageTeam = stackTeam("team-shared", ["user-1", "user-2"]);
     const secondPageTeam = stackTeam("team-personal-page-2", ["user-1"]);
@@ -447,10 +473,17 @@ function dependencies(
 }
 
 function stackTeam(id: string, userIds: readonly string[]) {
+  return stackTeamMembers(id, userIds.map((userId) => ({ id: userId })));
+}
+
+function stackTeamMembers(
+  id: string,
+  users: readonly { readonly id: string; readonly clientReadOnlyMetadata?: unknown }[],
+) {
   return {
     id,
     displayName: id,
-    listUsers: async () => userIds.map((userId) => ({ id: userId })),
+    listUsers: async () => users.map((user) => ({ ...user })),
   };
 }
 

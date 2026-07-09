@@ -375,6 +375,49 @@ describe("iOS analytics route", () => {
     expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
   });
 
+  test("does not forward anonymous analytics with a user-shaped distinct id", async () => {
+    verifyRequest.mockResolvedValue(null);
+
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "ios_app_foregrounded",
+        distinct_id: "stack-user-1",
+        properties: {
+          client_id: "stack-user-1",
+        },
+      }],
+    }), dependencies());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
+    expect(forwardToPostHog).not.toHaveBeenCalled();
+  });
+
+  test("uses a valid anonymous client id when anonymous distinct id is spoofed", async () => {
+    verifyRequest.mockResolvedValue(null);
+    let forwardedDistinctId: string | undefined;
+
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "ios_app_foregrounded",
+        distinct_id: "stack-user-1",
+        properties: {
+          client_id: "33333333-3333-4333-8333-333333333333",
+        },
+      }],
+    }), {
+      ...dependencies(),
+      forwardToPostHog: async (events: readonly { readonly distinctID?: string }[]) => {
+        forwardedDistinctId = events[0]?.distinctID;
+        return { ok: true };
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 1 });
+    expect(forwardedDistinctId).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
   test("drops anonymous identify aliases before forwarding", async () => {
     verifyRequest.mockResolvedValue(null);
 

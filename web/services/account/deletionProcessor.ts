@@ -7,6 +7,9 @@ import { deletePostHogPersonData } from "../analytics/posthogDeletion";
 import {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
+  hasAccountDeletionTombstone,
+  isAccountDeletionTombstoneStoreConfigured,
+  isStackAccountDeletionInProgress,
   listPendingAccountDeletionJobs,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
@@ -32,6 +35,11 @@ type StackAccountDeletionTeam = {
   readonly listUsers?: (
     options?: { readonly cursor?: string; readonly limit?: number },
   ) => Promise<StackAccountDeletionPage>;
+};
+
+type StackAccountDeletionMember = {
+  readonly id: string;
+  readonly clientReadOnlyMetadata?: unknown;
 };
 
 type StackAccountDeletionPage = readonly unknown[] & {
@@ -167,12 +175,12 @@ export async function accountDeletionTeamScopeForUser(user: StackAccountDeletion
   const ownedTeamIds: string[] = [];
   const retainedTeamBillingOwners: RetainedTeamBillingOwner[] = [];
   for (const team of teams) {
-    const memberIds = await accountDeletionTeamMemberIds(team);
-    if (memberIds.length === 1 && memberIds[0] === user.id) {
+    const members = await accountDeletionTeamMembers(team);
+    if (members.length === 1 && members[0]?.id === user.id) {
       ownedTeamIds.push(team.id);
       continue;
     }
-    const retainedOwnerId = retainedTeamBillingOwnerId(user.id, memberIds);
+    const retainedOwnerId = await retainedTeamBillingOwnerId(user.id, members);
     if (retainedOwnerId) {
       retainedTeamBillingOwners.push({ stackTeamId: team.id, stackUserId: retainedOwnerId });
     }
@@ -180,13 +188,24 @@ export async function accountDeletionTeamScopeForUser(user: StackAccountDeletion
   return { ownedTeamIds, retainedTeamBillingOwners };
 }
 
-function retainedTeamBillingOwnerId(
+async function retainedTeamBillingOwnerId(
   deletedUserId: string,
-  memberIds: readonly string[],
-): string | null {
-  return memberIds
-    .filter((memberId) => memberId !== deletedUserId)
-    .sort((left, right) => left.localeCompare(right))[0] ?? null;
+  members: readonly StackAccountDeletionMember[],
+): Promise<string | null> {
+  const candidates = members
+    .filter((member) => member.id !== deletedUserId)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  for (const member of candidates) {
+    if (isStackAccountDeletionInProgress(member.clientReadOnlyMetadata)) continue;
+    if (await hasBlockingAccountDeletionTombstoneForUser(member.id)) continue;
+    return member.id;
+  }
+  return null;
+}
+
+async function hasBlockingAccountDeletionTombstoneForUser(userId: string): Promise<boolean> {
+  if (!isAccountDeletionTombstoneStoreConfigured()) return false;
+  return await hasAccountDeletionTombstone({ userId });
 }
 
 async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser): Promise<readonly unknown[]> {
@@ -208,7 +227,7 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
   return teams;
 }
 
-async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[]> {
+async function accountDeletionTeamMembers(team: StackAccountDeletionTeam): Promise<readonly StackAccountDeletionMember[]> {
   if (typeof team.listUsers !== "function") {
     throw new AccountDeletionTeamScopeUnavailableError(`Stack team ${team.id} member scope is unavailable.`);
   }
@@ -234,10 +253,14 @@ async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Pro
     cursor = nextCursor;
   } while (true);
 
-  return uniqueStrings(members.flatMap((member) => {
+  return uniqueStackTeamMembers(members.flatMap((member) => {
     if (!member || typeof member !== "object") return [];
     const id = (member as { readonly id?: unknown }).id;
-    return typeof id === "string" && id.trim() ? [id.trim()] : [];
+    if (typeof id !== "string" || !id.trim()) return [];
+    return [{
+      id: id.trim(),
+      clientReadOnlyMetadata: (member as { readonly clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
+    }];
   }));
 }
 
@@ -282,4 +305,14 @@ function uniqueStrings(values: readonly string[]): readonly string[] {
     strings.push(value);
   }
   return strings;
+}
+
+function uniqueStackTeamMembers(
+  values: readonly StackAccountDeletionMember[],
+): readonly StackAccountDeletionMember[] {
+  const members = new Map<string, StackAccountDeletionMember>();
+  for (const member of values) {
+    if (!members.has(member.id)) members.set(member.id, member);
+  }
+  return [...members.values()];
 }

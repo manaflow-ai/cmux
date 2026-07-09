@@ -79,10 +79,10 @@ export async function postAnalyticsEvents(
   // Auth is read opportunistically, NOT required: the two-phase identity design
   // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
   // the user is still anonymous. When a Stack session is present we stamp the
-  // authoritative `user.id` over the client distinct id; when absent we trust the
-  // client-supplied anonymous `client_id`. The event-name allowlist is the abuse
-  // gate, not auth. The PostHog key is already public (the web client posts to
-  // r.cmux.com directly), so an anonymous proxy is no weaker than today.
+  // authoritative `user.id` over the client distinct id; when absent we accept
+  // only UUID-shaped install/client IDs. The event-name allowlist is the payload
+  // gate. The PostHog key is already public (the web client posts to r.cmux.com
+  // directly), so an anonymous proxy is no weaker than today.
   //
   // Rate limiting is deferred for Phase A (tracked in
   // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
@@ -174,7 +174,7 @@ export async function postAnalyticsEvents(
     return jsonResponse({ ok: true, forwarded: accepted.length });
   }
 
-  const anonymousEvents = accepted.filter((event) => event.event !== "$identify");
+  const anonymousEvents = anonymousForwardingEvents(accepted);
   if (anonymousEvents.length === 0) {
     return jsonResponse({ ok: true, forwarded: 0 });
   }
@@ -313,6 +313,25 @@ function stripUnrecordedAnonymousAliases(
     const { $anon_distinct_id: _anonymousId, ...properties } = event.properties;
     return { ...event, properties };
   });
+}
+
+function anonymousForwardingEvents(events: readonly IncomingEvent[]): readonly IncomingEvent[] {
+  return events.flatMap((event) => {
+    if (event.event === "$identify") return [];
+    const distinctID = anonymousAnalyticsDistinctID(event);
+    return distinctID ? [{ ...event, distinctID }] : [];
+  });
+}
+
+function anonymousAnalyticsDistinctID(event: IncomingEvent): string | null {
+  if (isAnalyticsInstallID(event.distinctID)) return event.distinctID;
+  const clientID = event.properties.client_id;
+  return isAnalyticsInstallID(clientID) ? clientID : null;
+}
+
+function isAnalyticsInstallID(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function trustedAnonymousAlias(event: IncomingEvent, userId: string): string | null {
