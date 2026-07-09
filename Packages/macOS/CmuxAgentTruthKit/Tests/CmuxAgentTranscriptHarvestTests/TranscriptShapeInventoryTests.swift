@@ -78,20 +78,20 @@ struct TranscriptShapeInventoryTests {
         var recordGap = TranscriptDecoderGapInventory()
         recordGap.record(
             source: .codex,
-            rawLine: #"{"type":"turn_context","payload":{"cwd":"/tmp/example"}}"#,
-            diagnostics: TranscriptDecoderDiagnostics(unknownKindCounts: ["turn_context": 1])
+            rawLine: #"{"type":"future_record","payload":{"cwd":"/tmp/example"}}"#,
+            diagnostics: TranscriptDecoderDiagnostics(unknownKindCounts: ["future_record": 1])
         )
-        #expect(recordGap.contains(source: .codex, dimension: "record_type", value: "turn_context"))
-        #expect(!recordGap.contains(source: .codex, dimension: "payload_type", value: "turn_context"))
+        #expect(recordGap.contains(source: .codex, dimension: "record_type", value: "future_record"))
+        #expect(!recordGap.contains(source: .codex, dimension: "payload_type", value: "future_record"))
 
         var payloadGap = TranscriptDecoderGapInventory()
         payloadGap.record(
             source: .codex,
-            rawLine: #"{"type":"response_item","payload":{"type":"tool_search_call","query":"ignored"}}"#,
-            diagnostics: TranscriptDecoderDiagnostics(unknownKindCounts: ["tool_search_call": 1])
+            rawLine: #"{"type":"response_item","payload":{"type":"future_item","query":"ignored"}}"#,
+            diagnostics: TranscriptDecoderDiagnostics(unknownKindCounts: ["future_item": 1])
         )
-        #expect(!payloadGap.contains(source: .codex, dimension: "record_type", value: "tool_search_call"))
-        #expect(payloadGap.contains(source: .codex, dimension: "payload_type", value: "tool_search_call"))
+        #expect(!payloadGap.contains(source: .codex, dimension: "record_type", value: "future_item"))
+        #expect(payloadGap.contains(source: .codex, dimension: "payload_type", value: "future_item"))
     }
 
     private func renderedRows(_ rows: [TranscriptShapeRow]) -> String {

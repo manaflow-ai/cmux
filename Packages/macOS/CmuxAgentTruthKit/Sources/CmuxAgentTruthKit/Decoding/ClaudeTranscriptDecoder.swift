@@ -42,24 +42,68 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             accumulator.emit(kind: .unknown("malformed"), summary: "Malformed transcript line", raw: line, journalID: journalID, lineIndex: lineIndex)
             return
         }
-        if root["isSidechain"]?.bool == true || root["isMeta"]?.bool == true {
-            accumulator.countUnknown(root["isMeta"]?.bool == true ? "meta" : "sidechain")
-            return
+        if root["isApiErrorMessage"]?.bool == true {
+            accumulator.recordAPIError()
         }
         guard let recordType = root["type"]?.string else {
             accumulator.countUnknown("missing_type")
             accumulator.emit(kind: .unknown("missing_type"), summary: "Missing Claude record type", raw: line, journalID: journalID, lineIndex: lineIndex)
             return
         }
+        if decodeBookkeepingRecord(root, recordType: recordType, lineIndex: lineIndex, accumulator: &accumulator) {
+            return
+        }
+        if root["isSidechain"]?.bool == true || root["isMeta"]?.bool == true {
+            accumulator.countModeled(root["isMeta"]?.bool == true ? "meta" : "sidechain")
+            return
+        }
         switch recordType {
         case "user", "assistant":
             decodeMessageRecord(root, roleHint: recordType, raw: line, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
-        case "attachment", "summary":
+        case "system":
+            decodeSystemRecord(root, raw: line, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
+        case "summary":
             accumulator.countUnknown(recordType)
         default:
             accumulator.countUnknown(recordType)
             accumulator.emit(kind: .unknown(recordType), summary: "Unknown Claude record: \(recordType)", raw: line, journalID: journalID, lineIndex: lineIndex)
         }
+    }
+
+    private func decodeBookkeepingRecord(
+        _ root: [String: JSONValue],
+        recordType: String,
+        lineIndex: Int,
+        accumulator: inout TranscriptDecodeAccumulator
+    ) -> Bool {
+        guard bookkeepingRecordTypes.contains(recordType) else {
+            return false
+        }
+        accumulator.countBookkeeping(recordType)
+        if let title = sensitiveTitleValue(in: root, recordType: recordType) {
+            accumulator.recordSensitiveSessionTitle(SensitiveSessionTitleFact(line: lineIndex, source: recordType, sensitiveValue: title))
+        }
+        return true
+    }
+
+    private func decodeSystemRecord(
+        _ root: [String: JSONValue],
+        raw: String,
+        lineIndex: Int,
+        journalID: JournalID,
+        accumulator: inout TranscriptDecodeAccumulator
+    ) {
+        let subtype = root["subtype"]?.string ?? "system"
+        accumulator.countModeled("system.\(subtype)")
+        if subtype == "api_error" || root["isApiErrorMessage"]?.bool == true {
+            accumulator.recordAPIError()
+        }
+        // System records with user-visible failure/progress content emit status
+        // rows. Pure telemetry subtypes are modeled diagnostics only.
+        if systemTelemetrySubtypes.contains(subtype) {
+            return
+        }
+        accumulator.emit(kind: .status, summary: "System \(subtype)", raw: raw, journalID: journalID, lineIndex: lineIndex)
     }
 
     private mutating func decodeMessageRecord(
@@ -114,6 +158,8 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         switch type {
         case "text":
             return ClaudeDecodedBlock(kind: role == "user" ? .userMessage : .agentProse, summary: object["text"]?.string ?? "")
+        case "image":
+            return ClaudeDecodedBlock(kind: role == "user" ? .userMessage : .attachment, summary: "Image attachment")
         case "thinking":
             return ClaudeDecodedBlock(kind: .thought, summary: object["thinking"]?.string ?? object["text"]?.string ?? "")
         case "tool_use":
@@ -188,6 +234,41 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             0
         case .status, .attachment:
             6
+        }
+    }
+
+    private var bookkeepingRecordTypes: Set<String> {
+        [
+            "ai-title",
+            "custom-title",
+            "agent-name",
+            "last-prompt",
+            "mode",
+            "permission-mode",
+            "pr-link",
+            "queue-operation",
+            "bridge-session",
+            "file-history-snapshot",
+            "attachment",
+        ]
+    }
+
+    private var systemTelemetrySubtypes: Set<String> {
+        [
+            "turn_duration",
+        ]
+    }
+
+    private func sensitiveTitleValue(in root: [String: JSONValue], recordType: String) -> String? {
+        switch recordType {
+        case "ai-title":
+            root["aiTitle"]?.string
+        case "custom-title":
+            root["customTitle"]?.string
+        case "agent-name":
+            root["agentName"]?.string
+        default:
+            nil
         }
     }
 }

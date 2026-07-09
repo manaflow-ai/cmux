@@ -33,10 +33,13 @@ struct TranscriptHarvestScannerTests {
         #expect(rendered.contains("claude\trecord_type\tassistant\t1"))
         #expect(rendered.contains("claude\ttool_name\tBash\t1"))
         #expect(rendered.contains("codex\tcli_version\t0.140.0\t1"))
-        #expect(rendered.contains("codex\tevent_msg_type\ttask_started\t1\tDECODER-GAP"))
+        #expect(rendered.contains("codex\tevent_msg_type\ttask_started\t1\t"))
         #expect(rendered.contains("claude\tsummary\tfiles_scanned\t1"))
         #expect(rendered.contains("codex\tsummary\tlines_scanned\t2"))
         #expect(!rendered.contains("SECRET_MARKER_SHOULD_NOT_LEAK"))
+        // Nothing in this fixture is unknown to the decoders, so no row may
+        // carry the gap marker; modeled skips regressing to DECODER-GAP fails here.
+        #expect(!rendered.contains("DECODER-GAP"))
     }
 
     @Test

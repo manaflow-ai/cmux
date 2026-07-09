@@ -5,11 +5,13 @@ import Foundation
 public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     private let lineDecoder: JSONLineDecoder
     private var pendingCalls: [String: PendingToolUse]
+    private var sawCompactedRecord: Bool
 
     /// Creates a Codex transcript decoder.
     public init() {
         self.lineDecoder = JSONLineDecoder()
         self.pendingCalls = [:]
+        self.sawCompactedRecord = false
     }
 
     /// Feeds Codex rollout lines at their absolute line index.
@@ -50,7 +52,10 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         case "event_msg":
             decodeEventMessage(root["payload"]?.object ?? root, raw: line, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "compacted":
-            accumulator.emit(kind: .status, summary: "Conversation compacted", raw: line, journalID: journalID, lineIndex: lineIndex)
+            sawCompactedRecord = true
+            accumulator.emit(kind: .status, summary: "Context compacted", raw: line, journalID: journalID, lineIndex: lineIndex)
+        case "turn_context":
+            decodeTurnContext(root["payload"]?.object ?? root, lineIndex: lineIndex, accumulator: &accumulator)
         default:
             accumulator.countUnknown(type)
             accumulator.emit(kind: .unknown(type), summary: "Unknown Codex record: \(type)", raw: line, journalID: journalID, lineIndex: lineIndex)
@@ -80,11 +85,53 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         accumulator: inout TranscriptDecodeAccumulator
     ) {
         let eventType = payload["type"]?.string ?? "event"
-        if eventType == "compacted" || eventType == "compact_complete" {
-            accumulator.emit(kind: .status, summary: "Conversation compacted", raw: raw, journalID: journalID, lineIndex: lineIndex)
-        } else {
+        switch eventType {
+        case "turn_aborted":
+            accumulator.recordPhaseFact(.turnAborted(line: lineIndex))
+            accumulator.countModeled("event_msg.\(eventType)")
+            accumulator.emit(kind: .status, summary: "Turn aborted", raw: raw, journalID: journalID, lineIndex: lineIndex)
+        case "task_started":
+            accumulator.recordPhaseFact(.taskStarted(line: lineIndex))
+            accumulator.countModeled("event_msg.\(eventType)")
+        case "task_complete":
+            accumulator.recordPhaseFact(.taskCompleted(line: lineIndex))
+            accumulator.countModeled("event_msg.\(eventType)")
+        case "context_compacted", "compacted", "compact_complete":
+            accumulator.countModeled("event_msg.\(eventType)")
+            // The `compacted` record is the authoritative row when both streams
+            // describe the same compaction, so a later event duplicate is kept
+            // diagnostic-only.
+            if !sawCompactedRecord {
+                accumulator.emit(kind: .status, summary: "Context compacted", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            }
+        case "user_message", "agent_message":
+            accumulator.countDuplicateStream("event_msg.\(eventType)")
+        case "patch_apply_end", "web_search_end", "mcp_tool_call_end", "entered_review_mode", "exited_review_mode", "thread_goal_updated", "thread_rolled_back", "token_count":
+            accumulator.countModeled("event_msg.\(eventType)")
+        default:
             accumulator.countUnknown("event_msg.\(eventType)")
         }
+    }
+
+    private func decodeTurnContext(
+        _ payload: [String: JSONValue],
+        lineIndex: Int,
+        accumulator: inout TranscriptDecodeAccumulator
+    ) {
+        accumulator.countModeled("turn_context")
+        accumulator.recordTurnContextFact(TurnContextFact(
+            line: lineIndex,
+            model: payload["model"]?.string,
+            sandboxPolicy: sandboxPolicy(in: payload),
+            approvalPolicy: payload["approval_policy"]?.string
+        ))
+    }
+
+    private func sandboxPolicy(in payload: [String: JSONValue]) -> String? {
+        payload["sandbox_policy"]?.object?["type"]?.string
+            ?? payload["sandbox_policy"]?.string
+            ?? payload["sandbox"]?.string
+            ?? payload["sandbox_mode"]?.string
     }
 
     private mutating func decodeResponseItem(
@@ -108,8 +155,10 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             decodeFunctionCall(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "function_call_output":
             decodeFunctionOutput(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
-        case "custom_tool_call", "web_search_call":
+        case "custom_tool_call", "web_search_call", "tool_search_call":
             decodeFunctionCall(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
+        case "custom_tool_call_output", "tool_search_output":
+            decodeFunctionOutput(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         default:
             accumulator.countUnknown(itemType)
             accumulator.emit(kind: .unknown(itemType), summary: "Unknown Codex response item: \(itemType)", raw: raw, journalID: journalID, lineIndex: lineIndex)
@@ -135,7 +184,8 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         journalID: JournalID,
         accumulator: inout TranscriptDecodeAccumulator
     ) {
-        let name = payload["name"]?.string ?? payload["call_id"]?.string ?? payload["type"]?.string ?? "call"
+        let itemType = payload["type"]?.string
+        let name = payload["name"]?.string ?? toolName(for: itemType) ?? payload["call_id"]?.string ?? "call"
         let summary = "Call \(name) \(summarizeArguments(payload["arguments"] ?? payload["input"]))"
         let kind: EntryKind = name == "apply_patch" ? .fileChange : .toolRun
         if let callID = payload["call_id"]?.string {
@@ -151,13 +201,25 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         journalID: JournalID,
         accumulator: inout TranscriptDecodeAccumulator
     ) {
+        let outputType = payload["type"]?.string ?? "function_call_output"
         guard let callID = payload["call_id"]?.string, let pending = pendingCalls.removeValue(forKey: callID) else {
-            accumulator.countUnknown("function_call_output")
-            accumulator.emit(kind: .unknown("function_call_output"), summary: "Unpaired Codex function output", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            accumulator.countUnknown(outputType)
+            accumulator.emit(kind: .unknown(outputType), summary: "Unpaired Codex \(outputType)", raw: raw, journalID: journalID, lineIndex: lineIndex)
             return
         }
         let output = payload["output"]?.textFragments().joined(separator: "\n") ?? ""
         accumulator.emit(kind: pending.kind, summary: "\(pending.summary) output \(output)", raw: raw, journalID: journalID, lineIndex: lineIndex)
+    }
+
+    private func toolName(for itemType: String?) -> String? {
+        switch itemType {
+        case "tool_search_call":
+            "tool_search"
+        case "web_search_call":
+            "web_search"
+        default:
+            nil
+        }
     }
 
     private func summarizeArguments(_ value: JSONValue?) -> String {
