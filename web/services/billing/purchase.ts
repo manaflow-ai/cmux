@@ -228,12 +228,25 @@ export async function applySubscriptionUpdate(
     return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
   }
 
-  const stackUserId =
-    subscription.metadata?.stackUserId ??
-    (await stackUserIdForStripeCustomer(db, customerId));
+  if (isDeletedAccountStripeMetadata(subscription.metadata)) return { skipped: true };
+
+  const metadataStackUserId = nonEmptyString(subscription.metadata?.stackUserId);
+  const mappedStackUserId = await stackUserIdForStripeCustomer(db, customerId);
+  if (isDeletedAccountActorId(metadataStackUserId) || isDeletedAccountActorId(mappedStackUserId)) {
+    return { skipped: true };
+  }
+  if (
+    metadataStackUserId &&
+    mappedStackUserId &&
+    metadataStackUserId !== mappedStackUserId
+  ) return { skipped: true };
+
+  const stackUserId = mappedStackUserId ?? metadataStackUserId;
   if (!stackUserId) return { skipped: true };
 
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
+  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db)) return { skipped: true };
+  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
   if (await isStackAccountDeletionBlocked(user, { cloudDb: () => db })) return { skipped: true };
 
   await upsertStripeSubscription(db, {
@@ -318,6 +331,19 @@ function accountDeletionStripeMetadata(input: {
   };
 }
 
+function isDeletedAccountStripeMetadata(metadata: Stripe.Metadata | null | undefined): boolean {
+  return isDeletedAccountActorId(nonEmptyString(metadata?.deletedAccountId));
+}
+
+function isDeletedAccountActorId(value: string | null | undefined): boolean {
+  return Boolean(value?.startsWith("deleted_"));
+}
+
+function nonEmptyString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 function deletedAccountId(userId: string): string {
   return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
 }
@@ -369,11 +395,18 @@ async function loadStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
 ): Promise<StackBillingUser> {
-  const app = stackApp ?? stackServerApp;
-  if (!app) throw new Error("Stack Auth is not configured");
-  const user = await app.getUser(stackUserId);
+  const user = await loadOptionalStackUser(stackUserId, stackApp);
   if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
   return user;
+}
+
+async function loadOptionalStackUser(
+  stackUserId: string,
+  stackApp: StackBillingApp | null | undefined,
+): Promise<StackBillingUser | null> {
+  const app = stackApp ?? stackServerApp;
+  if (!app) throw new Error("Stack Auth is not configured");
+  return app.getUser(stackUserId);
 }
 
 async function loadStackTeam(

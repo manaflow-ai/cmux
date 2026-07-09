@@ -824,6 +824,75 @@ describe("recordCheckoutCompletion", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  test("skips user subscription webhooks after completed account deletion", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user after completed deletion");
+    });
+    selectResults = [[]];
+    tombstoneSelectResults = [[{ status: "completed" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("skips user subscription webhooks for anonymized local customer rows", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for anonymized customer rows");
+    });
+    selectResults = [[{ stackUserId: "deleted_1234567890abcdef12345678" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("skips user subscription webhooks with deleted-account Stripe metadata", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for deleted-account metadata");
+    });
+    const subscription = userSubscriptionUpdate({ status: "active" }) as {
+      metadata: Record<string, string>;
+    };
+    subscription.metadata = {
+      app: "cmux",
+      plan: "pro",
+      stackUserId: "",
+      deletedAccountId: "deleted_1234567890abcdef12345678",
+    };
+
+    const result = await applySubscriptionUpdate(
+      subscription as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
   test("skips Team subscription updates when the recorded owner is deleting", async () => {
     const owner = {
       id: "owner_123",

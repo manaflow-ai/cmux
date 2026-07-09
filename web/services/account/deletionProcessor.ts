@@ -161,6 +161,7 @@ async function accountDeletionTeamScope(user: StackAccountDeletionUser): Promise
   const retainedTeamBillingOwners: RetainedTeamBillingOwner[] = [];
   for (const team of teams) {
     const memberIds = await accountDeletionTeamMemberIds(team);
+    if (!memberIds) continue;
     if (memberIds.length === 1 && memberIds[0] === user.id) {
       ownedTeamIds.push(team.id);
       continue;
@@ -194,17 +195,22 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
   return teams;
 }
 
-async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[]> {
+async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[] | null> {
   if (typeof team.listUsers !== "function") return [];
 
   const members: unknown[] = [];
   const seenCursors = new Set<string>();
+  const limit = 100;
   let cursor: string | undefined;
   do {
-    const page = await team.listUsers({ cursor, limit: 100 });
+    const page = await team.listUsers({ cursor, limit });
     members.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
-    if (!nextCursor || seenCursors.has(nextCursor)) break;
+    if (!nextCursor) {
+      if (page.length >= limit && page.nextCursor === undefined) return null;
+      break;
+    }
+    if (seenCursors.has(nextCursor)) return null;
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   } while (true);
