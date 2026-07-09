@@ -189,7 +189,7 @@ extension Workspace {
                 didMutate = true
                 didMutateTitleDerivedAgent = true
             }
-            if clearStaleAgentPIDs(panelId: panelId, refreshPorts: false) {
+            if clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) {
                 didMutate = true
                 didPruneStaleAgentRuntime = true
             }
