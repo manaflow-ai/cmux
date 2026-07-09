@@ -20,6 +20,28 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.workspacePreviewLineCount") == nil)
     }
 
+    @Test func showAltScreenNoticeDefaultsToTrueWithoutAWrite() throws {
+        let defaults = try makeDefaults("altScreenNoticeDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.showAltScreenNotice)
+        #expect(defaults.object(forKey: "cmux.mobile.showAltScreenNotice") == nil)
+    }
+
+    @Test func showAltScreenNoticePersistsFalseAcrossInstances() throws {
+        let defaults = try makeDefaults("altScreenNoticePersistsFalse")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.showAltScreenNotice = false
+        #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice == false)
+    }
+
+    @Test func showAltScreenNoticePersistsTrueAcrossInstances() throws {
+        let defaults = try makeDefaults("altScreenNoticePersistsTrue")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.showAltScreenNotice = false
+        settings.showAltScreenNotice = true
+        #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
+    }
+
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)
