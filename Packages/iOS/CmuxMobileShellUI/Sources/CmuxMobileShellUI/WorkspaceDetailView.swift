@@ -70,6 +70,7 @@ struct WorkspaceDetailView: View {
     @State private var terminalArtifactFilesContext: TerminalArtifactContext?
     @State private var selectedTerminalArtifact: TerminalArtifactSelection?
     @State private var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State private var visibleArtifactCount = 0
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
@@ -89,8 +90,14 @@ struct WorkspaceDetailView: View {
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
+                visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
+                if !supportsArtifacts {
+                    visibleArtifactCount = 0
+                }
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -227,6 +234,7 @@ struct WorkspaceDetailView: View {
                     // scrollback survives a theme change.
                     themeGeneration: store.terminalThemeGeneration,
                     artifactFilesEnabled: store.supportsTerminalArtifacts,
+                    visibleArtifactCount: visibleArtifactCount,
                     onArtifactFilesRequested: { anchor in
                         terminalArtifactFilesContext = TerminalArtifactContext(
                             workspaceID: workspace.id.rawValue,
@@ -240,6 +248,11 @@ struct WorkspaceDetailView: View {
                             surfaceID: terminalID,
                             path: path
                         )
+                    },
+                    onVisibleArtifactCountChanged: { count in
+                        if visibleArtifactCount != count {
+                            visibleArtifactCount = count
+                        }
                     }
                 )
                 .popover(
@@ -256,7 +269,9 @@ struct WorkspaceDetailView: View {
                             surfaceID: context.surfaceID
                         )
                     )
-                    .presentationCompactAdaptation(.popover)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationCompactAdaptation(.sheet)
                 }
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -272,6 +287,9 @@ struct WorkspaceDetailView: View {
                 .id(terminalID)
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
+                }
+                .onDisappear {
+                    visibleArtifactCount = 0
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)

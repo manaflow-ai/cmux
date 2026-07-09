@@ -336,7 +336,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// fresh install, and the migration force-enables and appends them so an
     /// upgrading user's bar looks unchanged.
     public static var defaultTrailingActions: [TerminalInputAccessoryAction] {
-        [.files, .zoomOut, .zoomIn]
+        [.zoomOut, .zoomIn]
     }
 
     /// The default on-bar arrangement of the configurable shortcuts: the leading
@@ -346,7 +346,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// Return sit immediately to the right of Tab so the most common terminal keys
     /// are adjacent. Curated independently of the enum's `rawValue` order so the
     /// default bar can be arranged without perturbing the persisted identifiers,
-    /// which are the `rawValue`s.
+    /// which are the `rawValue`s. ``files`` remains in this configurable order
+    /// for Settings, while ``TerminalAccessoryConfiguration`` hides it by default.
     ///
     /// Must stay a permutation of ``configurableActions``;
     /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
@@ -363,6 +364,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             .tilde, .dollar, .slash, .atSign, .pipe,
             .ctrlZ,
             .home, .end, .pageUp, .pageDown,
+            .files,
         ] + defaultTrailingActions
     }
 

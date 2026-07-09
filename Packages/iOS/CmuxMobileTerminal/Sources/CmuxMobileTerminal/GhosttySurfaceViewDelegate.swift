@@ -35,6 +35,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The user tapped the terminal Files button. Optional.
     /// - Parameter sourceView: The tapped control to use as the popover anchor.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didRequestArtifactFilesFrom sourceView: UIView)
+    /// The locally detected path-token count changed after the visible frame settled.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeVisibleArtifactCount count: Int)
     /// Forward an image the user pasted from the system clipboard. The host
     /// uploads `data` to the Mac, which materializes a temp file and injects its
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
@@ -70,6 +72,8 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal artifacts can ignore the request.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didRequestArtifactFilesFrom sourceView: UIView) {}
+    /// Default no-op so hosts without terminal artifact UI can ignore count changes.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeVisibleArtifactCount count: Int) {}
     /// Default no-op so hosts without image upload can ignore pasted images.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.

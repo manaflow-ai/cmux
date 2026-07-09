@@ -44,16 +44,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
+    var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
-            onArtifactPathTapped: onArtifactPathTapped
+            onArtifactPathTapped: onArtifactPathTapped,
+            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged
         )
     }
 
@@ -118,10 +122,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
-        surfaceView.artifactFilesEnabled = artifactFilesEnabled
         context.coordinator.artifactFilesEnabled = artifactFilesEnabled
+        context.coordinator.visibleArtifactCount = visibleArtifactCount
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
+        context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+        surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        context.coordinator.updateArtifactChip(
+            count: visibleArtifactCount,
+            enabled: artifactFilesEnabled
+        )
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: the shell bumped the generation after writing the new
@@ -140,6 +150,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         (uiView as? GhosttySurfaceView)?.prepareForDismantle()
+        coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
     }
@@ -149,14 +160,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
+        var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
+        private var artifactChipController: UIHostingController<TerminalArtifactChipView>?
+        private var lastArtifactChipRender: (count: Int, enabled: Bool)?
         private var composerMounted = false
         /// The theme generation already pushed to the live runtime, so a repeated
         /// `updateUIView` for the same generation does not rebuild the config again.
@@ -180,20 +195,25 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
-            onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void
+            onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
+            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
         ) {
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.visibleArtifactCount = visibleArtifactCount
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
+            self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
             super.init()
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
+            updateArtifactChip(count: visibleArtifactCount, enabled: artifactFilesEnabled)
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -307,6 +327,59 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             liveFontTask = nil
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
+        }
+
+        // MARK: - Artifact chip hosting
+
+        /// Projects the workspace's value count into a small SwiftUI chip hosted
+        /// by the terminal surface, preserving the dock's keyboard geometry.
+        @MainActor
+        func updateArtifactChip(count: Int, enabled: Bool) {
+            visibleArtifactCount = count
+            guard let surfaceView else { return }
+            let renderState = (count: count, enabled: enabled)
+            if let lastArtifactChipRender, lastArtifactChipRender == renderState {
+                return
+            }
+            lastArtifactChipRender = renderState
+            guard enabled, count > 0 else {
+                surfaceView.mountArtifactChipView(nil, animated: true)
+                return
+            }
+
+            let chip = TerminalArtifactChipView(count: count) { [weak self] in
+                self?.requestArtifactFilesFromChip()
+            }
+            let controller: UIHostingController<TerminalArtifactChipView>
+            if let existing = artifactChipController {
+                existing.rootView = chip
+                controller = existing
+            } else {
+                controller = UIHostingController(rootView: chip)
+                controller.view.backgroundColor = .clear
+                controller.sizingOptions = .intrinsicContentSize
+                artifactChipController = controller
+            }
+            controller.view.invalidateIntrinsicContentSize()
+            surfaceView.mountArtifactChipView(controller.view, animated: true)
+        }
+
+        @MainActor
+        private func requestArtifactFilesFromChip() {
+            guard let surfaceView, let chipView = artifactChipController?.view else { return }
+            let frame = chipView.convert(chipView.bounds, to: surfaceView)
+            let width = max(surfaceView.bounds.width, 1)
+            let height = max(surfaceView.bounds.height, 1)
+            onArtifactFilesRequested(UnitPoint(
+                x: min(max(frame.midX / width, 0), 1),
+                y: min(max(frame.midY / height, 0), 1)
+            ))
+        }
+
+        @MainActor
+        func tearDownArtifactChip() {
+            surfaceView?.mountArtifactChipView(nil, animated: false)
+            artifactChipController = nil
         }
 
         // MARK: - Composer band hosting
@@ -454,6 +527,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler?.submit(
                 .init(id: reportID, columns: size.columns, rows: size.rows)
             )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeVisibleArtifactCount count: Int
+        ) {
+            guard artifactFilesEnabled, count != visibleArtifactCount else { return }
+            onVisibleArtifactCountChanged(count)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
