@@ -16,8 +16,8 @@ mod session;
 mod ui;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mux_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
@@ -111,15 +111,16 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--session" => {
-                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"))
+                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"));
             }
             "--socket" => {
-                out.socket =
-                    Some(args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into())
+                out.socket = Some(
+                    args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
+                );
             }
             "--headless" => out.headless = true,
             "--term" => {
-                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")))
+                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")));
             }
             "-h" | "--help" => {
                 print!("{USAGE}");
@@ -218,7 +219,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
             Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250))
+                std::thread::park_timeout(std::time::Duration::from_millis(250));
             }
         }
     }

@@ -2,9 +2,13 @@
 name = "mux-tui"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 description = "cmux-mux: tmux-like terminal multiplexer TUI backed by libghostty-vt"
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "cmux-mux"

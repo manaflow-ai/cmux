@@ -620,7 +620,7 @@ fn attach_stream_orders_resize_between_output_frames() {
             Ok(AttachFrame::Output(bytes))
                 if bytes.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
             {
-                break
+                break;
             }
             Ok(_) => {}
             Err(_) => assert!(Instant::now() < deadline, "before output never arrived"),
@@ -648,7 +648,7 @@ fn attach_stream_orders_resize_between_output_frames() {
             Ok(AttachFrame::Output(bytes))
                 if bytes.windows(b"after-resize".len()).any(|w| w == b"after-resize") =>
             {
-                break
+                break;
             }
             Ok(AttachFrame::Resized { .. }) => panic!("unexpected second resize marker"),
             Ok(_) => {}
