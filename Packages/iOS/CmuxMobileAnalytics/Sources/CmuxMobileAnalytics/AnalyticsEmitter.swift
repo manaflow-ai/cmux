@@ -40,12 +40,7 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 /// contents.
 public actor AnalyticsEmitter: AnalyticsEmitting {
     private enum Item: Sendable {
-        case event(
-            name: String,
-            properties: [String: AnalyticsValue],
-            timestamp: Date,
-            telemetryGeneration: UInt64
-        )
+        case event(name: String, properties: [String: AnalyticsValue], timestamp: Date)
         case identify(
             userID: String?,
             alias: String?,
@@ -53,41 +48,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
             networkAllowed: Bool
         )
         case superProperties([String: AnalyticsValue])
-        case consentChanged(isEnabled: Bool, telemetryGeneration: UInt64)
+        case consentChanged(isEnabled: Bool)
         case barrier(UUID)
-    }
-
-    private final class TelemetrySubmissionGate: @unchecked Sendable {
-        private let lock = NSLock()
-        private var enabled: Bool
-        private var generation: UInt64 = 0
-
-        init(isEnabled: Bool) {
-            self.enabled = isEnabled
-        }
-
-        var currentGeneration: UInt64 {
-            lock.lock()
-            defer { lock.unlock() }
-            return generation
-        }
-
-        func eventGeneration(consentEnabled: Bool) -> UInt64? {
-            lock.lock()
-            defer { lock.unlock() }
-            guard enabled && consentEnabled else { return nil }
-            return generation
-        }
-
-        func setEnabled(_ isEnabled: Bool) -> UInt64 {
-            lock.lock()
-            defer { lock.unlock() }
-            if enabled != isEnabled {
-                enabled = isEnabled
-                generation = generation &+ 1
-            }
-            return generation
-        }
     }
 
     private let uploader: any AnalyticsUploading
@@ -101,13 +63,12 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
-    private let telemetrySubmissionGate: TelemetrySubmissionGate
 
     private var superProperties: [String: AnalyticsValue] = [:]
     private var distinctID: String?
     private var lastAuthenticatedIdentify: AnalyticsIdentifyRequest?
     private var authenticatedIdentifyReplayPending = false
-    private var telemetrySubmissionGeneration: UInt64
+    private var telemetryEventsEnabled: Bool
     private var pending: [AnalyticsEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var consumerTask: Task<Void, Never>?
@@ -170,9 +131,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.flushInterval = flushInterval
         self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
         self.distinctID = anonymousID
-        let telemetrySubmissionGate = TelemetrySubmissionGate(isEnabled: consent.isTelemetryEnabled)
-        self.telemetrySubmissionGate = telemetrySubmissionGate
-        self.telemetrySubmissionGeneration = telemetrySubmissionGate.currentGeneration
+        self.telemetryEventsEnabled = consent.isTelemetryEnabled
         (self.stream, self.continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         Task { await self.startConsuming() }
     }
@@ -180,15 +139,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     // MARK: AnalyticsEmitting (non-blocking surface)
 
     public nonisolated func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
-        guard let telemetryGeneration = telemetrySubmissionGate.eventGeneration(
-            consentEnabled: consent.isTelemetryEnabled
-        ) else { return }
-        continuation.yield(.event(
-            name: event,
-            properties: properties,
-            timestamp: now(),
-            telemetryGeneration: telemetryGeneration
-        ))
+        guard consent.isTelemetryEnabled else { return }
+        continuation.yield(.event(name: event, properties: properties, timestamp: now()))
     }
 
     /// Updates the current user identity and sends an identify call when telemetry consent allows it.
@@ -212,11 +164,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
 
     /// Updates whether subsequent telemetry events may be sent to the analytics backend.
     public nonisolated func setTelemetryConsentEnabled(_ isEnabled: Bool) {
-        let telemetryGeneration = telemetrySubmissionGate.setEnabled(isEnabled)
-        continuation.yield(.consentChanged(
-            isEnabled: isEnabled,
-            telemetryGeneration: telemetryGeneration
-        ))
+        continuation.yield(.consentChanged(isEnabled: isEnabled))
     }
 
     /// Waits until all analytics work submitted before this call has been processed.
@@ -241,9 +189,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private func consume() async {
         for await item in stream {
             switch item {
-            case let .event(name, properties, timestamp, telemetryGeneration):
-                guard telemetryGeneration == telemetrySubmissionGeneration,
-                      consent.isTelemetryEnabled else {
+            case let .event(name, properties, timestamp):
+                guard telemetryEventsEnabled, consent.isTelemetryEnabled else {
                     break
                 }
                 appendEvent(name: name, properties: properties, timestamp: timestamp)
@@ -265,9 +212,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 )
             case let .superProperties(properties):
                 for (key, value) in properties { superProperties[key] = value }
-            case let .consentChanged(isEnabled, telemetryGeneration):
-                guard telemetryGeneration >= telemetrySubmissionGeneration else { break }
-                telemetrySubmissionGeneration = telemetryGeneration
+            case let .consentChanged(isEnabled):
+                telemetryEventsEnabled = isEnabled
                 if !isEnabled {
                     pending.removeAll()
                     uploadOutageOpen = false
