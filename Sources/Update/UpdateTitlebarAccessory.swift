@@ -2333,13 +2333,13 @@ private struct NotificationsPopoverView: View {
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
-            let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
+            let workspaceTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            tabTitle: tabTitles[notification.tabId],
+                            workspaceTitle: workspaceTitles[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2431,11 +2431,11 @@ private struct NotificationsPopoverView: View {
 struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
-        lhs.notification == rhs.notification && lhs.tabTitle == rhs.tabTitle
+        lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
     }
 
     let notification: TerminalNotification
-    let tabTitle: String?
+    let workspaceTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void
@@ -2526,15 +2526,32 @@ struct NotificationPopoverRow: View, Equatable {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(notification.title)
-                        .cmuxFont(size: 12.5, weight: .semibold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
+                    if let workspaceTitle, !workspaceTitle.isEmpty {
+                        Text(workspaceTitle)
+                            .cmuxFont(size: 12.5, weight: .semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                            .accessibilityIdentifier(
+                                "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
+                            )
+
+                        Text(notification.title)
+                            .cmuxFont(size: 10.5, weight: .medium)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(notification.title)
+                            .cmuxFont(size: 12.5, weight: .semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                         .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary)
                         .padding(.trailing, 34)
+                        .layoutPriority(2)
                 }
 
                 if !notification.body.isEmpty {
@@ -2543,13 +2560,6 @@ struct NotificationPopoverRow: View, Equatable {
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let tabTitle, !tabTitle.isEmpty {
-                    Text(tabTitle)
-                        .cmuxFont(size: 10)
-                        .foregroundColor(.secondary.opacity(0.85))
-                        .lineLimit(1)
                 }
             }
             .padding(.leading, 10)
