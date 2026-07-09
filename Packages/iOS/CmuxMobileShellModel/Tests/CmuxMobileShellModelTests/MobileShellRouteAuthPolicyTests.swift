@@ -203,6 +203,8 @@ import Testing
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_000) }
         )
+        await writer.trust(scope)
+
         let stillValidReader = UserDefaultsMobileManualHostTrustStore(
             suiteName: suiteName,
             key: key,
@@ -225,11 +227,32 @@ import Testing
             now: { Date(timeIntervalSince1970: 1_061) }
         )
 
-        await writer.trust(scope)
-
         #expect(await stillValidReader.isTrusted(scope))
         #expect(await differentSessionReader.isTrusted(scope) == false)
         #expect(await expiredReader.isTrusted(scope) == false)
+    }
+
+    @Test func userDefaultsManualHostTrustUsesItsInitializedCacheForValidation() async throws {
+        let suiteName = "cmux-manual-host-trust-cache-\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let scope = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58_465,
+            stackUserID: "user-a"
+        ))
+        let key = "manual-host-trust"
+        let store = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-a",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        await store.trust(scope)
+
+        UserDefaults(suiteName: suiteName)?.removeObject(forKey: key)
+
+        #expect(await store.isTrusted(scope))
     }
 
     @Test func manualHostTrustWarningFormatsBracketedIPv6Once() throws {

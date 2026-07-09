@@ -115,6 +115,69 @@ import Testing
         #expect(await router.count(of: "workspace.list") >= 1)
     }
 
+    @Test func workspaceOpenWaitsForManualHostApprovalAndResumesTheOriginalSelection() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let manualRoute = try hostPortRoute(kind: .manualHost, host: "192.168.89.2")
+        try await pairedMacStore.upsert(
+            macDeviceID: "manual-mac",
+            displayName: "Manual Mac",
+            routes: [manualRoute],
+            markActive: false,
+            stackUserID: "phone-user",
+            teamID: nil,
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
+            now: { Date() },
+            supportedRouteKinds: [.manualHost],
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            workspaces: [],
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            reachability: AlwaysOnlineReachability(),
+            manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+        )
+        store.signIn()
+        await store.loadPairedMacs()
+        store.setWorkspaceStatesForTesting([
+            "manual-mac": MacWorkspaceState(
+                macDeviceID: "manual-mac",
+                displayName: "Manual Mac",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "live-workspace",
+                        macDeviceID: "manual-mac",
+                        name: "Requested Workspace",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "other-mac")
+        let requestedWorkspaceID = try #require(store.workspaces.first?.id)
+        store.selectedWorkspaceID = requestedWorkspaceID
+
+        await store.openWorkspace(requestedWorkspaceID)
+
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.89.2:58465")
+        #expect(store.selectedWorkspaceID == requestedWorkspaceID)
+
+        let approved = await store.acceptManualHostTrustWarning()
+
+        #expect(approved == .connected)
+        #expect(store.selectedWorkspace?.rpcWorkspaceID == "live-workspace")
+    }
+
     @Test func newPairingURLSupersedesPendingManualHostSwitchApproval() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
