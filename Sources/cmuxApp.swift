@@ -158,9 +158,8 @@ struct cmuxApp: App {
         _ = KeyboardShortcutSettings.settingsFileStore
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
-        // Apply saved language preference before any UI loads
-        let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
-        languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
+        // Reconcile saved language preference before any UI loads
+        LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
