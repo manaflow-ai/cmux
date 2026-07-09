@@ -263,13 +263,13 @@ actor LivenessHostRouter {
         heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
-        for continuation in continuations {
-            continuation.resume()
-        }
+        for continuation in continuations { continuation.resume() }
     }
 
     func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
         switch method {
+        case "mobile.attach_ticket.create":
+            return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
