@@ -13664,7 +13664,7 @@ struct TabItemView: View, Equatable {
         let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
         let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
         let leadingSlotActive = badgeOnLeading || spinnerOnLeading
-        let leadingStatusSlotSize = badgeOnLeading ? scaledUnreadBadgeSize : scaledLoadingSpinnerSize
+        let leadingStatusSlotSize = spinnerOnLeading ? scaledLoadingSpinnerSize : scaledUnreadBadgeSize
         let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
         let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
         let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
