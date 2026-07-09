@@ -28,12 +28,16 @@ public final class JSONValueModel<Value: SettingCodable> {
 
     /// Error from the most recent set/reset attempt, or `nil`.
     public private(set) var lastWriteError: Error?
+    /// Monotonic identifier of the most recently completed set/reset attempt.
+    public private(set) var lastCompletedWriteID: UInt64 = 0
     private(set) var writeResultRevision = 0
 
     private let store: JSONConfigStore
     private let key: JSONKey<Value>
     private let errorLog: SettingsErrorLog
     @ObservationIgnored private let makeStream: () -> AsyncStream<Value>
+    @ObservationIgnored private var nextWriteID: UInt64 = 0
+    @ObservationIgnored private var writeTask: Task<Void, Never>?
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -102,47 +106,67 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// yields it back. On failure ``lastWriteError`` is populated and
     /// recorded in the error log. Synchronous because SwiftUI `Binding`
     /// setters can't `await`.
-    public func set(_ value: Value) {
+    @discardableResult
+    public func set(_ value: Value) -> UInt64 {
         let keyID = key.id
-        Task { [weak self, store, key] in
+        let requestID = makeWriteRequestID()
+        let previousWriteTask = writeTask
+        writeTask = Task { [weak self, store, key] in
+            await previousWriteTask?.value
             do {
                 try await store.set(value, for: key)
                 await MainActor.run {
                     guard let self else { return }
-                    self.lastWriteError = nil
-                    self.writeResultRevision &+= 1
+                    self.finishWrite(requestID: requestID, error: nil)
                 }
             } catch {
                 await MainActor.run {
                     guard let self else { return }
-                    self.lastWriteError = error
-                    self.writeResultRevision &+= 1
+                    self.finishWrite(requestID: requestID, error: error)
                     self.errorLog.record(error, keyID: keyID)
                 }
             }
         }
+        return requestID
     }
 
     /// Removes the JSON entry (parents that become empty are pruned).
     /// ``current`` updates when the stream observes the reset.
-    public func reset() {
+    @discardableResult
+    public func reset() -> UInt64 {
         let keyID = key.id
-        Task { [weak self, store, key] in
+        let requestID = makeWriteRequestID()
+        let previousWriteTask = writeTask
+        writeTask = Task { [weak self, store, key] in
+            await previousWriteTask?.value
             do {
                 try await store.reset(key)
                 await MainActor.run {
                     guard let self else { return }
-                    self.lastWriteError = nil
-                    self.writeResultRevision &+= 1
+                    self.finishWrite(requestID: requestID, error: nil)
                 }
             } catch {
                 await MainActor.run {
                     guard let self else { return }
-                    self.lastWriteError = error
-                    self.writeResultRevision &+= 1
+                    self.finishWrite(requestID: requestID, error: error)
                     self.errorLog.record(error, keyID: keyID)
                 }
             }
+        }
+        return requestID
+    }
+
+    private func makeWriteRequestID() -> UInt64 {
+        nextWriteID &+= 1
+        return nextWriteID
+    }
+
+    private func finishWrite(requestID: UInt64, error: Error?) {
+        lastCompletedWriteID = requestID
+        lastWriteError = error
+        writeResultRevision &+= 1
+        if requestID == nextWriteID {
+            writeTask = nil
         }
     }
 }

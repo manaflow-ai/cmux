@@ -17,6 +17,7 @@ struct BrowserWebExtensionsCard: View {
 
     @State private var discovered: [SettingsDiscoveredBrowserExtension] = []
     @State private var pendingEntries: [BrowserWebExtensionEntry]?
+    @State private var pendingWriteID: UInt64?
 
     var body: some View {
         let entries = effectiveEntries
@@ -38,13 +39,16 @@ struct BrowserWebExtensionsCard: View {
             model.startObserving()
             discovered = await hostActions.discoverBrowserWebExtensions()
         }
-        .onChange(of: model.current) { _, _ in
+        .onChange(of: model.current) { _, current in
+            guard let expectedEntries = pendingEntries, current == expectedEntries else { return }
             pendingEntries = nil
+            pendingWriteID = nil
         }
         .onChange(of: model.writeResultRevision) { _, _ in
-            if model.lastWriteError != nil {
-                pendingEntries = nil
-            }
+            guard model.lastCompletedWriteID == pendingWriteID,
+                  model.lastWriteError != nil else { return }
+            pendingEntries = nil
+            pendingWriteID = nil
         }
     }
 
@@ -210,7 +214,7 @@ struct BrowserWebExtensionsCard: View {
 
     private func commitEntries(_ entries: [BrowserWebExtensionEntry]) {
         pendingEntries = entries
-        model.set(entries)
+        pendingWriteID = model.set(entries)
     }
 
     private func importSafariExtension(_ candidate: SettingsDiscoveredBrowserExtension) {
