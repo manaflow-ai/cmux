@@ -1284,6 +1284,76 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
+  test("openSshEndpoint revokes minted identity when lease persistence fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000112",
+      userId: "user-workflow-ssh-lease-fails",
+      billingTeamId: "team-workflow-ssh-lease-fails",
+      providerVmId: "provider-vm-ssh-lease-fails",
+      status: "running",
+    });
+    const leaseError = new VmDatabaseError({
+      operation: "recordLease",
+      cause: new Error("Account deletion is in progress."),
+    });
+    const repo = testWorkflowRepo({
+      vm,
+      recordLease: () => Effect.fail(leaseError),
+    });
+    const revokedIdentityHandles: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openSSH: () => Effect.succeed(testSshEndpoint()),
+      revokeSSHIdentity: (_provider, handle) =>
+        Effect.sync(() => {
+          revokedIdentityHandles.push(handle);
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-lease-fails",
+        teamIds: ["team-workflow-ssh-lease-fails"],
+        providerVmId: "provider-vm-ssh-lease-fails",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(leaseError);
+    expect(revokedIdentityHandles).toEqual(["identity-ssh-resume"]);
+  });
+
+  test("openAttachEndpoint does not return a websocket endpoint when session persistence fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000113",
+      userId: "user-workflow-attach-session-fails",
+      billingTeamId: "team-workflow-attach-session-fails",
+      providerVmId: "provider-vm-attach-session-fails",
+      status: "running",
+    });
+    const sessionError = new VmDatabaseError({
+      operation: "upsertVmSession",
+      cause: new Error("Account deletion is in progress."),
+    });
+    const repo = testWorkflowRepo({
+      vm,
+      upsertVmSession: () => Effect.fail(sessionError),
+    });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openAttach: () => Effect.succeed(testAttachEndpoint()),
+    };
+
+    const error = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-session-fails",
+        teamIds: ["team-workflow-attach-session-fails"],
+        providerVmId: "provider-vm-attach-session-fails",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(sessionError);
+  });
+
   test("openSshEndpoint preflight-resumes a paused VM before minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000106",
@@ -4474,6 +4544,8 @@ function testWorkflowRepo(input: {
   readonly leaseRevocationRetries?: LeaseRevocationRetry[];
   readonly observedStatuses?: ObservedStatusUpdate[];
   readonly recordUsageEventResult?: boolean;
+  readonly recordLease?: VmRepositoryShape["recordLease"];
+  readonly upsertVmSession?: VmRepositoryShape["upsertVmSession"];
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
@@ -4522,9 +4594,11 @@ function testWorkflowRepo(input: {
         input.destroyedIds?.push(id);
       }),
     recordLease: (lease) =>
-      Effect.sync(() => {
-        input.leases?.push(lease);
-      }),
+      input.recordLease
+        ? input.recordLease(lease)
+        : Effect.sync(() => {
+          input.leases?.push(lease);
+        }),
     expiredIdentityLeases: input.expiredIdentityLeases,
     markLeaseRevocationRetry: (retry) =>
       Effect.sync(() => {
@@ -4532,7 +4606,9 @@ function testWorkflowRepo(input: {
       }),
     listVmSessions: () => Effect.succeed([]),
     upsertVmSession: (session) =>
-      Effect.sync(() => {
+      input.upsertVmSession
+        ? input.upsertVmSession(session)
+        : Effect.sync(() => {
         const now = new Date();
         return {
           id: "00000000-0000-4000-8000-00000000feed",

@@ -6,8 +6,9 @@ struct MobileAccountDeletionResponseParser: Sendable {
             throw MobileAccountDeletionError.rejected(statusCode: statusCode)
         }
         do {
-            let payload = try JSONDecoder().decode([String: String].self, from: data)
-            guard let rawStatus = payload["status"],
+            let payload = try JSONSerialization.jsonObject(with: data)
+            guard let object = payload as? [String: Any],
+                  let rawStatus = object["status"] as? String,
                   let status = MobileAccountDeletionStatus(rawValue: rawStatus) else {
                 throw MobileAccountDeletionError.invalidResponse
             }

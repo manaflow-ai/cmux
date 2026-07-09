@@ -1539,7 +1539,13 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
           daemonAvailable: !!endpoint.daemon,
           attachmentId: endpoint.attachmentId,
         },
-      })
+      }).pipe(
+        Effect.catchAll((err) =>
+          revokeEndpointIdentity(vm.provider, endpoint).pipe(
+            Effect.andThen(Effect.fail(err)),
+          ),
+        ),
+      )
       : undefined;
     return { endpoint, session };
   });

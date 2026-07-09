@@ -1360,46 +1360,51 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   recordLease: (input) =>
     dbEffect("recordLease", async () => {
       const db = cloudDb();
-      const values = {
-        vmId: input.vmId,
-        userId: input.userId,
-        kind: input.kind,
-        tokenHash: input.tokenHash,
-        providerIdentityHandle: input.providerIdentityHandle,
-        sessionId: input.sessionId,
-        transport: input.transport,
-        metadata: input.metadata ?? {},
-        expiresAt: input.expiresAt,
-      };
-      try {
-        await db.insert(cloudVmLeases).values(values);
-      } catch (err) {
-        if (pgErrorCode(err) !== "23505") throw err;
-        const [existing] = await db
-          .select()
-          .from(cloudVmLeases)
-          .where(eq(cloudVmLeases.tokenHash, input.tokenHash))
-          .limit(1);
-        if (
-          !existing ||
-          existing.vmId !== input.vmId ||
-          existing.userId !== input.userId ||
-          existing.kind !== input.kind
-        ) {
-          throw err;
+      await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
+          throw new Error("Account deletion is in progress.");
         }
-        await db
-          .update(cloudVmLeases)
-          .set({
-            providerIdentityHandle: input.providerIdentityHandle,
-            sessionId: input.sessionId,
-            transport: input.transport,
-            metadata: input.metadata ?? {},
-            expiresAt: input.expiresAt,
-            revokedAt: null,
-          })
-          .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
-      }
+        const values = {
+          vmId: input.vmId,
+          userId: input.userId,
+          kind: input.kind,
+          tokenHash: input.tokenHash,
+          providerIdentityHandle: input.providerIdentityHandle,
+          sessionId: input.sessionId,
+          transport: input.transport,
+          metadata: input.metadata ?? {},
+          expiresAt: input.expiresAt,
+        };
+        try {
+          await tx.insert(cloudVmLeases).values(values);
+        } catch (err) {
+          if (pgErrorCode(err) !== "23505") throw err;
+          const [existing] = await tx
+            .select()
+            .from(cloudVmLeases)
+            .where(eq(cloudVmLeases.tokenHash, input.tokenHash))
+            .limit(1);
+          if (
+            !existing ||
+            existing.vmId !== input.vmId ||
+            existing.userId !== input.userId ||
+            existing.kind !== input.kind
+          ) {
+            throw err;
+          }
+          await tx
+            .update(cloudVmLeases)
+            .set({
+              providerIdentityHandle: input.providerIdentityHandle,
+              sessionId: input.sessionId,
+              transport: input.transport,
+              metadata: input.metadata ?? {},
+              expiresAt: input.expiresAt,
+              revokedAt: null,
+            })
+            .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
+        }
+      });
     }),
 
   expiredIdentityLeases: (input) =>
@@ -1483,32 +1488,20 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   upsertVmSession: (input) =>
     dbEffect("upsertVmSession", async () => {
       const db = cloudDb();
-      const now = new Date();
-      const [session] = await db
-        .insert(cloudVmSessions)
-        .values({
-          vmId: input.vmId,
-          userId: input.userId,
-          providerSessionId: input.providerSessionId,
-          title: input.title ?? null,
-          status: input.status ?? "running",
-          attachmentCount: input.attachmentCount ?? 1,
-          effectiveCols: input.effectiveCols ?? null,
-          effectiveRows: input.effectiveRows ?? null,
-          lastKnownCols: input.lastKnownCols ?? null,
-          lastKnownRows: input.lastKnownRows ?? null,
-          scrollbackBytes: input.scrollbackBytes ?? 0,
-          metadata: input.metadata ?? {},
-          lastAttachedAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [cloudVmSessions.vmId, cloudVmSessions.providerSessionId],
-          set: {
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
+          throw new Error("Account deletion is in progress.");
+        }
+        const now = new Date();
+        const [session] = await tx
+          .insert(cloudVmSessions)
+          .values({
+            vmId: input.vmId,
             userId: input.userId,
+            providerSessionId: input.providerSessionId,
             title: input.title ?? null,
             status: input.status ?? "running",
-            attachmentCount: sql`${cloudVmSessions.attachmentCount} + ${input.attachmentCount ?? 1}`,
+            attachmentCount: input.attachmentCount ?? 1,
             effectiveCols: input.effectiveCols ?? null,
             effectiveRows: input.effectiveRows ?? null,
             lastKnownCols: input.lastKnownCols ?? null,
@@ -1517,12 +1510,29 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             metadata: input.metadata ?? {},
             lastAttachedAt: now,
             updatedAt: now,
-            closedAt: null,
-          },
-        })
-        .returning();
-      if (!session) throw new Error("cloud VM session upsert returned no row");
-      return session;
+          })
+          .onConflictDoUpdate({
+            target: [cloudVmSessions.vmId, cloudVmSessions.providerSessionId],
+            set: {
+              userId: input.userId,
+              title: input.title ?? null,
+              status: input.status ?? "running",
+              attachmentCount: sql`${cloudVmSessions.attachmentCount} + ${input.attachmentCount ?? 1}`,
+              effectiveCols: input.effectiveCols ?? null,
+              effectiveRows: input.effectiveRows ?? null,
+              lastKnownCols: input.lastKnownCols ?? null,
+              lastKnownRows: input.lastKnownRows ?? null,
+              scrollbackBytes: input.scrollbackBytes ?? 0,
+              metadata: input.metadata ?? {},
+              lastAttachedAt: now,
+              updatedAt: now,
+              closedAt: null,
+            },
+          })
+          .returning();
+        if (!session) throw new Error("cloud VM session upsert returned no row");
+        return session;
+      });
     }),
 
   activeIdentityLeases: (vmId, limit) =>
