@@ -26,7 +26,8 @@ private let cmuxSidebarWorkerQueue = DispatchQueue(label: "com.cmux.sidebar-acti
 /// socket CLI uses); `log` is a debug-only no-op for now.
 @MainActor
 func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
-    SidebarActionDispatch { action in
+    let browserOpener = ExternalBrowserOpener()
+    return SidebarActionDispatch { action in
         // Capture the controller on the main actor, then run the whole command
         // sequence on the serial worker queue so the commands keep their authored
         // order. handleSocketLine runs worker-lane methods (browser JS, waits) on
@@ -53,12 +54,10 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                           let line = String(data: data, encoding: .utf8) else { continue }
                     _ = controller.handleSocketLine(line)
                 case let .openURL(urlString):
-                    // Route through cmuxOpenURLExternally so the user's
-                    // browser.preferredExternalBrowser setting is respected.
-                    // NSWorkspace.open is main-only; run it synchronously to
-                    // keep the command's position in the sequence.
+                    // ExternalBrowserOpener.open uses the async NSWorkspace overload —
+                    // fire-and-forget, no main-thread requirement, safe on the worker queue.
                     if let url = URL(string: urlString) {
-                        DispatchQueue.main.sync { cmuxOpenURLExternally(url) }
+                        browserOpener.open(url)
                     }
                 case .log:
                     break
@@ -67,3 +66,4 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         }
     }
 }
+
