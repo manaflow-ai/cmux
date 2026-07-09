@@ -12417,16 +12417,25 @@ struct CMUXCLI {
                 exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
             }
             let closedGeneration = (error as? CLIError)?.v2Code == "pty_lifecycle_closed"
-            if (closedGeneration || exitCode.isWrapperRetryable), sshPTYAttachWrapperRetryPending() {
+            if exitCode.isWrapperRetryable, sshPTYAttachWrapperRetryPending() {
                 wrapperWillRetrySameSurface = true
             }
-            if (closedGeneration || exitCode.isWrapperRetryable),
-               try reconcileSSHPTYBridgeEnd(
-                   client: client, workspaceId: workspaceId, surfaceID: surfaceID,
-                   sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: true
-               ) {
-                attachFinished = true
-                return
+            if closedGeneration || exitCode.isWrapperRetryable {
+                do {
+                    if try reconcileSSHPTYBridgeEnd(
+                        client: client, workspaceId: workspaceId, surfaceID: surfaceID,
+                        sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: true
+                    ) {
+                        attachFinished = true
+                        return
+                    }
+                } catch let reconciliationError as CLIError {
+                    if SSHPTYAttachExitCode(rawValue: reconciliationError.exitCode)?.isWrapperRetryable == true,
+                       sshPTYAttachWrapperRetryPending() {
+                        wrapperWillRetrySameSurface = true
+                    }
+                    throw reconciliationError
+                }
             }
             if requireExisting && exitCode == .sessionNotFound {
                 // Match the bridge-status path below: keep surface tracking intact before respawn.
