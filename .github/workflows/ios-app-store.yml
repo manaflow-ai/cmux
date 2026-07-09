@@ -119,7 +119,7 @@ jobs:
 
       - name: Install App Store provisioning profile
         env:
-          IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 || secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
           if [ -z "${IOS_APPSTORE_PROVISIONING_PROFILE_BASE64:-}" ]; then
