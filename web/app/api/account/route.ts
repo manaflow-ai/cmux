@@ -52,6 +52,8 @@ import { unauthorized } from "../../../services/vms/auth";
 import {
   VmAccountDeletionIdentityRevocationError,
   isVmAccountDeletionIdentityRevocationError,
+  isVmProviderOperationError,
+  vmWorkflowErrorCause,
 } from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -143,6 +145,18 @@ export async function DELETE(request: Request): Promise<Response> {
     });
     await refreshAccountDeletionTombstoneLease(userId);
     try {
+      const revokedIdentityLeases = await revokeAccountDeletionIdentityLeases(userId, {
+        afterBatch: async () => {
+          await refreshAccountDeletionTombstoneLease(userId);
+        },
+      });
+      if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
+    } catch (error) {
+      if (isVmAccountDeletionIdentityRevocationError(error)) destructiveCleanupStarted = true;
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
+    try {
       destroyedVms = await destroyPersonalCloudVms(userId, accountScope.teamIds, {
         afterVmDestroy: async () => {
           await refreshAccountDeletionTombstoneLease(userId);
@@ -152,7 +166,7 @@ export async function DELETE(request: Request): Promise<Response> {
     } catch (error) {
       if (error instanceof AccountDeletionDestructiveCleanupError) {
         destroyedVms = error.destroyedVms;
-        destructiveCleanupStarted = error.destructiveCleanupStarted;
+        destructiveCleanupStarted = destructiveCleanupStarted || error.destructiveCleanupStarted;
       }
       throw error;
     }
@@ -169,22 +183,6 @@ export async function DELETE(request: Request): Promise<Response> {
         destructiveCleanupStarted = true;
       },
     }, accountScope.teamIds);
-    await refreshAccountDeletionTombstoneLease(userId);
-    try {
-      const revokedIdentityLeases = await runVmWorkflow(
-        revokeUserIdentityLeasesForAccountDeletion(userId, {
-          afterBatch: () =>
-            Effect.tryPromise({
-              try: () => refreshAccountDeletionTombstoneLease(userId),
-              catch: (cause) => new VmAccountDeletionIdentityRevocationError({ cause }),
-            }),
-        }),
-      );
-      if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
-    } catch (error) {
-      if (isVmAccountDeletionIdentityRevocationError(error)) destructiveCleanupStarted = true;
-      throw error;
-    }
     await refreshAccountDeletionTombstoneLease(userId);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
@@ -376,6 +374,23 @@ class AccountDeletionDestructiveCleanupError extends Error {
   }
 }
 
+async function revokeAccountDeletionIdentityLeases(
+  userId: string,
+  options: { readonly afterBatch?: () => Promise<void> } = {},
+): Promise<number> {
+  return await runVmWorkflow(
+    revokeUserIdentityLeasesForAccountDeletion(userId, {
+      afterBatch: () =>
+        Effect.tryPromise({
+          try: async () => {
+            await options.afterBatch?.();
+          },
+          catch: (cause) => new VmAccountDeletionIdentityRevocationError({ cause }),
+        }),
+    }),
+  );
+}
+
 async function destroyPersonalCloudVms(
   userId: string,
   accountTeamIds: readonly string[],
@@ -401,11 +416,12 @@ async function destroyPersonalCloudVms(
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);
-      destructiveCleanupStarted = true;
       await runVmWorkflow(destroyProgram);
+      destructiveCleanupStarted = true;
       destroyedVms += 1;
       await options.afterVmDestroy?.();
     } catch (error) {
+      if (didVmDestroyReachProvider(error)) destructiveCleanupStarted = true;
       failures.push(error);
       logAccountDeleteError("account.delete.vm_destroy_failed", error);
     }
@@ -418,6 +434,11 @@ async function destroyPersonalCloudVms(
     );
   }
   return destroyedVms;
+}
+
+function didVmDestroyReachProvider(error: unknown): boolean {
+  const workflowError = vmWorkflowErrorCause(error) ?? error;
+  return isVmProviderOperationError(workflowError) && workflowError.operation === "destroy";
 }
 
 async function listAccountDeletionCloudVms(

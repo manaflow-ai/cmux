@@ -112,7 +112,13 @@ function checkoutInput(customerId = "cus_123") {
   };
 }
 
-function teamCheckoutInput(customerId = "cus_team") {
+function teamCheckoutInput(customerId = "cus_team", stackUserId?: string) {
+  const metadata = {
+    stackTeamId: "team_123",
+    plan: "team",
+    app: "cmux",
+    ...(stackUserId ? { stackUserId } : {}),
+  };
   return {
     session: {
       id: "cs_team",
@@ -120,13 +126,13 @@ function teamCheckoutInput(customerId = "cus_team") {
       customer: customerId,
       customer_details: { email: "buyer@example.com" },
       subscription: "sub_team",
-      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      metadata,
     },
     subscription: {
       id: "sub_team",
       customer: customerId,
       status: "active",
-      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      metadata,
       cancel_at_period_end: false,
       items: {
         data: [
@@ -612,7 +618,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    selectResults = [[{ id: "cus_team", stackUserId: "owner_123" }], []];
 
     await expect(
       recordCheckoutCompletion(teamCheckoutInput() as never, {
@@ -636,6 +642,119 @@ describe("recordCheckoutCompletion", () => {
 
     expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(deleteCustomer).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(owner.update).not.toHaveBeenCalled();
+  });
+
+  test("deletes a new Team checkout customer when account deletion wins before a customer row exists", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update: mock(async () => undefined),
+    };
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput("cus_team_new", "owner_123") as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team for blocked Team checkout");
+          },
+        } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(deleteCustomer).toHaveBeenCalledWith("cus_team_new");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(owner.update).not.toHaveBeenCalled();
+  });
+
+  test("preserves an existing Team checkout customer when account deletion blocks a metadata-owned checkout", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ id: "cus_team_existing", stackUserId: "owner_123" }], []];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput("cus_team_existing", "owner_123") as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team for blocked Team checkout");
+          },
+        } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(deleteCustomer).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(owner.update).not.toHaveBeenCalled();
+  });
+
+  test("deletes a new Team checkout customer when the existing team customer is different", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ id: "cus_team_old", stackUserId: "owner_123" }], []];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput("cus_team_new", "owner_123") as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team for blocked Team checkout");
+          },
+        } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(deleteCustomer).toHaveBeenCalledWith("cus_team_new");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(owner.update).not.toHaveBeenCalled();

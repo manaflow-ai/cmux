@@ -181,11 +181,13 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   if (program.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     routeEvents.push("revoke-identities");
     if (revokeIdentityLeasesError) throw revokeIdentityLeasesError;
-    return 2;
+    return revokedIdentityLeaseCount;
   }
   routeEvents.push("destroy-vm");
+  const destroyVmFailure = destroyVmFailureErrorsByProviderId.get(program.input.providerVmId);
+  if (destroyVmFailure) throw destroyVmFailure;
   if (destroyVmFailureProviderIds.has(program.input.providerVmId)) {
-    throw new Error(`destroy failed for ${program.input.providerVmId}`);
+    throw vmProviderOperationError("destroy", `destroy failed for ${program.input.providerVmId}`);
   }
   return undefined;
 });
@@ -260,9 +262,11 @@ let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let removeTesterError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
+let destroyVmFailureErrorsByProviderId = new Map<string, unknown>();
 let listedPersonalVmIds: ListedAccountVm[] = [];
 let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
+let revokedIdentityLeaseCount = 2;
 let subrouterClientCreateError: unknown = null;
 let subrouterRevokeError: unknown = null;
 let stackUserSelectedTeam: unknown = null;
@@ -534,9 +538,11 @@ beforeEach(() => {
   stripeDeleteCustomerError = null;
   removeTesterError = null;
   destroyVmFailureProviderIds = new Set();
+  destroyVmFailureErrorsByProviderId = new Map();
   listedPersonalVmIds = ["personal-vm-1", "personal-vm-2"];
   listedPersonalVmIdsByBillingTeam = {};
   revokeIdentityLeasesError = null;
+  revokedIdentityLeaseCount = 2;
   lastRevokeIdentityCall = null;
   subrouterClientCreateError = null;
   subrouterRevokeError = null;
@@ -650,6 +656,7 @@ describe("account deletion route", () => {
       "metadata-update",
       "stripe-cancel",
       "stripe-delete-customer",
+      "revoke-identities",
       "list-vms",
       "destroy-vm",
       "destroy-vm",
@@ -659,7 +666,6 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "vault-delete",
-      "revoke-identities",
       "transaction",
       "transaction-lock",
       "stack-delete",
@@ -952,6 +958,8 @@ describe("account deletion route", () => {
     expect(response.status).toBe(200);
     expectIdentityRevocationHeartbeatConfigured();
     expect(routeEvents.indexOf("revoke-identities")).toBeGreaterThan(-1);
+    expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("list-vms"));
+    expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.lastIndexOf("transaction"));
     expect(deletedTables).toContain(cloudVmLeases);
   });
@@ -1002,8 +1010,66 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("keeps deletion retryable when account SSH identity revocation fails", async () => {
+  test("does not destroy personal VMs when account SSH identity revocation fails before external mutation", async () => {
     revokeIdentityLeasesError = new Error("provider identity revoke failed");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expectIdentityRevocationHeartbeatConfigured();
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(destroyVm).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(deletedTables).not.toContain(cloudVmLeases);
+  });
+
+  test("restores Stack metadata when VM cleanup fails before provider deletion starts", async () => {
+    listedPersonalVmIds = ["personal-vm-1"];
+    revokedIdentityLeaseCount = 0;
+    destroyVmFailureErrorsByProviderId = new Map([
+      [
+        "personal-vm-1",
+        vmProviderOperationError("revokeSSHIdentity", "too many active identity leases pending cleanup: 9"),
+      ],
+    ]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
+    expect(destroyVm).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.failed",
+      "AccountDeletionDestructiveCleanupError: Failed to destroy 1 personal cloud VM",
+    );
+  });
+
+  test("keeps VM cleanup retryable when prior identity revocation changed provider state", async () => {
+    listedPersonalVmIds = ["personal-vm-1"];
+    revokedIdentityLeaseCount = 2;
+    destroyVmFailureErrorsByProviderId = new Map([
+      [
+        "personal-vm-1",
+        vmProviderOperationError("revokeSSHIdentity", "too many active identity leases pending cleanup: 9"),
+      ],
+    ]);
 
     const response = await DELETE(accountDeletionRequest());
 
@@ -1011,16 +1077,24 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({
       error: "account_delete_retryable",
       retryable: true,
-      destroyedVms: 2,
+      destroyedVms: 0,
     });
-    expectIdentityRevocationHeartbeatConfigured();
+    expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(deletedTables).not.toContain(cloudVmLeases);
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "AccountDeletionDestructiveCleanupError: Failed to destroy 1 personal cloud VM",
+    );
   });
 
   test("keeps deletion retryable after Subrouter 404 removes local tenant state", async () => {
     listedPersonalVmIds = [];
+    revokedIdentityLeaseCount = 0;
     selectResults = [
       [],
       [],
@@ -1031,7 +1105,7 @@ describe("account deletion route", () => {
       [{ tenantId: "tenant-personal" }],
     ];
     subrouterRevokeError = new subrouterClientModule.SubrouterClientError("revokeTenant", 404);
-    revokeIdentityLeasesError = new Error("identity lookup failed");
+    stackDeleteError = new Error("stack unavailable after subrouter cleanup");
 
     const response = await DELETE(accountDeletionRequest());
 
@@ -1043,8 +1117,8 @@ describe("account deletion route", () => {
     });
     expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
     expect(deletedTables).toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
@@ -1082,8 +1156,9 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("restores Stack metadata when local Subrouter configuration fails before revoke", async () => {
+  test("restores Stack metadata when local Subrouter configuration fails before external mutation", async () => {
     listedPersonalVmIds = [];
+    revokedIdentityLeaseCount = 0;
     selectResults = [
       [],
       [],
@@ -1457,10 +1532,10 @@ describe("account deletion route", () => {
       "transaction-lock",
       "tombstone-upsert",
       "metadata-update",
+      "revoke-identities",
       "list-vms",
       "destroy-vm",
       "destroy-vm",
-      "revoke-identities",
       "transaction",
       "transaction-lock",
       "stack-delete",
@@ -1648,4 +1723,23 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
 function expectIdentityRevocationHeartbeatConfigured(): void {
   expect(lastRevokeIdentityCall?.userId).toBe(ACCOUNT_USER_ID);
   expect(typeof lastRevokeIdentityCall?.afterBatch).toBe("function");
+}
+
+function vmProviderOperationError(operation: string, message: string): Error & {
+  _tag: "VmProviderOperationError";
+  provider: ProviderId;
+  operation: string;
+  cause: Error;
+} {
+  const error = new Error(message) as Error & {
+    _tag: "VmProviderOperationError";
+    provider: ProviderId;
+    operation: string;
+    cause: Error;
+  };
+  error._tag = "VmProviderOperationError";
+  error.provider = "freestyle";
+  error.operation = operation;
+  error.cause = new Error(message);
+  return error;
 }
