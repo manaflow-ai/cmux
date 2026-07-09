@@ -323,11 +323,16 @@ struct CmuxConfigNewWorkspaceMenuTests {
             let none = try #require(submenu.items.first {
                 $0.representedObject is WorkspaceDefaultLayoutBox && $0.title == String(localized: "menu.newWorkspace.defaultLayoutNone", defaultValue: "None (Blank Terminal)")
             })
-            #expect(none.state == .off)
+            // The current default is marked with a trailing "Default" badge,
+            // never a leading checkmark (the state column misaligns titles
+            // against icon-bearing rows).
+            #expect(none.badge == nil)
+            #expect(none.image != nil)
             let reviewDefault = try #require(submenu.items.first {
                 ($0.representedObject as? WorkspaceDefaultLayoutBox)?.actionID == "review-layout"
             })
-            #expect(reviewDefault.state == .on)
+            #expect(reviewDefault.badge != nil)
+            #expect(submenu.items.allSatisfy { $0.state == .off })
             #expect(submenu.items.contains { $0.title == String(localized: "menu.newWorkspace.deleteLayoutSubmenu", defaultValue: "Delete Workspace Layout") })
             let deleteIDs = submenu.items.compactMap { ($0.representedObject as? WorkspaceActionDeleteBox)?.actionID }
             #expect(deleteIDs == ["dev-layout", "review-layout"])

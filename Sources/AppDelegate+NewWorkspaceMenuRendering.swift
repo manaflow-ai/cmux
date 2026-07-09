@@ -11,6 +11,13 @@ extension AppDelegate {
         let menu = NSMenu()
         var renderedSectionCount = 0
 
+        func defaultBadge() -> NSMenuItemBadge {
+            NSMenuItemBadge(string: String(
+                localized: "menu.newWorkspace.defaultBadge",
+                defaultValue: "Default"
+            ))
+        }
+
         func actionItem(
             menuAction: CmuxResolvedConfigMenuAction,
             isDefault: Bool
@@ -31,10 +38,7 @@ extension AppDelegate {
                 globalConfigPath: cmuxConfigStore.globalConfigPath
             )
             if isDefault {
-                item.badge = NSMenuItemBadge(string: String(
-                    localized: "menu.newWorkspace.defaultBadge",
-                    defaultValue: "Default"
-                ))
+                item.badge = defaultBadge()
             }
             return item
         }
@@ -154,7 +158,14 @@ extension AppDelegate {
                     )
                     noneItem.target = self
                     noneItem.representedObject = WorkspaceDefaultLayoutBox(windowId: context.windowId, actionID: nil)
-                    noneItem.state = management.defaultLayout.hasDefault ? .off : .on
+                    // Right-side "Default" badge instead of a leading checkmark:
+                    // the state column indents only the checked row, misaligning
+                    // its title against the icon-bearing layout rows below. The
+                    // terminal icon keeps "None" aligned with those rows.
+                    if !management.defaultLayout.hasDefault {
+                        noneItem.badge = defaultBadge()
+                    }
+                    noneItem.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
                     submenu.addItem(noneItem)
                     // Intentional redesign: the "Default for New Workspace"
                     // section header above replaces the old separator that used
@@ -168,7 +179,9 @@ extension AppDelegate {
                         )
                         item.target = self
                         item.representedObject = WorkspaceDefaultLayoutBox(windowId: context.windowId, actionID: entry.id)
-                        item.state = entry.isCurrent ? .on : .off
+                        if entry.isCurrent {
+                            item.badge = defaultBadge()
+                        }
                         if let action = cmuxConfigStore.actionLookup[entry.id] {
                             item.image = action.icon?.contextMenuImage(
                                 configSourcePath: action.iconSourcePath,
