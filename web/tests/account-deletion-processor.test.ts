@@ -111,6 +111,42 @@ describe("account deletion processor", () => {
     expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2:retained=team-shared->user-2");
   });
 
+  test("pages through Stack team members before selecting retained-team cleanup scope", async () => {
+    const requestedCursors: Array<string | undefined> = [];
+    const requestedLimits: Array<number | undefined> = [];
+    const sharedTeam = {
+      id: "team-shared-page-2",
+      displayName: "team-shared-page-2",
+      listUsers: async (options?: { readonly cursor?: string; readonly limit?: number }) => {
+        requestedCursors.push(options?.cursor);
+        requestedLimits.push(options?.limit);
+        return options?.cursor === "members-page-2"
+          ? stackUserPage(["user-1", "user-2"], null)
+          : stackUserPage(["user-3"], "members-page-2");
+      },
+    };
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          listTeams: async () => [sharedTeam],
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(requestedCursors).toEqual([undefined, "members-page-2"]);
+    expect(requestedLimits).toEqual([100, 100]);
+    expect(calls).toContain("cleanup:user-1:retained=team-shared-page-2->user-3");
+  });
+
   test("keeps cleanup-started failures blocking so the durable job can retry", async () => {
     cleanupError = new Error("cleanup failed");
 
@@ -368,6 +404,10 @@ function stackTeam(id: string, userIds: readonly string[]) {
     displayName: id,
     listUsers: async () => userIds.map((userId) => ({ id: userId })),
   };
+}
+
+function stackUserPage(userIds: readonly string[], nextCursor: string | null) {
+  return Object.assign(userIds.map((userId) => ({ id: userId })), { nextCursor });
 }
 
 function stackTeamPage(teams: readonly ReturnType<typeof stackTeam>[], nextCursor: string | null) {

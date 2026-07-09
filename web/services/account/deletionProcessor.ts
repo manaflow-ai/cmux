@@ -23,16 +23,18 @@ type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
   readonly selectedTeam?: unknown;
   readonly listTeams?: (
     options?: { readonly cursor?: string; readonly limit?: number },
-  ) => Promise<StackAccountDeletionTeamPage>;
+  ) => Promise<StackAccountDeletionPage>;
   delete(): Promise<void>;
 };
 
 type StackAccountDeletionTeam = {
   readonly id: string;
-  readonly listUsers?: () => Promise<readonly unknown[]>;
+  readonly listUsers?: (
+    options?: { readonly cursor?: string; readonly limit?: number },
+  ) => Promise<StackAccountDeletionPage>;
 };
 
-type StackAccountDeletionTeamPage = readonly unknown[] & {
+type StackAccountDeletionPage = readonly unknown[] & {
   readonly nextCursor?: string | null;
 };
 
@@ -194,7 +196,19 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
 
 async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[]> {
   if (typeof team.listUsers !== "function") return [];
-  const members = await team.listUsers();
+
+  const members: unknown[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await team.listUsers({ cursor, limit: 100 });
+    members.push(...Array.from(page));
+    const nextCursor = normalizedStackCursor(page.nextCursor);
+    if (!nextCursor || seenCursors.has(nextCursor)) break;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (true);
+
   return uniqueStrings(members.flatMap((member) => {
     if (!member || typeof member !== "object") return [];
     const id = (member as { readonly id?: unknown }).id;
@@ -215,7 +229,7 @@ function stackTeamFromUnknown(value: unknown): StackAccountDeletionTeam | null {
   return {
     id: id.trim(),
     listUsers: typeof listUsers === "function"
-      ? async () => await listUsers.call(value)
+      ? async (options) => await listUsers.call(value, options)
       : undefined,
   };
 }
