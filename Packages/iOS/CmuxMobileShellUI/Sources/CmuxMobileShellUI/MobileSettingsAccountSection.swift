@@ -120,6 +120,8 @@ struct MobileSettingsAccountSection: View {
                     }
                     dismiss()
                     return
+                } else if case AccountDeletionRequestError.localTransportFailure = error {
+                    deleteAccountFailureKind = .connection
                 } else if case AuthError.timedOut = error {
                     deleteAccountFailureKind = .timedOut
                 } else {
@@ -145,6 +147,7 @@ struct MobileSettingsAccountSection: View {
 
 private enum DeleteAccountFailureKind {
     case generic
+    case connection
     case stackDeleteIncomplete
     case timedOut
 
@@ -154,6 +157,11 @@ private enum DeleteAccountFailureKind {
             return L10n.string(
                 "mobile.settings.deleteAccountFailedMessage",
                 defaultValue: "Try again later or contact support."
+            )
+        case .connection:
+            return L10n.string(
+                "mobile.settings.deleteAccountConnectionFailedMessage",
+                defaultValue: "Could not reach the server. Check your internet connection and try again."
             )
         case .stackDeleteIncomplete:
             return L10n.string(

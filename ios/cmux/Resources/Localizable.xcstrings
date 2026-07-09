@@ -4064,6 +4064,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountConnectionFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not reach the server. Check your internet connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーに接続できませんでした。インターネット接続を確認してからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountFailureOK": {
       "extractionState": "manual",
       "localizations": {

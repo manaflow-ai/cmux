@@ -128,6 +128,39 @@ struct AccountDeletionClientTests {
         }
     }
 
+    @Test func deleteAccountMapsDefiniteLocalTransportFailures() async {
+        let localFailureCodes: [URLError.Code] = [
+            .appTransportSecurityRequiresSecureConnection,
+            .badURL,
+            .callIsActive,
+            .cannotConnectToHost,
+            .cannotFindHost,
+            .cannotLoadFromNetwork,
+            .clientCertificateRejected,
+            .clientCertificateRequired,
+            .dataNotAllowed,
+            .dnsLookupFailed,
+            .internationalRoamingOff,
+            .notConnectedToInternet,
+            .secureConnectionFailed,
+            .serverCertificateHasBadDate,
+            .serverCertificateHasUnknownRoot,
+            .serverCertificateNotYetValid,
+            .serverCertificateUntrusted,
+            .unsupportedURL,
+        ]
+
+        for code in localFailureCodes {
+            let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { _ in
+                throw URLError(code)
+            }
+
+            await #expect(throws: AccountDeletionRequestError.localTransportFailure) {
+                try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+            }
+        }
+    }
+
     @Test func deleteAccountMapsAmbiguousTransportFailure() async {
         let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { _ in
             throw URLError(.networkConnectionLost)

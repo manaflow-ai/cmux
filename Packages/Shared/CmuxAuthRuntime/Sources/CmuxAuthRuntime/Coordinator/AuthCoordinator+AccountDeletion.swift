@@ -12,6 +12,9 @@ public enum AccountDeletionRequestError: Error, Equatable {
     /// a definitive account-deletion result. The backend may still complete
     /// deletion after this client gives up.
     case completionUnknown
+    /// The request failed locally before it could plausibly reach the backend.
+    /// Callers should keep the current session and let the user retry.
+    case localTransportFailure
     case rejected(statusCode: Int)
     case invalidResponse
 }
@@ -57,7 +60,10 @@ struct AccountDeletionClient: Sendable {
             (data, response) = try await load(request)
         } catch let error as URLError where error.code == .timedOut {
             throw AccountDeletionRequestError.timedOut
-        } catch is URLError {
+        } catch let error as URLError {
+            guard !Self.isDefiniteLocalTransportFailure(error.code) else {
+                throw AccountDeletionRequestError.localTransportFailure
+            }
             throw AccountDeletionRequestError.completionUnknown
         }
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -98,6 +104,32 @@ struct AccountDeletionClient: Sendable {
 
     private static func isAmbiguousHTTPStatus(_ statusCode: Int) -> Bool {
         statusCode == 408 || statusCode >= 500
+    }
+
+    private static func isDefiniteLocalTransportFailure(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .appTransportSecurityRequiresSecureConnection,
+             .badURL,
+             .callIsActive,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .cannotLoadFromNetwork,
+             .clientCertificateRejected,
+             .clientCertificateRequired,
+             .dataNotAllowed,
+             .dnsLookupFailed,
+             .internationalRoamingOff,
+             .notConnectedToInternet,
+             .secureConnectionFailed,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .serverCertificateUntrusted,
+             .unsupportedURL:
+            return true
+        default:
+            return false
+        }
     }
 }
 
