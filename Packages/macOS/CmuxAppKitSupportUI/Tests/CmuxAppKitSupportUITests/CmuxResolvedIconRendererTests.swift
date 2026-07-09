@@ -91,12 +91,16 @@ import Testing
         )
         view.apply(request)
         let firstImage = try #require(renderedImage(in: view))
+        let firstPixel = try #require(centerPixelColor(in: firstImage))
+        #expect(firstPixel.redComponent > firstPixel.blueComponent)
 
         fill(representation, color: .systemBlue)
         view.apply(request)
         let updatedImage = try #require(renderedImage(in: view))
+        let updatedPixel = try #require(centerPixelColor(in: updatedImage))
 
         #expect(updatedImage !== firstImage)
+        #expect(updatedPixel.blueComponent > updatedPixel.redComponent)
         #expect(visiblePixelCount(in: updatedImage) > 0)
     }
 
@@ -151,9 +155,15 @@ import Testing
         view.subviews.compactMap { ($0 as? NSImageView)?.image }.first
     }
 
+    private func centerPixelColor(in image: NSImage) -> NSColor? {
+        guard let bitmap = bitmapRepresentation(in: image) else { return nil }
+        let x = max(0, min(bitmap.pixelsWide - 1, bitmap.pixelsWide / 2))
+        let y = max(0, min(bitmap.pixelsHigh - 1, bitmap.pixelsHigh / 2))
+        return bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
+    }
+
     private func visiblePixelCount(in image: NSImage) -> Int {
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff) else {
+        guard let bitmap = bitmapRepresentation(in: image) else {
             return 0
         }
         var count = 0
@@ -165,5 +175,10 @@ import Testing
             }
         }
         return count
+    }
+
+    private func bitmapRepresentation(in image: NSImage) -> NSBitmapImageRep? {
+        guard let tiff = image.tiffRepresentation else { return nil }
+        return NSBitmapImageRep(data: tiff)
     }
 }
