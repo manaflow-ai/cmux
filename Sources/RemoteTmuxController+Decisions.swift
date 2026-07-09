@@ -61,6 +61,24 @@ extension RemoteTmuxController {
         return command
     }
 
+    /// Builds the commands that selection-sort `current` into `desired` using
+    /// stable tmux window ids and detached swaps.
+    nonisolated static func mirrorWindowReorderCommands(
+        current: [Int],
+        desired: [Int]
+    ) -> [String] {
+        var working = current
+        var commands: [String] = []
+        for index in desired.indices where working[index] != desired[index] {
+            guard let swapFrom = working.firstIndex(of: desired[index]) else { continue }
+            commands.append(
+                "swap-window -d -s @\(working[index]) -t @\(working[swapFrom])"
+            )
+            working.swapAt(index, swapFrom)
+        }
+        return commands
+    }
+
     /// The tab manager `remote.tmux.mirror` should mirror into: the host's
     /// dedicated mirror window when one is bound and still resolvable, else the
     /// fallback (usually the key window).

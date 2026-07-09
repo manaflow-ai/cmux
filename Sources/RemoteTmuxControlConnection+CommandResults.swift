@@ -34,6 +34,9 @@ extension RemoteTmuxControlConnection {
             if case let .paneRects(windowId, generation) = kind {
                 handlePaneRectsFailure(windowId: windowId, generation: generation)
             }
+            if case let .windowReorder(isLast) = kind {
+                completeWindowReorderCommand(isLast: isLast, failed: true)
+            }
             // Errors are dropped by design (results correlate positionally), but
             // an invisible %error has already hidden one real bug — an unquoted
             // refresh-client -B that never subscribed — so leave a trace.
@@ -47,7 +50,8 @@ extension RemoteTmuxControlConnection {
         switch kind {
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
-        case .listWindows:
+        case let .listWindows(requestGeneration):
+            let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
             var order: [Int] = []
             var next: [Int: RemoteTmuxWindow] = [:]
             for line in lines {
@@ -89,6 +93,7 @@ extension RemoteTmuxControlConnection {
                 // Replace topology instead of merging: a remote close missed while
                 // disconnected leaves no %window-close, so prune stale panes here.
                 let liveIDs = Set(order)
+                let optimisticLiveOrder = windowOrder.filter { liveIDs.contains($0) }
                 // REMOVALS and name updates publish now (they carry no leaf
                 // geometry); every window's GEOMETRY is staged and published
                 // only by its rects reply. Verified entries for surviving
@@ -113,14 +118,7 @@ extension RemoteTmuxControlConnection {
                     flushInitialBatchIfDrained()
                 }
                 for (id, window) in next {
-                    if let existing = windowsByID[id], existing.name != window.name {
-                        windowsByID[id] = RemoteTmuxWindow(
-                            id: id, name: window.name,
-                            width: existing.width, height: existing.height,
-                            layout: existing.layout, visibleLayout: existing.visibleLayout,
-                            zoomed: existing.zoomed
-                        )
-                    }
+                    applyWindowName(windowId: id, name: window.name)
                     stagePendingLayout(
                         windowId: id,
                         node: window.layout, visibleNode: window.visibleLayout,
@@ -141,7 +139,9 @@ extension RemoteTmuxControlConnection {
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
                 windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
-                windowOrder = order
+                windowOrder = shouldApplyWindowOrder
+                    ? order
+                    : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)
                 // Publish removals/order/names; geometry rides each window's
                 // rects reply.
                 observers.notifyTopologyChanged()
@@ -225,8 +225,19 @@ extension RemoteTmuxControlConnection {
             // the interesting outcome (%error -> capability fallback) is
             // handled in the error branch above.
             break
+        case let .windowReorder(isLast):
+            completeWindowReorderCommand(isLast: isLast, failed: false)
         case .other:
             break
         }
+    }
+
+    /// Coalesces any rejected swap in a batch into one authoritative refresh
+    /// after every command result has drained, preserving FIFO alignment.
+    func completeWindowReorderCommand(isLast: Bool, failed: Bool) {
+        windowReorderBatchFailed = windowReorderBatchFailed || failed
+        guard isLast else { return }
+        if windowReorderBatchFailed { requestWindows() }
+        windowReorderBatchFailed = false
     }
 }

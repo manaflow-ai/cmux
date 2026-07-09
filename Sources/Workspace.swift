@@ -5133,6 +5133,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
     var isRemoteTmuxMirror: Bool = false
 
+    /// Bound action for this mirror's outbound window-order mutation boundary.
+    var remoteTmuxWindowOrderSync: (([UUID]) -> Bool)?
+
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
 
@@ -9260,7 +9263,15 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
+        if isRemoteTmuxMirror, remoteTmuxWindowOrderSync == nil { return false }
         guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
+
+        if isRemoteTmuxMirror {
+            guard let paneId = paneId(forPanelId: panelId) else { return false }
+            let orderedPanelIds = bonsplitController.tabs(inPane: paneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+            guard remoteTmuxWindowOrderSync?(orderedPanelIds) == true else { return false }
+        }
 
         if focus, let paneId = paneId(forPanelId: panelId) {
             applyTabSelection(tabId: tabId, inPane: paneId)
@@ -9271,25 +9282,11 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
-    /// order matches `panelOrder` (the tmux window order), preserving the user's
-    /// current tab selection and pane focus.
-    ///
-    /// This follows reorders that originate on the remote (a second tmux client, or
-    /// a manual `move-window` / a `new-window` inserted mid-list). The cmux→tmux
-    /// drag direction is handled by `handleMirrorWindowsReordered`. bonsplit's
-    /// `reorderTab` selects+focuses the moved tab (and `selectTab`/`focusPane` fire
-    /// the same activation), so the whole operation runs under
-    /// ``isApplyingRemoteTmuxTabReorder`` to suppress that churn — a reactive tmux
-    /// event must not steal focus or resume agents (socket focus policy). The user's
-    /// selection/focus are unchanged, so bonsplit's internal state is just restored
-    /// to match. No-ops when the tabs already match or aren't all in one pane.
-    ///
-    /// Known beta limitation: if a *remote* window reorder arrives while the user is
-    /// mid tab-drag, this can move tabs under the drag. The trigger is narrow (a
-    /// concurrent remote reorder during a ~1s local drag) and self-heals — the
-    /// drop's `didReorderTabsInPane` reconciles `connection.windowOrder` to the
-    /// final order. A drag-aware guard would need bonsplit to expose drag state.
+    /// Reconciles mirror tabs to tmux's window order without changing the user's
+    /// selection or focus. Used for remote reorders and rejected local mutations;
+    /// all activation callbacks are suppressed while bonsplit is rearranged.
+    /// A concurrent remote reorder during an active drag can move tabs under the
+    /// cursor, but the drop immediately reconciles through the outbound sync path.
     @discardableResult
     func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
         // All mirror tabs must live in a single pane: a global tmux window order
@@ -12477,9 +12474,7 @@ extension Workspace: BonsplitDelegate {
         guard isRemoteTmuxMirror else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
-        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowsReordered(
-            workspaceId: id, orderedPanelIds: orderedPanelIds
-        )
+        _ = remoteTmuxWindowOrderSync?(orderedPanelIds)
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {

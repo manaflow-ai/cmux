@@ -145,6 +145,48 @@ import Testing
         #expect(connection.windowsByID[firstWindow]?.name == "renamed while staged")
     }
 
+    @Test func rejectedWindowReorderQueuesAnAuthoritativeTopologyRefresh() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishSinglePaneWindow(connection)
+
+        #expect(connection.sendWindowReorder([
+            "swap-window -d -s @1 -t @2",
+            "swap-window -d -s @2 -t @3",
+        ]))
+        #expect(connection.pendingCommandKindsForTesting == [
+            .windowReorder(isLast: false),
+            .windowReorder(isLast: true),
+        ])
+        reply(connection, lines: ["can't find window: @2"], isError: true)
+        #expect(connection.pendingCommandKindsForTesting == [.windowReorder(isLast: true)])
+        reply(connection, lines: [])
+
+        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+    }
+
+    @Test func staleReorderRecoveryCannotRollBackANewerOptimisticOrder() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishSinglePaneWindow(connection)
+        connection.windowOrder = [1, 2]
+
+        #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
+        connection.applyWindowReorder([2, 1])
+        reply(connection, lines: ["can't find window: @2"], isError: true)
+        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+
+        #expect(connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
+        connection.applyWindowReorder([1, 2])
+        reply(connection, lines: [
+            "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
+            "@3 d4c0,70x20,0,0,6 d4c0,70x20,0,0,6 [] three",
+            "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
+        ])
+
+        #expect(connection.windowOrder == [1, 3, 2])
+    }
+
     @Test func rectsErrorRetriesOnceThenKeepsLastVerifiedTree() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }

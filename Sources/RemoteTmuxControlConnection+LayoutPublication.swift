@@ -2,6 +2,25 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
 
+    /// Applies tmux's authoritative window name to every topology phase that
+    /// can later publish the window. Returns whether already-published state changed.
+    @discardableResult
+    func applyWindowName(windowId: Int, name: String) -> Bool {
+        var publishedChanged = false
+        if let window = windowsByID[windowId], window.name != name {
+            windowsByID[windowId] = window.replacingName(with: name)
+            publishedChanged = true
+        }
+        if var pending = pendingLayouts[windowId], pending.name != name {
+            pending.name = name
+            pendingLayouts[windowId] = pending
+        }
+        if let staged = initialBatchStaged[windowId], staged.name != name {
+            initialBatchStaged[windowId] = staged.replacingName(with: name)
+        }
+        return publishedChanged
+    }
+
 
     func applyLayout(
         windowId: Int, layout: String, visibleLayout: String? = nil, zoomed: Bool = false

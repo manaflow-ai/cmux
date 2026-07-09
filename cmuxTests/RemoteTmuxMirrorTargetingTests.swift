@@ -283,4 +283,16 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(!reordered)
         #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
     }
+
+    @Test func mirrorWindowReorderUsesDetachedSwaps() {
+        let commands = RemoteTmuxController.mirrorWindowReorderCommands(
+            current: [0, 1, 2],
+            desired: [1, 2, 0]
+        )
+
+        #expect(commands == [
+            "swap-window -d -s @0 -t @1",
+            "swap-window -d -s @0 -t @2",
+        ])
+    }
 }

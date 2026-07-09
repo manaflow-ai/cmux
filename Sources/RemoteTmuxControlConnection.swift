@@ -92,6 +92,8 @@ final class RemoteTmuxControlConnection {
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
     var pendingCommands: [CommandKind] = []
+    var windowReorderBatchFailed = false
+    var windowReorderGeneration: UInt64 = 0
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
@@ -357,6 +359,7 @@ final class RemoteTmuxControlConnection {
         // FIFO are stale and must not bleed into the new %begin/%end correlation.
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        windowReorderBatchFailed = false
         pendingLayouts.removeAll()
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
@@ -467,6 +470,26 @@ final class RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Atomically queues a mirror reorder while preserving one result slot per swap.
+    func sendWindowReorder(_ commands: [String]) -> Bool {
+        guard !commands.isEmpty else { return true }
+        guard connectionState == .connected, let stdinWriter else { return false }
+        let payload = commands.joined(separator: "\n") + "\n"
+        guard let data = payload.data(using: .utf8) else { return false }
+        let pendingStart = pendingCommands.count
+        pendingCommands.append(contentsOf: commands.indices.map {
+            .windowReorder(isLast: $0 == commands.index(before: commands.endIndex))
+        })
+        guard stdinWriter.enqueue(data) else {
+            pendingCommands.removeSubrange(pendingStart...)
+            record("stdin-write-backpressure")
+            beginReconnecting()
+            return false
+        }
+        windowReorderGeneration &+= 1
+        return true
+    }
+
     /// The last size any writer requested per window — per-window dedup
     /// baseline and the reconnect re-pin table.
     var lastWindowSizes: [Int: (Int, Int)] = [:]
@@ -480,28 +503,19 @@ final class RemoteTmuxControlConnection {
     /// degrades to the session-wide client size.
     var supportsPerWindowSize = true
 
-    /// Requests the current window list + layouts (used to (re)build topology).
-    ///
-    /// `#{window_name}` is placed last because it can contain spaces, while the
-    /// id and layout tokens never do — so the result parses as
-    /// `@id <layout> <name with spaces…>`.
+    /// Requests current topology; the space-bearing window name stays last so
+    /// fixed id/layout/flags fields remain unambiguous.
     func requestWindows() {
         sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
-            kind: .listWindows
+            kind: .listWindows(reorderGeneration: windowReorderGeneration)
         )
     }
 
-    /// Fetches one window's REAL pane rectangles (plus the active flag, the
-    /// window's `pane-border-status`, and the pane's EXPANDED
-    /// `pane-border-format` — exactly the header text a native tmux client
-    /// would draw, custom formats included). The layout string is not ground
-    /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while the displayed panes sit one row lower and shorter — placement
-    /// must render where the panes actually are, so a quarantined layout is
-    /// published only by this fetch's reply. The expanded format is LAST (it
-    /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
-    /// and a trailing empty field must survive line splitting).
+    /// Fetches a window's real pane rectangles, active flag, border status, and
+    /// expanded border label. Raw layout geometry is quarantined until this
+    /// reply; the space-bearing label stays last behind a `:` sentinel so an
+    /// empty trailing value survives parsing.
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
         sendInternal(
@@ -510,15 +524,8 @@ final class RemoteTmuxControlConnection {
         )
     }
 
-    /// Rearranges the tracked window order to reflect a just-applied reorder.
-    /// `reordered` is the new sequence of a subset of windows (the ones the user
-    /// dragged); windows not in it keep their slots. This is synchronous and exact
-    /// — the `swap-window` commands achieve precisely this order, so it matches
-    /// tmux without a round-trip, and a rapid follow-up reorder reads the
-    /// just-applied order rather than a stale one. (A `list-windows` re-fetch would
-    /// reintroduce the race: an earlier reorder's async snapshot could land after a
-    /// later reorder and roll the order back. Out-of-band changes still reconcile
-    /// via the topology events that already trigger ``requestWindows()``.)
+    /// Applies an accepted reorder optimistically; unmentioned windows keep their
+    /// slots, and remote topology events remain the out-of-band authority.
     func applyWindowReorder(_ reordered: [Int]) {
         windowOrder = decoding.windowOrder(windowOrder, applyingReorder: reordered)
     }
@@ -986,16 +993,9 @@ final class RemoteTmuxControlConnection {
             observers.notifyTopologyChanged()
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
-            // Propagate the new name into the topology so the mirrored tab title
-            // refreshes. Keep the existing geometry/layout — including the
-            // visible tree and zoom flag, or renaming a zoomed window would
-            // flip its mirror back to the base tree.
-            if let existing = windowsByID[id], existing.name != name {
-                windowsByID[id] = RemoteTmuxWindow(
-                    id: id, name: name,
-                    width: existing.width, height: existing.height, layout: existing.layout,
-                    visibleLayout: existing.visibleLayout, zoomed: existing.zoomed
-                )
+            // Update published AND quarantined topology. A rename racing a
+            // pane-rects fetch must survive that fetch's later publication.
+            if applyWindowName(windowId: id, name: name) {
                 observers.notifyTopologyChanged()
             }
         case let .layoutChange(id, layout, visibleLayout, zoomed):
