@@ -59,6 +59,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for resize notifications
     /// (`pty.resize.notification`; value is test-pinned, do not change).
     public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
+    static let maxCloudCLIRequestsInFlight = 4
 
     // Subscription records pair the caller's delivery queue with its handler.
     // @unchecked Sendable: the handler is only ever invoked via
@@ -78,6 +79,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let configuration: WorkspaceRemoteConfiguration
     let remotePath: String
     let strings: RemoteDaemonStrings
+    let cliRequestHandler: (@Sendable (Data) throws -> Data)?
     let keepaliveInterval: TimeInterval
     let keepaliveTimeout: TimeInterval
     /// Test seam: replaces the `/usr/bin/ssh` stdio-transport executable.
@@ -89,6 +91,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
+    let cliRequestQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.cli.\(UUID().uuidString)", qos: .utility, attributes: .concurrent)
     let pendingCalls = RemoteDaemonPendingCallRegistry()
 
     var process: Process?
@@ -115,6 +118,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stderrBuffer = ""
     var streamSubscriptions: [String: StreamSubscription] = [:]
     var ptySubscriptions: [String: PTYSubscription] = [:]
+    var cliRequestsInFlight = 0
 
     /// Creates a client for one daemon transport.
     ///
@@ -131,6 +135,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         strings: RemoteDaemonStrings,
+        cliRequestHandler: (@Sendable (Data) throws -> Data)? = nil,
         keepaliveInterval: TimeInterval = 5.0,
         keepaliveTimeout: TimeInterval = 10.0,
         onUnexpectedTermination: @escaping (String) -> Void
@@ -138,6 +143,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         self.configuration = configuration
         self.remotePath = remotePath
         self.strings = strings
+        self.cliRequestHandler = cliRequestHandler
         self.keepaliveInterval = keepaliveInterval
         self.keepaliveTimeout = keepaliveTimeout
         self.onUnexpectedTermination = onUnexpectedTermination
@@ -149,7 +155,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     public func start() throws {
         pendingCalls.reset()
 
-        if configuration.transport == .websocket {
+        if configuration.daemonWebSocketEndpoint != nil {
             try startViaWebSocket()
         } else if Self.usesSocketForwardTransport(configuration: configuration) {
             try startViaBakedVMSocketForward()

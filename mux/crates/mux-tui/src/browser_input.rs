@@ -20,7 +20,7 @@
 //! that can act on a per-event error, and the surface's own status
 //! (`BrowserStatus`) is what the UI reports.
 
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
 use mux_core::SurfaceId;
 

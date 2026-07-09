@@ -65,10 +65,55 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(value.get("app").and_then(|v| v.as_str()), Some("cmux-mux"));
     assert!(value.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) >= 5);
 
+    let ping_json = cli(&server, &["--json", "ping"]);
+    assert_success(&ping_json);
+    let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
+    assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(6));
+
+    let title = cli(&server, &["set-window-title", "--title", "hello"]);
+    assert_success(&title);
+    assert!(title.stdout.is_empty(), "set-window-title should be quiet on success");
+
     let workspace = cli(&server, &["new-workspace", "--name", "cli-test"]);
     assert_success(&workspace);
     let surface = String::from_utf8(workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
     assert!(surface > 0, "new-workspace should print the new surface id");
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let pane0 = tree_json["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+
+    let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
+    assert_success(&split);
+
+    let exported = cli(&server, &["--json", "export-layout"]);
+    assert_success(&exported);
+    let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+    assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
+    assert_eq!(exported_json["panes"].as_array().unwrap().len(), 2);
+
+    let neighbor =
+        cli(&server, &["--json", "pane-neighbor", "--pane", &pane0.to_string(), "--dir", "right"]);
+    assert_success(&neighbor);
+    let neighbor_json: serde_json::Value = serde_json::from_slice(&neighbor.stdout).unwrap();
+    let pane1 = neighbor_json["pane"].as_u64().unwrap();
+    assert_ne!(pane0, pane1);
+
+    let focus = cli(
+        &server,
+        &["--json", "focus-direction", "--pane", &pane0.to_string(), "--dir", "right"],
+    );
+    assert_success(&focus);
+    let focus_json: serde_json::Value = serde_json::from_slice(&focus.stdout).unwrap();
+    assert_eq!(focus_json["pane"].as_u64(), Some(pane1));
+
+    let zoom =
+        cli(&server, &["--json", "zoom-pane", "--pane", &pane1.to_string(), "--mode", "toggle"]);
+    assert_success(&zoom);
+    let zoom_json: serde_json::Value = serde_json::from_slice(&zoom.stdout).unwrap();
+    assert_eq!(zoom_json["zoomed"].as_bool(), Some(true));
+    assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
     let marker_suffix = std::process::id().to_string();
@@ -86,6 +131,42 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert!(send.stdout.is_empty(), "mutating commands should be quiet on success");
     let screen = wait_for_screen(&server, surface, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
+
+    let ids_json = cli(&server, &["--json", "ids", "--kind", "surface"]);
+    assert_success(&ids_json);
+    let ids: serde_json::Value = serde_json::from_slice(&ids_json.stdout).unwrap();
+    assert!(ids["ids"].as_array().unwrap().iter().any(|item| item["id"].as_u64() == Some(surface)));
+
+    let copied = cli(&server, &["copy", "--surface", &surface.to_string(), "--mode", "screen"]);
+    assert_success(&copied);
+    assert!(String::from_utf8_lossy(&copied.stdout).contains(&marker));
+
+    let notify = cli(&server, &["notify", "--title", "Build", "--body", "ok"]);
+    assert_success(&notify);
+    assert!(String::from_utf8_lossy(&notify.stdout).trim().parse::<u64>().unwrap() > 0);
+
+    let report = cli(
+        &server,
+        &[
+            "report-agent",
+            "--surface",
+            &surface.to_string(),
+            "--state",
+            "working",
+            "--source",
+            "socket",
+            "--session",
+            "cli",
+        ],
+    );
+    assert_success(&report);
+    let agents = cli(&server, &["--json", "list-agents", "--surface", &surface.to_string()]);
+    assert_success(&agents);
+    let agents: serde_json::Value = serde_json::from_slice(&agents.stdout).unwrap();
+    assert_eq!(agents["agents"][0]["state"].as_str(), Some("working"));
+
+    let send_key = cli(&server, &["send-key", "--surface", &surface.to_string(), "enter"]);
+    assert_success(&send_key);
 
     let select_bare = cli(&server, &["select-tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
@@ -192,6 +273,139 @@ fn stream_preserves_partial_line_across_read_timeout() {
     );
 }
 
+#[test]
+fn help_lists_plugin_verbs() {
+    let output = Command::new(bin()).arg("--help").env_remove("CMUX_MUX_SOCKET").output().unwrap();
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("plugin install <git-url>"));
+    assert!(stdout.contains("plugin use --builtin"));
+    assert!(stdout.contains("Manage installed sidebar plugins locally."));
+}
+
+#[cfg(unix)]
+#[test]
+fn plugin_install_use_and_list_work_against_local_git_repo() {
+    let dir = unique_temp_dir("plugin-install");
+    let source = dir.join("source");
+    // The runnable is NOT committed: [build] must create it, so this fixture
+    // exercises the build step and the post-build executable verification.
+    fs::create_dir_all(&source).unwrap();
+    fs::write(
+        source.join("cmux-plugin.toml"),
+        r#"
+            [plugin]
+            name = "fixture"
+            kind = "sidebar"
+            version = "0.1.0"
+            description = "Fixture sidebar"
+
+            [run]
+            command = ["bin/sidebar"]
+
+            [build]
+            command = ["/bin/sh", "build.sh"]
+        "#,
+    )
+    .unwrap();
+    let build_script = concat!(
+        "#!/bin/sh\n",
+        "mkdir -p bin\n",
+        "cat > bin/sidebar <<'EOF'\n",
+        "#!/bin/sh\n",
+        "printf 'fixture sidebar\\n'\n",
+        "EOF\n",
+        "chmod 755 bin/sidebar\n"
+    );
+    fs::write(source.join("build.sh"), build_script).unwrap();
+    git(&source, &["init"]);
+    git(&source, &["add", "."]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=cmux",
+            "-c",
+            "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+    );
+
+    let data_home = dir.join("data");
+    let config_path = dir.join("config").join("mux.json");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(&config_path, r#"{"future":{"keep":true},"sidebar":{"width":33}}"#).unwrap();
+    let missing_socket = dir.join("missing.sock");
+    let url = format!("file://{}", source.display());
+
+    let install = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "plugin",
+            "install",
+            &url,
+            "--name",
+            "fixture",
+        ],
+    );
+    assert_success(&install);
+    assert!(String::from_utf8_lossy(&install.stdout).contains("next: cmux-mux plugin use fixture"));
+    let installed_dir = data_home.join("cmux").join("mux-plugins").join("fixture");
+    assert!(installed_dir.join("cmux-plugin.toml").is_file());
+
+    let list = plugin_cli(&data_home, &config_path, &["--json", "plugin", "list"]);
+    assert_success(&list);
+    let listed: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
+    assert_eq!(listed["plugins"][0]["name"].as_str(), Some("fixture"));
+    assert_eq!(listed["plugins"][0]["selected"].as_bool(), Some(false));
+
+    let use_plugin = plugin_cli(
+        &data_home,
+        &config_path,
+        &["--socket", missing_socket.to_str().unwrap(), "plugin", "use", "fixture"],
+    );
+    assert_success(&use_plugin);
+    let stdout = String::from_utf8(use_plugin.stdout).unwrap();
+    assert!(stdout.contains("using fixture"));
+    assert!(stdout.contains("reload-config: not sent"));
+
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(written["future"]["keep"].as_bool(), Some(true));
+    assert_eq!(written["sidebar"]["width"].as_u64(), Some(33));
+    // plugin use canonicalizes paths; /tmp is a symlink to /private/tmp on
+    // macOS, so compare against the canonicalized install dir.
+    let canonical_dir = fs::canonicalize(&installed_dir).unwrap();
+    assert_eq!(written["sidebar"]["plugin"]["cwd"].as_str(), Some(canonical_dir.to_str().unwrap()));
+    assert_eq!(
+        written["sidebar"]["plugin"]["command"][0].as_str(),
+        Some(canonical_dir.join("bin/sidebar").to_str().unwrap())
+    );
+
+    let list = plugin_cli(&data_home, &config_path, &["--json", "plugin", "list"]);
+    assert_success(&list);
+    let listed: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
+    assert_eq!(listed["plugins"][0]["selected"].as_bool(), Some(true));
+
+    let builtin = plugin_cli(
+        &data_home,
+        &config_path,
+        &["--socket", missing_socket.to_str().unwrap(), "plugin", "use", "--builtin"],
+    );
+    assert_success(&builtin);
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(written["sidebar"].get("plugin").is_none());
+    assert_eq!(written["future"]["keep"].as_bool(), Some(true));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 fn wait_for_screen(server: &HeadlessServer, surface: u64, marker: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = String::new();
@@ -205,6 +419,21 @@ fn wait_for_screen(server: &HeadlessServer, surface: u64, marker: &str) -> Strin
         std::thread::sleep(Duration::from_millis(100));
     }
     last
+}
+
+fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Output {
+    Command::new(bin())
+        .args(args)
+        .env("XDG_DATA_HOME", data_home)
+        .env("CMUX_MUX_CONFIG", config_path)
+        .env_remove("CMUX_MUX_SOCKET")
+        .output()
+        .unwrap()
+}
+
+fn git(dir: &PathBuf, args: &[&str]) {
+    let output = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+    assert_success(&output);
 }
 
 fn cli(server: &HeadlessServer, args: &[&str]) -> Output {

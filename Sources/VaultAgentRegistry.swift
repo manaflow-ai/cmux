@@ -149,6 +149,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         CmuxVaultAgentRegistration(
             id: "omp",
             name: "OMP",
+            iconAssetName: "AgentIcons/Pi",
             detect: CmuxVaultAgentDetectRule(
                 processName: "omp",
                 alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]

@@ -9,6 +9,10 @@ import {
   resolveProPlanStatus,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
+import {
+  resolveBillingTeam,
+  type BillingTeamUserLike,
+} from "../../../../services/billing/teamResolution";
 
 export const dynamic = "force-dynamic";
 
@@ -80,18 +84,8 @@ type TeamPlanStatus = {
   readonly billingManagement: BillingManagementKind;
 };
 
-type BillingTeamLike = {
-  readonly id?: string;
-  readonly clientReadOnlyMetadata?: unknown;
-};
-
-type BillingTeamUserLike = {
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
 async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
-  const team = await billingTeamForUser(user);
+  const team = await resolveBillingTeam(user);
   if (!team?.id) {
     return { planId: FREE_PLAN_ID, billingManagement: "none" };
   }
@@ -104,23 +98,4 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
     return { planId: TEAM_PLAN_ID, billingManagement: "external" };
   }
   return { planId: FREE_PLAN_ID, billingManagement: "none" };
-}
-
-async function billingTeamForUser(user: BillingTeamUserLike): Promise<BillingTeamLike | null> {
-  const selected = teamFromUnknown(user.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeamLike => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeamLike | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  if (typeof id !== "string" || !id) return null;
-  return {
-    id,
-    clientReadOnlyMetadata: (value as { clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
-  };
 }

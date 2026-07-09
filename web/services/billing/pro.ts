@@ -14,6 +14,7 @@ import { inArray, eq, and } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
+import { resolveBillingTeam, type BillingTeamUserLike } from "./teamResolution";
 
 export const PRO_PRODUCT_ID = "pro";
 export const TEAM_PRODUCT_ID = process.env.CMUX_TEAM_PRODUCT_ID?.trim() || "team";
@@ -237,6 +238,15 @@ export async function hasActiveTeamSubscriptionForTeam(
     if (isMissingDatabaseConfig(error)) return false;
     throw error;
   }
+}
+
+export async function isTestflightEligible(
+  user: ProReconcileUser & BillingTeamUserLike,
+): Promise<boolean> {
+  const status = await resolveProPlanStatus(user);
+  if (status.isPro) return true;
+  const team = await resolveBillingTeam(user);
+  return team?.id ? hasActiveTeamSubscriptionForTeam(team.id) : false;
 }
 
 export function metadataPlanId(raw: unknown): string | null {

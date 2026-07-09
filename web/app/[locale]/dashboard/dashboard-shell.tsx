@@ -47,6 +47,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           label: t("billing"),
           active: pathname.startsWith("/dashboard/billing"),
         },
+        {
+          href: "/dashboard/testflight",
+          label: t("testflight"),
+          active: pathname.startsWith("/dashboard/testflight"),
+        },
       ],
     },
   ];

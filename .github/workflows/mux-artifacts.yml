@@ -1,0 +1,112 @@
+name: mux-artifacts
+
+# Publishes raw cmux-mux (the Rust TUI multiplexer) binaries to the
+# cmux-binaries R2 bucket (public at https://files.cmux.com/mux/...) so cloud
+# VM snapshot builders and install scripts can curl a binary directly, without
+# npm or PyPI. Binary building is shared with the npm/uvx distribution lane
+# (tui-build-package.yml); this workflow only adds the R2 raw-binary publish.
+#
+# Layout in R2:
+#   mux/<commit-sha>/cmux-mux-<rust-target>   immutable, commit-addressed
+#   mux/<commit-sha>/manifest.json
+#   mux/latest/cmux-mux-<rust-target>         rolling, main pushes only
+#   mux/latest/manifest.json
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "mux/**"
+      - "ghostty"
+      - ".github/workflows/mux-artifacts.yml"
+      - ".github/workflows/tui-build-package.yml"
+      - "scripts/install-zig-ci.sh"
+  pull_request:
+    paths:
+      - ".github/workflows/mux-artifacts.yml"
+
+concurrency:
+  group: mux-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tui-build-package.yml
+    with:
+      # Binaries only; the version input is unused when packaging is off.
+      version: "0.0.0"
+      package_npm: false
+      package_pypi: false
+
+  publish:
+    name: publish to R2
+    # PR runs of this workflow only validate the build; publishing is
+    # main-push or manual dispatch.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-mux-*
+          path: assets
+          merge-multiple: true
+
+      - name: Build manifest and checksums
+        run: |
+          cd assets
+          chmod 0755 cmux-mux-*
+          sha256sum cmux-mux-* > cmux-mux-checksums.txt
+          python3 - "$GITHUB_SHA" <<'PY'
+          import hashlib, json, os, sys
+          from datetime import datetime, timezone
+          files = sorted(f for f in os.listdir(".") if f.startswith("cmux-mux-") and not f.endswith(".txt"))
+          manifest = {
+              "commit": sys.argv[1],
+              "builtAt": datetime.now(timezone.utc).isoformat(),
+              "binaries": {
+                  f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in files
+              },
+          }
+          with open("manifest.json", "w") as out:
+              json.dump(manifest, out, indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          publish_prefix() {
+            local prefix="$1"
+            local cache="$2"
+            for file in assets/cmux-mux-* assets/manifest.json; do
+              python3 scripts/ci/upload-r2-object.py \
+                --file "$file" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --bucket cmux-binaries \
+                --key "$prefix/$(basename "$file")" \
+                --cache-control "$cache"
+            done
+          }
+          publish_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            publish_prefix "mux/latest" "no-cache, no-store, must-revalidate"
+          fi
+          echo "Published: https://files.cmux.com/mux/$GITHUB_SHA/manifest.json"

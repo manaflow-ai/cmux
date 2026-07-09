@@ -4,13 +4,13 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use mux_cdp::{discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent};
-use serde_json::{json, Value};
-use tungstenite::{accept, Message};
+use mux_cdp::{CdpClient, CdpEvent, discover_browser_ws_url, resolve_browser_ws_url};
+use serde_json::{Value, json};
+use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
-fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> serde_json::Value {
+fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
     loop {
         match ws.read().unwrap() {
             Message::Text(text) => return serde_json::from_str(&text).unwrap(),
@@ -20,8 +20,8 @@ fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> serde_json
     }
 }
 
-fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: Value) {
-    ws.send(Message::Text(value.to_string())).unwrap();
+fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: &Value) {
+    ws.send(Message::Text(value.to_string().into())).unwrap();
 }
 
 #[test]
@@ -37,24 +37,24 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
         let create = read_json(&mut ws);
         assert_eq!(create["method"], "Target.createTarget");
         assert_eq!(create["params"]["url"], "https://example.test");
-        write_json(&mut ws, json!({"id": create["id"], "result": {"targetId": "target-1"}}));
+        write_json(&mut ws, &json!({"id": create["id"], "result": {"targetId": "target-1"}}));
 
         let attach = read_json(&mut ws);
         assert_eq!(attach["method"], "Target.attachToTarget");
         assert_eq!(attach["params"]["targetId"], "target-1");
         assert_eq!(attach["params"]["flatten"], true);
-        write_json(&mut ws, json!({"id": attach["id"], "result": {"sessionId": "session-1"}}));
+        write_json(&mut ws, &json!({"id": attach["id"], "result": {"sessionId": "session-1"}}));
 
         let first = read_json(&mut ws);
         let second = read_json(&mut ws);
         assert_eq!(first["sessionId"], "session-1");
         assert_eq!(second["sessionId"], "session-1");
-        write_json(&mut ws, json!({"id": second["id"], "result": {"name": second["method"]}}));
-        write_json(&mut ws, json!({"id": first["id"], "result": {"name": first["method"]}}));
+        write_json(&mut ws, &json!({"id": second["id"], "result": {"name": second["method"]}}));
+        write_json(&mut ws, &json!({"id": first["id"], "result": {"name": first["method"]}}));
 
         write_json(
             &mut ws,
-            json!({
+            &json!({
                 "method": "Target.targetInfoChanged",
                 "params": {
                     "targetInfo": {
@@ -68,7 +68,7 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
 
         write_json(
             &mut ws,
-            json!({
+            &json!({
                 "method": "Page.screencastFrame",
                 "sessionId": "session-1",
                 "params": {
@@ -82,7 +82,7 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
         assert_eq!(ack["method"], "Page.screencastFrameAck");
         assert_eq!(ack["sessionId"], "session-1");
         assert_eq!(ack["params"]["sessionId"], 42);
-        write_json(&mut ws, json!({"id": ack["id"], "result": {}}));
+        write_json(&mut ws, &json!({"id": ack["id"], "result": {}}));
     });
 
     let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -93,20 +93,21 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
     let session_id = client.attach_to_target(&target_id).unwrap();
     assert_eq!(session_id, "session-1");
 
-    let left = {
-        let client = client.clone();
-        let session_id = session_id.clone();
-        thread::spawn(move || client.call("Test.left", json!({}), Some(&session_id)).unwrap())
-    };
+    let left_client = client.clone();
+    let right_client = client.clone();
+    let right_session_id = session_id.clone();
+    let left =
+        thread::spawn(move || left_client.call("Test.left", json!({}), Some(&session_id)).unwrap());
     let right = {
-        let client = client.clone();
-        let session_id = session_id.clone();
-        thread::spawn(move || client.call("Test.right", json!({}), Some(&session_id)).unwrap())
+        thread::spawn(move || {
+            right_client.call("Test.right", json!({}), Some(&right_session_id)).unwrap()
+        })
     };
     let left = left.join().unwrap();
     let right = right.join().unwrap();
     assert_eq!(left["name"], "Test.left");
     assert_eq!(right["name"], "Test.right");
+    let client_guard = client;
 
     let info = event_rx.recv_timeout(Duration::from_secs(2)).unwrap();
     match info {
@@ -132,6 +133,7 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
     }
 
     server.join().unwrap();
+    drop(client_guard);
 }
 
 #[test]
@@ -148,12 +150,12 @@ fn fake_cdp_activate_target_then_bring_page_to_front() {
         assert_eq!(activate["method"], "Target.activateTarget");
         assert_eq!(activate["params"]["targetId"], "target-1");
         assert!(activate.get("sessionId").is_none());
-        write_json(&mut ws, json!({"id": activate["id"], "result": {}}));
+        write_json(&mut ws, &json!({"id": activate["id"], "result": {}}));
 
         let front = read_json(&mut ws);
         assert_eq!(front["method"], "Page.bringToFront");
         assert_eq!(front["sessionId"], "session-1");
-        write_json(&mut ws, json!({"id": front["id"], "result": {}}));
+        write_json(&mut ws, &json!({"id": front["id"], "result": {}}));
     });
 
     let (event_tx, _event_rx) = std::sync::mpsc::channel();
@@ -181,7 +183,7 @@ fn fake_cdp_dispatches_button_none_mouse_move_without_click_count() {
         assert_eq!(request["params"]["y"], 18.0);
         assert_eq!(request["params"]["button"], "none");
         assert!(request["params"].get("clickCount").is_none());
-        write_json(&mut ws, json!({"id": request["id"], "result": {}}));
+        write_json(&mut ws, &json!({"id": request["id"], "result": {}}));
     });
 
     let (event_tx, _event_rx) = std::sync::mpsc::channel();

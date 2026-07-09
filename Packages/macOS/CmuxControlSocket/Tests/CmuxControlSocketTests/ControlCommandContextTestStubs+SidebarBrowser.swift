@@ -85,6 +85,12 @@ extension ControlSidebarContext {
         panelID: UUID?
     ) {}
 
+    func controlSidebarSetWorkspaceLoading(
+        tabArg: String?,
+        key: String,
+        on: Bool
+    ) -> ControlSidebarWorkspaceLoadingState? { nil }
+
     nonisolated func controlSidebarSetAgentHibernation(enabled: Bool) {}
 
     nonisolated func controlSidebarScheduleAgentPIDClear(

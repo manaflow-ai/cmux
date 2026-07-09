@@ -8,25 +8,31 @@
 //! queries then work identically in both cases.
 
 mod remote;
-mod tree;
+pub(crate) mod tree;
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
 
 use ghostty_vt::{RenderState, Terminal};
 use mux_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface,
-    SurfaceId, SurfaceKind, WorkspaceId,
+    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId,
+    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
 };
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
-pub use tree::TreeView;
+pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub enum Session {
     Local(Arc<Mux>),
     Remote(Arc<RemoteSession>),
+}
+
+pub struct SidebarPluginSurface {
+    pub surface_id: Option<SurfaceId>,
+    pub error: Option<String>,
+    pub retry_after_ms: Option<u64>,
 }
 
 /// Attach optional cols/rows fields to a remote command.
@@ -38,17 +44,22 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
+fn sidebar_status_to_surface(status: SidebarPluginStatus) -> SidebarPluginSurface {
+    let surface_id = status.surface;
+    SidebarPluginSurface {
+        surface_id,
+        error: status.error,
+        retry_after_ms: status.retry_after.map(|duration| duration.as_millis() as u64),
+    }
+}
+
 pub(crate) fn resize_action(
     desired: (u16, u16),
     asserted: Option<(u16, u16)>,
     server: (u16, u16),
     user_interaction: bool,
 ) -> bool {
-    if user_interaction {
-        desired != server
-    } else {
-        asserted != Some(desired)
-    }
+    if user_interaction { desired != server } else { asserted != Some(desired) }
 }
 
 #[derive(Clone)]
@@ -93,9 +104,64 @@ impl Session {
         }
     }
 
+    pub fn apply_config(&self, config: &crate::config::Config) {
+        if let Session::Local(mux) = self {
+            mux.update_surface_options(|options| {
+                crate::config::apply_browser_to_surface_options(config, options);
+            });
+            mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+        }
+    }
+
+    pub fn sidebar_plugin(&self, size: (u16, u16), relaunch: bool) -> SidebarPluginSurface {
+        match self {
+            Session::Local(mux) => {
+                let status = mux.ensure_sidebar_plugin(size.0, size.1, relaunch);
+                sidebar_status_to_surface(status)
+            }
+            Session::Remote(remote) => {
+                let Ok(data) = remote.request(json!({
+                    "cmd": "sidebar-plugin",
+                    "cols": size.0,
+                    "rows": size.1,
+                    "relaunch": relaunch,
+                })) else {
+                    return SidebarPluginSurface {
+                        surface_id: None,
+                        error: Some("sidebar plugin unavailable over attach".to_string()),
+                        retry_after_ms: None,
+                    };
+                };
+                let surface_id = data
+                    .get("surface")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|id| id as SurfaceId);
+                let surface = surface_id.and_then(|id| {
+                    remote
+                        .ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
+                        .map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                });
+                drop(surface);
+                SidebarPluginSurface {
+                    surface_id,
+                    error: data
+                        .get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
+                }
+            }
+        }
+    }
+
     pub fn tree(&self) -> TreeView {
         match self {
-            Session::Local(mux) => mux.with_state(tree::tree_from_state),
+            Session::Local(mux) => {
+                let notifications = mux.surface_notifications();
+                mux.with_state(|state| {
+                    tree::tree_from_state_with_notifications(state, &notifications)
+                })
+            }
             Session::Remote(remote) => remote.tree().unwrap_or_default(),
         }
     }
@@ -218,6 +284,17 @@ impl Session {
         }
     }
 
+    pub fn zoom_pane(&self, pane: Option<PaneId>) {
+        match self {
+            Session::Local(mux) => {
+                let _ = mux.zoom_pane(pane, ZoomMode::Toggle);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}));
+            }
+        }
+    }
+
     pub fn split(
         &self,
         pane: PaneId,
@@ -268,6 +345,17 @@ impl Session {
             Session::Local(mux) => mux.close_pane(pane),
             Session::Remote(remote) => {
                 let _ = remote.request(json!({"cmd": "close-pane", "pane": pane}));
+            }
+        }
+    }
+
+    pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
+        match self {
+            Session::Local(mux) => {
+                mux.swap_panes(pane, target);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(json!({"cmd": "swap-pane", "pane": pane, "target": target}));
             }
         }
     }
@@ -465,6 +553,56 @@ impl SurfaceHandle {
             SurfaceHandle::Local(surface) => surface.with_terminal(f),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 Some(f(&mut surface.term.lock().unwrap()))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scroll_delta(&self, delta: isize) -> Option<bool> {
+        match self {
+            SurfaceHandle::Local(surface) => {
+                let before = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                surface.scroll_delta(delta).ok()?;
+                let after = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                Some(before != after)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.lock().unwrap();
+                let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                term.scroll_delta(delta);
+                let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                Some(before != after)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scroll_to_bottom(&self) -> Option<bool> {
+        match self {
+            SurfaceHandle::Local(surface) => {
+                let before = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                surface.scroll_to_bottom().ok()?;
+                let after = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                Some(before != after)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.lock().unwrap();
+                let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                term.scroll_to_bottom();
+                let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                Some(before != after)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }

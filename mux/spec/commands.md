@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v5 in `mux/crates/mux-core/src/server.rs`. Proposed commands are future protocol v6 design.
+This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v6 in `mux/crates/mux-core/src/server.rs`.
 
 ## Notation
 
@@ -27,7 +27,7 @@ The canonical request and response envelope is defined in `transports.md`. Comma
 
 Malformed JSON, unknown command names, missing required fields, and wrong JSON types fail during request decoding with the transport-level `bad request: ...` envelope.
 
-The v5 server does not explicitly deny unknown JSON fields. Clients must not depend on unknown fields being rejected.
+The server does not explicitly deny unknown JSON fields. Clients must not depend on unknown fields being rejected.
 
 Common CLI exit codes for every mapping are `0` success, `1` command error, `2` CLI usage error, and `3` connection error.
 
@@ -46,6 +46,7 @@ object{
       name: string|null,
       active: boolean,
       active_pane: Id,
+      zoomed_pane: Id|null,
       layout: Layout,
       panes: array<Pane>
     }>
@@ -58,6 +59,13 @@ object{
 ```text
 object{type:"leaf",pane:Id}
 | object{type:"split",dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+```
+
+`DeclarativeLayout`:
+
+```text
+object{type:"leaf",cwd?:string,command?:array<string>}
+| object{type:"split",dir:"right"|"down",ratio:float32,a:DeclarativeLayout,b:DeclarativeLayout}
 ```
 
 `Pane`:
@@ -81,7 +89,7 @@ object{
 }
 ```
 
-The `dead` pane variant is serialized by the v5 server only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
+The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
 ## Implemented Commands
 
@@ -123,7 +131,129 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":5,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
+```
+
+### ping
+
+| Field | Value |
+| --- | --- |
+| name | `ping` |
+| status | implemented |
+| since | protocol 6 |
+
+Lightweight liveness probe. Unlike `identify`, this does not return session metadata.
+
+Params: none.
+
+Result:
+
+```text
+object{ok:true,version:string,protocol:uint32}
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `ping`; flags none; plain stdout prints `cmux-mux version=<version> protocol=<protocol>`; JSON stdout prints the exact result object.
+
+Example:
+
+```json
+{"id":2,"cmd":"ping"}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":6}}
+```
+
+### reload-config
+
+| Field | Value |
+| --- | --- |
+| name | `reload-config` |
+| status | implemented |
+| since | protocol 6 |
+
+Requests that attached TUI frontends re-read the mux config from the same source as startup config loading (`CMUX_MUX_CONFIG`, then XDG config, then `~/.config/cmux/mux.json`) and redraw. Headless servers acknowledge the command but have no TUI state to update.
+
+Params: none.
+
+Result:
+
+```text
+object{reloaded:true,path:string|null}
+```
+
+Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates local server launch options for future browser surfaces when a local TUI is present; existing browser runtimes, already-open browser surfaces, and remote headless servers may require restart for browser endpoint/profile/binary changes.
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `reload-config`; flags none; plain stdout prints nothing; JSON stdout prints the exact result object.
+
+Example:
+
+```json
+{"id":3,"cmd":"reload-config"}
+{"id":3,"ok":true,"data":{"reloaded":true,"path":"/Users/me/.config/cmux/mux.json"}}
+```
+
+### set-window-title
+
+| Field | Value |
+| --- | --- |
+| name | `set-window-title` |
+| status | implemented |
+| since | protocol 6 |
+
+Requests attached TUI frontends to set the outer terminal emulator window title by writing OSC 0 and OSC 2 sequences to their controlling stdout. This is display-only and does not change focus or selection.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `title` | `string` | required | C0 controls are sanitized before OSC output |
+
+Result:
+
+```text
+object{}
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `set-window-title`; flags `--title <title>`; plain stdout and JSON stdout are empty result object behavior.
+
+Example:
+
+```json
+{"id":4,"cmd":"set-window-title","title":"hello"}
+{"id":4,"ok":true,"data":{}}
+```
+
+### clear-window-title
+
+| Field | Value |
+| --- | --- |
+| name | `clear-window-title` |
+| status | implemented |
+| since | protocol 6 |
+
+Requests attached TUI frontends to restore the default outer terminal window title. The current TUI default is empty.
+
+Params: none.
+
+Result:
+
+```text
+object{}
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `clear-window-title`; flags none; plain stdout and JSON stdout are empty result object behavior.
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-window-title"}
+{"id":5,"ok":true,"data":{}}
 ```
 
 ### list-workspaces
@@ -166,6 +296,60 @@ Example:
 {"id":2,"cmd":"list-workspaces"}
 {"id":2,"ok":true,"data":{"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
+
+### export-layout
+
+| Field | Value |
+| --- | --- |
+| name | `export-layout` |
+| status | implemented |
+| since | protocol 6 |
+
+Returns one screen's canonical split tree and the surface ids attached to each leaf pane. Zoom state does not rewrite the exported tree.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screen` | `Id` | default active screen | Must identify a screen |
+
+Result:
+
+```text
+object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+```
+
+Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
+
+CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
+
+### apply-layout
+
+| Field | Value |
+| --- | --- |
+| name | `apply-layout` |
+| status | implemented |
+| since | protocol 6 |
+
+Creates a new screen in the given or active workspace from a declarative split tree. Each leaf creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | default active workspace | Existing workspace; if omitted and none exists, one is created |
+| `name` | `string` | default null | New screen name |
+| `layout` | `DeclarativeLayout` | required | Must contain at least one leaf |
+
+Result:
+
+```text
+object{screen:Id,panes:array<object{pane:Id,surface:Id}>}
+```
+
+Errors: `unknown workspace <id>`, `layout must contain at least one leaf`, `leaf command must not be empty`, spawn or PTY error string, `bad request: ...`.
+
+CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
 
 ### send
 
@@ -266,6 +450,42 @@ Example:
 ```json
 {"id":4,"cmd":"read-screen","surface":1}
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
+```
+
+### sidebar-plugin
+
+| Field | Value |
+| --- | --- |
+| name | `sidebar-plugin` |
+| CLI mapping | none (client-internal: issued by attach clients to obtain the sidebar plugin surface) |
+| status | implemented |
+| since | protocol 6 |
+
+Ensures the configured server-owned sidebar plugin PTY exists at the requested size and returns the surface id to render through `attach-surface`. This command does not install, build, or discover plugins; it only hosts the command already configured in server-side `mux.json`.
+
+Params:
+
+```text
+object{cmd:"sidebar-plugin",cols:uint16,rows:uint16,relaunch?:boolean}
+```
+
+Result:
+
+```text
+object{surface:Id|null,error:string|null,retry_after_ms:uint64|null}
+```
+
+Compatibility notes:
+
+- Attached clients use this command to obtain the server-owned plugin surface, then render it through `attach-surface` and send input through `send`.
+- If no sidebar plugin is configured, `surface`, `error`, and `retry_after_ms` are all `null`.
+- If the plugin exited or failed to start, `error` is populated. The server may also return `retry_after_ms` to indicate restart backoff. A client should pass `relaunch:true` only when the user focuses the sidebar or explicitly retries.
+
+Example:
+
+```json
+{"id":104,"cmd":"sidebar-plugin","cols":21,"rows":30,"relaunch":true}
+{"id":104,"ok":true,"data":{"surface":42,"error":null,"retry_after_ms":null}}
 ```
 
 ### vt-state
@@ -618,6 +838,112 @@ Example:
 {"id":11,"ok":true,"data":{}}
 ```
 
+### pane-neighbor
+
+| Field | Value |
+| --- | --- |
+| name | `pane-neighbor` |
+| status | implemented |
+| since | protocol 6 |
+
+Queries the directional adjacent pane in the screen split layout. It does not change focus.
+
+Params: `object{pane:Id,dir:"left"|"right"|"up"|"down"}`.
+
+Result:
+
+```text
+object{pane:Id|null}
+```
+
+Errors: `unknown pane <id>`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `pane-neighbor`; flags `--pane <id> --dir left|right|up|down`; plain stdout prints the pane id or `null`; JSON stdout prints the exact result object.
+
+### focus-direction
+
+| Field | Value |
+| --- | --- |
+| name | `focus-direction` |
+| status | implemented |
+| since | protocol 6 |
+
+Moves focus from the supplied pane, or the active pane, to its directional neighbor.
+
+Params: `object{pane?:Id,dir:"left"|"right"|"up"|"down"}`.
+
+Result:
+
+```text
+object{pane:Id}
+```
+
+Errors: `no active pane`, `unknown pane <id>`, `no neighbor`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `focus-direction`; flags `[--pane <id>] --dir left|right|up|down`; plain stdout prints the focused pane id; JSON stdout prints the exact result object.
+
+### swap-pane
+
+| Field | Value |
+| --- | --- |
+| name | `swap-pane` |
+| status | implemented |
+| since | protocol 6 |
+
+Exchanges two pane leaves in the split tree, preserving each pane's tabs and all split ratios. The target is either a directional neighbor or an explicit pane id.
+
+Params: `object{pane:Id,dir:"left"|"right"|"up"|"down"}` or `object{pane:Id,target:Id}`.
+
+Result: `object{}`.
+
+Errors: `one of dir or target is required`, `use only one of dir or target`, `no neighbor`, `unknown pane/target`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `swap-pane`; flags `--pane <id> (--dir left|right|up|down | --target <id>)`; plain stdout no output; JSON stdout exact result object.
+
+### zoom-pane
+
+| Field | Value |
+| --- | --- |
+| name | `zoom-pane` |
+| status | implemented |
+| since | protocol 6 |
+
+Sets per-screen zoom state. A zoomed pane renders as the only pane in its screen; the canonical split tree is preserved for restore and export.
+
+Params: `object{pane?:Id,mode?:"toggle"|"on"|"off"}`. Defaults: active pane and `toggle`.
+
+Result:
+
+```text
+object{pane:Id,zoomed:boolean,zoomed_pane:Id|null}
+```
+
+Errors: `no active pane`, `unknown pane <id>`, bad `mode`, `bad request: ...`.
+
+CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; plain stdout prints zoom state; JSON stdout prints the exact result object.
+
+### process-info
+
+| Field | Value |
+| --- | --- |
+| name | `process-info` |
+| status | implemented |
+| since | protocol 6 |
+
+Returns PTY child metadata for a surface.
+
+Params: `object{surface:Id}`.
+
+Result:
+
+```text
+object{pid:uint32|null,command:string|null,cwd:string|null}
+```
+
+Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
+
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
+
 ### set-default-colors
 
 | Field | Value |
@@ -626,7 +952,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Updates the session default foreground and/or background colors used by PTY surfaces. Missing fields preserve their previous values. Existing PTY surfaces receive the merged defaults. The v5 server emits `surface-output` for every existing surface, including browser surfaces; browser color application is a no-op, but the event is still emitted. Future PTY surfaces start with the merged defaults.
+Updates the session default foreground and/or background colors used by PTY surfaces. Missing fields preserve their previous values. Existing PTY surfaces receive the merged defaults. The server emits `surface-output` for every existing surface, including browser surfaces; browser color application is a no-op, but the event is still emitted. Future PTY surfaces start with the merged defaults.
 
 Params:
 
@@ -1524,8 +1850,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `wait-for` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
@@ -1575,8 +1901,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `run` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead.
 
@@ -1605,6 +1931,7 @@ Errors:
 | --- | --- |
 | `argv or command is required` | Neither is supplied |
 | `argv and command are mutually exclusive` | Both are supplied |
+| `pane and new_workspace are mutually exclusive` | Both placement options are supplied by a raw socket caller |
 | `unknown pane <id>` | Supplied pane does not exist |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
@@ -1631,8 +1958,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `send-key` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Sends named key chords to a surface without requiring callers to hand-encode escape sequences. PTY surfaces use the same Ghostty key encoder as the TUI, synced to the surface terminal modes. Browser surfaces translate supported keys to CDP keyboard input when the browser runtime is local.
 
@@ -1683,8 +2010,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `copy` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
@@ -1734,10 +2061,10 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `ids` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
-Returns the session id mapping and establishes the short-id scheme. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent, collision-checked per session, and usable anywhere an `IdRef` is accepted.
+Returns the session id mapping. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent and collision-checked per session. Accepting short ids anywhere an `IdRef` is accepted remains proposed; implemented command parameters currently accept numeric ids only.
 
 Params:
 
@@ -1751,9 +2078,9 @@ Short id format:
 [a-z0-9]{6}
 ```
 
-Generation rule: the server derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position. A short id is not reused while the session is alive.
+Generation rule: implemented short ids are stable six-character base36 ids collision-checked across live ids. The proposed future scheme derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position.
 
-Resolution rule: numeric JSON ids resolve first. String ids matching `[0-9]+` are rejected as ambiguous. String ids matching the short-id format resolve by exact short id. Unknown or ambiguous strings error.
+Resolution rule: short-id / `IdRef` string resolution across commands is still proposed and not yet accepted by the implementation. Implemented commands currently deserialize id parameters as numeric JSON ids. Proposed behavior is: numeric JSON ids resolve first; string ids matching `[0-9]+` are rejected as ambiguous; string ids matching the short-id format resolve by exact short id; unknown or ambiguous strings error.
 
 Result:
 
@@ -1790,8 +2117,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `notify` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Posts a notification into the mux notification area. This is a telemetry command and must not change app focus or pane selection.
 
@@ -1841,8 +2168,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `list-agents` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Returns known agent status records. Records may come from detection, explicit reports, or hooks. Explicit hook-authority reports override detection for the same surface until another explicit report changes the state or the surface closes.
 
@@ -1897,8 +2224,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `report-agent` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` have hook authority and override detector-derived state. Reports with `source:"socket"` override detector-derived state but are lower priority than a newer hook report.
 

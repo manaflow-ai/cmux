@@ -15,6 +15,9 @@ import {
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { isAscConfigured } from "../asc/client";
+import { removeTester } from "../asc/testflight";
+import { captureAscError } from "../errors";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "active",
@@ -35,6 +38,11 @@ type StackBillingUser = {
   }): Promise<unknown>;
 };
 
+type StackBillingUserLookup = {
+  readonly id: string;
+  readonly primaryEmail?: string | null;
+};
+
 type StackBillingTeam = {
   readonly id: string;
   readonly clientReadOnlyMetadata?: unknown;
@@ -45,12 +53,26 @@ type StackBillingTeam = {
 
 type StackBillingApp = {
   getUser(id: string): Promise<StackBillingUser | null>;
+  listUsers?(options?: {
+    query?: string;
+    limit?: number;
+    includeAnonymous?: boolean;
+    includeRestricted?: boolean;
+  }): Promise<readonly StackBillingUserLookup[]>;
   getTeam?(id: string): Promise<StackBillingTeam | null>;
 };
 
 type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
+  testflight?: {
+    isAscConfigured?: () => boolean;
+    removeTester?: (email: string) => Promise<void>;
+    captureAscError?: (
+      error: unknown,
+      context?: Record<string, string | number | boolean | null | undefined>,
+    ) => void;
+  };
 };
 
 export type CheckoutCompletionInput = {
@@ -110,6 +132,7 @@ export async function recordCheckoutCompletion(
       email,
       stripeCustomerId: customerId,
       stackUserId,
+      stackApp: dependencies.stackApp ?? stackServerApp,
     });
   }
   await syncProPlanMetadata(user, true);
@@ -172,6 +195,9 @@ export async function applySubscriptionUpdate(
   const isActive = isActiveStripeSubscriptionStatus(subscription.status);
   const user = await loadStackUser(stackUserId, dependencies.stackApp);
   await syncProPlanMetadata(user, isActive);
+  if (!isActive) {
+    await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
+  }
   return { scope: "user", stackUserId, isActive };
 }
 
@@ -228,6 +254,26 @@ async function loadStackTeam(
     throw new Error("Stack Auth server SDK cannot update team metadata");
   }
   return team as StackBillingTeam;
+}
+
+async function removeUserFromTestflightOnLapse(
+  user: StackBillingUser,
+  stackUserId: string,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
+  if (!configured()) return;
+  if (!user.primaryEmail) return;
+
+  try {
+    await (dependencies.testflight?.removeTester ?? removeTester)(user.primaryEmail);
+  } catch (error) {
+    (dependencies.testflight?.captureAscError ?? captureAscError)(error, {
+      route: "/api/stripe/webhook",
+      stackUserId,
+      email: user.primaryEmail,
+    });
+  }
 }
 
 async function recordTeamCheckoutCompletion(input: {
@@ -439,9 +485,20 @@ async function attachPurchaseEmailOrRecordClaim(
     email: string;
     stripeCustomerId: string;
     stackUserId: string;
+    stackApp: StackBillingApp | null | undefined;
   },
 ): Promise<void> {
   if (input.user.primaryEmail) return;
+  let ownerId: string | null = null;
+  try {
+    ownerId = await findUserIdByEmail(input.stackApp, input.email);
+  } catch {
+    ownerId = null;
+  }
+  if (ownerId && ownerId !== input.stackUserId) {
+    await recordBillingEmailClaim(db, input);
+    return;
+  }
   try {
     await input.user.update({
       primaryEmail: input.email,
@@ -449,26 +506,57 @@ async function attachPurchaseEmailOrRecordClaim(
     });
   } catch (error) {
     if (!isEmailAlreadyUsedError(error)) throw error;
-    const existing = await db
-      .select({ id: billingEmailClaims.id })
-      .from(billingEmailClaims)
-      .where(
-        and(
-          eq(billingEmailClaims.email, input.email),
-          eq(billingEmailClaims.stripeCustomerId, input.stripeCustomerId),
-          eq(billingEmailClaims.stackUserId, input.stackUserId),
-          eq(billingEmailClaims.plan, PRO_PLAN_ID),
-        ),
-      )
-      .limit(1);
-    if (existing.length > 0) return;
-    await db.insert(billingEmailClaims).values({
-      email: input.email,
-      stripeCustomerId: input.stripeCustomerId,
-      stackUserId: input.stackUserId,
-      plan: PRO_PLAN_ID,
-    });
+    await recordBillingEmailClaim(db, input);
   }
+}
+
+async function findUserIdByEmail(
+  stackApp: StackBillingApp | null | undefined,
+  email: string,
+): Promise<string | null> {
+  if (!stackApp?.listUsers) {
+    throw new Error("Stack Auth server SDK cannot list users");
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const users = await stackApp.listUsers({
+    query: normalizedEmail,
+    limit: 20,
+    includeAnonymous: true,
+    includeRestricted: true,
+  });
+  const owner = users.find(
+    (user) => user.primaryEmail?.trim().toLowerCase() === normalizedEmail,
+  );
+  return owner?.id ?? null;
+}
+
+async function recordBillingEmailClaim(
+  db: BillingDb,
+  input: {
+    email: string;
+    stripeCustomerId: string;
+    stackUserId: string;
+  },
+): Promise<void> {
+  const existing = await db
+    .select({ id: billingEmailClaims.id })
+    .from(billingEmailClaims)
+    .where(
+      and(
+        eq(billingEmailClaims.email, input.email),
+        eq(billingEmailClaims.stripeCustomerId, input.stripeCustomerId),
+        eq(billingEmailClaims.stackUserId, input.stackUserId),
+        eq(billingEmailClaims.plan, PRO_PLAN_ID),
+      ),
+    )
+    .limit(1);
+  if (existing.length > 0) return;
+  await db.insert(billingEmailClaims).values({
+    email: input.email,
+    stripeCustomerId: input.stripeCustomerId,
+    stackUserId: input.stackUserId,
+    plan: PRO_PLAN_ID,
+  });
 }
 
 async function stackUserIdForStripeCustomer(

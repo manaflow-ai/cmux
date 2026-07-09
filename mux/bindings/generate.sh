@@ -15,8 +15,8 @@ SPEC_FILES=(
   "$MUX_DIR/spec/bindings.md"
 )
 
-GENERATE_LANGS=(python typescript)
-STUB_LANGS=(rust go java)
+GENERATE_LANGS=(python typescript rust go java)
+STUB_LANGS=()
 
 mkdir -p "$PROMPT_DIR"
 

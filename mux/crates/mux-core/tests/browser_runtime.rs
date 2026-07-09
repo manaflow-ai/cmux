@@ -1,14 +1,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
-use std::sync::mpsc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use mux_core::{server, BrowserStatus, Mux, SurfaceKind, SurfaceOptions};
-use serde_json::{json, Value};
-use tungstenite::{accept, Message};
+use mux_core::{BrowserStatus, Mux, SurfaceKind, SurfaceOptions, server};
+use serde_json::{Value, json};
+use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 static SOCKET_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -24,7 +24,7 @@ fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
 }
 
 fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: Value) {
-    ws.send(Message::Text(value.to_string())).unwrap();
+    ws.send(Message::Text(value.to_string().into())).unwrap();
 }
 
 fn rpc(path: &std::path::Path, mut cmd: Value) -> Value {

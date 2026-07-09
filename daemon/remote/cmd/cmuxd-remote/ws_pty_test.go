@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -124,6 +126,134 @@ func TestWebSocketPTYHealthIsAvailableWhenLocked(t *testing.T) {
 	}
 	if body["ok"] != true || body["locked"] != true {
 		t.Fatalf("unexpected health body: %v", body)
+	}
+}
+
+func TestWebSocketPTYAdminLeaseInstallRequiresToken(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	adminToken := "admin-token"
+	sum := sha256.Sum256([]byte(adminToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: hex.EncodeToString(sum[:]),
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", strings.NewReader(`{"pty_lease":{}}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unauthenticated install status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestWebSocketPTYAdminLeaseInstallUnlocksAttach(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	adminToken := "admin-token"
+	adminSum := sha256.Sum256([]byte(adminToken))
+	ptyToken := "pty-token"
+	ptySum := sha256.Sum256([]byte(ptyToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: hex.EncodeToString(adminSum[:]),
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	lease := wsPTYLease{
+		Version:       1,
+		TokenSHA256:   hex.EncodeToString(ptySum[:]),
+		ExpiresAtUnix: time.Now().Add(time.Minute).Unix(),
+		SessionID:     "sess-admin",
+		SingleUse:     true,
+	}
+	body, err := json.Marshal(map[string]any{"pty_lease": lease})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("install status = %d, want 200", resp.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, conn, ptyToken, "sess-admin", 80, 24)
+	readReady(t, ctx, conn)
+}
+
+func TestWebSocketPTYAdminLeaseInstallAcceptsEd25519Signature(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	ptyToken := "pty-token"
+	ptySum := sha256.Sum256([]byte(ptyToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:   leasePath,
+		AdminEd25519PubKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:              "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	lease := wsPTYLease{
+		Version:       1,
+		TokenSHA256:   hex.EncodeToString(ptySum[:]),
+		ExpiresAtUnix: time.Now().Add(time.Minute).Unix(),
+		SessionID:     "sess-signed",
+		SingleUse:     true,
+	}
+	body, err := json.Marshal(map[string]any{"pty_lease": lease})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new unsigned request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases unsigned: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unsigned install status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new signed request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Cmux-Admin-Signature-Ed25519", base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, body)))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases signed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("signed install status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 

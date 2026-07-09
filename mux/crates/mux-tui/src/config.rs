@@ -13,7 +13,10 @@
 //!     "tab_bg": 236,
 //!     "tab_active_bg": null,
 //!     "border_active": "#87afd7",
-//!     "border_inactive": "#444444"
+//!     "border_inactive": "#444444",
+//!     "notification_info": "#87afd7",
+//!     "notification_warning": "#d7af5f",
+//!     "notification_error": "#d75f5f"
 //!   },
 //!   "tabs": {
 //!     "min_width": 7,
@@ -23,7 +26,11 @@
 //!   },
 //!   "sidebar": {
 //!     "width": 22,
-//!     "max_width": 0
+//!     "max_width": 0,
+//!     "plugin": {
+//!       "command": ["/path/to/plugin-binary"],
+//!       "cwd": "/optional"
+//!     }
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -44,6 +51,7 @@
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
+//!     "select-screen-1": "1",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -54,14 +62,44 @@
 //! colors: explicit config value, then the user's Ghostty config
 //! (`selection-background`/`selection-foreground`), then the built-in
 //! default.
+//!
+//! Key bindings are configured under `"keys"`. Each action accepts a
+//! chord string, an array of chord strings, or `"none"`. Overrides replace
+//! all default chords for that action. Action names are:
+//! `new-tab`, `new-browser-tab` (alias: `new_browser_tab`),
+//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-1` through
+//! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
+//! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
+//! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
+//! `select-screen-0` through `select-screen-9`, `new-screen`,
+//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-sidebar`,
+//! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
+//! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
+//! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
+//!
+//! The defaults intentionally match tmux where cmux has the same
+//! capability. `x` closes the active pane and `X` closes the active tab;
+//! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
+//! cmux defaults. Screens are visibly numbered from 1, so
+//! `select-screen-1` selects the first visible screen, ..., and
+//! `select-screen-0` selects the tenth visible screen. Zellij's modal
+//! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
+//! deliberate non-goal because they conflict with shell/editor control
+//! keys.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use mux_core::SidebarPluginOptions;
+use mux_core::SurfaceOptions;
 use mux_core::platform;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -110,6 +148,9 @@ struct RawTheme {
     tab_active_bg: Option<ColorValue>,
     border_active: Option<ColorValue>,
     border_inactive: Option<ColorValue>,
+    notification_info: Option<ColorValue>,
+    notification_warning: Option<ColorValue>,
+    notification_error: Option<ColorValue>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -126,6 +167,14 @@ struct RawTabs {
 struct RawSidebar {
     width: Option<u16>,
     max_width: Option<u16>,
+    plugin: Option<RawSidebarPlugin>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarPlugin {
+    command: Option<Vec<String>>,
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -196,6 +245,9 @@ pub struct Theme {
     pub tab_active_bg: Option<Color>,
     pub border_active: Color,
     pub border_inactive: Color,
+    pub notification_info: Color,
+    pub notification_warning: Color,
+    pub notification_error: Color,
 }
 
 impl Default for Theme {
@@ -211,6 +263,9 @@ impl Default for Theme {
             tab_active_bg: None,
             border_active: Color::Indexed(110),
             border_inactive: Color::Indexed(238),
+            notification_info: Color::Indexed(110),
+            notification_warning: Color::Indexed(179),
+            notification_error: Color::Indexed(167),
         }
     }
 }
@@ -242,15 +297,16 @@ impl Default for Tabs {
 }
 
 /// Sidebar behavior.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Sidebar {
     pub width: u16,
     pub max_width: u16,
+    pub plugin: Option<SidebarPluginOptions>,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { width: 22, max_width: 0 }
+        Sidebar { width: 22, max_width: 0, plugin: None }
     }
 }
 
@@ -289,6 +345,7 @@ pub enum Action {
     NewPaneSmart,
     NextTab,
     PrevTab,
+    SelectTab(u8),
     SplitRight,
     SplitDown,
     CloseTab,
@@ -299,14 +356,20 @@ pub enum Action {
     CloseScreen,
     PrevScreen,
     NextScreen,
+    SelectScreen(u8),
     NewScreen,
     NextWorkspace,
     NewWorkspace,
     ToggleSidebar,
+    FocusSidebar,
     FocusLeft,
     FocusRight,
     FocusUp,
     FocusDown,
+    FocusNextPane,
+    SwapPanePrev,
+    SwapPaneNext,
+    ZoomPane,
     ResizeGrow,
     ResizeShrink,
     ScrollUp,
@@ -319,40 +382,62 @@ pub enum Action {
 }
 
 impl Action {
-    fn config_key(&self) -> &'static str {
+    fn config_key(&self) -> String {
         match self {
-            Action::NewTab => "new-tab",
-            Action::NewBrowserTab => "new-browser-tab",
-            Action::NewPaneSmart => "new-pane-smart",
-            Action::NextTab => "next-tab",
-            Action::PrevTab => "prev-tab",
-            Action::SplitRight => "split-right",
-            Action::SplitDown => "split-down",
-            Action::CloseTab => "close-tab",
-            Action::ClosePane => "close-pane",
-            Action::RenameTab => "rename-tab",
-            Action::RenameScreen => "rename-screen",
-            Action::RenameWorkspace => "rename-workspace",
-            Action::CloseScreen => "close-screen",
-            Action::PrevScreen => "prev-screen",
-            Action::NextScreen => "next-screen",
-            Action::NewScreen => "new-screen",
-            Action::NextWorkspace => "next-workspace",
-            Action::NewWorkspace => "new-workspace",
-            Action::ToggleSidebar => "toggle-sidebar",
-            Action::FocusLeft => "focus-left",
-            Action::FocusRight => "focus-right",
-            Action::FocusUp => "focus-up",
-            Action::FocusDown => "focus-down",
-            Action::ResizeGrow => "resize-grow",
-            Action::ResizeShrink => "resize-shrink",
-            Action::ScrollUp => "scroll-up",
-            Action::ScrollDown => "scroll-down",
-            Action::BrowserBack => "browser-back",
-            Action::BrowserForward => "browser-forward",
-            Action::BrowserReload => "browser-reload",
-            Action::BrowserEditUrl => "browser-edit-url",
-            Action::Detach => "detach",
+            Action::NewTab => "new-tab".to_string(),
+            Action::NewBrowserTab => "new-browser-tab".to_string(),
+            Action::NewPaneSmart => "new-pane-smart".to_string(),
+            Action::NextTab => "next-tab".to_string(),
+            Action::PrevTab => "prev-tab".to_string(),
+            Action::SelectTab(number) => format!("select-tab-{number}"),
+            Action::SplitRight => "split-right".to_string(),
+            Action::SplitDown => "split-down".to_string(),
+            Action::CloseTab => "close-tab".to_string(),
+            Action::ClosePane => "close-pane".to_string(),
+            Action::RenameTab => "rename-tab".to_string(),
+            Action::RenameScreen => "rename-screen".to_string(),
+            Action::RenameWorkspace => "rename-workspace".to_string(),
+            Action::CloseScreen => "close-screen".to_string(),
+            Action::PrevScreen => "prev-screen".to_string(),
+            Action::NextScreen => "next-screen".to_string(),
+            Action::SelectScreen(number) => format!("select-screen-{number}"),
+            Action::NewScreen => "new-screen".to_string(),
+            Action::NextWorkspace => "next-workspace".to_string(),
+            Action::NewWorkspace => "new-workspace".to_string(),
+            Action::ToggleSidebar => "toggle-sidebar".to_string(),
+            Action::FocusSidebar => "focus-sidebar".to_string(),
+            Action::FocusLeft => "focus-left".to_string(),
+            Action::FocusRight => "focus-right".to_string(),
+            Action::FocusUp => "focus-up".to_string(),
+            Action::FocusDown => "focus-down".to_string(),
+            Action::FocusNextPane => "focus-next-pane".to_string(),
+            Action::SwapPanePrev => "swap-pane-prev".to_string(),
+            Action::SwapPaneNext => "swap-pane-next".to_string(),
+            Action::ZoomPane => "zoom-pane".to_string(),
+            Action::ResizeGrow => "resize-grow".to_string(),
+            Action::ResizeShrink => "resize-shrink".to_string(),
+            Action::ScrollUp => "scroll-up".to_string(),
+            Action::ScrollDown => "scroll-down".to_string(),
+            Action::BrowserBack => "browser-back".to_string(),
+            Action::BrowserForward => "browser-forward".to_string(),
+            Action::BrowserReload => "browser-reload".to_string(),
+            Action::BrowserEditUrl => "browser-edit-url".to_string(),
+            Action::Detach => "detach".to_string(),
+        }
+    }
+
+    pub fn screen_index(&self) -> Option<usize> {
+        match self {
+            Action::SelectScreen(0) => Some(9),
+            Action::SelectScreen(number @ 1..=9) => Some((*number as usize) - 1),
+            _ => None,
+        }
+    }
+
+    pub fn tab_index(&self) -> Option<usize> {
+        match self {
+            Action::SelectTab(number @ 1..=9) => Some((*number as usize) - 1),
+            _ => None,
         }
     }
 }
@@ -401,8 +486,8 @@ impl Default for Keys {
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
-                bind(KeyCode::Char('x'), Action::CloseTab),
-                bind(KeyCode::Char('X'), Action::ClosePane),
+                bind(KeyCode::Char('x'), Action::ClosePane),
+                bind(KeyCode::Char('X'), Action::CloseTab),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
@@ -410,10 +495,22 @@ impl Default for Keys {
                 alt(KeyCode::Char('['), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
+                bind(KeyCode::Char('1'), Action::SelectScreen(1)),
+                bind(KeyCode::Char('2'), Action::SelectScreen(2)),
+                bind(KeyCode::Char('3'), Action::SelectScreen(3)),
+                bind(KeyCode::Char('4'), Action::SelectScreen(4)),
+                bind(KeyCode::Char('5'), Action::SelectScreen(5)),
+                bind(KeyCode::Char('6'), Action::SelectScreen(6)),
+                bind(KeyCode::Char('7'), Action::SelectScreen(7)),
+                bind(KeyCode::Char('8'), Action::SelectScreen(8)),
+                bind(KeyCode::Char('9'), Action::SelectScreen(9)),
+                bind(KeyCode::Char('0'), Action::SelectScreen(0)),
                 bind(KeyCode::Char('c'), Action::NewScreen),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('S'), Action::FocusSidebar),
+                bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
                 alt(KeyCode::Char('h'), Action::FocusLeft),
@@ -432,6 +529,10 @@ impl Default for Keys {
                 alt(KeyCode::Down, Action::FocusDown),
                 alt(KeyCode::Char('='), Action::ResizeGrow),
                 alt(KeyCode::Char('-'), Action::ResizeShrink),
+                bind(KeyCode::Char('z'), Action::ZoomPane),
+                bind(KeyCode::Char('{'), Action::SwapPanePrev),
+                bind(KeyCode::Char('}'), Action::SwapPaneNext),
+                bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
@@ -481,8 +582,16 @@ impl Keys {
                 self.prefix = chord;
                 continue;
             }
+            // The numbered families accept both spellings: select-screen-N /
+            // select_screen_N and select-tab-N / select_tab_N.
+            let normalized =
+                if name.starts_with("select_screen_") || name.starts_with("select_tab_") {
+                    name.replace('_', "-")
+                } else {
+                    name.clone()
+                };
             match all_actions().iter().find(|a| {
-                a.config_key() == name
+                a.config_key() == normalized.as_str()
                     || (**a == Action::RenameTab && name == "rename-pane")
                     || (**a == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
@@ -523,6 +632,15 @@ fn all_actions() -> &'static [Action] {
         Action::NewPaneSmart,
         Action::NextTab,
         Action::PrevTab,
+        Action::SelectTab(1),
+        Action::SelectTab(2),
+        Action::SelectTab(3),
+        Action::SelectTab(4),
+        Action::SelectTab(5),
+        Action::SelectTab(6),
+        Action::SelectTab(7),
+        Action::SelectTab(8),
+        Action::SelectTab(9),
         Action::SplitRight,
         Action::SplitDown,
         Action::CloseTab,
@@ -533,14 +651,29 @@ fn all_actions() -> &'static [Action] {
         Action::CloseScreen,
         Action::PrevScreen,
         Action::NextScreen,
+        Action::SelectScreen(0),
+        Action::SelectScreen(1),
+        Action::SelectScreen(2),
+        Action::SelectScreen(3),
+        Action::SelectScreen(4),
+        Action::SelectScreen(5),
+        Action::SelectScreen(6),
+        Action::SelectScreen(7),
+        Action::SelectScreen(8),
+        Action::SelectScreen(9),
         Action::NewScreen,
         Action::NextWorkspace,
         Action::NewWorkspace,
         Action::ToggleSidebar,
+        Action::FocusSidebar,
         Action::FocusLeft,
         Action::FocusRight,
         Action::FocusUp,
         Action::FocusDown,
+        Action::FocusNextPane,
+        Action::SwapPanePrev,
+        Action::SwapPaneNext,
+        Action::ZoomPane,
         Action::ResizeGrow,
         Action::ResizeShrink,
         Action::ScrollUp,
@@ -606,6 +739,12 @@ pub struct Config {
     pub keys: Keys,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarPluginConfig {
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+}
+
 /// Load the config: defaults, overlaid with the user's Ghostty selection
 /// colors, overlaid with `mux.json`.
 pub fn load() -> Config {
@@ -653,6 +792,15 @@ pub fn load() -> Config {
     if let Some(c) = t.border_inactive.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_inactive = c;
     }
+    if let Some(c) = t.notification_info.as_ref().and_then(ColorValue::to_color) {
+        config.theme.notification_info = c;
+    }
+    if let Some(c) = t.notification_warning.as_ref().and_then(ColorValue::to_color) {
+        config.theme.notification_warning = c;
+    }
+    if let Some(c) = t.notification_error.as_ref().and_then(ColorValue::to_color) {
+        config.theme.notification_error = c;
+    }
     if let Some(w) = raw.tabs.min_width {
         config.tabs.min_width = w.clamp(3, 40);
     }
@@ -670,6 +818,22 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
+    }
+    if let Some(plugin) = raw.sidebar.plugin {
+        let command = plugin
+            .command
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|arg| !arg.is_empty())
+            .collect::<Vec<_>>();
+        if command.is_empty() {
+            eprintln!("cmux-mux: ignoring sidebar.plugin with empty command");
+        } else {
+            config.sidebar.plugin = Some(SidebarPluginOptions {
+                command,
+                cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+            });
+        }
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
@@ -708,14 +872,25 @@ pub fn load() -> Config {
     config
 }
 
+pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
+    options.chrome_binary = config.browser.chrome_binary.clone();
+    options.cdp_url = config.browser.cdp_url.clone();
+    options.browser_discover = config.browser.discover;
+    options.browser_discover_ports = config.browser.discover_ports.clone();
+    options.browser_user_data_dir = config.browser.user_data_dir.clone();
+    options.browser_ephemeral = config.browser.ephemeral;
+    options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
+    options.browser_capture_scale = config.browser.capture_scale;
+}
+
 /// The label for a tab: user name if set, otherwise its 1-based number
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
-    if let Some(name) = name {
-        if !name.is_empty() {
-            return name.to_string();
-        }
+    if let Some(name) = name
+        && !name.is_empty()
+    {
+        return name.to_string();
     }
     let number = index + 1;
     let suffix = if tabs.show_titles {
@@ -749,6 +924,81 @@ fn load_raw_config() -> RawConfig {
             RawConfig::default()
         }
     }
+}
+
+pub fn config_path() -> anyhow::Result<PathBuf> {
+    platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
+}
+
+pub fn write_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> anyhow::Result<PathBuf> {
+    let path = config_path()?;
+    write_sidebar_plugin_at_path(&path, plugin)?;
+    Ok(path)
+}
+
+pub fn write_sidebar_plugin_at_path(
+    path: &Path,
+    plugin: Option<&SidebarPluginConfig>,
+) -> anyhow::Result<()> {
+    let mut root = read_config_value(path)?;
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    };
+    match plugin {
+        Some(plugin) => {
+            let sidebar = root_object.entry("sidebar").or_insert_with(|| json!({}));
+            if !sidebar.is_object() {
+                *sidebar = json!({});
+            }
+            let sidebar_object = sidebar.as_object_mut().expect("sidebar was just made an object");
+            let mut plugin_value = json!({ "command": &plugin.command });
+            if let Some(cwd) = &plugin.cwd {
+                plugin_value["cwd"] = json!(cwd);
+            }
+            sidebar_object.insert("plugin".to_string(), plugin_value);
+        }
+        None => {
+            if let Some(sidebar) = root_object.get_mut("sidebar")
+                && let Some(sidebar_object) = sidebar.as_object_mut()
+            {
+                sidebar_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic(path, &root)
+}
+
+fn read_config_value(path: &Path) -> anyhow::Result<Value> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(json!({})),
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(err) => Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
+    }
+}
+
+fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("mux.json");
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
+    let result = (|| -> anyhow::Result<()> {
+        let mut file = std::fs::File::create(&tmp_path)?;
+        serde_json::to_writer_pretty(&mut file, value)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
 }
 
 /// `#rrggbb`, `#rgb`, or an xterm-256 index in a string.
@@ -844,7 +1094,14 @@ mod tests {
                     "tab_bg": 44
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
-                "sidebar": {"width": 30, "max_width": 38},
+                "sidebar": {
+                    "width": 30,
+                    "max_width": 38,
+                    "plugin": {
+                        "command": ["/tmp/sidebar-plugin", "--mode", "test"],
+                        "cwd": "/tmp"
+                    }
+                },
                 "scrollbar": {"position": "border"},
                 "keys": {
                     "alt_shortcuts": false,
@@ -856,9 +1113,11 @@ mod tests {
             }"##,
         )
         .unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
@@ -868,6 +1127,9 @@ mod tests {
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.sidebar.max_width, 38);
+        let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
+        assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
+        assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
@@ -877,6 +1139,10 @@ mod tests {
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
             Some(Action::BrowserEditUrl)
+        );
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)),
+            Some(Action::FocusSidebar)
         );
         assert_eq!(
             config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)),
@@ -899,12 +1165,87 @@ mod tests {
                 "duplicate default chord: {left:?}"
             );
         }
+        assert!(
+            !keys.bindings.iter().any(|(chord, _)| chord == &keys.prefix),
+            "default binding shadows prefix passthrough: {:?}",
+            keys.prefix
+        );
         for c in ['b', 'f', 'd', '.'] {
             assert_eq!(
                 keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
                 None
             );
         }
+    }
+
+    #[test]
+    fn tmux_close_pane_flip_is_default() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            Some(Action::ClosePane)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)),
+            Some(Action::CloseTab)
+        );
+    }
+
+    #[test]
+    fn new_action_names_parse_from_config_overrides() {
+        let cases = [
+            ("zoom-pane", Action::ZoomPane),
+            ("focus-next-pane", Action::FocusNextPane),
+            ("swap-pane-prev", Action::SwapPanePrev),
+            ("swap-pane-next", Action::SwapPaneNext),
+            ("scroll-up", Action::ScrollUp),
+        ];
+        for (name, action) in cases {
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(name.to_string(), Value::String("f".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(action),
+                "{name} did not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn select_screen_action_names_round_trip_and_parse() {
+        for number in 0..=9 {
+            let action = Action::SelectScreen(number);
+            let name = format!("select-screen-{number}");
+            assert_eq!(action.config_key(), name);
+            assert!(all_actions().contains(&action));
+
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(name.clone(), Value::String("f".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(action),
+                "{name} did not parse"
+            );
+
+            // The snake_case spelling is accepted as an alias.
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(format!("select_screen_{number}"), Value::String("g".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+                Some(action),
+                "select_screen_{number} alias did not parse"
+            );
+        }
+
+        assert_eq!(Action::SelectScreen(1).screen_index(), Some(0));
+        assert_eq!(Action::SelectScreen(9).screen_index(), Some(8));
+        assert_eq!(Action::SelectScreen(0).screen_index(), Some(9));
     }
 
     #[test]
@@ -939,13 +1280,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mux.json");
         std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         // `load()` always seeds `selection_fg` from the Ghostty selection
         // colors (or leaves it `None` if there aren't any) before applying
         // this override, so regardless of the ambient Ghostty config, an
         // explicit `null` here must land back on `None`.
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_fg, None);
     }
@@ -962,7 +1305,8 @@ mod tests {
             r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
         )
         .unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
         assert_eq!(config.browser.max_capture_megapixels, 3.5);
         assert_eq!(config.browser.capture_scale, Some(0.5));
@@ -973,12 +1317,55 @@ mod tests {
         )
         .unwrap();
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(
             config.browser.max_capture_megapixels,
             Browser::default().max_capture_megapixels
         );
         assert_eq!(config.browser.capture_scale, None);
+    }
+
+    #[test]
+    fn sidebar_plugin_write_preserves_unrelated_config_keys() {
+        let dir = std::env::temp_dir().join(format!(
+            "mux-config-write-test-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "theme": {"sidebar_rail": 42},
+                "sidebar": {"width": 31},
+                "future": {"unknown": true}
+            }"#,
+        )
+        .unwrap();
+
+        write_sidebar_plugin_at_path(
+            &path,
+            Some(&SidebarPluginConfig {
+                command: vec!["/tmp/plugin".to_string(), "--mode".to_string(), "test".to_string()],
+                cwd: Some("/tmp".to_string()),
+            }),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["theme"]["sidebar_rail"], json!(42));
+        assert_eq!(value["sidebar"]["width"], json!(31));
+        assert_eq!(value["future"]["unknown"], json!(true));
+        assert_eq!(value["sidebar"]["plugin"]["command"][0], json!("/tmp/plugin"));
+        assert_eq!(value["sidebar"]["plugin"]["cwd"], json!("/tmp"));
+
+        write_sidebar_plugin_at_path(&path, None).unwrap();
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["sidebar"]["width"], json!(31));
+        assert!(value["sidebar"].get("plugin").is_none());
+        assert_eq!(value["future"]["unknown"], json!(true));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
