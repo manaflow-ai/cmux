@@ -10,7 +10,7 @@ import WebKit
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
 struct BrowserWebExtensionSupportTests {
     @MainActor
     @Test

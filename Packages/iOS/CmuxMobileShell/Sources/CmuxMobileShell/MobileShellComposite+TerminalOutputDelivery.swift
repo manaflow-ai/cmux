@@ -249,6 +249,14 @@ extension MobileShellComposite {
                     "terminal.output.drop_replay_barrier surface=\(surfaceID) count=\(droppedOutputCount)"
                 )
             }
+            if droppedOutputCount >= Self.maxTerminalReplayBarrierDroppedOutputBeforeFailOpen {
+                failOpenTerminalReplayBarrier(
+                    surfaceID: surfaceID,
+                    token: replayBarrierToken,
+                    reason: "dropped_output_cap"
+                )
+                return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
+            }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
                terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
@@ -309,40 +317,54 @@ extension MobileShellComposite {
             let needsFollowUpReplay = coveredDroppedOutputCount.map {
                 currentDroppedOutputCount > $0
             } ?? true
-            terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
-            let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID) != nil
-            terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
-            if droppedOutputDuringBarrier,
-               needsFollowUpReplay,
-               claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
-                let baselineReplayRequestCount = missingBaselineReplayBarrier
-                    ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
-                    : nil
-                let replayBarrierToken = beginTerminalReplayBarrier(
-                    surfaceID: surfaceID,
-                    preservingFollowUpCount: true
-                )
-                if coldAttachReplayBarrier {
-                    terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
-                }
-                if missingBaselineReplayBarrier {
-                    if let baselineReplayRequestCount {
-                        terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = baselineReplayRequestCount
+            let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
+            if droppedOutputDuringBarrier, needsFollowUpReplay {
+                if claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
+                    let baselineReplayRequestCount = missingBaselineReplayBarrier
+                        ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
+                        : nil
+                    terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+                    terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                    terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+                    let replayBarrierToken = beginTerminalReplayBarrier(
+                        surfaceID: surfaceID,
+                        preservingFollowUpCount: true
+                    )
+                    if coldAttachReplayBarrier {
+                        terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
                     }
-                    terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
+                    if missingBaselineReplayBarrier {
+                        if let baselineReplayRequestCount {
+                            terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = baselineReplayRequestCount
+                        }
+                        terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
+                    }
+                    MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
+                    requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                    return
                 }
-                MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
-                return
+                _ = failOpenTerminalReplayBarrier(
+                    surfaceID: surfaceID,
+                    token: replayBarrierToken,
+                    reason: "followup_cap"
+                )
+            } else {
+                terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+                terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+                // Fully resolved: a seq-less raw tail leaves no delivered sequence,
+                // so the floor restore is the truthful baseline hand-back.
+                restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+                terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
             }
-            // Fully resolved: a seq-less raw tail leaves no delivered sequence,
-            // so the floor restore is the truthful baseline hand-back.
-            restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
-            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
@@ -409,7 +431,7 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             replayBarrierToken: replayBarrierToken
         ) else {
-            preserveTerminalReplayBarrierIfCurrent(
+            failOpenTerminalReplayBarrier(
                 surfaceID: surfaceID,
                 token: replayBarrierToken,
                 reason: "reset_replay_ack"

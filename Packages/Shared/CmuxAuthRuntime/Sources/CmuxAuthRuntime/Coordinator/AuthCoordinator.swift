@@ -56,6 +56,8 @@ public final class AuthCoordinator {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
 
+    var apiBaseURL: String { config.apiBaseURL }
+
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
     private let userCache: CMUXAuthIdentityStore
@@ -705,7 +707,6 @@ public final class AuthCoordinator {
             mockDataEnabled: launch.mockDataEnabled
         )
     }
-
     var fixtureUser: CMUXAuthUser? {
         CMUXAuthUser(
             uiTestFixtureEnvironment: launch.environment,
@@ -713,7 +714,6 @@ public final class AuthCoordinator {
             mockDataEnabled: launch.mockDataEnabled
         )
     }
-
     static let uiTestMockUser = CMUXAuthUser(
         id: "uitest_user",
         primaryEmail: "uitest@cmux.local",

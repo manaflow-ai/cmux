@@ -106,6 +106,7 @@ export async function syncProPlanMetadata(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
       : {};
+  if (metadata.cmuxAccountDeleting === true) return;
   const current = metadata.cmuxPlan;
 
   if (isPro) {
