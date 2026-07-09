@@ -104,6 +104,23 @@ enum AgentChatThemeSync {
         ) { _ in
             scheduleDebouncedSync()
         }
+        // Push once at launch: after a relaunch with an unchanged config the
+        // observers above never fire, so an already-running sidecar would keep
+        // its file-derived theme. start() runs in AppDelegate.init, which is
+        // too early for the resolved config state, so wait for launch.
+        if NSApp?.isRunning == true {
+            scheduleDebouncedSync()
+        } else {
+            var launchObserver: NSObjectProtocol?
+            launchObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didFinishLaunchingNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                if let launchObserver { NotificationCenter.default.removeObserver(launchObserver) }
+                scheduleDebouncedSync()
+            }
+        }
     }
 
     static func syncNow(agentChat: CmuxAgentChatConfiguration) {

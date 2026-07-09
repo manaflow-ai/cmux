@@ -1291,10 +1291,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
-        // Push the resolved theme to an already-running agent-chat sidecar;
-        // init-time start() only installs observers, which never fire when
-        // nothing changes after relaunch.
-        AgentChatThemeSync.scheduleDebouncedSync()
 
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
