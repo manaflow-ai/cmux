@@ -70,4 +70,17 @@ struct RemoteTmuxMirrorMutationSnapshot {
         }
         if !wasApplicationActive && NSApp.isActive { NSApp.deactivate() }
     }
+
+    func requiresReplacementFocus(in workspace: Workspace) -> Bool {
+        guard wasWindowVisible,
+              wasWindowKey,
+              selectedWorkspaceId == workspace.id,
+              tabManager?.window === window,
+              let focusedPaneId,
+              let selectedTabId = selectedTabs.first(where: { $0.paneId == focusedPaneId })?.tabId
+        else { return false }
+        return !workspace.bonsplitController.tabs(inPane: focusedPaneId).contains {
+            $0.id == selectedTabId
+        }
+    }
 }

@@ -10240,7 +10240,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
-    private func scheduleFocusReconcile() {
+    func scheduleFocusReconcile() {
         guard portalRenderingEnabled else { return }
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
 #if DEBUG

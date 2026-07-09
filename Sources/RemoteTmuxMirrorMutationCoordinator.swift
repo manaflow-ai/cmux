@@ -21,6 +21,9 @@ final class RemoteTmuxMirrorMutationCoordinator {
         defer {
             snapshot.restore(in: workspace)
             activeSnapshot = nil
+            if snapshot.requiresReplacementFocus(in: workspace) {
+                workspace.scheduleFocusReconcile()
+            }
         }
         return try operation()
     }
