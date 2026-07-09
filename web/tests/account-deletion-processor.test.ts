@@ -55,7 +55,7 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("records failures so the durable job can be retried", async () => {
+  test("keeps cleanup-started failures blocking so the durable job can retry", async () => {
     cleanupError = new Error("cleanup failed");
 
     await expect(
@@ -66,8 +66,24 @@ describe("account deletion processor", () => {
       "claim:user-1",
       "load-stack:user-1",
       "cleanup:user-1",
-      "clear-deleting:user-1",
-      "failed:user-1:cleanup failed",
+      "retry-pending:user-1:cleanup failed",
+    ]);
+  });
+
+  test("records non-blocking failures before cleanup starts", async () => {
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          throw new Error("Stack lookup failed");
+        },
+      })),
+    ).rejects.toThrow("Stack lookup failed");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "failed:user-1:Stack lookup failed",
     ]);
   });
 
@@ -134,7 +150,7 @@ describe("account deletion processor", () => {
     const result = await processPendingAccountDeletions({ limit: 2 }, deps);
 
     expect(result).toEqual({ scanned: 2, processed: 1, skipped: 0, failed: 1 });
-    expect(calls).toContain("failed:user-1:cleanup failed");
+    expect(calls).toContain("retry-pending:user-1:cleanup failed");
     expect(calls).toContain("completed:user-2");
   });
 });
@@ -181,6 +197,9 @@ function dependencies(
     },
     markAccountDeletionFailed: async ({ userId, error }) => {
       calls.push(`failed:${userId}:${error instanceof Error ? error.message : "unknown"}`);
+    },
+    markAccountDeletionRetryPending: async ({ userId, error }) => {
+      calls.push(`retry-pending:${userId}:${error instanceof Error ? error.message : "unknown"}`);
     },
     markAccountDeletionStackDeletePending: async ({ userId, error }) => {
       calls.push(error

@@ -11,6 +11,7 @@ import {
   listPendingAccountDeletionJobs,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
+  markAccountDeletionRetryPending,
   markAccountDeletionStackDeletePending,
   type AccountDeletionJob,
   type AccountDeletionStatus,
@@ -37,6 +38,9 @@ export type AccountDeletionProcessorDependencies = {
   readonly markAccountDeletionFailed: (
     input: { readonly userId: string; readonly error: unknown },
   ) => Promise<void>;
+  readonly markAccountDeletionRetryPending: (
+    input: { readonly userId: string; readonly error: unknown },
+  ) => Promise<void>;
   readonly markAccountDeletionStackDeletePending: (
     input: { readonly userId: string; readonly error?: unknown },
   ) => Promise<void>;
@@ -56,6 +60,7 @@ const defaultAccountDeletionProcessorDependencies: AccountDeletionProcessorDepen
   clearStackUserDeletionInProgress,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
+  markAccountDeletionRetryPending,
   markAccountDeletionStackDeletePending,
   listPendingAccountDeletionJobs,
 };
@@ -69,10 +74,12 @@ export async function processAccountDeletionForUser(
 
   let stackDeletePending =
     claimedStatus === "stack_delete_pending" || claimedStatus === "stack_delete_in_progress";
+  let cleanupStarted = false;
   let user: StackAccountDeletionUser | null = null;
   try {
     user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
+      cleanupStarted = true;
       await dependencies.deleteCmuxAccountData({ userId: input.userId });
       const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
       await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
@@ -86,6 +93,8 @@ export async function processAccountDeletionForUser(
   } catch (error) {
     if (stackDeletePending) {
       await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId, error });
+    } else if (cleanupStarted) {
+      await dependencies.markAccountDeletionRetryPending({ userId: input.userId, error });
     } else {
       if (user) {
         try {

@@ -371,6 +371,29 @@ export async function markAccountDeletionFailed(
   });
 }
 
+export async function markAccountDeletionRetryPending(
+  input: AccountDeletionInput & { readonly error: unknown },
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    await tx
+      .update(accountDeletionTombstones)
+      .set({
+        userId: input.userId,
+        status: "pending",
+        updatedAt: now,
+        errorMessage: accountDeletionErrorMessage(input.error),
+      })
+      .where(and(
+        eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)),
+        ne(accountDeletionTombstones.status, "completed"),
+      ));
+  });
+}
+
 export async function deleteCmuxAccountData(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
