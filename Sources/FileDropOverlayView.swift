@@ -232,13 +232,9 @@ final class FileDropOverlayView: NSView {
     // any) is under the cursor and synthesize enter/exit calls so the browser's
     // HTML5 drag events (dragenter, dragleave, drop) fire correctly.
 
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return updateDragTarget(sender, phase: "entered")
-    }
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation { updateDragTarget(sender, phase: "entered") }
 
-    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return updateDragTarget(sender, phase: "updated")
-    }
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { updateDragTarget(sender, phase: "updated") }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         hintBadgeView.hide()
@@ -281,18 +277,13 @@ final class FileDropOverlayView: NSView {
         }
     }
 
-    private func samePaneDropTarget(
-        _ lhs: (any FileDropPaneTarget)?,
-        _ rhs: (any FileDropPaneTarget)?
-    ) -> Bool {
+    private func samePaneDropTarget(_ lhs: (any FileDropPaneTarget)?, _ rhs: (any FileDropPaneTarget)?) -> Bool {
         guard let lhs, let rhs else { return lhs == nil && rhs == nil }
         return (lhs as AnyObject) === (rhs as AnyObject)
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        if let sidebarView = activeSidebarDropView {
-            return sidebarView.prepareForDragOperation(sender)
-        }
+        if let sidebarView = activeSidebarDropView { return sidebarView.prepareForDragOperation(sender) }
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -494,9 +485,7 @@ final class FileDropOverlayView: NSView {
         guard DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
             hasLocalDraggingSource: sender.draggingSource != nil
-        ) else {
-            return
-        }
+        ) else { return }
         if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget {
             paneDropTarget.fileDropConcludeDragOperation(sender)
             exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: nil)
@@ -507,5 +496,4 @@ final class FileDropOverlayView: NSView {
             exitActiveDragTargets(sender, exceptPaneDropTarget: nil, webView: webView)
         }
     }
-
 }
