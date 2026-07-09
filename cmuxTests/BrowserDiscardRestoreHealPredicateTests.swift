@@ -210,6 +210,21 @@ private final class BrowserDiscardRestorePolicyCancelAlert: NSAlert {
     }
 }
 
+private final class BrowserDiscardRestoreDeferredPolicyAlert: NSAlert {
+    var completionHandler: ((NSApplication.ModalResponse) -> Void)?
+
+    override func beginSheetModal(
+        for sheetWindow: NSWindow,
+        completionHandler handler: ((NSApplication.ModalResponse) -> Void)?
+    ) {
+        completionHandler = handler
+    }
+
+    override func runModal() -> NSApplication.ModalResponse {
+        .alertThirdButtonReturn
+    }
+}
+
 @MainActor
 struct BrowserDiscardRestorePolicyCancelTests {
     @Test func stalledRestoreClearsTrackedNavigationBeforeReactivation() {
@@ -314,7 +329,11 @@ struct BrowserDiscardRestorePolicyCancelTests {
             backHistoryURLStrings: [],
             forwardHistoryURLStrings: []
         ))
-        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.hiddenWebViewDiscardManager.markDiscarded(
+            reason: "test.discard",
+            now: Date(timeIntervalSince1970: 200)
+        )
+        panel.noteDiscardedWebViewRestoreNavigationStarted()
         panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
         panel.configureInsecureHTTPAlertHooksForTesting(
             alertFactory: {
@@ -333,5 +352,63 @@ struct BrowserDiscardRestorePolicyCancelTests {
         #expect(payload["restore_pending"] as? Bool == false)
         #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
         #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
+    @Test func staleInsecureHTTPPromptDoesNotCompleteNewerRestore() throws {
+        let url = try #require(URL(string: "http://example.com/cmux-issue-7504-stale-prompt"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            panel.resetInsecureHTTPAlertHooksForTesting()
+            window.close()
+            panel.close()
+        }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        panel.hiddenWebViewDiscardManager.markDiscarded(
+            reason: "test.discard",
+            now: Date(timeIntervalSince1970: 300)
+        )
+        panel.noteDiscardedWebViewRestoreNavigationStarted()
+        panel.pendingDiscardRestoreNavigation = WKNavigation()
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
+
+        let alert = BrowserDiscardRestoreDeferredPolicyAlert()
+        panel.configureInsecureHTTPAlertHooksForTesting(
+            alertFactory: { alert },
+            windowProvider: { window }
+        )
+        panel.navigationDelegate?.handleBlockedInsecureHTTPNavigation?(URLRequest(url: url), .currentTab)
+        let staleCompletion = try #require(alert.completionHandler)
+
+        panel.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "test.old_cancel")
+        let currentNavigation = WKNavigation()
+        panel.noteDiscardedWebViewRestoreNavigationStarted()
+        panel.pendingDiscardRestoreNavigation = currentNavigation
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
+
+        staleCompletion(.alertThirdButtonReturn)
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(panel.pendingDiscardRestoreNavigation === currentNavigation)
+        #expect(payload["restore_pending"] as? Bool == true)
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == true)
     }
 }

@@ -2822,7 +2822,8 @@ final class BrowserPanel: Panel, ObservableObject {
     let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
     var hasCommittedDocumentSinceWebViewReplacement = false
     var userStoppedLoadSinceWebViewReplacement = false
-    weak var pendingDiscardRestoreNavigation: WKNavigation?
+    var pendingDiscardRestoreNavigation: WKNavigation?
+    var currentDiscardRestoreAttemptID: UUID?
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
@@ -3379,9 +3380,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
-        return hiddenWebViewDiscardManager.reactivateWithoutNavigation(reason: reason) {
+        let reactivated = hiddenWebViewDiscardManager.reactivateWithoutNavigation(reason: reason) {
             shouldRenderWebView = true
         }
+        if reactivated { pendingDiscardRestoreNavigation = nil; currentDiscardRestoreAttemptID = nil }
+        return reactivated
     }
 
     /// Popups inherit this panel's exact WebKit storage context.
@@ -3819,8 +3822,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 switch cancellationKind {
-                case .terminal:
-                    self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled()
+                case let .terminal(restoreAttemptID): self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
                 }
             }
         }
@@ -3864,7 +3866,8 @@ final class BrowserPanel: Panel, ObservableObject {
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
     }
 
-    private func noteDiscardedWebViewRestoreNavigationTerminallyCancelled() {
+    private func noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: UUID?) {
+        guard let restoreAttemptID, restoreAttemptID == currentDiscardRestoreAttemptID else { return }
         hasCommittedDocumentSinceWebViewReplacement = true
         noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_policy_cancelled")
     }
@@ -4028,15 +4031,24 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] in self?.shouldBlockInsecureHTTPNavigation(to: $0) ?? false }
         navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
-            self?.presentInsecureHTTPAlert(
+            guard let self else { return }
+            let restoreAttemptID = self.currentDiscardRestoreAttemptID
+            self.presentInsecureHTTPAlert(
                 for: request,
                 intent: intent,
                 recordTypedNavigation: false,
                 onResolution: { [weak self] resolution in
                     guard resolution.isTerminalPolicyCancellation else { return }
-                    self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled()
+                    self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
                 }
             )
+        }
+        navDelegate.terminalPolicyCancellationReporter = { [weak self] navigationAction, webView in
+            let restoreAttemptID = self?.currentDiscardRestoreAttemptID
+            return { [weak self, weak webView] in
+                guard let self, let webView, navigationAction.targetFrame?.isMainFrame == true, self.isCurrentWebView(webView) else { return }
+                self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
+            }
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)

@@ -14,6 +14,7 @@ extension BrowserPanel {
             // previous attempt's error-page commit would satisfy the stall
             // detector forever and a silently stalled retry could never re-arm.
             hasCommittedDocumentSinceWebViewReplacement = false
+            currentDiscardRestoreAttemptID = UUID()
         }
         hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "navigation")
         refreshWebViewLifecycleState()
@@ -24,12 +25,14 @@ extension BrowserPanel {
             return
         }
         pendingDiscardRestoreNavigation = nil
+        currentDiscardRestoreAttemptID = nil
         refreshWebViewLifecycleState()
     }
 
     func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
         hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
         pendingDiscardRestoreNavigation = nil
+        currentDiscardRestoreAttemptID = nil
         refreshWebViewLifecycleState()
     }
 

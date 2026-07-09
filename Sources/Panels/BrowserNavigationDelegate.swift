@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
-    enum PolicyCancellationKind { case terminal }
+    enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
@@ -20,6 +20,7 @@ import WebKit
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
@@ -274,6 +275,7 @@ import WebKit
         if let url = navigationAction.request.url,
            shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
 #if DEBUG
             cmuxDebugLog(
@@ -281,7 +283,7 @@ import WebKit
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
-            if opened { reportTerminalPolicyCancellation(for: navigationAction, in: webView) }
+            if opened { reportTerminalCancellation() }
             decisionHandler(opened ? .cancel : .allow)
             return
         }
@@ -309,6 +311,7 @@ import WebKit
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -317,7 +320,7 @@ import WebKit
                     requestNavigation?(request, .currentTab)
                 },
                 presentAlert: presentAlert,
-                onTerminalExternalNavigation: { [weak self] in self?.reportTerminalPolicyCancellation(for: navigationAction, in: webView) }
+                onTerminalExternalNavigation: reportTerminalCancellation
             )
             decisionHandler(.cancel)
             return
@@ -353,8 +356,9 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
-            reportTerminalPolicyCancellation(for: navigationAction, in: webView)
+            reportTerminalCancellation()
             decisionHandler(.cancel)
             return
         }
@@ -410,10 +414,6 @@ import WebKit
             return false
         }
         return true
-    }
-
-    private func reportTerminalPolicyCancellation(for navigationAction: WKNavigationAction, in webView: WKWebView) {
-        if navigationAction.targetFrame?.isMainFrame == true { didCancelNavigationPolicy?(webView, .terminal) }
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {

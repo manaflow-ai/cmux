@@ -302,10 +302,11 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             backHistoryURLStrings: [],
             forwardHistoryURLStrings: []
         ))
-        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.hiddenWebViewDiscardManager.markDiscarded(reason: "test.discard", now: Date(timeIntervalSince1970: 400))
+        panel.noteDiscardedWebViewRestoreNavigationStarted()
         panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
 
-        panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal)
+        panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal(restoreAttemptID: panel.currentDiscardRestoreAttemptID))
         panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
 
         let payload = panel.webViewLifecycleTopPayload()
@@ -341,7 +342,8 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             backHistoryURLStrings: [],
             forwardHistoryURLStrings: []
         ))
-        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.hiddenWebViewDiscardManager.markDiscarded(reason: "test.discard", now: Date(timeIntervalSince1970: 500))
+        panel.noteDiscardedWebViewRestoreNavigationStarted()
         panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: intentURL))
         panel.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
 
@@ -360,7 +362,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         #expect(fallbackRequest?.url == fallbackURL)
 
         if terminalCancellationCount > 0 {
-            panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal)
+            panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal(restoreAttemptID: panel.currentDiscardRestoreAttemptID))
         }
         panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
 
