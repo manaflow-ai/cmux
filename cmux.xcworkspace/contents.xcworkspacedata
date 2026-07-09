@@ -11,6 +11,9 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
+         location = "group:CmuxAgentReplica">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef

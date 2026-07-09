@@ -1,0 +1,4 @@
+{"delta":{"kind":"sessionUpserted","snapshot":{"cwd":"\/repo","id":"session-1","kind":"claude","lastActivityHint":1,"macDeviceID":"mac-1","phase":"working","surfaceID":null,"tier":"hooked","title":"Rotate","version":1,"workspaceName":"Workspace"}},"origin":"resync","tick":1}
+{"delta":{"entries":[{"content":{"contentHash":1},"journalID":"journal-1","kind":"agentProse","seq":1,"version":1}],"journalID":"journal-1","kind":"entriesAppended"},"origin":"live","tick":2}
+{"delta":{"kind":"journalReset","newJournal":"journal-2","sessionID":"session-1","tailSeq":3},"origin":"live","tick":3}
+{"delta":{"entries":[{"content":{"contentHash":4},"journalID":"journal-2","kind":"status","seq":4,"version":1}],"journalID":"journal-2","kind":"entriesAppended"},"origin":"resync","tick":4}
