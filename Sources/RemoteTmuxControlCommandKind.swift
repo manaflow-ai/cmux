@@ -8,6 +8,7 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneReflow(Int)
     case paneAltScreen(Int)
     case activityQuery(UUID)
+    case newWindow(UUID)
     /// A per-window `refresh-client -C '@id:WxH'` — an %error reply means
     /// the server predates the form and sizing falls back session-wide.
     case perWindowSize(Int)
