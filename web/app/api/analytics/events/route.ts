@@ -105,11 +105,11 @@ export async function postAnalyticsEvents(
   }
 
   const anonymousIds = user ? authenticatedAnonymousIds(accepted, user.id) : [];
-  const eventsForForwarding = user ? stripUntrustedAnonymousAliases(accepted, user.id) : accepted;
+  let recordedAnonymousIds: readonly string[] = [];
   if (user) {
     if (anonymousIds.length > 0) {
       try {
-        await dependencies.recordIOSAnalyticsIdentities({
+        recordedAnonymousIds = await dependencies.recordIOSAnalyticsIdentities({
           userId: user.id,
           anonymousIds,
         });
@@ -119,6 +119,9 @@ export async function postAnalyticsEvents(
       }
     }
   }
+  const eventsForForwarding = user
+    ? stripUnrecordedAnonymousAliases(accepted, user.id, new Set(recordedAnonymousIds))
+    : accepted;
   const forwarded = await dependencies.forwardToPostHog(eventsForForwarding, user?.id ?? null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
@@ -169,10 +172,15 @@ function authenticatedAnonymousIds(events: readonly IncomingEvent[], userId: str
   return ids;
 }
 
-function stripUntrustedAnonymousAliases(events: readonly IncomingEvent[], userId: string): readonly IncomingEvent[] {
+function stripUnrecordedAnonymousAliases(
+  events: readonly IncomingEvent[],
+  userId: string,
+  recordedAnonymousIds: ReadonlySet<string>,
+): readonly IncomingEvent[] {
   return events.map((event) => {
     if (!("$anon_distinct_id" in event.properties)) return event;
-    if (trustedAnonymousAlias(event, userId)) return event;
+    const anonymousId = trustedAnonymousAlias(event, userId);
+    if (anonymousId && recordedAnonymousIds.has(anonymousId)) return event;
     const { $anon_distinct_id: _anonymousId, ...properties } = event.properties;
     return { ...event, properties };
   });

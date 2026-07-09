@@ -23,11 +23,11 @@ export async function recordIOSAnalyticsIdentities(
     readonly anonymousIds: readonly string[];
   },
   runtime: IOSAnalyticsIdentityRuntime = defaultIOSAnalyticsIdentityRuntime,
-): Promise<void> {
+): Promise<readonly string[]> {
   const anonymousIds = normalizedDistinctIds(input.anonymousIds)
     .filter((id) => id !== input.userId)
     .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST);
-  if (anonymousIds.length === 0) return;
+  if (anonymousIds.length === 0) return [];
 
   const now = new Date();
   await runtime.cloudDb().transaction(async (tx) => {
@@ -45,6 +45,7 @@ export async function recordIOSAnalyticsIdentities(
       });
     await pruneIOSAnalyticsIdentitiesForUser(tx, input.userId);
   });
+  return anonymousIds;
 }
 
 export async function listPostHogDeletionDistinctIds(

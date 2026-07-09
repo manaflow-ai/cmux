@@ -20,9 +20,15 @@ const authedUser: AuthedUser = {
   userBillingPlanId: null,
   billingPlanId: null,
 };
+type RecordIOSAnalyticsIdentities = typeof import(
+  "../services/analytics/iosAnalyticsIdentities"
+).recordIOSAnalyticsIdentities;
 
 const verifyRequest = mock(async (): Promise<AuthedUser | null> => authedUser);
-const recordIOSAnalyticsIdentities = mock(async () => {});
+const recordIOSAnalyticsIdentities = mock(async (...args: unknown[]) => {
+  const [input] = args as Parameters<RecordIOSAnalyticsIdentities>;
+  return input.anonymousIds;
+});
 const forwardToPostHog = mock(async () => ({ ok: true as const }));
 
 const { postAnalyticsEvents } = await import("../app/api/analytics/events/route");
@@ -108,6 +114,29 @@ describe("iOS analytics route", () => {
     });
   });
 
+  test("strips authenticated identify aliases that are not durably recorded", async () => {
+    let forwardedProperties: Record<string, unknown> | null = null;
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "stack-user-1",
+        properties: {
+          "$anon_distinct_id": "not-a-valid-install-id",
+        },
+      }],
+    }), {
+      ...dependencies(),
+      recordIOSAnalyticsIdentities: async () => [],
+      forwardToPostHog: async (events: readonly { readonly properties: Record<string, unknown> }[]) => {
+        forwardedProperties = events[0]?.properties ?? null;
+        return { ok: true };
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(forwardedProperties).toEqual({});
+  });
+
   test("records identify mappings before forwarding to PostHog", async () => {
     const calls: string[] = [];
 
@@ -121,8 +150,9 @@ describe("iOS analytics route", () => {
       }],
     }), {
       verifyRequest,
-      recordIOSAnalyticsIdentities: async () => {
+      recordIOSAnalyticsIdentities: async (input) => {
         calls.push("record-identities");
+        return input.anonymousIds;
       },
       forwardToPostHog: async () => {
         calls.push("forward-posthog");
@@ -225,7 +255,7 @@ describe("iOS analytics route", () => {
 function dependencies() {
   return {
     verifyRequest,
-    recordIOSAnalyticsIdentities,
+    recordIOSAnalyticsIdentities: recordIOSAnalyticsIdentities as unknown as RecordIOSAnalyticsIdentities,
     forwardToPostHog,
   };
 }

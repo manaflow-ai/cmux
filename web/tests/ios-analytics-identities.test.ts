@@ -8,7 +8,7 @@ describe("iOS analytics identities", () => {
   test("caps per-request identity writes without evicting deletion aliases", async () => {
     const { identities, runtime } = identityRuntime();
 
-    await recordIOSAnalyticsIdentities({
+    const recorded = await recordIOSAnalyticsIdentities({
       userId: "stack-user-1",
       anonymousIds: [
         "stack-user-1",
@@ -17,6 +17,9 @@ describe("iOS analytics identities", () => {
     }, runtime);
 
     expect(identities.map((row) => row.anonymousId)).toEqual(
+      Array.from({ length: 16 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
+    );
+    expect(recorded).toEqual(
       Array.from({ length: 16 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
     );
   });
