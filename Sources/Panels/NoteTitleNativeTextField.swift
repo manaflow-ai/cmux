@@ -15,8 +15,22 @@ final class NoteTitleNativeTextField: NSTextField {
     /// the header.
     private var allowsFocusFromClick = false
 
+    /// One-shot: focus the field with the title selected as soon as it lands
+    /// in a window. Set by the rename swap, which creates this field only
+    /// when editing begins.
+    var beginsEditingOnAttach = false
+
     override var acceptsFirstResponder: Bool {
         allowsFocusFromClick && super.acceptsFirstResponder
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard beginsEditingOnAttach, let window else { return }
+        beginsEditingOnAttach = false
+        allowsFocusFromClick = true
+        window.makeFirstResponder(self)
+        currentEditor()?.selectAll(nil)
     }
 
     override init(frame frameRect: NSRect) {

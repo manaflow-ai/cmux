@@ -99,6 +99,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// panel staying alive.
     private var activeSaveTask: Task<Void, Never>?
     private var pendingSearchNeedle: String?
+    private var pendingShowFindInterface = false
     private var pendingTextViewFocus = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
@@ -497,6 +498,34 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
+        if pendingShowFindInterface {
+            pendingShowFindInterface = false
+            openFindBar(on: textView)
+        }
+    }
+
+    /// Opens the system find bar over the note's source text (switching to
+    /// text mode first — find operates on the source). If the editor is not
+    /// attached yet (mode just switched), the open is deferred to attach,
+    /// mirroring `pendingSearchNeedle`.
+    func showFindInterface() {
+        if displayMode != .text {
+            setDisplayMode(.text)
+        }
+        if let textView, textView.window != nil {
+            openFindBar(on: textView)
+        } else {
+            pendingShowFindInterface = true
+        }
+    }
+
+    private func openFindBar(on textView: NSTextView) {
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
+        textView.window?.makeFirstResponder(textView)
+        let action = NSMenuItem()
+        action.tag = NSTextFinder.Action.showFindInterface.rawValue
+        textView.performTextFinderAction(action)
     }
 
     func retryPendingFocus() {

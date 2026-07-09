@@ -10,6 +10,9 @@ struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let font: NSFont
     let foregroundColor: NSColor
+    /// Focus the field (title selected) as soon as it lands in a window —
+    /// used by the rename swap, where the field only exists while editing.
+    var focusOnAttach: Bool = false
     let onBeginEditing: () -> Void
     let onCommit: () -> Void
     let onCancel: () -> Void
@@ -28,6 +31,7 @@ struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
         field.isSelectable = true
         field.isEnabled = true
         field.onBeginEditingClick = onBeginEditing
+        field.beginsEditingOnAttach = focusOnAttach
         applyStyle(to: field)
         field.stringValue = text
         return field

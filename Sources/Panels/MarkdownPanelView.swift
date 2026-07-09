@@ -145,13 +145,21 @@ struct MarkdownPanelView: View {
         }
     }
 
-    /// Compact, Zed-style controls for note headers: the mode toggle plus a
-    /// single overflow menu. Copy actions live in the menu (no inline
-    /// confirmation text), and external-open collapses to Reveal in Finder.
+    /// Compact, Zed-style controls for note headers: find, the mode toggle,
+    /// typography, and a single overflow menu. Copy actions live in the menu
+    /// (no inline confirmation text), and external-open collapses to Reveal
+    /// in Finder.
     @ViewBuilder
     private var noteHeaderTrailingControls: some View {
         HStack(spacing: 2) {
+            PanelHeaderIconButton(
+                systemName: "magnifyingglass",
+                label: String(localized: "note.header.find", defaultValue: "Find in Note"),
+                pointSize: 11,
+                action: { panel.showFindInterface() }
+            )
             noteModeButton
+            MarkdownTypographyControl(panel: panel, pointSize: 11)
             Menu {
                 Button(String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown")) {
                     copyAsMarkdown()

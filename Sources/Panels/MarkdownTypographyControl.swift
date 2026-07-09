@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 struct MarkdownTypographyControl: View {
     @ObservedObject var panel: MarkdownPanel
+    var pointSize: CGFloat = 13
     @State private var isPresented = false
     // Loaded lazily in the background after the popover appears so it opens
     // instantly even on machines with hundreds of fonts.
@@ -42,7 +43,7 @@ struct MarkdownTypographyControl: View {
 
     var body: some View {
         Button { isPresented.toggle() } label: {
-            PanelHeaderIconGlyph(systemName: "textformat.size")
+            PanelHeaderIconGlyph(systemName: "textformat.size", pointSize: pointSize)
         }
         .buttonStyle(.plain)
         .foregroundColor(.secondary)
