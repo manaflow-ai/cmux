@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -20,6 +20,9 @@ export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
 export type CloudVmBaseGenerationRow = typeof cloudVmBaseGenerations.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
+export type CloudVmIdentityLeaseRow = CloudVmLeaseRow & {
+  readonly provider: ProviderId;
+};
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
@@ -166,6 +169,15 @@ export type VmRepositoryShape = {
     readonly transport?: string;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly expiredIdentityLeases?: (input: {
+    readonly now: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
+  readonly markLeaseRevocationRetry?: (input: {
+    readonly id: string;
+    readonly retryAfter: Date;
+    readonly error: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly listVmSessions: (input: {
     readonly userId: string;
     readonly vmId: string;
@@ -184,7 +196,7 @@ export type VmRepositoryShape = {
     readonly scrollbackBytes?: number;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<CloudVmSessionRow, VmDatabaseError>;
-  readonly activeIdentityLeases: (vmId: string) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
+  readonly activeIdentityLeases: (vmId: string, limit?: number) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
@@ -1209,6 +1221,71 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       }
     }),
 
+  expiredIdentityLeases: (input) =>
+    dbEffect("expiredIdentityLeases", async () => {
+      const db = cloudDb();
+      return await db
+        .select({
+          id: cloudVmLeases.id,
+          vmId: cloudVmLeases.vmId,
+          userId: cloudVmLeases.userId,
+          kind: cloudVmLeases.kind,
+          tokenHash: cloudVmLeases.tokenHash,
+          providerIdentityHandle: cloudVmLeases.providerIdentityHandle,
+          sessionId: cloudVmLeases.sessionId,
+          transport: cloudVmLeases.transport,
+          metadata: cloudVmLeases.metadata,
+          expiresAt: cloudVmLeases.expiresAt,
+          consumedAt: cloudVmLeases.consumedAt,
+          revokedAt: cloudVmLeases.revokedAt,
+          createdAt: cloudVmLeases.createdAt,
+          provider: cloudVms.provider,
+        })
+        .from(cloudVmLeases)
+        .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
+        .where(
+          and(
+            isNotNull(cloudVmLeases.providerIdentityHandle),
+            isNull(cloudVmLeases.revokedAt),
+            lt(cloudVmLeases.expiresAt, input.now),
+            or(
+              sql`${cloudVmLeases.metadata}->>'identityCleanupRetryAfter' is null`,
+              sql`(${cloudVmLeases.metadata}->>'identityCleanupRetryAfter')::timestamptz <= ${input.now.toISOString()}::timestamptz`,
+            ),
+          ),
+        )
+        .orderBy(asc(cloudVmLeases.expiresAt), asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id))
+        .limit(input.limit);
+    }),
+
+  markLeaseRevocationRetry: (input) =>
+    dbEffect("markLeaseRevocationRetry", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVmLeases)
+        .set({
+          metadata: sql<Record<string, unknown>>`
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  ${cloudVmLeases.metadata},
+                  '{identityCleanupRetryAfter}',
+                  to_jsonb(${input.retryAfter.toISOString()}::text),
+                  true
+                ),
+                '{identityCleanupAttempts}',
+                to_jsonb((coalesce((${cloudVmLeases.metadata}->>'identityCleanupAttempts')::int, 0) + 1)),
+                true
+              ),
+              '{identityCleanupLastError}',
+              to_jsonb(${input.error.slice(0, 240)}::text),
+              true
+            )
+          `,
+        })
+        .where(eq(cloudVmLeases.id, input.id));
+    }),
+
   listVmSessions: (input) =>
     dbEffect("listVmSessions", async () => {
       const db = cloudDb();
@@ -1267,10 +1344,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       return session;
     }),
 
-  activeIdentityLeases: (vmId) =>
+  activeIdentityLeases: (vmId, limit) =>
     dbEffect("activeIdentityLeases", async () => {
       const db = cloudDb();
-      return await db
+      const query = db
         .select()
         .from(cloudVmLeases)
         .where(
@@ -1279,7 +1356,11 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             isNotNull(cloudVmLeases.providerIdentityHandle),
             isNull(cloudVmLeases.revokedAt),
           ),
-        );
+        )
+        .orderBy(desc(cloudVmLeases.createdAt));
+      return typeof limit === "number" && limit > 0
+        ? await query.limit(limit)
+        : await query;
     }),
 
   markLeasesRevoked: (ids) =>

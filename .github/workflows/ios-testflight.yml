@@ -36,9 +36,9 @@ on:
     # successful run (SHA compare, not a wall-clock window), so an iOS-affecting
     # change reaches the TestFlight beta lane within ~2h of landing on main, and
     # a failed or missed run retries the not-yet-uploaded commit instead of
-    # permanently stranding it. These uploads are external-eligible too, and the
-    # post-upload external-distribution job auto-submits the first build of a new
-    # MARKETING_VERSION for Apple Beta App Review.
+    # permanently stranding it. These uploads are external-eligible too, and reuse
+    # the checked-in iOS MARKETING_VERSION so external testers receive new builds
+    # under the already-approved version until that version is intentionally bumped.
     #
     # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
     # shared concurrency group (which cancels superseded pending runs into red
@@ -99,9 +99,9 @@ jobs:
             //
             // Manual marketing-version-override uploads are deliberately excluded
             // from this canonical lane. They ship the current main SHA under an
-            // older approved MARKETING_VERSION as a one-off escape hatch, but they
-            // must NOT suppress the next scheduled auto-versioned beta for the same
-            // commit. Override runs upload a dedicated
+            // operator-selected MARKETING_VERSION as a one-off escape hatch, but
+            // they must NOT suppress the next scheduled canonical beta for the
+            // same commit. Override runs upload a dedicated
             // ios-testflight-build-metadata-override artifact instead of the
             // canonical ios-testflight-build-metadata artifact, and we skip only
             // those runs here.
@@ -275,8 +275,8 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-          # Full history + tags so generate-testflight-notes.sh can walk the
-          # commit range since the last beta and --auto-version can read ios-v*.
+          # Full history so generate-testflight-notes.sh can walk the commit
+          # range since the last beta.
           fetch-depth: 0
           fetch-tags: true
 
@@ -437,15 +437,24 @@ jobs:
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
-            # --auto-version: every beta stamps the next-release marketing version.
+            # Reuse the checked-in iOS MARKETING_VERSION for scheduled betas.
+            # External TestFlight only requires Beta App Review once per marketing
+            # version, so staying on the approved version lets CI keep publishing
+            # main-tracking builds automatically while the next version remains
+            # pending.
+            # This unblocks external testers, who cannot install an unapproved
+            # higher-marketing-version build. Internal testers who already installed
+            # that pending higher version need a one-time TestFlight reinstall, or
+            # an intentional higher-version internal cut, because TestFlight does
+            # not offer lower marketing versions as updates.
             # --external: publish the same main-tracking build to the external lane.
-            # The post-upload job assigns the build to the external group and, when
-            # Apple reports READY_FOR_BETA_SUBMISSION for a new MARKETING_VERSION,
+            # The post-upload job assigns the build to the external group and, if a
+            # future intentional version bump is READY_FOR_BETA_SUBMISSION,
             # auto-submits it for Beta App Review.
             # --notes-from-range: auto-generate audience-appropriate "What to
             # Test" notes from the commits since the previous beta (skipped if we
             # have no base SHA yet).
-            ARGS=(--lane beta --signing manual --auto-version --external)
+            ARGS=(--lane beta --signing manual --external)
             if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
               ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
             fi
@@ -476,7 +485,7 @@ jobs:
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
             else
-              echo "- marketing version: auto-versioned from the beta lane"
+              echo "- marketing version: checked-in iOS MARKETING_VERSION"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
             echo "- audience: internal testers immediately, external testers automatically after external-group assignment; new MARKETING_VERSIONs are auto-submitted for Apple Beta App Review"
@@ -492,7 +501,7 @@ jobs:
           if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
             UPLOAD_MODE="marketing_version_override"
           else
-            UPLOAD_MODE="auto_version"
+            UPLOAD_MODE="checked_in_version"
           fi
           cat > "$RUNNER_TEMP/ios-testflight-build.json" <<EOF
           {"head_sha":"${GITHUB_SHA}","build_number":"${FINAL_BUILD_NUMBER}","upload_mode":"${UPLOAD_MODE}"}

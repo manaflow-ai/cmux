@@ -786,6 +786,7 @@ describe("VM REST auth", () => {
     expect(getVm).toHaveBeenCalledWith({
       userId: "user-1",
       billingTeamId: "team-1",
+      teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
     });
 
@@ -800,6 +801,7 @@ describe("VM REST auth", () => {
     expect(destroyVm).toHaveBeenCalledWith({
       userId: "user-1",
       billingTeamId: "team-1",
+      teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
     });
 
@@ -823,6 +825,7 @@ describe("VM REST auth", () => {
     expect(openAttachEndpoint).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingTeamId: "team-1",
+      teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
     }));
 
@@ -844,6 +847,7 @@ describe("VM REST auth", () => {
     expect(openSshEndpoint).toHaveBeenCalledWith({
       userId: "user-1",
       billingTeamId: "team-1",
+      teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
     });
 
@@ -859,6 +863,7 @@ describe("VM REST auth", () => {
     expect(execVm).toHaveBeenCalledWith({
       userId: "user-1",
       billingTeamId: "team-1",
+      teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
       command: "true",
       timeoutMs: 30_000,

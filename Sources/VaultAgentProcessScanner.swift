@@ -47,32 +47,31 @@ extension RestorableAgentSessionIndex {
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
-    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        return processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt,
-            processArgumentsProvider: { CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0) }
-        )
-    }
-
-    static func processDetectedSnapshots(
-        registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager,
-        processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
+        // the OpenCode, fork-parent-fallback, and registry passes read each pid once.
+        // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] { return cached }
+            let resolved = processArgumentsProvider(processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
+
         let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
             fileManager: fileManager,
-            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
         )
-
+        resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
@@ -93,7 +92,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = processArgumentsProvider(process.pid) else {
+                  let processArguments = cachedProcessArguments(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -225,7 +224,8 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         fileManager: FileManager,
-        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>]
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -245,7 +245,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -878,7 +878,7 @@ private extension CmuxVaultAgentSessionIDSource {
         switch self {
         case .argvOption(let option):
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
         case .piSessionFile:
             if let session = process.piCompatibleSessionID {
                 let sessionId = PiSessionLocator.resolvedSessionPath(
@@ -887,7 +887,7 @@ private extension CmuxVaultAgentSessionIDSource {
                     registration: registration,
                     fileManager: fileManager
                 ) ?? session
-                return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+                return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
             }
             guard let sessionId = PiSessionLocator.latestSessionPath(
                 for: process,

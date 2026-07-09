@@ -33,6 +33,7 @@ export async function GET(
         const sessions = await runVmWorkflow(listVmSessions({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
         }));
         return jsonResponse({ sessions: sessions.map(sessionPayload) });
@@ -76,6 +77,7 @@ export async function POST(
         const result = await runVmWorkflow(openVmSession({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
           sessionId,
           attachmentId,

@@ -3499,6 +3499,9 @@
       }
     }
   },
+  "pricing": {
+    "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

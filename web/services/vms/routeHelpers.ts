@@ -70,9 +70,8 @@ export async function withAuthedVmApiRoute(
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
-        if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
-          return jsonResponse({ error: "forbidden" }, 403);
-        }
+        const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
+        if (mutationForbidden) return mutationForbidden;
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
@@ -101,6 +100,19 @@ export function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+export function enforceBrowserMutationProtection(
+  request: Request,
+  bearer: StackBearer | null = parseBearer(request),
+): Response | null {
+  if (
+    requiresBrowserMutationProtection(request.method, bearer) &&
+    !browserMutationOriginAllowed(request)
+  ) {
+    return jsonResponse({ error: "forbidden" }, 403);
+  }
+  return null;
 }
 
 export type VmErrorResponseInput = {
