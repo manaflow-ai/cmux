@@ -30,8 +30,17 @@ const recordIOSAnalyticsIdentities = mock(async (...args: unknown[]) => {
   return input.anonymousIds;
 });
 const forwardToPostHog = mock(async () => ({ ok: true as const }));
+async function runAuthenticatedAnalytics<T>(
+  _userId: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  return await run();
+}
 
-const { postAnalyticsEvents } = await import("../app/api/analytics/events/route");
+const {
+  AnalyticsAccountDeletionBlockedError,
+  postAnalyticsEvents,
+} = await import("../app/api/analytics/events/route");
 
 beforeEach(() => {
   verifyRequest.mockClear();
@@ -149,7 +158,7 @@ describe("iOS analytics route", () => {
         },
       }],
     }), {
-      verifyRequest,
+      ...dependencies(),
       recordIOSAnalyticsIdentities: async (input) => {
         calls.push("record-identities");
         return input.anonymousIds;
@@ -158,10 +167,43 @@ describe("iOS analytics route", () => {
         calls.push("forward-posthog");
         return { ok: true };
       },
+      runAuthenticatedAnalytics: async (userId, run) => {
+        calls.push(`deletion-lock:${userId}`);
+        const response = await run();
+        calls.push("deletion-unlock");
+        return response;
+      },
     });
 
     expect(response.status).toBe(200);
-    expect(calls).toEqual(["record-identities", "forward-posthog"]);
+    expect(calls).toEqual([
+      "deletion-lock:stack-user-1",
+      "record-identities",
+      "forward-posthog",
+      "deletion-unlock",
+    ]);
+  });
+
+  test("does not forward authenticated analytics after account deletion starts", async () => {
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "stack-user-1",
+        properties: {
+          "$anon_distinct_id": "88888888-8888-4888-8888-888888888888",
+        },
+      }],
+    }), {
+      ...dependencies(),
+      runAuthenticatedAnalytics: async () => {
+        throw new AnalyticsAccountDeletionBlockedError();
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
+    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
+    expect(forwardToPostHog).not.toHaveBeenCalled();
   });
 
   test("does not forward analytics when identity recording fails", async () => {
@@ -180,7 +222,7 @@ describe("iOS analytics route", () => {
           },
         }],
       }), {
-        verifyRequest,
+        ...dependencies(),
         recordIOSAnalyticsIdentities: async () => {
           throw identityStoreError;
         },
@@ -257,6 +299,7 @@ function dependencies() {
     verifyRequest,
     recordIOSAnalyticsIdentities: recordIOSAnalyticsIdentities as unknown as RecordIOSAnalyticsIdentities,
     forwardToPostHog,
+    runAuthenticatedAnalytics,
   };
 }
 

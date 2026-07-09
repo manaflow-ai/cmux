@@ -21,6 +21,14 @@ import {
   isAllowedAnalyticsEvent,
 } from "../../../../services/analytics/iosEventPolicy";
 import { recordIOSAnalyticsIdentities } from "../../../../services/analytics/iosAnalyticsIdentities";
+import { eq, sql } from "drizzle-orm";
+import { cloudDb } from "../../../../db/client";
+import { accountDeletionTombstones } from "../../../../db/schema";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
+} from "../../../../services/account/deletionLock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,12 +44,14 @@ type AnalyticsRouteDependencies = {
   readonly verifyRequest: typeof verifyVmRequest;
   readonly recordIOSAnalyticsIdentities: typeof recordIOSAnalyticsIdentities;
   readonly forwardToPostHog: typeof forwardToPostHog;
+  readonly runAuthenticatedAnalytics: typeof runAuthenticatedAnalyticsWithAccountDeletionLock;
 };
 
 const defaultAnalyticsRouteDependencies: AnalyticsRouteDependencies = {
   verifyRequest: verifyVmRequest,
   recordIOSAnalyticsIdentities,
   forwardToPostHog,
+  runAuthenticatedAnalytics: runAuthenticatedAnalyticsWithAccountDeletionLock,
 };
 
 export async function POST(request: Request): Promise<Response> {
@@ -104,29 +114,82 @@ export async function postAnalyticsEvents(
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  const anonymousIds = user ? authenticatedAnonymousIds(accepted, user.id) : [];
-  let recordedAnonymousIds: readonly string[] = [];
   if (user) {
-    if (anonymousIds.length > 0) {
-      try {
-        recordedAnonymousIds = await dependencies.recordIOSAnalyticsIdentities({
-          userId: user.id,
-          anonymousIds,
-        });
-      } catch (error) {
-        console.error("[ios-analytics] identity recording failed", { error });
-        return jsonResponse({ error: "identity_recording_failed" }, 503);
+    try {
+      return await dependencies.runAuthenticatedAnalytics(user.id, async () =>
+        forwardAuthenticatedEvents(accepted, user.id, dependencies)
+      );
+    } catch (error) {
+      if (error instanceof AnalyticsAccountDeletionBlockedError) {
+        return jsonResponse({ ok: true, forwarded: 0 });
       }
+      throw error;
     }
   }
-  const eventsForForwarding = user
-    ? stripUnrecordedAnonymousAliases(accepted, user.id, new Set(recordedAnonymousIds))
-    : accepted;
-  const forwarded = await dependencies.forwardToPostHog(eventsForForwarding, user?.id ?? null);
+
+  const forwarded = await dependencies.forwardToPostHog(accepted, null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
   return jsonResponse({ ok: true, forwarded: accepted.length });
+}
+
+async function forwardAuthenticatedEvents(
+  accepted: readonly IncomingEvent[],
+  userId: string,
+  dependencies: AnalyticsRouteDependencies,
+): Promise<Response> {
+  const anonymousIds = authenticatedAnonymousIds(accepted, userId);
+  let recordedAnonymousIds: readonly string[] = [];
+  if (anonymousIds.length > 0) {
+    try {
+      recordedAnonymousIds = await dependencies.recordIOSAnalyticsIdentities({
+        userId,
+        anonymousIds,
+      });
+    } catch (error) {
+      console.error("[ios-analytics] identity recording failed", { error });
+      return jsonResponse({ error: "identity_recording_failed" }, 503);
+    }
+  }
+  const eventsForForwarding = stripUnrecordedAnonymousAliases(
+    accepted,
+    userId,
+    new Set(recordedAnonymousIds),
+  );
+  const forwarded = await dependencies.forwardToPostHog(eventsForForwarding, userId);
+  if (!forwarded.ok) {
+    return jsonResponse({ error: "forward_failed" }, forwarded.status);
+  }
+  return jsonResponse({ ok: true, forwarded: accepted.length });
+}
+
+export class AnalyticsAccountDeletionBlockedError extends Error {
+  constructor() {
+    super("Account deletion is in progress");
+    this.name = "AnalyticsAccountDeletionBlockedError";
+  }
+}
+
+async function runAuthenticatedAnalyticsWithAccountDeletionLock<T>(
+  userId: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const db = cloudDb();
+  return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
+    );
+    const [deletion] = await tx
+      .select({ status: accountDeletionTombstones.status })
+      .from(accountDeletionTombstones)
+      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)))
+      .limit(1);
+    if (deletion && isBlockingAccountDeletionStatus(deletion.status)) {
+      throw new AnalyticsAccountDeletionBlockedError();
+    }
+    return await run();
+  });
 }
 
 function sanitizeEvent(candidate: unknown): IncomingEvent | null {
