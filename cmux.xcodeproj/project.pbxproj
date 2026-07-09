@@ -1540,6 +1540,7 @@
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
 		C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268002000000000000002 /* Workspace+SidebarDirectories.swift */; };
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
+		4DF302A0C8164672B8547449 /* Workspace+TitleOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */; };
 		9ACC298766940729D65B3651 /* Workspace+TodoNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */; };
 		B8C2E4B811F31AEDF14C7FF0 /* Workspace+TodoPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30350CE2602EEAFBD873DC9 /* Workspace+TodoPane.swift */; };
 		1B71AE1E38066A0C9D0C8589 /* Workspace+Todos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF464BD9CEDF14931D55126 /* Workspace+Todos.swift */; };
@@ -3154,6 +3155,7 @@
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		C7268002000000000000002 /* Workspace+SidebarDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarDirectories.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
+		D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TitleOwnership.swift"; sourceTree = "<group>"; };
 		97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TodoNotifications.swift"; sourceTree = "<group>"; };
 		C30350CE2602EEAFBD873DC9 /* Workspace+TodoPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TodoPane.swift"; sourceTree = "<group>"; };
 		4AF464BD9CEDF14931D55126 /* Workspace+Todos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Todos.swift"; sourceTree = "<group>"; };
@@ -3797,6 +3799,7 @@
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
+				D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */,
 				4AF464BD9CEDF14931D55126 /* Workspace+Todos.swift */,
 				97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */,
 				E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */,
@@ -6351,6 +6354,7 @@
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
 				C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */,
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
+				4DF302A0C8164672B8547449 /* Workspace+TitleOwnership.swift in Sources */,
 				9ACC298766940729D65B3651 /* Workspace+TodoNotifications.swift in Sources */,
 				B8C2E4B811F31AEDF14C7FF0 /* Workspace+TodoPane.swift in Sources */,
 				1B71AE1E38066A0C9D0C8589 /* Workspace+Todos.swift in Sources */,
