@@ -92,25 +92,29 @@ import Testing
         #expect(connection.windowOrder == [3, 1, 2])
     }
 
-    @Test func staleSuccessRefreshPreservesNewerReorderUntilItsOwnRefresh() {
+    @Test func pendingVerificationRejectsAnOverlappingReorder() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2, 3])
+        var firstVerification: Bool?
 
-        #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { firstVerification = $0 }
+        ))
         connection.applyWindowReorder([2, 1, 3])
         reply(connection, lines: [])
-        #expect(connection.sendWindowReorder(["swap-window -d -s @2 -t @3"]))
-        connection.applyWindowReorder([3, 2, 1])
+        #expect(!connection.sendWindowReorder(["swap-window -d -s @1 -t @3"]))
+        #expect(connection.pendingCommandKindsForTesting == [.listWindowOrder(reorderGeneration: 1)])
 
-        // Generation 1's refresh remains ahead of batch 2 in the command FIFO.
-        reply(connection, lines: windowOrderLines([1, 2, 3]))
-        #expect(connection.windowOrder == [3, 2, 1])
-        #expect(connection.pendingCommandKindsForTesting.first == .windowReorder(isLast: true))
+        reply(connection, lines: windowOrderLines([2, 1, 3]))
+        #expect(firstVerification == true)
+        #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @3"]))
+        connection.applyWindowReorder([2, 3, 1])
         reply(connection, lines: [])
         #expect(connection.pendingCommandKindsForTesting == [.listWindowOrder(reorderGeneration: 2)])
-        reply(connection, lines: windowOrderLines([2, 1, 3]))
-        #expect(connection.windowOrder == [2, 1, 3])
+        reply(connection, lines: windowOrderLines([2, 3, 1]))
+        #expect(connection.windowOrder == [2, 3, 1])
     }
 
     @Test func orderRefreshMembershipChangeFallsBackToFullTopologyRefresh() {

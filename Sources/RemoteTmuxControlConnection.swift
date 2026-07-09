@@ -96,6 +96,7 @@ final class RemoteTmuxControlConnection {
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
+    var windowReorderVerificationGeneration: UInt64?
     var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the

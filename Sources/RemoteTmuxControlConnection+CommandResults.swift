@@ -284,7 +284,7 @@ extension RemoteTmuxControlConnection {
 
     /// Verifies a successful reorder without restaging every window's geometry.
     func requestWindowOrder() {
-        let generation = windowReorderGeneration
+        guard let generation = windowReorderVerificationGeneration else { return }
         guard sendInternal(
             "list-windows -F \"#{window_id}\"",
             kind: .listWindowOrder(reorderGeneration: generation)
@@ -320,11 +320,15 @@ extension RemoteTmuxControlConnection {
     }
 
     func finishWindowReorderVerification(generation: UInt64, succeeded: Bool) {
+        if windowReorderVerificationGeneration == generation {
+            windowReorderVerificationGeneration = nil
+        }
         windowReorderVerifications.removeValue(forKey: generation)?(succeeded)
     }
 
     func failPendingWindowReorderVerifications() {
         let verifications = windowReorderVerifications.sorted { $0.key < $1.key }
+        windowReorderVerificationGeneration = nil
         windowReorderVerifications.removeAll()
         verifications.forEach { $0.value(false) }
     }

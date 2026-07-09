@@ -169,7 +169,9 @@ struct RemoteTmuxSessionRenameTitleTests {
         postTerminalTitle("codex")
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panelId) == "AgentIcons/Codex")
-        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == "AgentIcons/Codex")
+        let codexIcon = workspace.terminalTabAgentIconPayload(forPanelId: panelId)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == codexIcon.assetName)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == codexIcon.imageData)
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")
@@ -177,7 +179,9 @@ struct RemoteTmuxSessionRenameTitleTests {
         postTerminalTitle("/Users/austinwang")
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panelId) == nil)
-        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        let clearedIcon = workspace.terminalTabAgentIconPayload(forPanelId: panelId)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == clearedIcon.assetName)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == clearedIcon.imageData)
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")

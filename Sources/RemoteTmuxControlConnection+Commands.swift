@@ -16,12 +16,14 @@ extension RemoteTmuxControlConnection {
             verification?(true)
             return true
         }
-        guard windowReorderRecoveryGeneration == nil else { return false }
+        guard windowReorderRecoveryGeneration == nil,
+              windowReorderVerificationGeneration == nil else { return false }
         let kinds: [CommandKind] = commands.indices.map {
             .windowReorder(isLast: $0 == commands.index(before: commands.endIndex))
         }
         guard sendBatchInternal(commands, kinds: kinds) else { return false }
         windowReorderGeneration &+= 1
+        windowReorderVerificationGeneration = windowReorderGeneration
         windowReorderVerifications[windowReorderGeneration] = verification
         return true
     }
