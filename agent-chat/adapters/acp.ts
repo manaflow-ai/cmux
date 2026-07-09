@@ -254,7 +254,7 @@ async function setAcpOption(sess: SessionCtx, st: AcpState, def: ProviderDef, id
       if (!String(err).includes("Method not found")) throw err;
       res = await st.request("session/set_config", params);
     }
-    if (res?.configOptions) ingestAcpOptions(st, res);
+    if (res?.configOptions) ingestAcpOptions(st, res, def);
     else updateLocalOption(st, id, value);
   } else if (source === "mode") {
     if (typeof value !== "string") throw new Error("mode must be a string");
@@ -318,14 +318,22 @@ function ingestAcpOptions(st: AcpState, payload: any, def?: ProviderDef, spawnMo
     });
     sources.set("model", "model");
   }
-  if (def?.models?.length && !sources.has("model")) {
+  if (def?.models?.length) {
+    const existing = options.get("model");
+    const reported = new Map((existing?.choices ?? []).map((choice) => [choice.value, choice]));
+    const choices = def.models.map((model) => {
+      const binary = reported.get(model.value);
+      reported.delete(model.value);
+      return { ...binary, ...model };
+    });
+    choices.push(...reported.values());
     const value = String(spawnModel || st.options.find((o) => o.id === "model")?.value || def.defaultModel || def.models[0]?.value || "");
     options.set("model", {
       id: "model",
       label: "Model",
       kind: "select",
       value,
-      choices: def.models,
+      choices,
     });
     sources.set("model", "spawnModel");
   }

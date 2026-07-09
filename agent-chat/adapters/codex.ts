@@ -1,6 +1,7 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
+import { agentModelCatalog } from "../catalog";
 
 // Codex: one shared `codex app-server` process (JSON-RPC over NDJSON stdio,
 // the same interface the codex IDE extension uses) hosts a thread per chat
@@ -624,7 +625,24 @@ async function listModels(): Promise<ModelInfo[]> {
     for (const m of res.data ?? []) out.push(normalizeModel(m));
     cursor = res.nextCursor ?? null;
   } while (cursor);
-  return out;
+  const remote = agentModelCatalog.provider("codex");
+  if (!remote) return out;
+  const binary = new Map(out.map((model) => [model.value, model]));
+  const merged = remote.models.map((model) => {
+    const reported = binary.get(model.id);
+    binary.delete(model.id);
+    return {
+      value: model.id,
+      label: model.label,
+      description: model.description ?? reported?.description,
+      efforts: reported?.efforts ?? FALLBACK_EFFORTS,
+      defaultEffort: reported?.defaultEffort ?? "medium",
+      serviceTiers: reported?.serviceTiers ?? [],
+      defaultServiceTier: reported?.defaultServiceTier ?? null,
+      isDefault: model.id === remote.defaultModel,
+    };
+  });
+  return [...merged, ...binary.values()];
 }
 
 function normalizeModel(m: any): ModelInfo {

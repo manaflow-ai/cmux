@@ -1,6 +1,7 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
+import { agentModelCatalog } from "../catalog";
 
 const PERMISSION_CHOICES: OptionChoice[] = [
   { value: "default", label: "Default" },
@@ -37,6 +38,24 @@ const BUILT_IN_MODELS: Array<{ slug: string; label: string; minVersion?: string;
   { slug: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", context: true },
   { slug: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ];
+
+function curatedClaudeModels(): Array<{ slug: string; label: string; description?: string; minVersion?: string; context?: boolean; fast?: boolean; deprecated?: boolean }> {
+  const remote = agentModelCatalog.provider("claude");
+  if (remote) return remote.models.map((model) => ({
+    slug: model.id,
+    label: model.label,
+    description: model.description,
+    minVersion: model.minVersion,
+    context: model.supportsOneMillion === true,
+    fast: model.fast,
+    deprecated: model.deprecated === true,
+  }));
+  return agentModelCatalog.hasPayload ? [] : BUILT_IN_MODELS;
+}
+
+function defaultClaudeModel(): string {
+  return agentModelCatalog.provider("claude")?.defaultModel ?? DEFAULT_CLAUDE_MODEL;
+}
 let claudeVersionCache: { value: string | null; fetchedAt: number; promise?: Promise<string | null> } | null = null;
 interface ClaudeModelMeta {
   efforts: OptionChoice[];
@@ -112,7 +131,7 @@ export const claudeAdapter: Adapter = {
   async listOptions(cwd) {
     const choices = await fetchClaudeModels(cwd);
     const st = {
-      model: DEFAULT_CLAUDE_MODEL,
+      model: defaultClaudeModel(),
       modelChoices: choices.choices,
       modelMeta: choices.meta,
       permissionMode: "acceptEdits",
@@ -137,9 +156,9 @@ function state(sess: SessionCtx): ClaudeState {
     st = {
       nextRequest: 1,
       pending: new Map(),
-      model: normalizeStartModel(stringOption(sess, "model", DEFAULT_CLAUDE_MODEL)),
-      modelChoices: [{ value: DEFAULT_CLAUDE_MODEL, label: "Claude Sonnet 5" }],
-      modelMeta: new Map([[DEFAULT_CLAUDE_MODEL, { efforts: EFFORT_CHOICES, supportsFastMode: false, context: { base: DEFAULT_CLAUDE_MODEL, extended: `${DEFAULT_CLAUDE_MODEL}[1m]` } }]]),
+      model: normalizeStartModel(stringOption(sess, "model", defaultClaudeModel())),
+      modelChoices: [{ value: defaultClaudeModel(), label: defaultClaudeModel() }],
+      modelMeta: new Map([[defaultClaudeModel(), { efforts: EFFORT_CHOICES, supportsFastMode: false }]]),
       permissionMode: stringOption(sess, "permissionMode", sess.autoApprove ? "acceptEdits" : "default"),
       thinking: stringOption(sess, "thinking", "0"),
       effort: stringOption(sess, "effort", "medium"),
@@ -161,7 +180,13 @@ function stringOption(sess: SessionCtx, id: string, fallback: string): string {
 }
 
 function normalizeStartModel(value: string): string {
-  return value === "default" ? DEFAULT_CLAUDE_MODEL : aliasClaudeModel(stripOneMillion(value).base);
+  if (value === "default") return defaultClaudeModel();
+  const base = stripOneMillion(value).base;
+  return isRemoteClaudeId(base) ? base : aliasClaudeModel(base);
+}
+
+function isRemoteClaudeId(value: string): boolean {
+  return agentModelCatalog.provider("claude")?.models.some((model) => model.id === value) === true;
 }
 
 function booleanOption(sess: SessionCtx, id: string, fallback: boolean): boolean {
@@ -388,7 +413,7 @@ function emitOptions(sess: SessionCtx) {
 function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "modelMeta" | "permissionMode" | "thinking" | "effort" | "fastMode" | "context">): SessionOption[] {
   const meta = modelMeta(st);
   const opts: SessionOption[] = [
-    { id: "model", label: "Model", kind: "select", value: st.model, choices: st.modelChoices.length ? st.modelChoices : [{ value: DEFAULT_CLAUDE_MODEL, label: "Claude Sonnet 5" }] },
+    { id: "model", label: "Model", kind: "select", value: st.model, choices: st.modelChoices.length ? st.modelChoices : [{ value: defaultClaudeModel(), label: defaultClaudeModel() }] },
     { id: "permissionMode", label: "Mode", kind: "select", value: st.permissionMode, choices: PERMISSION_CHOICES },
     { id: "thinking", label: "Thinking", kind: "select", value: st.thinking, role: "thinking-budget", choices: THINKING_CHOICES },
     { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: meta.efforts },
@@ -399,7 +424,7 @@ function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "modelMet
 }
 
 function modelMeta(st: Pick<ClaudeState, "model" | "modelMeta">): ClaudeModelMeta {
-  return st.modelMeta.get(st.model) ?? st.modelMeta.get(DEFAULT_CLAUDE_MODEL) ?? { efforts: EFFORT_CHOICES, supportsFastMode: false };
+  return st.modelMeta.get(st.model) ?? st.modelMeta.get(defaultClaudeModel()) ?? { efforts: EFFORT_CHOICES, supportsFastMode: false };
 }
 
 function normalizeEffort(st: Pick<ClaudeState, "model" | "modelMeta" | "effort" | "fastMode">): { effort: boolean; fastMode: boolean } {
@@ -451,25 +476,35 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
       suffix: parsed.suffix,
       label: prettifyModelLabel(String(m.displayName ?? m.name ?? m.value ?? "Model")),
       description: m.description ? String(m.description) : undefined,
-      meta: { supportsFastMode: m.supportsFastMode === true },
+      meta: {
+        supportsFastMode: m.supportsFastMode === true,
+        efforts: Array.isArray(m.supportedEffortLevels) && m.supportedEffortLevels.length
+          ? m.supportedEffortLevels.map((effort: unknown) => ({ value: String(effort), label: String(effort) }))
+          : EFFORT_CHOICES,
+      },
     };
-  }).filter(Boolean) as Array<{ rawValue: string; value: string; base: string; suffix: string; label: string; description?: string; meta: { supportsFastMode: boolean } }>;
+  }).filter(Boolean) as Array<{ rawValue: string; value: string; base: string; suffix: string; label: string; description?: string; meta: { supportsFastMode: boolean; efforts: OptionChoice[] } }>;
   const rawByBase = new Map<string, typeof raw[number]>();
   const extendedByBase = new Map<string, typeof raw[number]>();
   for (const m of raw) if (!m.suffix && !rawByBase.has(m.base)) rawByBase.set(m.base, m);
   for (const m of raw) if (m.suffix && !extendedByBase.has(m.base)) extendedByBase.set(m.base, m);
-  for (const model of BUILT_IN_MODELS) {
+  for (const model of curatedClaudeModels()) {
     const disabledReason = model.minVersion && version && !versionAtLeast(version, model.minVersion)
       ? claudeUpgradeMessage(model.slug, model.label, model.minVersion, version)
-      : undefined;
-    choices.push({ value: model.slug, label: model.label, disabled: Boolean(disabledReason), disabledReason });
+      : model.deprecated ? `${model.label} is deprecated.` : undefined;
+    choices.push({ value: model.slug, label: model.label, description: model.description, disabled: Boolean(disabledReason), disabledReason });
     covered.add(model.slug);
     covered.add(aliasClaudeModel(stripOneMillion(model.slug).base));
     const extended = extendedByBase.get(model.slug)?.value ?? `${model.slug}[1m]`;
     const context = model.context || extendedByBase.has(model.slug)
       ? { base: model.slug, extended }
       : undefined;
-    meta.set(model.slug, { efforts: EFFORT_CHOICES, supportsFastMode: model.fast === true, ...(context ? { context } : {}) });
+    const binary = rawByBase.get(model.slug);
+    meta.set(model.slug, {
+      efforts: binary?.meta.efforts ?? EFFORT_CHOICES,
+      supportsFastMode: model.fast ?? binary?.meta.supportsFastMode ?? false,
+      ...(context ? { context } : {}),
+    });
   }
   for (const m of raw) {
     if (covered.has(m.base)) {
@@ -480,10 +515,10 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
     if (m.suffix && rawByBase.has(m.base)) continue;
     if (extendedByBase.has(m.base)) {
       const extended = extendedByBase.get(m.base)!;
-      meta.set(m.base, { efforts: EFFORT_CHOICES, supportsFastMode: m.meta.supportsFastMode, context: { base: m.base, extended: extended.value } });
+      meta.set(m.base, { efforts: m.meta.efforts, supportsFastMode: m.meta.supportsFastMode, context: { base: m.base, extended: extended.value } });
       choices.push({ value: m.base, label: m.label, description: m.description });
     } else {
-      meta.set(m.base, { efforts: EFFORT_CHOICES, supportsFastMode: m.meta.supportsFastMode });
+      meta.set(m.base, { efforts: m.meta.efforts, supportsFastMode: m.meta.supportsFastMode });
       choices.push({ value: m.base, label: m.label, description: m.description });
     }
     covered.add(m.base);
@@ -522,11 +557,11 @@ function bareClaudeAlias(value: string): string {
 }
 
 function aliasClaudeModel(value: string): string {
-  value = value.toLowerCase();
-  if (value === "opus") return "claude-opus-4-8";
-  if (value === "fable") return "claude-fable-5";
-  if (value === "sonnet") return "claude-sonnet-5";
-  if (value === "haiku") return "claude-haiku-4-5";
+  const lower = value.toLowerCase();
+  if (lower === "opus") return "claude-opus-4-8";
+  if (lower === "fable") return "claude-fable-5";
+  if (lower === "sonnet") return "claude-sonnet-5";
+  if (lower === "haiku") return "claude-haiku-4-5";
   return value;
 }
 
@@ -539,14 +574,16 @@ function dedupeChoices(choices: OptionChoice[]): OptionChoice[] {
   const seen = new Set<string>();
   const out: OptionChoice[] = [];
   for (const choice of choices) {
-    const key = aliasClaudeModel(stripOneMillion(choice.value).base);
+    const base = stripOneMillion(choice.value).base;
+    const key = isRemoteClaudeId(base) ? base : aliasClaudeModel(base);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(choice);
   }
   return out.sort((a, b) => {
-    const ai = BUILT_IN_MODELS.findIndex((m) => m.slug === a.value);
-    const bi = BUILT_IN_MODELS.findIndex((m) => m.slug === b.value);
+    const curated = curatedClaudeModels();
+    const ai = curated.findIndex((m) => m.slug === a.value);
+    const bi = curated.findIndex((m) => m.slug === b.value);
     if (ai >= 0 && bi >= 0) return ai - bi;
     if (ai >= 0) return -1;
     if (bi >= 0) return 1;
