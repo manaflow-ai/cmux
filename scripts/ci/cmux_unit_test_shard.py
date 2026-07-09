@@ -202,8 +202,10 @@ def load_timings(path: Path) -> dict | None:
     except (OSError, json.JSONDecodeError) as error:
         print(f"Ignoring unreadable timings manifest {path}: {error}", file=sys.stderr)
         return None
-    if not isinstance(manifest.get("suites"), dict) or not isinstance(
-        manifest.get("methods"), dict
+    if (
+        not isinstance(manifest, dict)
+        or not isinstance(manifest.get("suites"), dict)
+        or not isinstance(manifest.get("methods"), dict)
     ):
         print(f"Ignoring malformed timings manifest {path}", file=sys.stderr)
         return None

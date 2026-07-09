@@ -26,16 +26,17 @@ import json
 import re
 from pathlib import Path
 
+# Both scripts live in scripts/ci/, and Python puts the script's own directory
+# first on sys.path, so the planner's threshold imports directly: classes at or
+# above it are sharded per-method, so only they need per-method timings.
+from cmux_unit_test_shard import LARGE_SUITE_METHOD_THRESHOLD
+
 XCTEST_CASE_RE = re.compile(
     r"Test Case '-\[cmuxTests\.(\w+) (\w+)\]' (?:passed|failed) \((\d+(?:\.\d+)?) seconds\)"
 )
 SWIFT_TESTING_SUITE_RE = re.compile(
     r"Suite (\w+) (?:passed|failed) after (\d+(?:\.\d+)?) seconds"
 )
-
-# Keep in sync with cmux_unit_test_shard.py. Classes at or above this method
-# count are sharded per-method, so only they need per-method timings.
-LARGE_SUITE_METHOD_THRESHOLD = 40
 
 
 def main() -> int:

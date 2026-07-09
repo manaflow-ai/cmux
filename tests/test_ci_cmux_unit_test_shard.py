@@ -123,6 +123,31 @@ def check_timing_weighted_packing() -> int:
     return 0
 
 
+def check_non_dict_manifest_falls_back() -> int:
+    """Valid-JSON-but-not-a-dict manifests must fall back, not crash."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        write_timed_suites_fixture(test_root)
+
+        manifest = tmp_root / "timings.json"
+        manifest.write_text('["not", "a", "dict"]', encoding="utf-8")
+
+        shards = [
+            run_shard(tmp_root, shard, tmp_root / f"nondict-{shard}.args", manifest)
+            for shard in (1, 2)
+        ]
+
+    assigned = {line.rsplit("/", 1)[-1] for lines in shards for line in lines}
+    expected = {"AlphaTests", "BetaTests", "GammaTests", "DeltaTests"}
+    if assigned != expected:
+        print(f"FAIL: non-dict manifest fallback lost suites, got {sorted(assigned)}")
+        return 1
+    print("PASS: non-dict JSON manifest falls back to count-based packing")
+    return 0
+
+
 def check_separated_suites_never_share_a_shard() -> int:
     """The app-host-crasher suite and its victim must land on different shards."""
     import json
@@ -288,6 +313,9 @@ def main() -> int:
         return rc
 
     if (rc := check_separated_suites_never_share_a_shard()) != 0:
+        return rc
+
+    if (rc := check_non_dict_manifest_falls_back()) != 0:
         return rc
 
     print("PASS: cmuxTests sharding covers extension methods and leaves focused gates explicit")
