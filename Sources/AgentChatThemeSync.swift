@@ -82,10 +82,12 @@ private nonisolated let agentChatThemeSyncState = OSAllocatedUnfairLock(
 enum AgentChatThemeSync {
     private static let requestTimeout: TimeInterval = 1.5
 
+    @MainActor
     static var isEnabled: Bool {
         CmuxFeatureFlags.shared.isAgentChatUIEnabled
     }
 
+    @MainActor
     static func start() {
         guard isEnabled else { return }
         let shouldInstall = agentChatThemeSyncState.withLock { state in
@@ -128,6 +130,7 @@ enum AgentChatThemeSync {
         }
     }
 
+    @MainActor
     static func syncNow(agentChat: CmuxAgentChatConfiguration) {
         guard isEnabled else { return }
         let url = themeURL(for: agentChat.url)
@@ -137,10 +140,12 @@ enum AgentChatThemeSync {
     }
 
     static func scheduleDebouncedSync() {
-        guard isEnabled else { return }
         agentChatThemeSyncState.withLock { state in
             state.debouncedTask?.cancel()
             state.debouncedTask = Task { @MainActor in
+                // The flag is MainActor state and this is called from
+                // nonisolated notification closures, so gate inside the hop.
+                guard isEnabled else { return }
                 let clock = ContinuousClock()
                 do {
                     try await clock.sleep(for: .milliseconds(300))
