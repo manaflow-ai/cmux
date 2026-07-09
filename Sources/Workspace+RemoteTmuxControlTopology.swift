@@ -8,16 +8,11 @@ extension Workspace {
         mirror: RemoteTmuxWindowMirror,
         pane: RemoteTmuxControlPane
     )
-
-    /// The inner panes of the selected mirrored tmux window, or an empty list
-    /// when the selected surface is not a multi-pane mirror container.
-    func selectedRemoteTmuxControlPanes() -> [RemoteTmuxControlPane] {
-        guard let focusedPanelId,
-              let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) else {
-            return []
-        }
-        return mirror.controlPanes()
-    }
+    typealias ControlSurfaceProjection = (
+        surfaceID: UUID,
+        paneID: UUID?,
+        panel: any Panel
+    )
 
     func remoteTmuxControlPane(paneID: UUID) -> RemoteTmuxControlPaneLocation? {
         for (containerPanelID, mirror) in remoteTmuxWindowMirrors {
@@ -43,6 +38,20 @@ extension Workspace {
         terminalPanel(for: surfaceID) ?? remoteTmuxControlPane(surfaceID: surfaceID)?.pane.panel
     }
 
+    /// Projects a workspace-owned panel into the identity exposed by the
+    /// control plane. A mirror container resolves only when tmux has published
+    /// an authoritative active pane; ordinary panels keep their Bonsplit pane.
+    func controlSurfaceProjection(
+        forContainerPanelID containerPanelID: UUID
+    ) -> ControlSurfaceProjection? {
+        if let mirror = remoteTmuxWindowMirror(forPanelId: containerPanelID) {
+            guard let active = mirror.activeControlPane() else { return nil }
+            return (active.panel.id, active.paneID.id, active.panel)
+        }
+        guard let panel = panels[containerPanelID] else { return nil }
+        return (containerPanelID, paneId(forPanelId: containerPanelID)?.id, panel)
+    }
+
     /// Resolves the selected terminal target. A mirror container projects its
     /// active inner pane; a requested pane projects that pane's selected surface.
     func controlDefaultTerminalTarget(
@@ -54,24 +63,17 @@ extension Workspace {
             }
             if let paneID = bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID }),
                let tab = bonsplitController.selectedTab(inPane: paneID),
-               let panelID = panelIdFromSurfaceId(tab.id) {
-                if let mirror = remoteTmuxWindowMirror(forPanelId: panelID),
-                   let active = mirror.activeControlPane() {
-                    return (active.panel.id, active.panel)
-                }
-                if let panel = terminalPanel(for: panelID) {
-                    return (panelID, panel)
-                }
+               let panelID = panelIdFromSurfaceId(tab.id),
+               remoteTmuxWindowMirror(forPanelId: panelID) == nil,
+               let panel = terminalPanel(for: panelID) {
+                return (panelID, panel)
             }
             return nil
         }
 
-        guard let focusedPanelId else { return nil }
-        if let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId),
-           let active = mirror.activeControlPane() {
-            return (active.panel.id, active.panel)
-        }
-        guard let panel = terminalPanel(for: focusedPanelId) else { return nil }
-        return (focusedPanelId, panel)
+        guard let focusedPanelId,
+              let projection = controlSurfaceProjection(forContainerPanelID: focusedPanelId),
+              let panel = projection.panel as? TerminalPanel else { return nil }
+        return (projection.surfaceID, panel)
     }
 }

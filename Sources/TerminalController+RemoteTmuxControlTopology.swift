@@ -135,9 +135,17 @@ extension TerminalController {
         tabManager: TabManager
     ) -> ControlPaneSurfacesSnapshot? {
         let remoteLocation = requestedPaneID.flatMap { workspace.remoteTmuxControlPane(paneID: $0) }
-        let remotePane = remoteLocation?.pane ?? (requestedPaneID == nil
-            ? workspace.selectedRemoteTmuxControlPanes().first(where: \.isFocused)
-            : nil)
+        let remotePane: RemoteTmuxControlPane?
+        if let remoteLocation {
+            remotePane = remoteLocation.pane
+        } else if requestedPaneID == nil,
+                  let focusedPanelID = workspace.focusedPanelId,
+                  let mirror = workspace.remoteTmuxWindowMirror(forPanelId: focusedPanelID) {
+            guard let activePane = mirror.activeControlPane() else { return nil }
+            remotePane = activePane
+        } else {
+            remotePane = nil
+        }
         if let remotePane {
             return ControlPaneSurfacesSnapshot(
                 workspaceID: workspace.id,
@@ -152,14 +160,22 @@ extension TerminalController {
             )
         }
 
-        let paneID = requestedPaneID.flatMap { requested in
-            workspace.bonsplitController.allPaneIds.first(where: { $0.id == requested })
-        } ?? workspace.bonsplitController.focusedPaneId
+        let paneID: PaneID?
+        if let requestedPaneID {
+            paneID = workspace.bonsplitController.allPaneIds.first(where: {
+                $0.id == requestedPaneID
+            })
+        } else {
+            paneID = workspace.bonsplitController.focusedPaneId
+        }
         guard let paneID else { return nil }
         let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneID)
-        let surfaces = workspace.bonsplitController.tabs(inPane: paneID).map { tab in
-            let panelID = workspace.panelIdFromSurfaceId(tab.id)
-            let panel = panelID.flatMap { workspace.panels[$0] }
+        let surfaces = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab in
+            guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
+                  workspace.remoteTmuxWindowMirror(forPanelId: panelID) == nil else {
+                return nil
+            }
+            let panel = workspace.panels[panelID]
             return ControlPaneSurfaceSummary(
                 surfaceID: panelID,
                 title: tab.title,
@@ -167,6 +183,7 @@ extension TerminalController {
                 isSelected: tab.id == selectedTab?.id
             )
         }
+        guard !surfaces.isEmpty else { return nil }
         return ControlPaneSurfacesSnapshot(
             workspaceID: workspace.id,
             paneID: paneID.id,

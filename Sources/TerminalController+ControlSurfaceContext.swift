@@ -182,14 +182,16 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let surfaceId = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
-        let paneId = surfaceId.flatMap { ws.paneId(forPanelId: $0)?.id }
+        let containerPanelID = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
+        let projection = containerPanelID.flatMap {
+            ws.controlSurfaceProjection(forContainerPanelID: $0)
+        }
         return ControlSurfaceCurrentSnapshot(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            paneID: paneId,
-            surfaceID: surfaceId,
-            surfaceTypeRawValue: surfaceId.flatMap { ws.panels[$0]?.panelType.rawValue }
+            paneID: projection?.paneID,
+            surfaceID: projection?.surfaceID,
+            surfaceTypeRawValue: projection?.panel.panelType.rawValue
         )
     }
 
