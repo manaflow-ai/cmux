@@ -8,8 +8,9 @@ import {
   DEFAULT_TEAM_INVITE_FROM_EMAIL,
   buildTeamInviteEmail,
 } from "@/app/api/team/invite/team-invite-email";
+import { getStackServerApp } from "@/app/lib/stack";
 import { cloudDb } from "@/db/client";
-import { stripeSubscriptions } from "@/db/schema";
+import { stripeSubscriptions, teamInviteRoles } from "@/db/schema";
 import { ACTIVE_STRIPE_PRO_STATUSES, TEAM_PLAN_ID } from "@/services/billing/pro";
 import { resolveBillingTeam } from "@/services/billing/teamResolution";
 import { locales } from "@/i18n/routing";
@@ -17,13 +18,20 @@ import { captureBillingError } from "@/services/errors";
 
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
 const teamNameSchema = z.string().trim().min(1).max(80);
+const teamRoleSchema = z.enum(["admin", "member"]).catch("member");
 const MAX_TEAM_INVITE_BODY_BYTES = 16 * 1024;
+export const TEAM_ADMIN_PERMISSION_ID = "team_admin";
+const DEFAULT_TEAM_INVITE_ORIGIN = "https://cmux.com";
 
 export type StackTeamUser = {
   readonly id: string;
   readonly displayName?: string | null;
   readonly primaryEmail?: string | null;
   readonly profileImageUrl?: string | null;
+  hasPermission?: (scope: StackTeam, permissionId: string) => Promise<boolean>;
+  grantPermission?: (scope: StackTeam, permissionId: string) => Promise<void>;
+  revokePermission?: (scope: StackTeam, permissionId: string) => Promise<void>;
+  listPermissions?: (scope: StackTeam, options?: { recursive?: boolean }) => Promise<readonly { id: string }[]>;
 };
 
 export type StackTeamInvitation = {
@@ -54,6 +62,11 @@ export type StackTeamUserLike = {
   readonly selectedTeam?: unknown;
   readonly listTeams?: () => Promise<readonly unknown[]>;
   readonly createTeam?: (options: { displayName: string }) => Promise<StackTeam>;
+  readonly listTeamInvitations?: () => Promise<readonly StackReceivedTeamInvitation[]>;
+  hasPermission?: (scope: StackTeam, permissionId: string) => Promise<boolean>;
+  grantPermission?: (scope: StackTeam, permissionId: string) => Promise<void>;
+  revokePermission?: (scope: StackTeam, permissionId: string) => Promise<void>;
+  listPermissions?: (scope: StackTeam, options?: { recursive?: boolean }) => Promise<readonly { id: string }[]>;
 };
 
 export type TeamMemberDto = {
@@ -61,6 +74,7 @@ export type TeamMemberDto = {
   readonly displayName: string | null;
   readonly email: string | null;
   readonly profileImageUrl: string | null;
+  readonly role: TeamRole;
 };
 
 export type TeamInvitationDto = {
@@ -68,6 +82,7 @@ export type TeamInvitationDto = {
   readonly email: string;
   readonly createdAt: string | null;
   readonly acceptUrl: string | null;
+  readonly role: TeamRole;
 };
 
 export type TeamSummaryDto = {
@@ -76,6 +91,16 @@ export type TeamSummaryDto = {
   readonly members: readonly TeamMemberDto[];
   readonly invitations: readonly TeamInvitationDto[];
   readonly seats: number;
+  readonly currentUserRole: TeamRole;
+  readonly canManageTeam: boolean;
+};
+
+export type TeamRole = "admin" | "member";
+
+export type StackReceivedTeamInvitation = {
+  readonly id: string;
+  readonly teamId: string;
+  accept?: () => Promise<void>;
 };
 
 export function normalizeInviteEmail(email: unknown): string | null {
@@ -131,13 +156,16 @@ export async function createTeamForUser(user: StackTeamUserLike, displayName: un
   const parsed = teamNameSchema.safeParse(displayName);
   if (!parsed.success) throw new TeamInviteHttpError("invalid_request", 400);
   if (!user.createTeam) throw new TeamInviteHttpError("service_unavailable", 503);
-  return user.createTeam({ displayName: parsed.data });
+  const team = await user.createTeam({ displayName: parsed.data });
+  await grantTeamAdmin(user, team);
+  return team;
 }
 
 export async function updateTeamName(user: StackTeamUserLike, displayName: unknown): Promise<TeamSummaryDto> {
   const parsed = teamNameSchema.safeParse(displayName);
   if (!parsed.success) throw new TeamInviteHttpError("invalid_request", 400);
   const team = await currentTeamForMember(user);
+  await requireTeamAdmin(user, team);
   if (!team.update) throw new TeamInviteHttpError("service_unavailable", 503);
   await team.update({ displayName: parsed.data });
   return loadTeamSummary(user);
@@ -150,12 +178,20 @@ export async function loadTeamSummary(user: StackTeamUserLike): Promise<TeamSumm
     team.listInvitations?.() ?? Promise.resolve([]),
     latestActiveTeamSeatCount(team.id),
   ]);
+  const roles = await roleMapForMembers(team, members);
+  const currentUserRole = roleForMember(user.id, roles);
   return {
     teamId: team.id,
     teamName: teamDisplayName(team),
-    members: members.map(memberDto),
-    invitations: invitations.map((invitation) => invitationDto(invitation, null)),
+    members: members.map((member) => memberDto(member, roleForMember(member.id, roles))),
+    invitations: await Promise.all(invitations.map(async (invitation) => invitationDto(
+      invitation,
+      null,
+      await storedInviteRole(invitation.id),
+    ))),
     seats,
+    currentUserRole,
+    canManageTeam: currentUserRole === "admin",
   };
 }
 
@@ -164,13 +200,22 @@ export async function sendTeamInvite(params: {
   request: Request;
   email: unknown;
   locale: string;
+  role?: unknown;
 }): Promise<{ invitation: TeamInvitationDto; acceptUrl: string }> {
   await enforceTeamInviteRateLimit(params.request);
   const email = normalizeInviteEmail(params.email);
   if (!email) throw new TeamInviteHttpError("invalid_email", 400);
   const team = await currentTeamForMember(params.user);
+  await requireTeamAdmin(params.user, team);
+  const role = teamRoleSchema.parse(params.role);
   const callbackUrl = acceptBaseUrl(params.request, params.locale);
   const invitation = await createStackInvitation(team, email, callbackUrl);
+  await recordInviteRole({
+    invitationId: invitation.id,
+    stackTeamId: team.id,
+    role,
+    createdByUserId: params.user.id,
+  });
   const acceptUrl = acceptUrlForInvitation(params.request, params.locale, invitation);
   await sendBrandedInviteEmail({
     to: email,
@@ -179,7 +224,7 @@ export async function sendTeamInvite(params: {
     acceptUrl,
     invitationId: invitation.id,
   });
-  return { invitation: invitationDto(invitation, acceptUrl), acceptUrl };
+  return { invitation: invitationDto(invitation, acceptUrl, role), acceptUrl };
 }
 
 export async function resendTeamInvite(params: {
@@ -191,20 +236,36 @@ export async function resendTeamInvite(params: {
   await enforceTeamInviteRateLimit(params.request);
   const invitationId = stringId(params.invitationId);
   const team = await currentTeamForMember(params.user);
+  await requireTeamAdmin(params.user, team);
   const invitation = await findInvitation(team, invitationId);
   const email = invitationEmail(invitation);
   let resentInvitation = invitation;
+  let stackResent = false;
   if (invitation.resend) {
     await invitation.resend();
+    stackResent = true;
   } else if (invitation.send) {
     await invitation.send();
+    stackResent = true;
   } else if (email && invitation.revoke) {
+    const role = await storedInviteRole(invitation.id);
     await invitation.revoke();
+    await markInviteRevoked(invitation.id);
     resentInvitation = await createStackInvitation(
       team,
       email,
       acceptBaseUrl(params.request, params.locale),
     );
+    await recordInviteRole({
+      invitationId: resentInvitation.id,
+      stackTeamId: team.id,
+      role,
+      createdByUserId: params.user.id,
+    });
+    stackResent = true;
+  }
+  if (!stackResent) {
+    throw new TeamInviteHttpError("email_unavailable", 502);
   }
   const acceptUrl = acceptUrlForInvitation(params.request, params.locale, resentInvitation);
   if (email) {
@@ -216,29 +277,75 @@ export async function resendTeamInvite(params: {
       invitationId: resentInvitation.id,
     });
   }
-  return { invitation: invitationDto(resentInvitation, acceptUrl), acceptUrl };
+  const role = await storedInviteRole(resentInvitation.id);
+  return { invitation: invitationDto(resentInvitation, acceptUrl, role), acceptUrl };
 }
 
 export async function revokeTeamInvite(user: StackTeamUserLike, invitationId: unknown): Promise<TeamSummaryDto> {
   const team = await currentTeamForMember(user);
+  await requireTeamAdmin(user, team);
   const invitation = await findInvitation(team, stringId(invitationId));
   if (!invitation.revoke) throw new TeamInviteHttpError("service_unavailable", 503);
   await invitation.revoke();
+  await markInviteRevoked(invitation.id);
   return loadTeamSummary(user);
 }
 
 export async function removeTeamMember(user: StackTeamUserLike, memberId: unknown): Promise<TeamSummaryDto> {
   const targetId = stringId(memberId);
-  if (targetId === user.id) throw new TeamInviteHttpError("cannot_remove_self", 400);
-  const team = await currentTeamForMember(user);
+  const team = targetId === user.id
+    ? await currentStackTeamForMember(user)
+    : await currentTeamForMember(user);
   const members = await requireTeamUsers(team);
   if (members.length <= 1) throw new TeamInviteHttpError("cannot_remove_last_member", 400);
   if (!members.some((member) => member.id === targetId)) {
     throw new TeamInviteHttpError("member_not_found", 404);
   }
+  if (targetId !== user.id) {
+    await requireTeamAdmin(user, team);
+  }
+  await guardTargetIsNotLastAdmin(team, members, targetId, "cannot_remove_last_admin");
   if (!team.removeUser) throw new TeamInviteHttpError("service_unavailable", 503);
   await team.removeUser(targetId);
+  if (targetId === user.id) return loadTeamSummaryFromTeam(team, user.id);
   return loadTeamSummary(user);
+}
+
+export async function updateTeamMemberRole(
+  user: StackTeamUserLike,
+  memberId: unknown,
+  role: unknown,
+): Promise<TeamSummaryDto> {
+  const targetId = stringId(memberId);
+  const parsedRole = teamRoleSchema.parse(role);
+  const team = await currentTeamForMember(user);
+  await requireTeamAdmin(user, team);
+  const members = await requireTeamUsers(team);
+  const target = members.find((member) => member.id === targetId);
+  if (!target) throw new TeamInviteHttpError("member_not_found", 404);
+  if (parsedRole === "admin") {
+    await grantTeamAdmin(target, team);
+  } else {
+    await guardTargetIsNotLastAdmin(team, members, targetId, "cannot_demote_last_admin");
+    if (!target.revokePermission) throw new TeamInviteHttpError("service_unavailable", 503);
+    await target.revokePermission(team, TEAM_ADMIN_PERMISSION_ID);
+  }
+  return loadTeamSummary(user);
+}
+
+export async function applyAcceptedInvitationRole(params: {
+  user: StackTeamUserLike;
+  invitationId: string;
+  teamId?: string | null;
+}): Promise<void> {
+  const role = await storedInviteRole(params.invitationId);
+  if (role !== "admin") {
+    await markInviteAccepted(params.invitationId);
+    return;
+  }
+  const team = await acceptedTeam(params.user, params.teamId);
+  await grantTeamAdmin(params.user, team);
+  await markInviteAccepted(params.invitationId);
 }
 
 export function teamInviteJson(data: unknown, status = 200): Response {
@@ -298,6 +405,49 @@ async function stackTeamById(user: StackTeamUserLike, teamId: string): Promise<S
   return teams.map(stackTeamFromUnknown).find((team): team is StackTeam => !!team && team.id === teamId) ?? null;
 }
 
+async function currentStackTeamForMember(user: StackTeamUserLike): Promise<StackTeam> {
+  const candidates = [
+    stackTeamFromUnknown(user.selectedTeam),
+    ...(typeof user.listTeams === "function" ? (await user.listTeams()).map(stackTeamFromUnknown) : []),
+  ].filter((team): team is StackTeam => !!team);
+  for (const team of candidates) {
+    try {
+      await requireTeamMember(team, user.id);
+      return team;
+    } catch (error) {
+      if (!isTeamInviteErrorCode(error, "team_not_found")) throw error;
+    }
+  }
+  throw new TeamInviteHttpError("team_not_found", 404);
+}
+
+async function loadTeamSummaryFromTeam(team: StackTeam, currentUserId: string): Promise<TeamSummaryDto> {
+  const [members, invitations, seats] = await Promise.all([
+    team.listUsers?.() ?? Promise.resolve([]),
+    team.listInvitations?.() ?? Promise.resolve([]),
+    latestActiveTeamSeatCount(team.id),
+  ]);
+  const roles = await roleMapForMembers(team, members);
+  const currentUserRole = roleForMember(currentUserId, roles);
+  return {
+    teamId: team.id,
+    teamName: teamDisplayName(team),
+    members: members.map((member) => memberDto(member, roleForMember(member.id, roles))),
+    invitations: await Promise.all(invitations.map(async (invitation) => invitationDto(
+      invitation,
+      null,
+      await storedInviteRole(invitation.id),
+    ))),
+    seats,
+    currentUserRole,
+    canManageTeam: currentUserRole === "admin",
+  };
+}
+
+function isTeamInviteErrorCode(error: unknown, code: string): boolean {
+  return !!error && typeof error === "object" && (error as { code?: unknown }).code === code;
+}
+
 function stackTeamFromUnknown(value: unknown): StackTeam | null {
   if (!value || typeof value !== "object") return null;
   const id = (value as { id?: unknown }).id;
@@ -340,21 +490,23 @@ function invitationEmail(invitation: StackTeamInvitation): string | null {
   return typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
 }
 
-function invitationDto(invitation: StackTeamInvitation, acceptUrl: string | null): TeamInvitationDto {
+function invitationDto(invitation: StackTeamInvitation, acceptUrl: string | null, role: TeamRole): TeamInvitationDto {
   return {
     id: invitation.id,
     email: invitationEmail(invitation) ?? "",
     createdAt: dateString(invitation.expiresAt),
     acceptUrl,
+    role,
   };
 }
 
-function memberDto(member: StackTeamUser): TeamMemberDto {
+function memberDto(member: StackTeamUser, role: TeamRole): TeamMemberDto {
   return {
     id: member.id,
     displayName: member.displayName ?? null,
     email: member.primaryEmail ?? null,
     profileImageUrl: member.profileImageUrl ?? null,
+    role,
   };
 }
 
@@ -377,7 +529,7 @@ function safeLocale(locale: string): string {
 }
 
 function acceptBaseUrl(request: Request, locale: string): string {
-  const url = new URL(`/${safeLocale(locale)}/dashboard/team/accept`, request.url);
+  const url = new URL(`/${safeLocale(locale)}/dashboard/team/accept`, trustedInviteOrigin(request));
   return url.toString();
 }
 
@@ -385,6 +537,150 @@ function acceptUrlForInvitation(request: Request, locale: string, invitation: St
   const url = new URL(acceptBaseUrl(request, locale));
   url.searchParams.set("invitation", invitation.id);
   return url.toString();
+}
+
+function trustedInviteOrigin(request: Request): string {
+  const configured = process.env.CMUX_TEAM_INVITE_ORIGIN?.trim() || process.env.CMUX_APP_ORIGIN?.trim();
+  if (configured) return originOrDefault(configured);
+  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+    return DEFAULT_TEAM_INVITE_ORIGIN;
+  }
+  return originOrDefault(request.url);
+}
+
+function originOrDefault(value: string): string {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return DEFAULT_TEAM_INVITE_ORIGIN;
+  }
+}
+
+async function requireTeamAdmin(user: StackTeamUserLike, team: StackTeam): Promise<void> {
+  if (await canManageTeam(user, team)) return;
+  throw new TeamInviteHttpError("not_team_admin", 403);
+}
+
+async function canManageTeam(user: StackTeamUserLike, team: StackTeam): Promise<boolean> {
+  if (await hasTeamAdminPermission(user, team)) return true;
+  const members = await requireTeamUsers(team);
+  if (!members.some((member) => member.id === user.id)) return false;
+  const roles = await roleMapForMembers(team, members);
+  const hasAnyAdmin = Array.from(roles.values()).includes("admin");
+  if (!hasAnyAdmin) {
+    console.warn("team has no admins; applying legacy member-as-admin fallback", { teamId: team.id });
+    return true;
+  }
+  return false;
+}
+
+async function roleMapForMembers(
+  team: StackTeam,
+  members: readonly StackTeamUser[],
+): Promise<Map<string, TeamRole>> {
+  const roles = new Map(members.map((member) => [member.id, "member" as TeamRole]));
+  const app = getStackServerApp() as {
+    listTeamMemberPermissions?: (
+      teamId: string,
+      options?: { recursive?: boolean },
+    ) => Promise<readonly { userId: string; permissionId: string }[]>;
+  };
+  if (app.listTeamMemberPermissions) {
+    const grants = await app.listTeamMemberPermissions(team.id, { recursive: true });
+    for (const grant of grants) {
+      if (grant.permissionId === TEAM_ADMIN_PERMISSION_ID && roles.has(grant.userId)) {
+        roles.set(grant.userId, "admin");
+      }
+    }
+    return roles;
+  }
+  await Promise.all(members.map(async (member) => {
+    if (await hasTeamAdminPermission(member, team)) roles.set(member.id, "admin");
+  }));
+  return roles;
+}
+
+function roleForMember(userId: string, roles: ReadonlyMap<string, TeamRole>): TeamRole {
+  return roles.get(userId) ?? "member";
+}
+
+async function hasTeamAdminPermission(user: StackTeamUserLike, team: StackTeam): Promise<boolean> {
+  if (user.hasPermission) return user.hasPermission(team, TEAM_ADMIN_PERMISSION_ID);
+  if (user.listPermissions) {
+    return (await user.listPermissions(team, { recursive: true }))
+      .some((permission) => permission.id === TEAM_ADMIN_PERMISSION_ID);
+  }
+  return false;
+}
+
+async function grantTeamAdmin(user: StackTeamUserLike, team: StackTeam): Promise<void> {
+  if (!user.grantPermission) throw new TeamInviteHttpError("service_unavailable", 503);
+  await user.grantPermission(team, TEAM_ADMIN_PERMISSION_ID);
+}
+
+async function guardTargetIsNotLastAdmin(
+  team: StackTeam,
+  members: readonly StackTeamUser[],
+  targetId: string,
+  code: string,
+): Promise<void> {
+  const roles = await roleMapForMembers(team, members);
+  if (roleForMember(targetId, roles) !== "admin") return;
+  const adminCount = Array.from(roles.values()).filter((role) => role === "admin").length;
+  if (adminCount <= 1) throw new TeamInviteHttpError(code, 400);
+}
+
+async function acceptedTeam(user: StackTeamUserLike, teamId: string | null | undefined): Promise<StackTeam> {
+  const teams = typeof user.listTeams === "function" ? await user.listTeams() : [];
+  const team = teams.map(stackTeamFromUnknown).find((candidate): candidate is StackTeam =>
+    !!candidate && (!teamId || candidate.id === teamId)
+  );
+  if (!team) throw new TeamInviteHttpError("team_not_found", 404);
+  return team;
+}
+
+async function recordInviteRole(params: {
+  invitationId: string;
+  stackTeamId: string;
+  role: TeamRole;
+  createdByUserId: string;
+}): Promise<void> {
+  await cloudDb()
+    .insert(teamInviteRoles)
+    .values(params)
+    .onConflictDoUpdate({
+      target: teamInviteRoles.invitationId,
+      set: {
+        stackTeamId: params.stackTeamId,
+        role: params.role,
+        createdByUserId: params.createdByUserId,
+        revokedAt: null,
+        acceptedAt: null,
+      },
+    });
+}
+
+async function storedInviteRole(invitationId: string): Promise<TeamRole> {
+  const [row] = await cloudDb()
+    .select({ role: teamInviteRoles.role })
+    .from(teamInviteRoles)
+    .where(eq(teamInviteRoles.invitationId, invitationId))
+    .limit(1);
+  return row?.role === "admin" ? "admin" : "member";
+}
+
+async function markInviteAccepted(invitationId: string): Promise<void> {
+  await cloudDb()
+    .update(teamInviteRoles)
+    .set({ acceptedAt: new Date() })
+    .where(eq(teamInviteRoles.invitationId, invitationId));
+}
+
+async function markInviteRevoked(invitationId: string): Promise<void> {
+  await cloudDb()
+    .update(teamInviteRoles)
+    .set({ revokedAt: new Date() })
+    .where(eq(teamInviteRoles.invitationId, invitationId));
 }
 
 async function latestActiveTeamSeatCount(stackTeamId: string): Promise<number> {

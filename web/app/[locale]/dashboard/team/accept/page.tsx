@@ -4,13 +4,15 @@ import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link } from "@/i18n/navigation";
+import { applyAcceptedInvitationRole, type StackTeamUserLike } from "@/services/team/invites";
 
 export const dynamic = "force-dynamic";
 
-type StackAcceptUser = {
+type StackAcceptUser = StackTeamUserLike & {
   acceptTeamInvitation?: (code: string) => Promise<unknown>;
   listTeamInvitations?: () => Promise<readonly {
     id: string;
+    teamId?: string;
     accept?: () => Promise<void>;
   }[]>;
 };
@@ -39,6 +41,8 @@ export default async function TeamInviteAcceptPage({
   }
   const user = await getStackServerApp().getUser({ or: "return-null" }) as StackAcceptUser | null;
   if (!user) redirect(vaultSignInHref(acceptPath));
+  let acceptedInvitationId: string | null = null;
+  let acceptedTeamId: string | null = null;
   try {
     if (code) {
       if (!user.acceptTeamInvitation) throw new Error("acceptTeamInvitation unavailable");
@@ -49,6 +53,8 @@ export default async function TeamInviteAcceptPage({
       const invitation = (await user.listTeamInvitations()).find((candidate) => candidate.id === invitationId);
       if (!invitation?.accept) throw new Error("VerificationCodeError");
       await invitation.accept();
+      acceptedInvitationId = invitation.id;
+      acceptedTeamId = invitation.teamId ?? null;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -56,6 +62,9 @@ export default async function TeamInviteAcceptPage({
       return <AcceptError title={t("emailMismatchTitle")} body={t("emailMismatchBody")} switchAccount={t("switchAccount")} />;
     }
     return <AcceptError title={t("badCodeTitle")} body={t("badCodeBody")} switchAccount={t("switchAccount")} />;
+  }
+  if (acceptedInvitationId) {
+    await applyAcceptedInvitationRole({ user, invitationId: acceptedInvitationId, teamId: acceptedTeamId });
   }
   redirect(localizedVaultPath(locale, "/dashboard/team?joined=1"));
 }

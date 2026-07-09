@@ -10,12 +10,16 @@ const nextNavigationModule = await import("next/navigation");
 const stackModule = await import("../app/lib/stack");
 const nextIntlServerModule = await import("next-intl/server");
 const i18nNavigationModule = await import("../i18n/navigation");
+const dbClientModule = await import("../db/client");
 
 let currentUser: {
   acceptTeamInvitation?: ReturnType<typeof mock>;
   listTeamInvitations?: ReturnType<typeof mock>;
+  listTeams?: ReturnType<typeof mock>;
+  grantPermission?: ReturnType<typeof mock>;
 } | null = null;
 let redirectTarget: string | null = null;
+let inviteRoleRows = new Map<string, "admin" | "member">();
 const getUser = mock(async () => currentUser);
 const redirect = mock((target: unknown) => {
   redirectTarget = String(target);
@@ -39,12 +43,33 @@ mock.module("../i18n/navigation", () => ({
     <a href={href} {...props}>{children}</a>
   ),
 }));
+mock.module("../db/client", () => ({
+  ...dbClientModule,
+  cloudDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: mock(async () => {
+            const row = Array.from(inviteRoleRows.values())[0];
+            return row ? [{ role: row }] : [];
+          }),
+        }),
+      }),
+    }),
+    update: () => ({
+      set: () => ({
+        where: mock(async () => undefined),
+      }),
+    }),
+  }),
+}));
 
 const { default: TeamInviteAcceptPage } = await import("../app/[locale]/dashboard/team/accept/page");
 
 describe("team invite accept page", () => {
   beforeEach(() => {
     redirectTarget = null;
+    inviteRoleRows = new Map();
     currentUser = null;
     getUser.mockClear();
     redirect.mockClear();
@@ -78,6 +103,24 @@ describe("team invite accept page", () => {
     await expect(renderAcceptInvitation("inv_1")).rejects.toThrow("NEXT_REDIRECT");
 
     expect(accept).toHaveBeenCalled();
+    expect(redirectTarget).toBe("/en/dashboard/team?joined=1");
+  });
+
+  test("accepting an admin invite grants the Stack team admin permission", async () => {
+    const accept = mock(async () => undefined);
+    const grantPermission = mock(async () => undefined);
+    const team = { id: "team-1", displayName: "Team One" };
+    inviteRoleRows.set("inv_admin", "admin");
+    currentUser = {
+      listTeamInvitations: mock(async () => [{ id: "inv_admin", teamId: "team-1", accept }]),
+      listTeams: mock(async () => [team]),
+      grantPermission,
+    };
+
+    await expect(renderAcceptInvitation("inv_admin")).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(accept).toHaveBeenCalled();
+    expect(grantPermission).toHaveBeenCalledWith(team, "team_admin");
     expect(redirectTarget).toBe("/en/dashboard/team?joined=1");
   });
 

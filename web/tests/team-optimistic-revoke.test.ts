@@ -9,10 +9,12 @@ describe("applyOptimisticRevoke", () => {
       teamId: "team-1",
       teamName: "Team One",
       seats: 2,
+      currentUserRole: "admin",
+      canManageTeam: true,
       members: [],
       invitations: [
-        { id: "inv-1", email: "a@example.com", createdAt: null, acceptUrl: null },
-        { id: "inv-2", email: "b@example.com", createdAt: null, acceptUrl: null },
+        { id: "inv-1", email: "a@example.com", createdAt: null, acceptUrl: null, role: "member" },
+        { id: "inv-2", email: "b@example.com", createdAt: null, acceptUrl: null, role: "member" },
       ],
     };
 

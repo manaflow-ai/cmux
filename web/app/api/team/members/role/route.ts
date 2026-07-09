@@ -1,9 +1,9 @@
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import {
   readBoundedJson,
-  sendTeamInvite,
   teamInviteErrorResponse,
   teamInviteJson,
+  updateTeamMemberRole,
   type StackTeamUserLike,
 } from "@/services/team/invites";
 
@@ -17,15 +17,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!user) return teamInviteJson({ error: "unauthorized" }, 401);
     const body = await readBoundedJson(request);
     const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
-    const locale = typeof record.locale === "string" && record.locale.trim() ? record.locale.trim() : "en";
-    const result = await sendTeamInvite({
-      user,
-      request,
-      email: record.email,
-      locale,
-      role: record.role,
-    });
-    return teamInviteJson(result);
+    return teamInviteJson(await updateTeamMemberRole(user, record.memberId, record.role));
   } catch (error) {
     return teamInviteErrorResponse(error);
   }

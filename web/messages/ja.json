@@ -247,7 +247,8 @@
         "copyUnavailable": "共有リンクを作成するには、まず招待を送信してください。",
         "pending": "送信中",
         "sent": "送信済み",
-        "failed": "失敗"
+        "failed": "失敗",
+        "roleLabel": "招待する役割"
       },
       "pending": {
         "title": "保留中の招待",
@@ -261,7 +262,10 @@
         "you": "あなた",
         "noEmail": "メールなし",
         "remove": "削除",
-        "removeConfirm": "このチームメンバーを削除しますか？"
+        "removeConfirm": "このチームメンバーを削除しますか？",
+        "roleLabel": "メンバーの役割",
+        "leave": "退出",
+        "leaveConfirm": "このチームから退出しますか？"
       },
       "accept": {
         "badCodeTitle": "招待リンクが無効です",
@@ -275,7 +279,12 @@
         "inviteFailed": "招待を送信できませんでした。",
         "revokeFailed": "招待を取り消せませんでした。",
         "resendFailed": "招待を再送信できませんでした。",
-        "removeFailed": "メンバーを削除できませんでした。"
+        "removeFailed": "メンバーを削除できませんでした。",
+        "roleFailed": "メンバーの役割を更新できませんでした。"
+      },
+      "roles": {
+        "admin": "管理者",
+        "member": "メンバー"
       }
     }
   },

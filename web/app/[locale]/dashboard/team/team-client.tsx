@@ -6,6 +6,8 @@ import { useTranslations } from "next-intl";
 import type { TeamInvitationDto, TeamMemberDto, TeamSummaryDto } from "@/services/team/invites";
 import { applyOptimisticRevoke } from "./optimistic";
 
+type TeamRole = "admin" | "member";
+
 type InviteStatus = {
   readonly email: string;
   readonly state: "pending" | "sent" | "failed";
@@ -28,10 +30,13 @@ export function TeamManagerClient({
   const [chips, setChips] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [statuses, setStatuses] = useState<InviteStatus[]>([]);
+  const [inviteRole, setInviteRole] = useState<TeamRole>("member");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isPending, startTransition] = useTransition();
   const overSeats = summary.seats > 0 && summary.members.length > summary.seats;
+  const canManageTeam = summary.canManageTeam;
+  const adminCount = summary.members.filter((member) => member.role === "admin").length;
 
   const shareUrl = useMemo(() => {
     const first = summary.invitations.find((invite) => invite.acceptUrl)?.acceptUrl;
@@ -58,7 +63,7 @@ export function TeamManagerClient({
         const response = await fetch("/api/team/invite", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email, locale }),
+          body: JSON.stringify({ email, locale, role: inviteRole }),
         });
         const body = await response.json() as { invitation?: TeamInvitationDto; error?: string };
         if (!response.ok || !body.invitation) throw new Error(body.error ?? "failed");
@@ -115,7 +120,7 @@ export function TeamManagerClient({
   }
 
   function removeMember(memberId: string) {
-    if (!confirm(t("members.removeConfirm"))) return;
+    if (!confirm(memberId === currentUserId ? t("members.leaveConfirm") : t("members.removeConfirm"))) return;
     startTransition(async () => {
       try {
         const response = await fetch("/api/team/members/remove", {
@@ -129,6 +134,24 @@ export function TeamManagerClient({
         setError(null);
       } catch {
         setError(t("errors.removeFailed"));
+      }
+    });
+  }
+
+  function updateRole(memberId: string, role: TeamRole) {
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/team/members/role", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ memberId, role }),
+        });
+        const body = await response.json() as TeamSummaryDto | { error?: string };
+        if (!response.ok || !("teamId" in body)) throw new Error("failed");
+        setSummary(body);
+        setError(null);
+      } catch {
+        setError(t("errors.roleFailed"));
       }
     });
   }
@@ -165,12 +188,13 @@ export function TeamManagerClient({
               </a>
             ) : null}
           </div>
-          <RenameForm currentName={summary.teamName} onRenamed={setSummary} />
+          {canManageTeam ? <RenameForm currentName={summary.teamName} onRenamed={setSummary} /> : null}
         </div>
       </section>
 
-      <section className="border border-border p-3">
-        <h2 className="text-sm font-medium">{t("invite.title")}</h2>
+      {canManageTeam ? (
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("invite.title")}</h2>
         <div className="mt-3 flex flex-wrap gap-2">
           {chips.map((email) => (
             <button
@@ -197,6 +221,15 @@ export function TeamManagerClient({
             placeholder={t("invite.placeholder")}
             className="min-w-0 flex-1 border border-border bg-background px-3 py-2 text-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           />
+          <select
+            value={inviteRole}
+            onChange={(event) => setInviteRole(event.target.value as TeamRole)}
+            aria-label={t("invite.roleLabel")}
+            className="border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="member">{t("roles.member")}</option>
+            <option value="admin">{t("roles.admin")}</option>
+          </select>
           <button
             type="button"
             disabled={isPending}
@@ -222,7 +255,8 @@ export function TeamManagerClient({
             ))}
           </div>
         ) : null}
-      </section>
+        </section>
+      ) : null}
 
       <section className="border border-border">
         <div className="border-b border-border px-3 py-2 text-sm font-medium">{t("pending.title")}</div>
@@ -232,6 +266,7 @@ export function TeamManagerClient({
           <InviteRow
             key={invitation.id}
             invitation={invitation}
+            canManageTeam={canManageTeam}
             onResend={() => resend(invitation.id)}
             onRevoke={() => revoke(invitation.id)}
           />
@@ -246,7 +281,10 @@ export function TeamManagerClient({
             member={member}
             currentUserId={currentUserId}
             memberCount={summary.members.length}
+            adminCount={adminCount}
+            canManageTeam={canManageTeam}
             onRemove={() => removeMember(member.id)}
+            onRoleChange={(role) => updateRole(member.id, role)}
           />
         ))}
       </section>
@@ -295,10 +333,12 @@ function RenameForm({
 
 function InviteRow({
   invitation,
+  canManageTeam,
   onResend,
   onRevoke,
 }: {
   invitation: TeamInvitationDto;
+  canManageTeam: boolean;
   onResend: () => void;
   onRevoke: () => void;
 }) {
@@ -307,16 +347,18 @@ function InviteRow({
     <div className="grid gap-2 border-b border-border px-3 py-2 last:border-b-0 md:grid-cols-[1fr_auto] md:items-center">
       <div>
         <div className="text-sm">{invitation.email}</div>
-        <div className="text-xs text-muted">{invitation.createdAt ?? t("pending.unknownDate")}</div>
+        <div className="text-xs text-muted">
+          {invitation.createdAt ?? t("pending.unknownDate")} · {t(`roles.${invitation.role}`)}
+        </div>
       </div>
-      <div className="flex gap-2">
+      {canManageTeam ? <div className="flex gap-2">
         <button type="button" onClick={onResend} className="border border-border px-2 py-1 text-xs">
           {t("pending.resend")}
         </button>
         <button type="button" onClick={onRevoke} className="border border-border px-2 py-1 text-xs">
           {t("pending.revoke")}
         </button>
-      </div>
+      </div> : null}
     </div>
   );
 }
@@ -325,19 +367,27 @@ function MemberRow({
   member,
   currentUserId,
   memberCount,
+  adminCount,
+  canManageTeam,
   onRemove,
+  onRoleChange,
 }: {
   member: TeamMemberDto;
   currentUserId: string;
   memberCount: number;
+  adminCount: number;
+  canManageTeam: boolean;
   onRemove: () => void;
+  onRoleChange: (role: TeamRole) => void;
 }) {
   const t = useTranslations("dashboard.team");
   const isSelf = member.id === currentUserId;
-  const disabled = isSelf || memberCount <= 1;
+  const isLastAdmin = member.role === "admin" && adminCount <= 1;
+  const canLeave = isSelf && memberCount > 1 && !isLastAdmin;
+  const canRemove = canManageTeam && !isSelf && memberCount > 1 && !isLastAdmin;
   const label = member.displayName ?? member.email ?? member.id;
   return (
-    <div className="grid gap-2 border-b border-border px-3 py-2 last:border-b-0 md:grid-cols-[auto_1fr_auto] md:items-center">
+    <div className="grid gap-2 border-b border-border px-3 py-2 last:border-b-0 md:grid-cols-[auto_1fr_auto_auto] md:items-center">
       <div className="flex h-8 w-8 items-center justify-center border border-border text-xs">
         {label.slice(0, 1).toUpperCase()}
       </div>
@@ -345,16 +395,31 @@ function MemberRow({
         <div className="truncate text-sm">
           {label} {isSelf ? <span className="text-xs text-muted">{t("members.you")}</span> : null}
         </div>
-        <div className="truncate text-xs text-muted">{member.email ?? t("members.noEmail")}</div>
+        <div className="truncate text-xs text-muted">
+          {member.email ?? t("members.noEmail")} · {t(`roles.${member.role}`)}
+        </div>
       </div>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onRemove}
-        className="border border-border px-2 py-1 text-xs disabled:opacity-50"
-      >
-        {t("members.remove")}
-      </button>
+      {canManageTeam ? (
+        <select
+          value={member.role}
+          disabled={isLastAdmin}
+          onChange={(event) => onRoleChange(event.target.value as TeamRole)}
+          aria-label={t("members.roleLabel")}
+          className="border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
+        >
+          <option value="member">{t("roles.member")}</option>
+          <option value="admin">{t("roles.admin")}</option>
+        </select>
+      ) : null}
+      {canRemove || canLeave ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="border border-border px-2 py-1 text-xs"
+        >
+          {isSelf ? t("members.leave") : t("members.remove")}
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -193,7 +193,8 @@
         "copyUnavailable": "Send an invite first to create a shareable link.",
         "pending": "Sending",
         "sent": "Sent",
-        "failed": "Failed"
+        "failed": "Failed",
+        "roleLabel": "Invite role"
       },
       "pending": {
         "title": "Pending invites",
@@ -207,7 +208,10 @@
         "you": "You",
         "noEmail": "No email",
         "remove": "Remove",
-        "removeConfirm": "Remove this team member?"
+        "removeConfirm": "Remove this team member?",
+        "roleLabel": "Member role",
+        "leave": "Leave",
+        "leaveConfirm": "Leave this team?"
       },
       "accept": {
         "badCodeTitle": "Invite link is invalid",
@@ -221,7 +225,12 @@
         "inviteFailed": "Invite could not be sent.",
         "revokeFailed": "Invite could not be revoked.",
         "resendFailed": "Invite could not be resent.",
-        "removeFailed": "Member could not be removed."
+        "removeFailed": "Member could not be removed.",
+        "roleFailed": "Member role could not be updated."
+      },
+      "roles": {
+        "admin": "Admin",
+        "member": "Member"
       }
     }
   },
