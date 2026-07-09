@@ -151,6 +151,48 @@ struct AgentHibernationPlannerSwiftTests {
         #expect(selected == Set([exitedAgent]))
     }
 
+    @Test
+    func unableToProtectPaneCreatesPressureButIsNotSelected() {
+        let workspaceId = UUID()
+        let now: TimeInterval = 1_000
+        let unableToProtectAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let safeAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 60,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 5
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(
+                    key: unableToProtectAgent,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    isTemporarilyUnableToProtect: true,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now - 300
+                ),
+                .init(
+                    key: safeAgent,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now - 200
+                ),
+            ],
+            settings: settings,
+            now: now
+        )
+
+        #expect(selected == Set([safeAgent]))
+    }
+
     @MainActor
     @Test
     func unableToProtectMarkerExpiresSoTransientSnapshotFailuresRetry() {

@@ -29,9 +29,13 @@ enum AgentHibernationTranscriptGuard {
         backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
         fileManager: FileManager = .default
     ) async {
-        var completed = false
-        defer { if completed { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
-
+        var canDeleteSnapshot = false
+        defer { if !Task.isCancelled, canDeleteSnapshot { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
+        func markSnapshotDeletableIfSafe() {
+            let restored = restoreIfClobbered(snapshot, fileManager: fileManager)
+            let safe = transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager)
+            canDeleteSnapshot = canDeleteSnapshot || restored || safe
+        }
         if !processIDs.isEmpty {
             let deadline = ContinuousClock.now.advanced(by: .seconds(30))
             while ContinuousClock.now < deadline {
@@ -47,15 +51,14 @@ enum AgentHibernationTranscriptGuard {
         for delayNanoseconds in initialRetryDelaysNanoseconds {
             if delayNanoseconds > 0 { try? await Task.sleep(nanoseconds: delayNanoseconds) }
             if Task.isCancelled { return }
-            _ = restoreIfClobbered(snapshot, fileManager: fileManager)
+            markSnapshotDeletableIfSafe()
         }
 
         for delaySeconds in backstopDelaysSeconds {
             try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
             if Task.isCancelled { return }
-            _ = restoreIfClobbered(snapshot, fileManager: fileManager)
+            markSnapshotDeletableIfSafe()
         }
-        completed = !Task.isCancelled
     }
 
     static func resolveTranscriptPath(

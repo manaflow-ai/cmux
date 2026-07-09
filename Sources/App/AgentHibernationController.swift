@@ -7,69 +7,6 @@ struct AgentHibernationPanelKey: Hashable, Sendable {
     let panelId: UUID
 }
 
-struct AgentHibernationPlannerInput: Sendable {
-    let key: AgentHibernationPanelKey
-    let hasRestorableAgent: Bool
-    let isLive: Bool
-    let hasLiveProcess: Bool
-    let isProtected: Bool
-    let lifecycle: AgentHibernationLifecycleState
-    let hasUnconfirmedTerminalInput: Bool
-    let lastActivityAt: TimeInterval
-
-    init(
-        key: AgentHibernationPanelKey,
-        hasRestorableAgent: Bool,
-        isLive: Bool,
-        hasLiveProcess: Bool = false,
-        isProtected: Bool,
-        lifecycle: AgentHibernationLifecycleState,
-        hasUnconfirmedTerminalInput: Bool,
-        lastActivityAt: TimeInterval
-    ) {
-        self.key = key
-        self.hasRestorableAgent = hasRestorableAgent
-        self.isLive = isLive
-        self.hasLiveProcess = hasLiveProcess
-        self.isProtected = isProtected
-        self.lifecycle = lifecycle
-        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
-        self.lastActivityAt = lastActivityAt
-    }
-}
-
-enum AgentHibernationPlanner {
-    static func selectedPanelKeys(
-        inputs: [AgentHibernationPlannerInput],
-        settings: AgentHibernationSettings.Values,
-        now: TimeInterval
-    ) -> Set<AgentHibernationPanelKey> {
-        guard settings.enabled else { return [] }
-        let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }
-        let excess = liveRestorable.count - settings.maxLiveTerminals
-        guard excess > 0 else { return [] }
-
-        // Live scoped processes still create cap pressure, but they are not
-        // eligible for teardown; reclaim safe idle panes first instead.
-        let eligible = liveRestorable
-            .filter { input in
-                !input.isProtected &&
-                    !input.hasLiveProcess &&
-                    input.lifecycle.allowsHibernation &&
-                    !input.hasUnconfirmedTerminalInput &&
-                    now - input.lastActivityAt >= settings.idleSeconds
-            }
-            .sorted { lhs, rhs in
-                if lhs.lastActivityAt == rhs.lastActivityAt {
-                    return lhs.key.panelId.uuidString < rhs.key.panelId.uuidString
-                }
-                return lhs.lastActivityAt < rhs.lastActivityAt
-            }
-
-        return Set(eligible.prefix(excess).map(\.key))
-    }
-}
-
 @MainActor
 struct AgentHibernationRecord {
     let key: AgentHibernationPanelKey
@@ -271,6 +208,11 @@ final class AgentHibernationController {
                 effectiveLastActivityAt = max(record.lastActivityAt, tailActivityAt)
             }
             effectiveActivityByKey[record.key] = effectiveLastActivityAt
+            let unableToProtectMarkerApplies = unableToProtectMarkerStillApplies(
+                for: record,
+                lastActivityAt: effectiveLastActivityAt,
+                now: nowTime
+            )
             return AgentHibernationPlannerInput(
                 key: record.key,
                 hasRestorableAgent: true,
@@ -278,6 +220,7 @@ final class AgentHibernationController {
                 hasLiveProcess: record.hasLiveProcess,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
+                isTemporarilyUnableToProtect: unableToProtectMarkerApplies,
                 hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
                 lastActivityAt: effectiveLastActivityAt
             )
@@ -361,6 +304,25 @@ final class AgentHibernationController {
             dueAt: now + settings.confirmationSeconds
         )
         return nil
+    }
+
+    private func unableToProtectMarkerStillApplies(
+        for record: AgentHibernationRecord,
+        lastActivityAt: TimeInterval,
+        now: TimeInterval
+    ) -> Bool {
+        guard let marker = unableToProtectByPanel[record.key],
+              let fingerprint = hibernationFingerprint(for: record),
+              Self.unableToProtectMarkerStillApplies(
+                  marker,
+                  fingerprint: fingerprint,
+                  lastActivityAt: lastActivityAt,
+                  now: now
+              ) else {
+            unableToProtectByPanel.removeValue(forKey: record.key)
+            return false
+        }
+        return true
     }
 
     private func updateTailFingerprintSample(

@@ -86,6 +86,29 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
+    func postTeardownRestoreChecksRetainSnapshotWhenLiveTranscriptStaysUnsafe() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"before"}}"# + "\n"
+        let liveContent = #"{"type":"summary","summary":"new compacted state"}"# + "\n"
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+        try liveContent.write(to: live, atomically: true, encoding: .utf8)
+
+        await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+            snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+            processIDs: [],
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: []
+        )
+
+        #expect(FileManager.default.fileExists(atPath: snapshot.path))
+        #expect(try String(contentsOf: live, encoding: .utf8) == liveContent)
+    }
+
+    @Test
     func postTeardownRestoreChecksContinueAfterEarlyRestore() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

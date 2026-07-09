@@ -1,5 +1,72 @@
 import Foundation
 
+struct AgentHibernationPlannerInput: Sendable {
+    let key: AgentHibernationPanelKey
+    let hasRestorableAgent: Bool
+    let isLive: Bool
+    let hasLiveProcess: Bool
+    let isProtected: Bool
+    let lifecycle: AgentHibernationLifecycleState
+    let isTemporarilyUnableToProtect: Bool
+    let hasUnconfirmedTerminalInput: Bool
+    let lastActivityAt: TimeInterval
+
+    init(
+        key: AgentHibernationPanelKey,
+        hasRestorableAgent: Bool,
+        isLive: Bool,
+        hasLiveProcess: Bool = false,
+        isProtected: Bool,
+        lifecycle: AgentHibernationLifecycleState,
+        isTemporarilyUnableToProtect: Bool = false,
+        hasUnconfirmedTerminalInput: Bool,
+        lastActivityAt: TimeInterval
+    ) {
+        self.key = key
+        self.hasRestorableAgent = hasRestorableAgent
+        self.isLive = isLive
+        self.hasLiveProcess = hasLiveProcess
+        self.isProtected = isProtected
+        self.lifecycle = lifecycle
+        self.isTemporarilyUnableToProtect = isTemporarilyUnableToProtect
+        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
+        self.lastActivityAt = lastActivityAt
+    }
+}
+
+enum AgentHibernationPlanner {
+    static func selectedPanelKeys(
+        inputs: [AgentHibernationPlannerInput],
+        settings: AgentHibernationSettings.Values,
+        now: TimeInterval
+    ) -> Set<AgentHibernationPanelKey> {
+        guard settings.enabled else { return [] }
+        let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }
+        let excess = liveRestorable.count - settings.maxLiveTerminals
+        guard excess > 0 else { return [] }
+
+        // Live scoped processes still create cap pressure, but they are not
+        // eligible for teardown; reclaim safe idle panes first instead.
+        let eligible = liveRestorable
+            .filter { input in
+                !input.isProtected &&
+                    !input.hasLiveProcess &&
+                    input.lifecycle.allowsHibernation &&
+                    !input.isTemporarilyUnableToProtect &&
+                    !input.hasUnconfirmedTerminalInput &&
+                    now - input.lastActivityAt >= settings.idleSeconds
+            }
+            .sorted { lhs, rhs in
+                if lhs.lastActivityAt == rhs.lastActivityAt {
+                    return lhs.key.panelId.uuidString < rhs.key.panelId.uuidString
+                }
+                return lhs.lastActivityAt < rhs.lastActivityAt
+            }
+
+        return Set(eligible.prefix(excess).map(\.key))
+    }
+}
+
 extension AppDelegate {
     @MainActor
     func agentHibernationPanelIsProtected(workspace: Workspace, panelId: UUID) -> Bool {
