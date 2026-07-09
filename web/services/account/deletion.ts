@@ -1183,6 +1183,10 @@ async function updateStripeCustomerForAccountDeletion(
   try {
     await stripeClient.customers.update(customerId, {
       email: deletedAccountEmail(anonymizedUserId),
+      name: "Deleted cmux account",
+      phone: "",
+      address: "",
+      shipping: "",
       metadata: accountDeletionStripeMetadata({
         anonymizedUserId,
         clearStackTeamId,

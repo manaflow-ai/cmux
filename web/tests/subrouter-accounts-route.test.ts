@@ -356,6 +356,8 @@ describe("subrouter accounts route", () => {
     expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
     expect(upstream.accountCreatesInsideTransaction).toBe(0);
     expect(upstream.deletedAccountIds).toEqual(["acct-created"]);
+    expect(upstream.revokedTenantIds).toEqual(["tenant-team-a"]);
+    expect(fakeDb.rows).toHaveLength(0);
   });
 
   test("keeps first tenant mapping when account creation fails", async () => {
@@ -553,6 +555,7 @@ function createMockSubrouter() {
     tenantListCalls: 0,
     accounts: [] as Array<Record<string, unknown>>,
     deletedAccountIds: [] as string[],
+    revokedTenantIds: [] as string[],
     lastCreateAccountUrl: null as URL | null,
     lastCreateAccountBody: null as unknown,
     accountCreatesInsideTransaction: 0,
@@ -577,6 +580,14 @@ function createMockSubrouter() {
         name: body.name ?? "Team A",
         key: "srt_1234567890abcdef1234567890abcdef",
       });
+    }
+
+    if (url.pathname.startsWith("/admin/tenants/") && url.pathname.endsWith("/revoke") && method === "POST") {
+      expect(authorization).toBe("Bearer admin-test-token");
+      state.revokedTenantIds.push(
+        decodeURIComponent(url.pathname.slice("/admin/tenants/".length, -"/revoke".length)),
+      );
+      return jsonResponse({ ok: true });
     }
 
     if (url.pathname === "/tenant/accounts" && method === "GET") {
@@ -690,6 +701,11 @@ function createFakeRouteDb() {
       tail = run.then(() => undefined, () => undefined);
       return await run;
     },
+    delete: () => ({
+      where: async () => {
+        rows.length = 0;
+      },
+    }),
   };
   return db;
 }

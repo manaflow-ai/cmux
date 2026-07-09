@@ -41,8 +41,12 @@ type StripeSubscriptionRow = {
   readonly status: string;
 };
 type StripeUpdateParams = {
+  readonly address?: string;
   readonly email?: string;
   readonly metadata?: Record<string, string>;
+  readonly name?: string;
+  readonly phone?: string;
+  readonly shipping?: string;
 };
 
 const calls: string[] = [];
@@ -764,6 +768,20 @@ describe("account deletion cleanup", () => {
   });
 
   test("clears owned team Stripe identifiers during local cleanup", async () => {
+    stripeCustomerRows = [
+      { id: "cus_owned_team", stackUserId: "user-1", stackTeamId: "team-owned-1" },
+    ];
+    stripeSubscriptionRows = [
+      {
+        id: "sub_owned_team",
+        stackUserId: "user-1",
+        stackTeamId: "team-owned-1",
+        status: "active",
+        scope: "team",
+        plan: TEAM_PLAN_ID,
+      },
+    ];
+
     await deleteCmuxAccountData({
       userId: "user-1",
       ownedTeamIds: ["team-owned-1"],
@@ -775,6 +793,14 @@ describe("account deletion cleanup", () => {
     expect(customerUpdate?.values.stackTeamId).toMatch(/^deleted_team_[0-9a-f]{24}$/);
     expect(customerUpdate?.values.stackTeamId).not.toBe("team-owned-1");
     expect(subscriptionUpdate?.values.stackTeamId).toBe(customerUpdate?.values.stackTeamId);
+    const remoteCustomerUpdate = stripeCustomerUpdates.find((entry) => entry.id === "cus_owned_team");
+    expect(remoteCustomerUpdate?.params).toEqual(expect.objectContaining({
+      address: "",
+      email: `deleted+${accountDeletionUserHash("user-1").slice(0, 24)}@cmux.com`,
+      name: "Deleted cmux account",
+      phone: "",
+      shipping: "",
+    }));
   });
 
   test("reassigns retained shared-team Stripe billing without canceling it", async () => {
