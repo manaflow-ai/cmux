@@ -33,9 +33,7 @@ enum AgentHibernationTranscriptGuard {
         backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
         fileManager: FileManager = .default
     ) async {
-        defer { try? fileManager.removeItem(atPath: snapshot.snapshotPath) }
         if !processIDs.isEmpty {
-            // Bound the wait for signaled processes to disappear before checking.
             let deadline = ContinuousClock.now.advanced(by: .seconds(30))
             while ContinuousClock.now < deadline {
                 let anyAlive = processIDs.contains { pid in

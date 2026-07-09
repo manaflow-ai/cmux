@@ -131,7 +131,7 @@ extension AgentHibernationController {
                 guard AgentHibernationController.shared.postSnapshotValidationIndexRequestID == requestID else { return }
                 AgentHibernationController.shared.postSnapshotValidationIndexAcceptingRequests = false
             }
-            await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            return await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
         }
         postSnapshotValidationIndexTask = task
         Task { @MainActor in

@@ -110,6 +110,34 @@ struct AgentHibernationTranscriptGuardScanTests {
         await task.value
 
         #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
+        #expect(FileManager.default.fileExists(atPath: snapshot.path))
+    }
+
+    @Test
+    func cancelledPostTeardownRestoreChecksRetainSnapshotBackup() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"before"}}"# + "\n"
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+
+        let task = Task {
+            await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+                snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+                processIDs: [],
+                initialRetryDelaysNanoseconds: [0, 5_000_000_000],
+                backstopDelaysSeconds: []
+            )
+        }
+
+        try await waitUntilRestored(live: live, snapshotContent: snapshotContent)
+        task.cancel()
+        await task.value
+
+        #expect(FileManager.default.fileExists(atPath: snapshot.path))
     }
 
     private func waitUntilRestored(live: URL, snapshotContent: String) async throws {
