@@ -1008,11 +1008,7 @@ enum BrowserExternalNavigationAction: Equatable {
 enum BrowserExternalNavigationHandlingResult: Equatable {
     case notHandled
     case browserFallback
-    case externalNavigation
-
-    var isTerminalPolicyCancellation: Bool {
-        self == .externalNavigation
-    }
+    case externalPrompt
 }
 
 func browserShouldRouteExternalNavigation(_ url: URL) -> Bool {
@@ -1188,7 +1184,8 @@ func browserHandleExternalNavigation(
     source: String,
     webView: WKWebView,
     loadFallbackRequest: (URLRequest) -> Void,
-    presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert
+    presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
+    onTerminalExternalNavigation: @escaping () -> Void = {}
 ) -> BrowserExternalNavigationHandlingResult {
     guard let action = browserExternalNavigationAction(for: url) else { return .notHandled }
 
@@ -1218,16 +1215,17 @@ func browserHandleExternalNavigation(
 #endif
                     return
                 }
-                browserOpenExternalNavigationURL(
+                let opened = browserOpenExternalNavigationURL(
                     externalURL,
                     source: source,
                     webView: webView,
                     presentAlert: presentAlert
                 )
+                if opened { onTerminalExternalNavigation() }
             },
             presentAlert: presentAlert
         )
-        return .externalNavigation
+        return .externalPrompt
     }
 }
 

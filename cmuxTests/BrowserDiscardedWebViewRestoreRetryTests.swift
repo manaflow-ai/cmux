@@ -346,18 +346,20 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         panel.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
 
         var fallbackRequest: URLRequest?
+        var terminalCancellationCount = 0
         let handlingResult = browserHandleExternalNavigation(
             intentURL,
             source: "test",
             webView: panel.webView,
             loadFallbackRequest: { fallbackRequest = $0 },
-            presentAlert: { _, _, _, cancel in cancel() }
+            presentAlert: { _, _, _, cancel in cancel() },
+            onTerminalExternalNavigation: { terminalCancellationCount += 1 }
         )
         #expect(handlingResult == .browserFallback)
-        #expect(!handlingResult.isTerminalPolicyCancellation)
+        #expect(terminalCancellationCount == 0)
         #expect(fallbackRequest?.url == fallbackURL)
 
-        if handlingResult.isTerminalPolicyCancellation {
+        if terminalCancellationCount > 0 {
             panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal)
         }
         panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)

@@ -212,6 +212,29 @@ private final class BrowserDiscardRestorePolicyCancelAlert: NSAlert {
 
 @MainActor
 struct BrowserDiscardRestorePolicyCancelTests {
+    @Test func cancelledExternalAppPromptDoesNotReportTerminalRestore() throws {
+        let url = try #require(URL(string: "cmux-issue-7504-external://open"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        var terminalCancellationCount = 0
+        let result = browserHandleExternalNavigation(
+            url,
+            source: "test",
+            webView: panel.webView,
+            loadFallbackRequest: { _ in Issue.record("custom scheme should not use a browser fallback") },
+            presentAlert: { _, _, completion, _ in completion(.alertSecondButtonReturn) },
+            onTerminalExternalNavigation: { terminalCancellationCount += 1 }
+        )
+
+        #expect(result == .externalPrompt)
+        #expect(terminalCancellationCount == 0)
+    }
+
     @Test func staleRestoreCancelDoesNotClearCurrentAttemptedRequest() throws {
         let staleURL = try #require(URL(string: "https://example.com/cmux-issue-7504-stale"))
         let currentURL = try #require(URL(string: "https://example.com/cmux-issue-7504-current"))
