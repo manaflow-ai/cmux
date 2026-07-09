@@ -31,7 +31,9 @@ import {
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  isVmCreateDisabledError,
 } from "../services/vms/errors";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 import {
   createVm,
   destroyVm,
@@ -1755,6 +1757,72 @@ describe("VM Effect workflows", () => {
     expect(vmCount).toBe("2");
     expect(usageCount).toBe("2");
     expect(imageVersion).toBe("test-version");
+  });
+
+  dbTest("does not open or reset Base while account deletion blocks VM creation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`
+      truncate account_deletion_tombstones, cloud_vm_base_events, cloud_vm_base_generations,
+        cloud_vm_bases, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases,
+        cloud_vms restart identity cascade
+    `;
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash("user-base-deleting")}, 'user-base-deleting', 'completed')
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-base-deleting",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+    const input = {
+      userId: "user-base-deleting",
+      billingCustomerType: "user" as const,
+      billingTeamId: "user-base-deleting",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "e2b" as const,
+      image: "cmuxd-ws:test",
+      baseName: "default",
+    };
+
+    for (const workflow of [
+      openBaseVm(input),
+      resetBaseVm({ ...input, reason: "try during deletion" }),
+    ]) {
+      try {
+        await Effect.runPromise(workflow.pipe(Effect.provide(layer)));
+        throw new Error("expected Base VM creation to be blocked");
+      } catch (error) {
+        expect(isVmCreateDisabledError(error)).toBe(true);
+        if (isVmCreateDisabledError(error)) {
+          expect(error.reason).toBe("Account deletion is in progress.");
+        }
+      }
+    }
+
+    expect(createCalls).toBe(0);
+    const [{ vmCount }] = await sql<{ vmCount: string }[]>`
+      select count(*)::text as "vmCount" from cloud_vms
+      where user_id = 'user-base-deleting'
+    `;
+    expect(vmCount).toBe("0");
   });
 
   dbTest("opens Base as one stable VM per account scope", async () => {
