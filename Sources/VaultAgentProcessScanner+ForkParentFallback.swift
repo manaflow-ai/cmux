@@ -1,11 +1,5 @@
 import Foundation
 import CMUXAgentLaunch
-extension CmuxVaultAgentRegistration {
-    func processArgumentsCarryForkParentFlag(_ arguments: [String]) -> Bool {
-        forkCommand?.split(whereSeparator: \.isWhitespace).contains("--fork") == true && arguments.contains("--fork")
-    }
-}
-
 extension RestorableAgentSessionIndex {
     /// Fallback identity only: the caller merges these with `{ existing, _ in existing }`
     /// so a fork process never displaces an explicit same-pane detection
@@ -73,6 +67,14 @@ extension RestorableAgentSessionIndex {
         launcher: String,
         launchCommand: (executablePath: String, arguments: [String])
     )? {
+        if let wrapperFallback = forkParentFallbackWrapperLaunch(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment
+        ) {
+            return wrapperFallback
+        }
         if processLooksLikeClaude(
             processName: processName,
             processPath: processPath,
@@ -80,13 +82,17 @@ extension RestorableAgentSessionIndex {
             environment: environment
         ),
            let parentSessionId = arguments.claudeForkFallbackParentSessionId,
-           let launchCommand = claudeForkFallbackLaunchCommand(
+           let launchCommand = claudeTeamsPersistentForkLaunchCommand(
+                liveArguments: arguments,
+                environment: environment
+           ) ?? claudeForkFallbackLaunchCommand(
                 processName: processName,
                 processPath: processPath,
                 arguments: arguments,
                 environment: environment
            ) {
-            return (.claude, parentSessionId, "claude", launchCommand)
+            let launcher = environmentLaunchKind(environment) == "claudeteams" ? "claudeTeams" : "claude"
+            return (.claude, parentSessionId, launcher, launchCommand)
         }
         if processLooksLikeCodex(
             processName: processName,
@@ -134,23 +140,12 @@ extension RestorableAgentSessionIndex {
             return true
         }
 
-        // `CMUX_AGENT_LAUNCH_KIND` is cmux's own launch token, but descendants of a
-        // claude launch inherit it, so ambient environment alone is not process
-        // identity. Trust it only when this process runs the executable the launcher
-        // recorded (covers custom claude binaries whose basename is not "claude"),
-        // never for a child that merely inherited the launch environment.
-        guard normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?.compare(
-            "claude",
-            options: [.caseInsensitive, .literal]
-        ) == .orderedSame,
-              let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
-            return false
-        }
-        let launchBasename = executableBasename(launchExecutable)
         let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
-        return launchCandidates.contains { candidate in
-            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
-        }
+        return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
+            kind: .claude,
+            executableCandidates: launchCandidates,
+            environment: environment
+        )
     }
 
     private static func claudeForkFallbackLaunchCommand(
@@ -272,15 +267,12 @@ extension RestorableAgentSessionIndex {
         }) {
             return true
         }
-        guard normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?.compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame,
-              let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
-            return false
-        }
-        let launchBasename = executableBasename(launchExecutable)
         let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
-        return launchCandidates.contains { candidate in
-            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
-        }
+        return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
+            kind: .codex,
+            executableCandidates: launchCandidates,
+            environment: environment
+        )
     }
 
     private static func codexForkFallbackLaunchCommand(
@@ -390,6 +382,12 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         return trimmed
+    }
+
+    static func environmentLaunchKind(_ environment: [String: String]) -> String? {
+        normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
     }
 
     /// A pane's own hook record overrides the fork-parent fallback only when it was
