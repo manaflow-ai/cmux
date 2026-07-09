@@ -27,6 +27,12 @@ extension AgentHibernationController {
             let snapshotOutcome = await Task.detached(priority: .utility) {
                 AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
             }.value
+            var restoreTaskOwnsSnapshot = false
+            defer {
+                guard !restoreTaskOwnsSnapshot,
+                      case .snapshot(let snapshot) = snapshotOutcome else { return }
+                try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
+            }
             let postSnapshotIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             let currentAgent = record.workspace.restorableAgentForHibernation(
                 panelId: record.key.panelId,
@@ -84,6 +90,7 @@ extension AgentHibernationController {
                 lastActivityAt: Date(timeIntervalSince1970: effectiveLastActivityAt)
             )
             guard let snapshot else { return }
+            restoreTaskOwnsSnapshot = true
             let processIDs = record.processIDs
             let restoreKey = record.key
             let restoreRequestID = UUID()
