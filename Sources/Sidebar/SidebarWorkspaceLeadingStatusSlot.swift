@@ -1,16 +1,6 @@
 import SwiftUI
 import AppKit
 
-enum SidebarTitleFirstLineCenterAlignment: AlignmentID {
-    static func defaultValue(in context: ViewDimensions) -> CGFloat {
-        context[VerticalAlignment.center]
-    }
-}
-
-extension VerticalAlignment {
-    static let sidebarTitleFirstLineCenter = VerticalAlignment(SidebarTitleFirstLineCenterAlignment.self)
-}
-
 struct SidebarWorkspaceLeadingStatusSlot: View {
     let showsBadge: Bool
     let showsSpinner: Bool
