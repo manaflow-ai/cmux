@@ -8,6 +8,7 @@ import {
 } from "./entitlements";
 import {
   isVmBillingError,
+  isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
   vmWorkflowErrorCause,
@@ -256,6 +257,18 @@ export function vmRequiresProResponse(): Response {
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  if (isVmCreateDisabledError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_create_disabled",
+      status: 503,
+      message: "Cloud VM creation is disabled for this environment.",
+      action: "Ask an admin to enable Cloud VM creation, then retry.",
+      reason: workflowError.reason,
+      phase: "create",
+      retryable: true,
+    });
+  }
+
   if (isVmProviderOperationError(workflowError)) {
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);

@@ -477,6 +477,7 @@ describe("VM Effect workflows", () => {
 
   test("revokes account-deletion SSH identities in bounded batches", async () => {
     const requestedLimits: number[] = [];
+    const refreshedAfterBatch: number[] = [];
     const leaseBatches = [
       [
         testIdentityLease("lease-account-delete-1", "identity-account-delete-1"),
@@ -506,7 +507,13 @@ describe("VM Effect workflows", () => {
     };
 
     const revokedCount = await Effect.runPromise(
-      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete", { limit: 2 }).pipe(
+      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete", {
+        limit: 2,
+        afterBatch: () =>
+          Effect.sync(() => {
+            refreshedAfterBatch.push(revokedLeaseBatches.length);
+          }),
+      }).pipe(
         Effect.provide(workflowLayer(repo, provider)),
       ),
     );
@@ -522,6 +529,7 @@ describe("VM Effect workflows", () => {
       ["lease-account-delete-1", "lease-account-delete-2"],
       ["lease-account-delete-3"],
     ]);
+    expect(refreshedAfterBatch).toEqual([1, 2]);
   });
 
   test("keeps account-deletion SSH identity cleanup retryable when provider revocation fails", async () => {

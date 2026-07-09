@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
@@ -47,7 +48,10 @@ import {
   isBlockingAccountDeletionStatus,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
-import { isVmAccountDeletionIdentityRevocationError } from "../../../services/vms/errors";
+import {
+  VmAccountDeletionIdentityRevocationError,
+  isVmAccountDeletionIdentityRevocationError,
+} from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
@@ -153,7 +157,15 @@ export async function DELETE(request: Request): Promise<Response> {
     }, accountScope.teamIds);
     await refreshAccountDeletionTombstoneLease(userId);
     try {
-      const revokedIdentityLeases = await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(userId));
+      const revokedIdentityLeases = await runVmWorkflow(
+        revokeUserIdentityLeasesForAccountDeletion(userId, {
+          afterBatch: () =>
+            Effect.tryPromise({
+              try: () => refreshAccountDeletionTombstoneLease(userId),
+              catch: (cause) => new VmAccountDeletionIdentityRevocationError({ cause }),
+            }),
+        }),
+      );
       if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
     } catch (error) {
       if (isVmAccountDeletionIdentityRevocationError(error)) destructiveCleanupStarted = true;

@@ -123,10 +123,15 @@ const listUserVms = mock((...args: unknown[]) => {
   return { kind: "listUserVms" as const, userId, billingTeamId };
 });
 const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => {
-  const [userId] = args as [string];
+  const [userId, input] = args as [
+    string,
+    { readonly afterBatch?: () => unknown } | undefined,
+  ];
+  lastRevokeIdentityCall = { userId, afterBatch: input?.afterBatch };
   return {
     kind: "revokeUserIdentityLeasesForAccountDeletion" as const,
     userId,
+    afterBatch: input?.afterBatch,
   };
 });
 const destroyVm = mock((...args: unknown[]) => {
@@ -238,12 +243,17 @@ let subrouterRevokeError: unknown = null;
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: readonly unknown[] = [];
 let useAccountRouteStubs = false;
+let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unknown } | null = null;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
 type WorkflowProgram =
   | { readonly kind: "listUserVms"; readonly userId: string; readonly billingTeamId?: string | null }
-  | { readonly kind: "revokeUserIdentityLeasesForAccountDeletion"; readonly userId: string }
+  | {
+      readonly kind: "revokeUserIdentityLeasesForAccountDeletion";
+      readonly userId: string;
+      readonly afterBatch?: () => unknown;
+    }
   | {
       readonly kind: "destroyVm";
       readonly input: {
@@ -476,6 +486,7 @@ beforeEach(() => {
   listedPersonalVmIds = ["personal-vm-1", "personal-vm-2"];
   listedPersonalVmIdsByBillingTeam = {};
   revokeIdentityLeasesError = null;
+  lastRevokeIdentityCall = null;
   subrouterClientCreateError = null;
   subrouterRevokeError = null;
   stackUserSelectedTeam = null;
@@ -823,7 +834,7 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
-    expect(revokeUserIdentityLeasesForAccountDeletion).toHaveBeenCalledWith("account-user-1");
+    expectIdentityRevocationHeartbeatConfigured();
     expect(routeEvents.indexOf("revoke-identities")).toBeGreaterThan(-1);
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.lastIndexOf("transaction"));
     expect(deletedTables).toContain(cloudVmLeases);
@@ -866,7 +877,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 0,
     });
-    expect(revokeUserIdentityLeasesForAccountDeletion).toHaveBeenCalledWith("account-user-1");
+    expectIdentityRevocationHeartbeatConfigured();
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
@@ -886,7 +897,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(revokeUserIdentityLeasesForAccountDeletion).toHaveBeenCalledWith("account-user-1");
+    expectIdentityRevocationHeartbeatConfigured();
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(deletedTables).not.toContain(cloudVmLeases);
@@ -1507,4 +1518,9 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
   }
   if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
   return false;
+}
+
+function expectIdentityRevocationHeartbeatConfigured(): void {
+  expect(lastRevokeIdentityCall?.userId).toBe(ACCOUNT_USER_ID);
+  expect(typeof lastRevokeIdentityCall?.afterBatch).toBe("function");
 }

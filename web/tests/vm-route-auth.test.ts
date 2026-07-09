@@ -138,6 +138,7 @@ const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const {
   VmCreateCreditsInsufficientError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
@@ -1251,6 +1252,35 @@ describe("VM REST auth", () => {
     expect(payload.message).toContain("disabled");
     expect(payload.action).toContain("enable Cloud VM creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("maps workflow VM create kill switch without an internal error", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateDisabledError({
+        provider: "freestyle",
+        reason: "Account deletion is in progress.",
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_create_disabled",
+      reason: "Account deletion is in progress.",
+      phase: "create",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(runVmWorkflow).toHaveBeenCalled();
   });
 
   test("blocks provider kill switch before workflow", async () => {

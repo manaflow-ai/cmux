@@ -1316,7 +1316,10 @@ export function revokeExpiredIdentityLeases(input: {
 
 export function revokeUserIdentityLeasesForAccountDeletion(
   userId: string,
-  input: { readonly limit?: number } = {},
+  input: {
+    readonly limit?: number;
+    readonly afterBatch?: () => Effect.Effect<void, VmWorkflowError>;
+  } = {},
 ) {
   const limit = boundedAccountDeletionIdentityRevokeLimit(input.limit);
   return Effect.gen(function* () {
@@ -1346,6 +1349,7 @@ export function revokeUserIdentityLeasesForAccountDeletion(
 
       yield* markAccountDeletionLeasesRevoked(repo, revokedIds);
       revokedCount += revokedIds.length;
+      if (input.afterBatch) yield* input.afterBatch();
       if (leases.length < limit) return revokedCount;
     }
   });
