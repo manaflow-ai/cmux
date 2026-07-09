@@ -144,10 +144,8 @@ impl MouseButton {
             MouseButton::Middle => sys::GHOSTTY_MOUSE_BUTTON_MIDDLE,
             MouseButton::WheelUp => sys::GHOSTTY_MOUSE_BUTTON_FOUR,
             MouseButton::WheelDown => sys::GHOSTTY_MOUSE_BUTTON_FIVE,
-            // Ghostty normalizes a positive horizontal wheel delta (right)
-            // as button six and a negative delta (left) as button seven.
-            MouseButton::WheelLeft => sys::GHOSTTY_MOUSE_BUTTON_SEVEN,
-            MouseButton::WheelRight => sys::GHOSTTY_MOUSE_BUTTON_SIX,
+            MouseButton::WheelLeft => sys::GHOSTTY_MOUSE_BUTTON_SIX,
+            MouseButton::WheelRight => sys::GHOSTTY_MOUSE_BUTTON_SEVEN,
         }
     }
 }

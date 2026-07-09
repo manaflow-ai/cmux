@@ -1847,12 +1847,7 @@ impl App {
             return;
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            let _ = self.write_pty_bytes(
-                surface_id,
-                surface,
-                self.encode_buf.clone(),
-                PtyInputKind::Ordered,
-            );
+            let _ = self.write_encoded_pty_bytes(surface_id, surface, PtyInputKind::Ordered);
         }
     }
 
@@ -1869,12 +1864,7 @@ impl App {
             return;
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            let _ = self.write_pty_bytes(
-                surface_id,
-                surface,
-                self.encode_buf.clone(),
-                PtyInputKind::Ordered,
-            );
+            let _ = self.write_encoded_pty_bytes(surface_id, surface, PtyInputKind::Ordered);
         }
     }
 
@@ -2433,7 +2423,23 @@ impl App {
             MouseAction::Release => PtyInputKind::Release,
             MouseAction::Motion => PtyInputKind::Motion,
         };
-        self.write_pty_bytes(surface_id, surface, self.encode_buf.clone(), kind)
+        self.write_encoded_pty_bytes(surface_id, surface, kind)
+    }
+
+    fn write_encoded_pty_bytes(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        kind: PtyInputKind,
+    ) -> bool {
+        if matches!(&surface, SurfaceHandle::Remote(_, _)) {
+            // The worker outlives this event-loop turn and must own the
+            // encoded bytes. Local writes can borrow the reusable buffer.
+            self.write_pty_bytes(surface_id, surface, self.encode_buf.clone(), kind)
+        } else {
+            surface.write_bytes(&self.encode_buf);
+            true
+        }
     }
 
     fn write_pty_bytes(
