@@ -114,9 +114,9 @@ struct NewWorkspaceMenuModel: Equatable {
         if !templateNames.isEmpty {
             sections.append(.templates(templateNames))
         }
-        if !sections.isEmpty || !management.deletableActions.isEmpty || management.defaultLayout.hasDefault || !management.defaultLayout.entries.isEmpty {
-            sections.append(.management(management))
-        }
+        // Always present: the Save affordance must survive an otherwise-empty
+        // menu (no create/cloud/layout/template rows), matching the pre-model menu.
+        sections.append(.management(management))
 
         return NewWorkspaceMenuModel(sections: sections)
     }
