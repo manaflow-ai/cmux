@@ -36,12 +36,12 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     ) {
         guard let root = lineDecoder.decode(line)?.object else {
             accumulator.countUnknown("malformed")
-            accumulator.emit(kind: .unknown("malformed"), summary: "Malformed transcript line", raw: line, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: unknownPayload(rawKind: "malformed", summary: "Malformed transcript line", raw: line), journalID: journalID, lineIndex: lineIndex)
             return
         }
         guard let type = root["type"]?.string else {
             accumulator.countUnknown("missing_type")
-            accumulator.emit(kind: .unknown("missing_type"), summary: "Missing Codex record type", raw: line, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: unknownPayload(rawKind: "missing_type", summary: "Missing Codex record type", raw: line), journalID: journalID, lineIndex: lineIndex)
             return
         }
         switch type {
@@ -53,12 +53,12 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             decodeEventMessage(root["payload"]?.object ?? root, raw: line, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "compacted":
             sawCompactedRecord = true
-            accumulator.emit(kind: .status, summary: "Context compacted", raw: line, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: .status(StatusPayload(code: .compacted, detail: "Context compacted")), journalID: journalID, lineIndex: lineIndex)
         case "turn_context":
             decodeTurnContext(root["payload"]?.object ?? root, lineIndex: lineIndex, accumulator: &accumulator)
         default:
             accumulator.countUnknown(type)
-            accumulator.emit(kind: .unknown(type), summary: "Unknown Codex record: \(type)", raw: line, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: unknownPayload(rawKind: type, summary: "Unknown Codex record: \(type)", raw: line), journalID: journalID, lineIndex: lineIndex)
         }
     }
 
@@ -74,7 +74,7 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         if version != "unknown" {
             accumulator.recordCLIVersion(version)
         }
-        accumulator.emit(kind: .status, summary: "Codex session \(version)", raw: raw, journalID: journalID, lineIndex: lineIndex)
+        accumulator.emit(payload: .status(StatusPayload(code: .sessionMeta, detail: "Codex session \(version)")), journalID: journalID, lineIndex: lineIndex)
     }
 
     private mutating func decodeEventMessage(
@@ -89,7 +89,7 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         case "turn_aborted":
             accumulator.recordPhaseFact(.turnAborted(line: lineIndex))
             accumulator.countModeled("event_msg.\(eventType)")
-            accumulator.emit(kind: .status, summary: "Turn aborted", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: .status(StatusPayload(code: .turnAborted, detail: "Turn aborted")), journalID: journalID, lineIndex: lineIndex)
         case "task_started":
             accumulator.recordPhaseFact(.taskStarted(line: lineIndex))
             accumulator.countModeled("event_msg.\(eventType)")
@@ -102,7 +102,7 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             // describe the same compaction, so a later event duplicate is kept
             // diagnostic-only.
             if !sawCompactedRecord {
-                accumulator.emit(kind: .status, summary: "Context compacted", raw: raw, journalID: journalID, lineIndex: lineIndex)
+                accumulator.emit(payload: .status(StatusPayload(code: .compacted, detail: "Context compacted")), journalID: journalID, lineIndex: lineIndex)
             }
         case "user_message", "agent_message":
             accumulator.countDuplicateStream("event_msg.\(eventType)")
@@ -143,14 +143,14 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     ) {
         guard let itemType = payload["type"]?.string else {
             accumulator.countUnknown("missing_response_item_type")
-            accumulator.emit(kind: .unknown("missing_response_item_type"), summary: "Missing Codex response item type", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: unknownPayload(rawKind: "missing_response_item_type", summary: "Missing Codex response item type", raw: raw), journalID: journalID, lineIndex: lineIndex)
             return
         }
         switch itemType {
         case "message":
             decodeMessage(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "reasoning":
-            accumulator.emit(kind: .thought, summary: payload["summary"]?.textFragments().joined(separator: "\n") ?? payload["content"]?.textFragments().joined(separator: "\n") ?? "", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: .thought(ThoughtPayload(text: payload["summary"]?.textFragments().joined(separator: "\n") ?? payload["content"]?.textFragments().joined(separator: "\n") ?? "")), journalID: journalID, lineIndex: lineIndex)
         case "function_call":
             decodeFunctionCall(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "function_call_output":
@@ -161,7 +161,7 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             decodeFunctionOutput(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         default:
             accumulator.countUnknown(itemType)
-            accumulator.emit(kind: .unknown(itemType), summary: "Unknown Codex response item: \(itemType)", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: unknownPayload(rawKind: itemType, summary: "Unknown Codex response item: \(itemType)", raw: raw), journalID: journalID, lineIndex: lineIndex)
         }
     }
 
@@ -174,7 +174,12 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     ) {
         let role = payload["role"]?.string ?? "assistant"
         let text = payload["content"]?.textFragments().joined(separator: "\n") ?? ""
-        accumulator.emit(kind: role == "user" ? .userMessage : .agentProse, summary: text, raw: raw, journalID: journalID, lineIndex: lineIndex)
+        let entryPayload: EntryPayload = if role == "user" {
+            .userMessage(UserMessagePayload(text: text, attachmentCount: attachmentCount(in: payload["content"]), hasImage: hasImage(in: payload["content"])))
+        } else {
+            .agentProse(AgentProsePayload(markdown: text))
+        }
+        accumulator.emit(payload: entryPayload, journalID: journalID, lineIndex: lineIndex)
     }
 
     private mutating func decodeFunctionCall(
@@ -186,12 +191,22 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     ) {
         let itemType = payload["type"]?.string
         let name = payload["name"]?.string ?? toolName(for: itemType) ?? payload["call_id"]?.string ?? "call"
-        let summary = "Call \(name) \(summarizeArguments(payload["arguments"] ?? payload["input"]))"
-        let kind: EntryKind = name == "apply_patch" ? .fileChange : .toolRun
-        if let callID = payload["call_id"]?.string {
-            pendingCalls[callID] = PendingToolUse(kind: kind, summary: summary, raw: raw)
+        let argumentValue = payload["arguments"] ?? payload["input"] ?? payload["action"]
+        let argumentSummary = summarizeArguments(argumentValue)
+        let entryPayload: EntryPayload = if name == "apply_patch" {
+            .fileChange(FileChangePayload(path: filePath(in: argumentValue) ?? "", changeKind: .patch))
+        } else {
+            .toolRun(ToolRunPayload(
+                toolName: name,
+                argumentSummary: argumentSummary,
+                isTerminal: isTerminalTool(name: name, arguments: argumentValue),
+                isRunning: true
+            ))
         }
-        accumulator.emit(kind: kind, summary: summary, raw: raw, journalID: journalID, lineIndex: lineIndex)
+        if let callID = payload["call_id"]?.string {
+            pendingCalls[callID] = PendingToolUse(payload: entryPayload, raw: raw)
+        }
+        accumulator.emit(payload: entryPayload, journalID: journalID, lineIndex: lineIndex)
     }
 
     private mutating func decodeFunctionOutput(
@@ -204,11 +219,11 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         let outputType = payload["type"]?.string ?? "function_call_output"
         guard let callID = payload["call_id"]?.string, let pending = pendingCalls.removeValue(forKey: callID) else {
             accumulator.countUnknown(outputType)
-            accumulator.emit(kind: .unknown(outputType), summary: "Unpaired Codex \(outputType)", raw: raw, journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(payload: unknownPayload(rawKind: outputType, summary: "Unpaired Codex \(outputType)", raw: raw), journalID: journalID, lineIndex: lineIndex)
             return
         }
         let output = payload["output"]?.textFragments().joined(separator: "\n") ?? ""
-        accumulator.emit(kind: pending.kind, summary: "\(pending.summary) output \(output)", raw: raw, journalID: journalID, lineIndex: lineIndex)
+        accumulator.emit(payload: payloadByAddingResult(pending.payload, resultSummary: output, exitCode: exitCode(in: payload)), journalID: journalID, lineIndex: lineIndex)
     }
 
     private func toolName(for itemType: String?) -> String? {
@@ -240,6 +255,9 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             if let cmd = object["cmd"]?.string {
                 return cmd
             }
+            if let query = object["query"]?.string {
+                return query
+            }
         }
         return summarizeCommand(value)
     }
@@ -256,5 +274,81 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             return parts[2]
         }
         return parts.joined(separator: " ")
+    }
+
+    private func unknownPayload(rawKind: String, summary: String, raw: String) -> EntryPayload {
+        .unknown(UnknownPayload(rawKind: rawKind, summary: summary, rawJSON: raw))
+    }
+
+    private func attachmentCount(in value: JSONValue?) -> Int {
+        value?.array?.filter { item in
+            guard let type = item.object?["type"]?.string else {
+                return false
+            }
+            return type.contains("image") || type.contains("attachment")
+        }.count ?? 0
+    }
+
+    private func hasImage(in value: JSONValue?) -> Bool {
+        attachmentCount(in: value) > 0
+    }
+
+    private func isTerminalTool(name: String, arguments: JSONValue?) -> Bool {
+        let lowercased = name.lowercased()
+        if lowercased == "bash" || lowercased == "shell" || lowercased == "terminal" {
+            return true
+        }
+        guard let executable = parsedCommandArray(in: arguments)?.first?.string else {
+            return false
+        }
+        let executableName = executable.split(separator: "/").last?.lowercased() ?? executable.lowercased()
+        return executableName == "bash" || executableName == "sh" || executableName == "zsh" || executableName == "fish"
+    }
+
+    private func parsedCommandArray(in arguments: JSONValue?) -> [JSONValue]? {
+        let parsedArguments: JSONValue?
+        if let encodedArguments = arguments?.string {
+            parsedArguments = lineDecoder.decode(encodedArguments)
+        } else {
+            parsedArguments = arguments
+        }
+        return parsedArguments?.object?["command"]?.array ?? parsedArguments?.array
+    }
+
+    private func filePath(in value: JSONValue?) -> String? {
+        let object: [String: JSONValue]?
+        if let string = value?.string {
+            object = lineDecoder.decode(string)?.object
+        } else {
+            object = value?.object
+        }
+        return object?["file_path"]?.string
+            ?? object?["path"]?.string
+            ?? object?["target_file"]?.string
+    }
+
+    private func exitCode(in payload: [String: JSONValue]) -> Int? {
+        payload["exit_code"]?.int
+            ?? payload["exitCode"]?.int
+            ?? payload["status_code"]?.int
+            ?? payload["statusCode"]?.int
+    }
+
+    private func payloadByAddingResult(_ payload: EntryPayload, resultSummary: String, exitCode: Int?) -> EntryPayload {
+        switch payload {
+        case .toolRun(let tool):
+            .toolRun(ToolRunPayload(
+                toolName: tool.toolName,
+                argumentSummary: tool.argumentSummary,
+                resultSummary: resultSummary,
+                isTerminal: tool.isTerminal,
+                exitCode: exitCode,
+                isRunning: false
+            ))
+        case .fileChange(let file):
+            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: resultSummary))
+        default:
+            payload
+        }
     }
 }

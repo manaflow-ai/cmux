@@ -73,6 +73,17 @@ package enum JSONValue: Codable, Hashable, Sendable {
         return nil
     }
 
+    package var number: Double? {
+        if case .number(let value) = self {
+            return value
+        }
+        return nil
+    }
+
+    package var int: Int? {
+        number.flatMap { Int(exactly: $0.rounded()) }
+    }
+
     package func textFragments() -> [String] {
         switch self {
         case .string(let value):

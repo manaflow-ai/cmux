@@ -3,7 +3,6 @@ import Foundation
 
 struct TranscriptDecodeAccumulator {
     private(set) var entries: [EntrySnapshot]
-    private(set) var payloads: [EntryCoordinate: DecodedEntryPayload]
     private(set) var unknownKindCounts: [String: Int]
     private(set) var modeledKindCounts: [String: Int]
     private(set) var duplicateStreamCounts: [String: Int]
@@ -16,7 +15,6 @@ struct TranscriptDecodeAccumulator {
 
     init() {
         self.entries = []
-        self.payloads = [:]
         self.unknownKindCounts = [:]
         self.modeledKindCounts = [:]
         self.duplicateStreamCounts = [:]
@@ -29,26 +27,18 @@ struct TranscriptDecodeAccumulator {
     }
 
     mutating func emit(
-        kind: EntryKind,
-        summary: String,
-        raw: String?,
+        payload: EntryPayload,
         journalID: JournalID,
         lineIndex: Int
     ) {
-        let payload = DecodedEntryPayload(
-            contentHash: stableHash(kind.rawValue + "|" + summary + "|" + (raw ?? "")),
-            summary: summary,
-            raw: raw
-        )
         let seq = EntrySeq(rawValue: lineIndex)
         entries.append(EntrySnapshot(
             journalID: journalID,
             seq: seq,
-            kind: kind,
-            content: EntryContent(contentHash: payload.contentHash),
+            kind: payload.kind,
+            content: EntryContent(contentHash: payload.stableHash, payload: payload),
             version: EntityVersion(rawValue: 1)
         ))
-        payloads[EntryCoordinate(journalID: journalID, seq: seq)] = payload
     }
 
     mutating func countUnknown(_ rawKind: String) {
@@ -90,7 +80,6 @@ struct TranscriptDecodeAccumulator {
     func batch() -> TranscriptDecodeBatch {
         TranscriptDecodeBatch(
             entries: entries,
-            payloads: payloads,
             diagnostics: TranscriptDecoderDiagnostics(
                 unknownKindCounts: unknownKindCounts,
                 modeledKindCounts: modeledKindCounts,
@@ -103,14 +92,5 @@ struct TranscriptDecodeAccumulator {
                 sensitiveSessionTitles: sensitiveSessionTitles
             )
         )
-    }
-
-    private func stableHash(_ value: String) -> Int {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return Int(truncatingIfNeeded: hash)
     }
 }

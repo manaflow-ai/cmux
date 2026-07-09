@@ -51,7 +51,10 @@ struct ReplicaTestSupport {
             journalID: journalID,
             seq: seq(rawSeq),
             kind: .agentProse,
-            content: EntryContent(contentHash: hash ?? rawSeq),
+            content: EntryContent(
+                contentHash: hash ?? rawSeq,
+                payload: .agentProse(AgentProsePayload(markdown: "entry \(rawSeq)"))
+            ),
             version: version(rawVersion)
         )
     }
