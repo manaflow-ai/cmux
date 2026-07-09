@@ -38,4 +38,22 @@ final class AppHostWindowReleaseGuardTests: XCTestCase {
         XCTAssertFalse(panel.isReleasedWhenClosed)
         panel.close()
     }
+
+    func testClosedWindowSurvivesAutoreleasePoolDrain() {
+        weak var weakWindow: NSWindow?
+        autoreleasepool {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            weakWindow = window
+            window.close()
+            // Without the guard this is the exact over-release shape that
+            // killed the host: close() consumed ARC's +1, and the pool drain
+            // below released a deallocated window.
+        }
+        XCTAssertNil(weakWindow, "window should deallocate exactly once, with no lingering references")
+    }
 }
