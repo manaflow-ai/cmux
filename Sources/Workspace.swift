@@ -4637,7 +4637,7 @@ final class Workspace: Identifiable, ObservableObject {
               terminalPanel.isAgentHibernated else {
             return false
         }
-        AgentHibernationController.shared.cancelPostTeardownRestoreTask(workspaceId: id, panelId: panelId); let preparation = terminalPanel.prepareAgentHibernationResume()
+        let preparation = terminalPanel.prepareAgentHibernationResume()
         guard preparation.didResume else {
             return false
         }

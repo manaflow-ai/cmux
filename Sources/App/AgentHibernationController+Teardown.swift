@@ -29,9 +29,10 @@ extension AgentHibernationController {
             }.value
             var restoreTaskOwnsSnapshot = false
             defer {
-                guard !restoreTaskOwnsSnapshot,
-                      case .snapshot(let snapshot) = snapshotOutcome else { return }
-                try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
+                if !restoreTaskOwnsSnapshot,
+                   case .snapshot(let snapshot) = snapshotOutcome {
+                    try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
+                }
             }
             let postSnapshotIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             let currentAgent = record.workspace.restorableAgentForHibernation(

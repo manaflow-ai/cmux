@@ -140,6 +140,7 @@ final class AgentHibernationController {
         timer?.cancel()
         timer = nil
         AgentHibernationTrackingGate.setEnabled(false)
+        cancelPostTeardownRestoreTasks()
         clearTrackingState()
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
@@ -180,7 +181,6 @@ final class AgentHibernationController {
         bumpTeardownValidationEpoch(key)
         confirmations.removeValue(forKey: key)
         unableToProtectByPanel.removeValue(forKey: key)
-        cancelPostTeardownRestoreTask(key)
         return key
     }
 
@@ -192,7 +192,6 @@ final class AgentHibernationController {
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         confirmations.removeAll(keepingCapacity: false)
         unableToProtectByPanel.removeAll(keepingCapacity: false)
-        cancelPostTeardownRestoreTasks()
         updateTimerForCurrentSettings()
     }
 
@@ -467,7 +466,6 @@ final class AgentHibernationController {
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
         unableToProtectByPanel.removeAll(keepingCapacity: false)
-        cancelPostTeardownRestoreTasks()
         teardownInFlightByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
