@@ -7,7 +7,14 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         openWindowsFor extensionContext: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
-        [windowAdapter] + popouts
+        let openWindows: [any WKWebExtensionWindow] = [windowAdapter] + popouts
+        guard let focusedWindow = webExtensionController(controller, focusedWindowFor: extensionContext) else {
+            return openWindows
+        }
+        let focusedID = ObjectIdentifier(focusedWindow as AnyObject)
+        return [focusedWindow] + openWindows.filter {
+            ObjectIdentifier($0 as AnyObject) != focusedID
+        }
     }
 
     func webExtensionController(
