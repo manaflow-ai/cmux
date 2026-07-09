@@ -57,29 +57,31 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     public var body: some View {
-        if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
-            WorkspaceDetailCreateDelayedTerminalPreviewView()
-        } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
-            WorkspaceDetailDelayedTerminalPreviewView()
-        } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
-            WorkspaceDetailDelayedTerminalPreviewView()
-        } else {
-            NavigationStack {
-                WorkspaceListView(
-                    workspaces: workspaces,
-                    selectedWorkspaceID: selectedWorkspaceID,
-                    host: "Visual Mock Mac",
-                    connectionStatus: .connected,
-                    navigationStyle: .push,
-                    wrapWorkspaceTitles: false,
-                    previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
-                    unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                    profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                    profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                    selectWorkspace: { selectedWorkspaceID = $0 },
-                    createWorkspace: {},
-                    macSelection: $macSelection
-                )
+        Group {
+            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+                WorkspaceDetailCreateDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else {
+                NavigationStack {
+                    WorkspaceListView(
+                        workspaces: workspaces,
+                        selectedWorkspaceID: selectedWorkspaceID,
+                        host: "Visual Mock Mac",
+                        connectionStatus: .connected,
+                        navigationStyle: .push,
+                        wrapWorkspaceTitles: false,
+                        previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                        unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                        profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                        profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                        selectWorkspace: { selectedWorkspaceID = $0 },
+                        createWorkspace: {},
+                        macSelection: $macSelection
+                    )
+                }
             }
         }
         .task {
