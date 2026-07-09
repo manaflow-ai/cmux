@@ -667,34 +667,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func parseFileEditorSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let value = jsonBool(section["wordWrap"]) {
-            snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
-        } else if section.keys.contains("wordWrap") {
-            logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
-        }
-    }
-
-    private func parseFileExplorerSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let raw = jsonString(section["doubleClickAction"]) {
-            if let action = FileExplorerDoubleClickAction(rawValue: raw) {
-                snapshot.managedUserDefaults[FileExplorerDoubleClickActionSettings.key] = .string(action.rawValue)
-            } else {
-                logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("doubleClickAction") {
-            logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
-        }
-    }
-
     private func parseSidebarSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -714,6 +686,12 @@ final class CmuxSettingsFileStore {
             } else {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
+        }
+
+        if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
+            parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if section.keys.contains("beta") {
+            logInvalid("sidebar.beta", sourcePath: sourcePath)
         }
         parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
@@ -1791,7 +1769,7 @@ final class CmuxSettingsFileStore {
         rawValue as? String
     }
 
-    private func jsonBool(_ rawValue: Any?) -> Bool? {
+    func jsonBool(_ rawValue: Any?) -> Bool? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         return number.boolValue

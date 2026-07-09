@@ -4,6 +4,14 @@ import CmuxControlSocket
 import Foundation
 import GhosttyKit
 
+extension TerminalController {
+    /// Socket error text extracted because `TerminalController.swift` sits at
+    /// its file-length budget.
+    nonisolated static var terminalSurfaceUnavailableSocketError: String {
+        "ERROR: \(terminalSurfaceUnavailableMessage)"
+    }
+}
+
 /// The surface-domain witnesses are the byte-faithful bodies of the former
 /// `v2Surface*` / `v2DebugTerminals` dispatchers, minus the per-read `v2MainSync`
 /// hop: the coordinator already runs on the main actor inside the socket-command

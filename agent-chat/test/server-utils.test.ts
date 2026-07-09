@@ -16,9 +16,11 @@ import {
   recordFilesChangedForTest,
   recordTurnBaselineForTest,
   rebuildFileDiffAllowlistForTest,
+  renderPageForTest,
   resetAssetCachesForTest,
   resolveFileDiffPath,
   sendPromptForTest,
+  stripAuthPrefixForTest,
   themeCssVars,
   themeMtimesChangedForTest,
   themeMessageForTest,
@@ -28,10 +30,11 @@ import {
   turnBaselineCountForTest,
   turnBaselineKeysForTest,
   validateCmuxThemePayload,
+  writeStateFileForTest,
 } from "../server";
 import { applyManagedThemeOverrideForTest, pickAccentColor, resolveThemeNameForTest, type GhosttyTheme } from "../theme";
 import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -56,6 +59,21 @@ try {
 }
 
 const cwd = "/tmp/agent-chat-path-test";
+assert(stripAuthPrefixForTest("/secret/app.js", "secret") === "/app.js", "token-prefixed route should be accepted and stripped");
+assert(stripAuthPrefixForTest("/secret", "secret") === "/", "bare token route should map to app root");
+assert(stripAuthPrefixForTest("/wrong/app.js", "secret") === null, "wrong token route should be hidden");
+assert(stripAuthPrefixForTest("/app.js", "secret") === null, "untokened route should be hidden when token is configured");
+assert(stripAuthPrefixForTest("/healthz", "secret") === "/healthz", "healthz should remain tokenless");
+const tokenHtml = renderPageForTest("/gallery", "/secret");
+assert(tokenHtml.includes('<base href="/secret/">'), "tokened HTML should inject the token base path");
+assert(tokenHtml.includes('src="gallery.js"') && tokenHtml.includes('href="app.css"'), "tokened HTML should use relative asset URLs");
+assert(!tokenHtml.includes('src="/app.js"') && !tokenHtml.includes('href="/app.css"'), "tokened HTML should not use root-absolute asset URLs");
+const statePath = join(import.meta.dir, "..", "scratch", "agent-chat-state-test.json");
+await rm(statePath, { force: true });
+await writeStateFileForTest(statePath, 54321);
+const state = JSON.parse(await readFile(statePath, "utf8"));
+assert(state.port === 54321 && state.pid === process.pid && state.protocolVersion === 1, `state file should contain discovery JSON: ${JSON.stringify(state)}`);
+
 assert(resolveFileDiffPath(cwd, "src/../file.ts") === "file.ts", "normal in-cwd paths should normalize");
 for (const path of ["src/../../x", "../x", "..", "a\0b"]) {
   let rejected = false;
