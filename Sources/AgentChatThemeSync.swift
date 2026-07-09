@@ -226,9 +226,34 @@ enum AgentChatThemeSync {
                 )
             }
         } catch {
-            agentChatThemeSyncLogger.error(
-                "failed to sync theme: \(String(describing: error), privacy: .public)"
-            )
+            await handleThemePostFailure(error, url: url)
+        }
+    }
+
+    static func handleThemePostFailure(_ error: Error, url: URL) async {
+        agentChatThemeSyncLogger.error(
+            "failed to sync theme: \(String(describing: error), privacy: .public)"
+        )
+        guard shouldClearOwnedSessionAfterThemePostFailure(error) else { return }
+        await MainActor.run {
+            guard let session = AgentChatActionInFlightGate.ownedServerSession(),
+                  session.themeURL == url else { return }
+            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+        }
+    }
+
+    static func shouldClearOwnedSessionAfterThemePostFailure(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .timedOut:
+            return true
+        default:
+            return false
         }
     }
 }

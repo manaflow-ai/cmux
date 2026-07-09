@@ -261,6 +261,51 @@ struct CmuxAgentChatConfigTests {
         #expect(AgentChatOwnedServerSession.browserURL(port: 43123, token: "abc").absoluteString == "http://127.0.0.1:43123/abc/")
     }
 
+    @Test func agentChatStateFileStoreBuildsPerLaunchPaths() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-agent-chat-state-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let store = AgentChatSidecarStateFileStore(
+            directoryURL: root,
+            fileSystem: AgentChatSidecarFileSystem()
+        )
+
+        #expect(store.stateFileURL(launchId: "launch-a").lastPathComponent == "state-launch-a.json")
+        #expect(store.stateFileURL(launchId: "launch-b").lastPathComponent == "state-launch-b.json")
+    }
+
+    @Test func agentChatStateFileStoreSweepsPatternedStaleFiles() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-agent-chat-state-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let stale = root.appendingPathComponent("state-old.json")
+        let unrelated = root.appendingPathComponent("other.json")
+        try Data("old".utf8).write(to: stale)
+        try Data("keep".utf8).write(to: unrelated)
+        let oldDate = Date(timeIntervalSinceNow: -120)
+        try fileManager.setAttributes([.modificationDate: oldDate], ofItemAtPath: stale.path)
+        try fileManager.setAttributes([.modificationDate: oldDate], ofItemAtPath: unrelated.path)
+        let store = AgentChatSidecarStateFileStore(
+            directoryURL: root,
+            fileSystem: AgentChatSidecarFileSystem(fileManager: fileManager)
+        )
+
+        let prepared = try #require(await store.prepareStateFileURL(
+            launchId: "new",
+            launchDate: Date()
+        ))
+
+        #expect(prepared.lastPathComponent == "state-new.json")
+        #expect(fileManager.fileExists(atPath: prepared.path))
+        #expect(!fileManager.fileExists(atPath: stale.path))
+        #expect(fileManager.fileExists(atPath: unrelated.path))
+    }
+
     @Test func newAgentChatInFlightGateRejectsDuplicatesUntilCleared() {
         let firstBegin = AgentChatActionInFlightGate.begin()
         #expect(firstBegin)
@@ -343,6 +388,34 @@ struct CmuxAgentChatConfigTests {
         )
 
         #expect(AgentChatThemeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:9000/api/theme")
+    }
+
+    @MainActor
+    @Test func agentChatThemeConnectionFailureClearsMatchingOwnedSession() async {
+        let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
+        AgentChatActionInFlightGate.updateOwnedServerSession(session)
+        defer { AgentChatActionInFlightGate.clearOwnedServerSession() }
+
+        await AgentChatThemeSync.handleThemePostFailure(
+            URLError(.cannotConnectToHost),
+            url: session.themeURL
+        )
+
+        #expect(AgentChatActionInFlightGate.ownedServerSession() == nil)
+    }
+
+    @MainActor
+    @Test func agentChatThemeNonConnectionFailureKeepsOwnedSession() async {
+        let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
+        AgentChatActionInFlightGate.updateOwnedServerSession(session)
+        defer { AgentChatActionInFlightGate.clearOwnedServerSession() }
+
+        await AgentChatThemeSync.handleThemePostFailure(
+            URLError(.badURL),
+            url: session.themeURL
+        )
+
+        #expect(AgentChatActionInFlightGate.ownedServerSession() == session)
     }
 
     @Test func agentChatThemePayloadEncodesNullNullableFields() throws {

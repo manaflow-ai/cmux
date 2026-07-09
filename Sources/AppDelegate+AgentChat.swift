@@ -322,14 +322,17 @@ extension AppDelegate {
             await AgentChatActionInFlightGate.sidecarStateFileStore()?.removeStateFile()
         }
 
+        let launchId = UUID().uuidString
         guard let token = Self.generateAgentChatToken(),
-              let launchId = Self.generateAgentChatLaunchID(),
               let stateFileStore = AgentChatActionInFlightGate.sidecarStateFileStore() else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
         let launchDate = Date()
-        guard let stateFileURL = await stateFileStore.prepareStateFileURL(launchDate: launchDate) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        guard let stateFileURL = await stateFileStore.prepareStateFileURL(
+            launchId: launchId,
+            launchDate: launchDate
+        ) else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
         guard await authorizeAgentChatStartCommandIfNeeded(
@@ -338,7 +341,7 @@ extension AppDelegate {
             globalConfigPath: globalConfigPath,
             preferredWindow: preferredWindow
         ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
         guard Self.launchDetachedAgentChatStartCommand(
             startCommand,
@@ -350,7 +353,7 @@ extension AppDelegate {
                 "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
             ]
         ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
         guard let session = await stateFileStore.waitForSession(
@@ -358,7 +361,7 @@ extension AppDelegate {
             launchId: launchId,
             launchDate: launchDate
         ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
@@ -490,10 +493,6 @@ extension AppDelegate {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-    }
-
-    nonisolated private static func generateAgentChatLaunchID() -> String? {
-        UUID().uuidString
     }
 
 }

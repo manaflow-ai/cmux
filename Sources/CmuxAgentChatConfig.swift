@@ -226,7 +226,7 @@ final class AgentChatSidecarFileSystem: @unchecked Sendable {
 }
 
 struct AgentChatSidecarStateFileStore: Sendable {
-    var stateFileURL: URL
+    var directoryURL: URL
     var fileSystem: AgentChatSidecarFileSystem
 
     static func live() -> AgentChatSidecarStateFileStore? {
@@ -238,16 +238,19 @@ struct AgentChatSidecarStateFileStore: Sendable {
         }
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         return AgentChatSidecarStateFileStore(
-            stateFileURL: appSupport
+            directoryURL: appSupport
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("agent-chat", isDirectory: true)
-                .appendingPathComponent("state.json"),
+            .appendingPathComponent("agent-chat", isDirectory: true),
             fileSystem: AgentChatSidecarFileSystem()
         )
     }
 
-    func prepareStateFileURL(launchDate: Date) async -> URL? {
-        let stateFileURL = stateFileURL
+    func stateFileURL(launchId: String) -> URL {
+        directoryURL.appendingPathComponent("state-\(launchId).json")
+    }
+
+    func prepareStateFileURL(launchId: String, launchDate: Date) async -> URL? {
+        let stateFileURL = stateFileURL(launchId: launchId)
         let fileSystem = fileSystem
         return await Task.detached(priority: .utility) { () -> URL? in
             let directoryURL = stateFileURL.deletingLastPathComponent()
@@ -271,11 +274,21 @@ struct AgentChatSidecarStateFileStore: Sendable {
         }.value
     }
 
-    func removeStateFile() async {
-        let stateFileURL = stateFileURL
+    func removeStateFile(launchId: String? = nil) async {
+        let stateFileURL = launchId.map { stateFileURL(launchId: $0) }
+        let directoryURL = directoryURL
         let fileSystem = fileSystem
         await Task.detached(priority: .utility) {
-            try? fileSystem.fileManager.removeItem(at: stateFileURL)
+            if let stateFileURL {
+                try? fileSystem.fileManager.removeItem(at: stateFileURL)
+            } else if let files = try? fileSystem.fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil
+            ) {
+                for fileURL in files where Self.isStateFile(fileURL) {
+                    try? fileSystem.fileManager.removeItem(at: fileURL)
+                }
+            }
         }.value
     }
 
@@ -294,6 +307,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
                 if let data = try? Data(contentsOf: stateFileURL),
                    let stateFile = try? JSONDecoder().decode(AgentChatSidecarStateFile.self, from: data) {
                     if let session = stateFile.session(token: token, launchId: launchId) {
+                        try? fileManager.removeItem(at: stateFileURL)
                         return session
                     }
                     let values = try? stateFileURL.resourceValues(forKeys: [.contentModificationDateKey])
@@ -324,11 +338,16 @@ struct AgentChatSidecarStateFileStore: Sendable {
             options: [.skipsHiddenFiles]
         )
         for fileURL in stateFiles where fileURL != currentStateFileURL {
-            guard fileURL.pathExtension == "json" else { continue }
+            guard isStateFile(fileURL) else { continue }
             let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
             if (values?.contentModificationDate ?? .distantPast) < cutoff {
                 try? fileManager.removeItem(at: fileURL)
             }
         }
+    }
+
+    private static func isStateFile(_ fileURL: URL) -> Bool {
+        let name = fileURL.lastPathComponent
+        return name.hasPrefix("state-") && name.hasSuffix(".json")
     }
 }
