@@ -585,6 +585,38 @@ describe("recordCheckoutCompletion", () => {
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
+  test("records known subscription webhooks before skipping deleting account metadata", async () => {
+    const update = mock(async () => undefined);
+    const getUser = mock(async () => ({
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true, cmuxPlan: "pro" },
+      update,
+    }));
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).toHaveBeenCalledWith("user_123");
+    expect(update).not.toHaveBeenCalled();
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.status === "canceled" &&
+          entry.values.stackUserId === "user_123",
+      ),
+    ).toBe(true);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("skips user subscription webhooks for anonymized local customer rows", async () => {
     const getUser = mock(async () => {
       throw new Error("should not load Stack user for anonymized local customer");

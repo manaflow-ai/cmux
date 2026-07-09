@@ -206,16 +206,18 @@ export async function applySubscriptionUpdate(
     metadataStackUserId !== stackUserId
   ) return { skipped: true };
 
-  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user || isAccountDeletionInProgress(user)) return { skipped: true };
-
   if (hasUserSubscription) {
     await updateExistingUserStripeSubscription(db, {
       subscription,
       customerId,
       stackUserId,
     });
-  } else {
+  }
+
+  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  if (!user || isAccountDeletionInProgress(user)) return { skipped: true };
+
+  if (!hasUserSubscription) {
     await upsertStripeSubscription(db, {
       subscription,
       customerId,
