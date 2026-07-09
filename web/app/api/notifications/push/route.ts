@@ -102,20 +102,16 @@ async function sendPush(request: Request): Promise<Response> {
       }
 
       await recordPushSendInTransactionOrThrow(tx, user.id, tokens.length);
-      const results = await sendApnsNotification(config, tokens, payload.value);
-
-      const dead = results.filter((r) => r.prune).map((r) => r.deviceToken);
-      if (dead.length > 0) {
-        await tx
-          .delete(deviceTokens)
-          .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, dead)));
-      }
-
-      return { kind: "sent" as const, results };
+      return { kind: "ready" as const, config, tokens };
     });
 
     if (result.kind === "unconfigured") {
       return jsonResponse({ error: "push_service_not_configured" }, 503);
+    }
+    if (result.kind === "ready") {
+      const results = await sendApnsNotification(result.config, result.tokens, payload.value);
+      await pruneDeadDeviceTokens(db, user.id, results.filter((r) => r.prune).map((r) => r.deviceToken));
+      return jsonResponse(summarizeApnsSendResults(results));
     }
     return jsonResponse(summarizeApnsSendResults(result.results));
   } catch (error) {
@@ -125,6 +121,24 @@ async function sendPush(request: Request): Promise<Response> {
     if (error instanceof AccountDeletionMutationBlockedError) {
       return jsonResponse({ error: "account_deletion_in_progress" }, 409);
     }
+    throw error;
+  }
+}
+
+async function pruneDeadDeviceTokens(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  deadTokens: readonly string[],
+): Promise<void> {
+  if (deadTokens.length === 0) return;
+  try {
+    await withAccountDeletionUserMutationLock(db, userId, async (tx) => {
+      await tx
+        .delete(deviceTokens)
+        .where(and(eq(deviceTokens.userId, userId), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, deadTokens)));
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) return;
     throw error;
   }
 }

@@ -164,16 +164,16 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  test("sends APNs while holding the account deletion mutation lock", async () => {
+  test("sends APNs outside the account deletion transaction and rechecks before pruning", async () => {
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     cloudDbImpl = () => fakePushDb();
     sendApnsNotificationImpl = async () => {
-      expect(pushDbTransactionOpen).toBe(true);
+      expect(pushDbTransactionOpen).toBe(false);
       pushDbCalls.push("send-apns");
       return [{
         deviceToken: "token-1",
         status: 200,
-        prune: false,
+        prune: true,
       }];
     };
 
@@ -189,7 +189,7 @@ describe("notifications push route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ sent: 1, devices: 1, pruned: 0 });
+    expect(await response.json()).toEqual({ sent: 1, devices: 1, pruned: 1 });
     expect(pushDbCalls).toEqual([
       "transaction:start",
       "lock",
@@ -199,7 +199,12 @@ describe("notifications push route", () => {
       "delete:notificationSendEvents",
       "select:notificationSendEvents",
       "insert:notificationSendEvents",
+      "transaction:end",
       "send-apns",
+      "transaction:start",
+      "lock",
+      "select:accountDeletionTombstones",
+      "delete:deviceTokens",
       "transaction:end",
     ]);
   });
@@ -208,7 +213,8 @@ describe("notifications push route", () => {
 function fakePushDb() {
   const tx = {
     execute: async () => {
-      pushDbCalls.push(pushDbCalls.includes("lock") ? "rate-limit-lock" : "lock");
+      const activeTransactionCalls = pushDbCalls.slice(pushDbCalls.lastIndexOf("transaction:start") + 1);
+      pushDbCalls.push(activeTransactionCalls.includes("lock") ? "rate-limit-lock" : "lock");
       return [];
     },
     select: () => selectBuilder(),
