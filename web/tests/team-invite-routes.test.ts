@@ -107,9 +107,11 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
-mock.module("@vercel/firewall", () => ({
-  checkRateLimit: mock(async () => ({ error: null, rateLimited: false })),
-}));
+// Do NOT mock @vercel/firewall here: these tests run with VERCEL="0", so
+// enforceTeamInviteRateLimit early-returns and never calls checkRateLimit. bun
+// applies mock.module process-wide (last registration wins), so a mock here
+// would override notifications-push-route.test.ts's own checkRateLimit mock and
+// break its rate-limit assertion on CI.
 
 mock.module("resend", () => ({
   Resend: class {
