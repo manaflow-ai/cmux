@@ -45,7 +45,11 @@ struct BrowserWebExtensionsCard: View {
     /// Discovered Safari extensions not yet added, offered by the Import menu.
     private var importableExtensions: [SettingsDiscoveredBrowserExtension] {
         let addedIDs = Set(model.current.map(\.id))
-        return discovered.filter { !addedIDs.contains($0.id) }
+        let addedPaths = Set(model.current.map { standardizedPath($0.path) })
+        return discovered.filter { candidate in
+            !addedIDs.contains(candidate.id)
+                && !addedPaths.contains(standardizedPath(candidate.path))
+        }
     }
 
     private var headerRow: some View {
