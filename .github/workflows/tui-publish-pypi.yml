@@ -1,4 +1,4 @@
-name: tui publish pypi
+name: cmux-tui publish pypi
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
     needs: version
     permissions:
       contents: read
-    uses: ./.github/workflows/tui-build-package.yml
+    uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: ${{ needs.version.outputs.version }}
       package_npm: false

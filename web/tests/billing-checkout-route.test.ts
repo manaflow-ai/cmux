@@ -169,6 +169,25 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("blocks direct checkout requests from the iOS App Store distribution", async () => {
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=pro&cmux_distribution=appstore&cmux_scheme=cmux",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&cmux_scheme=cmux",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+    expect(anonymousUser.createCheckoutUrl).not.toHaveBeenCalled();
+  });
+
   test("keeps signed-in checkout on the existing Stack user", async () => {
     userResponses = [signedInUser];
 

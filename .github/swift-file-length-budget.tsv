@@ -42,8 +42,8 @@
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2403	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2213	Sources/RestorableAgentSession.swift
 2229	Sources/TerminalWindowPortal.swift
+2203	Sources/RestorableAgentSession.swift
 2216	Sources/TerminalNotificationStore.swift
 2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2015	Sources/SessionPersistence.swift
@@ -181,7 +181,7 @@
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 636	Sources/SettingsNavigation.swift
 623	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-620	Sources/Panels/BrowserNavigationDelegate.swift
+633	Sources/Panels/BrowserNavigationDelegate.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
 610	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 608	cmuxUITests/FeedSidebarUITests.swift

@@ -67,6 +67,17 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func remoteTmuxTestMethodsOnlyRunOnWorkerInDebugBuilds() {
+        for method in ["remote.tmux.test_exec", "remote.tmux.test_set_frame"] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+#if DEBUG
+            #expect(policy == .socketWorker(mainThreadCallable: false), "\(method)")
+#else
+            #expect(policy == .mainActor, "\(method)")
+#endif
+        }
+    }
+
     @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
         // Tranche D (issue #5757): the implicit handle-normalization reads.
         // One controlResolveOnMain hop (refresh + witness + ref minting),
