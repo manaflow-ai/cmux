@@ -530,12 +530,12 @@ if [[ -z "$TAG" ]]; then
 fi
 
 if [[ -n "$TAG" ]]; then
-  TAG_ID="$(sanitize_bundle "$TAG")"
-  TAG_SLUG="$(sanitize_path "$TAG")"
-  if [[ -z "$TAG_SLUG" ]]; then
-    echo "error: --tag must contain at least one alphanumeric character" >&2
+  if ! cmux_attach_tag_is_usable "$TAG"; then
+    echo "error: --tag must contain a letter or digit and cannot use reserved tag 'default'" >&2
     exit 1
   fi
+  TAG_ID="$(sanitize_bundle "$TAG")"
+  TAG_SLUG="$(sanitize_path "$TAG")"
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux DEV ${TAG_SLUG}"
   fi

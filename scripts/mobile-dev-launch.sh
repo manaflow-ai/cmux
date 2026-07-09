@@ -83,10 +83,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
-# Fail closed on tags that have no alphanumerics: their slug would collapse onto
-# the shared fallback identity and target an unrelated app/socket.
-if ! cmux_attach_tag_has_alnum "$TAG"; then
-  echo "error: --tag '$TAG' has no letters or digits; pick a tag with at least one alphanumeric character" >&2
+# Fail closed on empty tags and `default`, which registry/presence reserve for
+# untagged and stable instances.
+if ! cmux_attach_tag_is_usable "$TAG"; then
+  echo "error: --tag '$TAG' is empty or uses reserved tag 'default'; pick a non-default tag" >&2
   exit 2
 fi
 if [[ "$AGENT" -eq 1 ]]; then

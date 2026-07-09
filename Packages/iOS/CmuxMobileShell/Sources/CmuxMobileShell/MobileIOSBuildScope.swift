@@ -16,6 +16,7 @@ private let mobileIOSIsDebugBuild = false
 /// list.
 public typealias MobileIOSBuildScope = CmxPairedMacClientScope
 
+/// iOS composition helpers for resolving the running build's shared client scope.
 public extension CmxPairedMacClientScope {
     /// Resolve the running iOS app's strict DEV build scope.
     static func current(

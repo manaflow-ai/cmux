@@ -34,6 +34,14 @@ cmux_attach_tag_has_alnum() {
   [[ -n "$(cmux_attach__slug_raw "$1")" ]]
 }
 
+# Tagged dev identities must be nonempty and must not use `default`, which is
+# reserved by registry/presence for untagged and stable instances.
+cmux_attach_tag_is_usable() {
+  local slug
+  slug="$(cmux_attach__slug_raw "$1")"
+  [[ -n "$slug" && "$slug" != "default" ]]
+}
+
 # bundle id segment: lowercase, non-alnum -> '.', trimmed/collapsed.
 cmux_attach__bundle_seg() {
   local cleaned
