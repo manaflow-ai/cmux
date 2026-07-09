@@ -179,57 +179,6 @@ enum FilePreviewTextEditorLayout {
     static let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 }
 
-extension SavingTextView {
-    /// Builds the File Preview text view configured for large plain-text files.
-    ///
-    /// File Preview opens files up to `FilePreviewPanel.maximumLoadedTextBytes` (16 MB), which can
-    /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
-    /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
-    static func makeFilePreviewTextView() -> SavingTextView {
-        // Build an EXPLICIT TextKit 1 stack so this view is never TextKit 2.
-        //
-        // A default `NSTextView()` is TextKit 2: selection/hit-testing then runs through
-        // `NSTextSelectionNavigation`, whose work is O(N) in line-fragment count, so clicking or
-        // drag-selecting in a large document pegs the main thread inside AppKit's modal
-        // mouse-tracking loop and freezes the whole app (`manaflow-ai/cmux#4576`, `#5255`).
-        //
-        // Merely *reading* `.layoutManager` afterward — the previous mitigation — only drops the
-        // view to TextKit 2 *compatibility* mode: `textLayoutManager` stays non-nil and the slow
-        // selection path remains active (confirmed by live `sample` captures of the hung process).
-        // Constructing the view from an `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`
-        // stack is the only way to guarantee `textLayoutManager == nil`, i.e. a pure TextKit 1 view
-        // whose hit-testing uses `NSLayoutManager` (O(log N) with non-contiguous layout).
-        let textStorage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
-        // Lazy glyph layout so multi-hundred-thousand-line documents still open instantly.
-        layoutManager.allowsNonContiguousLayout = true
-        textStorage.addLayoutManager(layoutManager)
-        let textContainer = NSTextContainer(
-            size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        )
-        // No-wrap baseline; `applyFilePreviewWordWrap(_:scrollView:)` flips this live per the
-        // `fileEditor.wordWrap` setting.
-        textContainer.widthTracksTextView = false
-        layoutManager.addTextContainer(textContainer)
-
-        let textView = SavingTextView(frame: .zero, textContainer: textContainer)
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.usesFindPanel = true
-        textView.usesFontPanel = false
-        textView.applyCurrentPreviewFont()
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.applyFilePreviewTextEditorInsets()
-        return textView
-    }
-}
 
 extension NSTextView {
     /// Configures the text view and its scroll view for soft line wrapping
@@ -361,55 +310,6 @@ final class SavingTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        super.mouseDown(with: event)
-    }
-
-    override func drawBackground(in rect: NSRect) {
-        super.drawBackground(in: rect)
-        guard highlightsCurrentLine,
-              let lineRect = currentLineHighlightRect(),
-              lineRect.intersects(rect) else { return }
-        currentLineHighlightColor.setFill()
-        lineRect.intersection(rect).fill()
-    }
-
-    /// Full-width rect of the logical line containing the insertion point, or
-    /// nil while a range of text is selected (the selection highlight already
-    /// marks the location, matching Zed/Xcode behavior).
-    private func currentLineHighlightRect() -> NSRect? {
-        let selection = selectedRange()
-        guard selection.length == 0,
-              let layoutManager,
-              let textContainer else { return nil }
-        let text = string as NSString
-        let caret = min(selection.location, text.length)
-
-        var fragmentRect: NSRect
-        let caretOnTrailingEmptyLine = caret == text.length
-            && (text.length == 0 || text.character(at: text.length - 1) == 10)
-        if caretOnTrailingEmptyLine {
-            fragmentRect = layoutManager.extraLineFragmentRect
-            if fragmentRect.height <= 0 {
-                let lineHeight = layoutManager.defaultLineHeight(
-                    for: font ?? .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-                )
-                fragmentRect = NSRect(x: 0, y: 0, width: 0, height: lineHeight)
-            }
-        } else {
-            let paragraphRange = text.paragraphRange(for: NSRange(location: caret, length: 0))
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: paragraphRange, actualCharacterRange: nil)
-            guard glyphRange.length > 0 else { return nil }
-            fragmentRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        }
-
-        var lineRect = fragmentRect
-        lineRect.origin.x = 0
-        lineRect.size.width = bounds.width
-        lineRect.origin.y += textContainerInset.height
-        return lineRect
-    }
 
     override func magnify(with event: NSEvent) {
         let factor = 1.0 + event.magnification

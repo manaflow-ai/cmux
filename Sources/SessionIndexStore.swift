@@ -480,12 +480,12 @@ final class SessionIndexStore: ObservableObject {
         return ordered
     }
 
-    private struct LoadedAgentOrder: Sendable {
+    struct LoadedAgentOrder: Sendable {
         let agents: [SessionAgent]
         let registry: CmuxVaultAgentRegistry
     }
 
-    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
+    nonisolated static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
         await Task.detached(priority: .utility) {
             defaultAgentOrderSync(workingDirectory: workingDirectory)
         }.value
@@ -621,24 +621,6 @@ final class SessionIndexStore: ObservableObject {
             storeDirectorySnapshot(key: key, snapshot: snapshot)
         }
         return snapshot
-    }
-
-    /// Fresh, cwd-scoped entries across every agent, bypassing the snapshot
-    /// cache. Used by the Notes tree to re-resolve session-folder markers
-    /// against live session data with the exact scanners the Vault uses, so a
-    /// dragged-in session's title/recency keeps tracking the real session.
-    nonisolated static func loadLiveSessionEntries(cwdFilter: String, limit: Int = 10_000) async -> [SessionEntry] {
-        let bag = ErrorBag()
-        let order = await defaultAgentOrder(workingDirectory: cwdFilter)
-        return await loadAgents(
-            order.agents,
-            registry: order.registry,
-            needle: "",
-            cwdFilter: cwdFilter,
-            offset: 0,
-            limit: max(1, limit),
-            errorBag: bag
-        )
     }
 
     private func touchDirectorySnapshotLRU(_ key: String) -> DirectorySnapshot? {
@@ -1228,7 +1210,7 @@ final class SessionIndexStore: ObservableObject {
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
 
-    nonisolated private static func loadAgents(
+    nonisolated static func loadAgents(
         _ agents: [SessionAgent],
         registry: CmuxVaultAgentRegistry,
         needle: String,
