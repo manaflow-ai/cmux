@@ -856,7 +856,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             guard BrowserAvailabilitySettings.isEnabled() else {
-                cmuxOpenURLExternally(url)
+                ExternalBrowserOpener().open(url)
                 return
             }
 
@@ -867,7 +867,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                   ),
                   let paneId = location.workspace.paneId(forPanelId: panelId) else {
                 // No workspace context — last-resort fallback.
-                cmuxOpenURLExternally(url)
+                ExternalBrowserOpener().open(url)
                 return
             }
 
