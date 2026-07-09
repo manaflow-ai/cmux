@@ -1,37 +1,5 @@
 import Foundation
 
-private func cmxCanonicalDevTag(_ rawValue: String?) -> String? {
-    var bytes: [UInt8] = []
-    for scalar in (rawValue ?? "").unicodeScalars {
-        let byte: UInt8
-        switch scalar.value {
-        case 48...57, 97...122:
-            byte = UInt8(scalar.value)
-        case 65...90:
-            byte = UInt8(scalar.value + 32)
-        default:
-            if !bytes.isEmpty, bytes.last != 45 {
-                bytes.append(45)
-            }
-            continue
-        }
-        bytes.append(byte)
-    }
-    while bytes.last == 45 {
-        bytes.removeLast()
-    }
-    guard !bytes.isEmpty else { return nil }
-    return String(decoding: bytes, as: UTF8.self)
-}
-
-private func cmxBase64URLComponent(_ value: String) -> String {
-    Data(value.utf8)
-        .base64EncodedString()
-        .replacingOccurrences(of: "+", with: "-")
-        .replacingOccurrences(of: "/", with: "_")
-        .replacingOccurrences(of: "=", with: "")
-}
-
 /// Versioned client scope shared by a tagged Mac build and its matching iOS
 /// build. The wire value partitions paired-Mac backup state on the presence
 /// worker; the same value also partitions iOS local storage.
@@ -48,6 +16,40 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// them from legacy unscoped state. Older workers do not expose this path,
     /// so strict clients fail closed with 404 during a staggered rollout.
     public static let pairedMacBackupPath = "/v2/sync/paired-macs"
+
+    private static let macDebugBundlePrefix = "com.cmuxterm.app.debug."
+
+    private static func canonicalDevTag(_ rawValue: String?) -> String? {
+        var bytes: [UInt8] = []
+        for scalar in (rawValue ?? "").unicodeScalars {
+            let byte: UInt8
+            switch scalar.value {
+            case 48...57, 97...122:
+                byte = UInt8(scalar.value)
+            case 65...90:
+                byte = UInt8(scalar.value + 32)
+            default:
+                if !bytes.isEmpty, bytes.last != 45 {
+                    bytes.append(45)
+                }
+                continue
+            }
+            bytes.append(byte)
+        }
+        while bytes.last == 45 {
+            bytes.removeLast()
+        }
+        guard !bytes.isEmpty else { return nil }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private static func base64URLComponent(_ value: String) -> String {
+        Data(value.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 
     /// Storage and wire identity for this build scope.
     ///
@@ -66,7 +68,7 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// `default` is reserved for untagged/stable presence records and is never a
     /// matchable DEV scope.
     public init?(_ rawValue: String?) {
-        guard let tag = cmxCanonicalDevTag(rawValue), tag != "default" else { return nil }
+        guard let tag = Self.canonicalDevTag(rawValue), tag != "default" else { return nil }
         self.value = tag
         self.matchingMacTag = tag
     }
@@ -74,7 +76,7 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     private init(unmatchedIOSBundleIdentifier bundleIdentifier: String?) {
         let trimmedBundle = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         let bundleIdentity = trimmedBundle.isEmpty ? "missing-bundle" : trimmedBundle
-        self.value = "ios-unmatched:\(cmxBase64URLComponent(bundleIdentity))"
+        self.value = "ios-unmatched:\(Self.base64URLComponent(bundleIdentity))"
         self.matchingMacTag = nil
     }
 
@@ -114,13 +116,13 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
         bundleIdentifier: String?
     ) -> CmxPairedMacClientScope? {
         let bundle = bundleIdentifier?.lowercased() ?? ""
-        guard bundle.hasPrefix("com.cmuxterm.app.debug.") else { return nil }
+        guard bundle.hasPrefix(Self.macDebugBundlePrefix) else { return nil }
         return CmxPairedMacClientScope(environment["CMUX_TAG"])
     }
 
     /// Filesystem/storage-safe encoding of the canonical build slug.
     public var storageComponent: String {
-        cmxBase64URLComponent(value)
+        Self.base64URLComponent(value)
     }
 
     /// Versioned value sent in `X-Cmux-Client-Scope` and used for local storage.
@@ -133,8 +135,8 @@ public struct CmxPairedMacClientScope: Sendable, Equatable, Hashable {
     /// authority; a supplied bundle id must still identify a Mac DEV build.
     public func matchesMacInstance(tag: String, bundleIdentifier: String?) -> Bool {
         guard let matchingMacTag,
-              cmxCanonicalDevTag(tag) == matchingMacTag else { return false }
+              Self.canonicalDevTag(tag) == matchingMacTag else { return false }
         let bundle = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        return bundle.isEmpty || bundle.hasPrefix("com.cmuxterm.app.debug.")
+        return bundle.isEmpty || bundle.hasPrefix(Self.macDebugBundlePrefix)
     }
 }

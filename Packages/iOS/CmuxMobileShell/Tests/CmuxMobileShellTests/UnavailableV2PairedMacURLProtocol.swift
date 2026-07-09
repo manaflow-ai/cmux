@@ -1,7 +1,7 @@
 import Foundation
 
 final class UnavailableV2PairedMacURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static let recorder = PairedMacBackupRequestRecorder()
+    static let recorder = PairedMacBackupRequestRecorder()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
