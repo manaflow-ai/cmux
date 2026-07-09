@@ -7,10 +7,19 @@ struct BrowserWebExtensionReconciliationPlanner {
         let standardizedPath: String
     }
 
+    struct UnloadEntry: Equatable {
+        let id: String
+        let preservePermissionState: Bool
+    }
+
     struct Plan: Equatable {
         let desiredEntries: [BrowserWebExtensionEntry]
-        let unloadEntryIDs: [String]
+        let unloadEntries: [UnloadEntry]
         let loadEntries: [BrowserWebExtensionEntry]
+
+        var unloadEntryIDs: [String] {
+            unloadEntries.map(\.id)
+        }
     }
 
     func plan(
@@ -21,14 +30,23 @@ struct BrowserWebExtensionReconciliationPlanner {
         let loadedByID = Dictionary(uniqueKeysWithValues: loadedEntries.map { ($0.id, $0) })
         let desiredEntries = desired(settingsEntries: settingsEntries, environmentPaths: environmentPaths)
         let desiredByID = Dictionary(uniqueKeysWithValues: desiredEntries.map { ($0.id, $0) })
+        var configuredResourceRootByID: [String: String] = [:]
+        for entry in settingsEntries {
+            configuredResourceRootByID[entry.id] = Self.standardizedResourceRootPath(for: entry)
+        }
 
-        let unloadEntryIDs = loadedEntries
+        let unloadEntries = loadedEntries
             .filter { loaded in
                 guard let desired = desiredByID[loaded.id] else { return true }
                 return Self.standardizedResourceRootPath(for: desired) != loaded.standardizedPath
             }
-            .map(\.id)
-            .sorted()
+            .map { loaded in
+                UnloadEntry(
+                    id: loaded.id,
+                    preservePermissionState: configuredResourceRootByID[loaded.id] == loaded.standardizedPath
+                )
+            }
+            .sorted { $0.id < $1.id }
 
         let loadEntries = desiredEntries.filter { entry in
             guard let loaded = loadedByID[entry.id] else { return true }
@@ -37,7 +55,7 @@ struct BrowserWebExtensionReconciliationPlanner {
 
         return Plan(
             desiredEntries: desiredEntries,
-            unloadEntryIDs: unloadEntryIDs,
+            unloadEntries: unloadEntries,
             loadEntries: loadEntries
         )
     }

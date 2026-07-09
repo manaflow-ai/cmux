@@ -77,6 +77,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.urlsToAlwaysOpenExternally",
+        "browser.webExtensions",
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "customSidebars.renderer",

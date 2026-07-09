@@ -561,20 +561,20 @@ final class DockSplitStore: BonsplitDelegate {
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
             browser.registerWebExtensionIfNeeded()
+            if focusedPanelId == browser.id { browser.noteWebExtensionActivated() }
             let cancellable = Publishers.CombineLatest4(
-                browser.$pageTitle.removeDuplicates(),
+                browser.$pageTitle.removeDuplicates(), browser.$currentURL.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$isMuted.removeDuplicates()
+                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
             )
+            .combineLatest(browser.$isMuted.removeDuplicates())
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak browser] _ in
                 guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
                       let existing = self.bonsplitController.tab(tabId) else { return }
                 browser.browserWebExtensionHost?.noteTabMetadataChanged(panelID: browser.id)
-                // Only push fields that actually changed; otherwise unchanged metadata
-                // would mutate Bonsplit and re-render the Dock tree for nothing.
-                // Mirrors the main area's guarded path in Workspace.installBrowserPanelSubscription.
+                // Only push changed fields; otherwise unchanged metadata would
+                // mutate Bonsplit. Mirrors Workspace.installBrowserPanelSubscription.
                 let resolvedTitle = browser.displayTitle
                 let favicon = browser.faviconPNGData
                 let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle

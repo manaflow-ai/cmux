@@ -16,17 +16,19 @@ struct BrowserWebExtensionsCard: View {
     let hostActions: SettingsHostActions
 
     @State private var discovered: [SettingsDiscoveredBrowserExtension] = []
+    @State private var pendingEntries: [BrowserWebExtensionEntry]?
 
     var body: some View {
-        let enabledByID = effectiveEnabledByID()
+        let entries = effectiveEntries
+        let enabledByID = effectiveEnabledByID(for: entries)
         SettingsCard {
             headerRow
             if supported {
-                ForEach(model.current) { entry in
+                ForEach(entries) { entry in
                     SettingsCardDivider()
                     entryRow(entry, isEnabled: enabledByID[entry.id] ?? entry.enabled)
                 }
-                if model.current.isEmpty {
+                if entries.isEmpty {
                     SettingsCardDivider()
                     emptyRow
                 }
@@ -36,17 +38,30 @@ struct BrowserWebExtensionsCard: View {
             model.startObserving()
             discovered = await hostActions.discoverBrowserWebExtensions()
         }
+        .onChange(of: model.current) { _, _ in
+            pendingEntries = nil
+        }
+        .onChange(of: model.writeResultRevision) { _, _ in
+            if model.lastWriteError != nil {
+                pendingEntries = nil
+            }
+        }
     }
 
     private var supported: Bool {
         hostActions.browserWebExtensionsSupported()
     }
 
+    private var effectiveEntries: [BrowserWebExtensionEntry] {
+        pendingEntries ?? model.current
+    }
+
     /// Discovered Safari extensions not yet added, offered by the Import menu.
     private var importableExtensions: [SettingsDiscoveredBrowserExtension] {
         guard model.hasObservedValue else { return [] }
-        let addedIDs = Set(model.current.map(\.id))
-        let addedResourcePaths = Set(model.current.map { standardizedResourcePath(for: $0) })
+        let entries = effectiveEntries
+        let addedIDs = Set(entries.map(\.id))
+        let addedResourcePaths = Set(entries.map { standardizedResourcePath(for: $0) })
         return discovered.filter { candidate in
             !addedIDs.contains(candidate.id)
                 && !addedResourcePaths.contains(standardizedSafariAppExtensionResourcePath(candidate.path))
@@ -149,22 +164,22 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func setEnabled(_ enabled: Bool, id: String) {
-        guard model.hasObservedValue else { return }
-        var entries = model.current
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        let targetPath = standardizedResourcePath(for: entries[index])
-        entries[index].enabled = enabled
-        for candidateIndex in entries.indices where candidateIndex != index {
-            if standardizedResourcePath(for: entries[candidateIndex]) == targetPath {
-                entries[candidateIndex].enabled = false
+        updateEntries { entries in
+            guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+            let targetPath = standardizedResourcePath(for: entries[index])
+            entries[index].enabled = enabled
+            for candidateIndex in entries.indices where candidateIndex != index {
+                if standardizedResourcePath(for: entries[candidateIndex]) == targetPath {
+                    entries[candidateIndex].enabled = false
+                }
             }
+            return true
         }
-        model.set(entries)
     }
 
     private func add(_ entry: BrowserWebExtensionEntry) {
         guard model.hasObservedValue else { return }
-        var entries = model.current
+        var entries = effectiveEntries
         guard !entries.contains(where: { $0.id == entry.id }) else {
             presentDuplicateExtensionAlert(for: entry)
             return
@@ -175,12 +190,27 @@ struct BrowserWebExtensionsCard: View {
             return
         }
         entries.append(entry)
-        model.set(entries)
+        commitEntries(entries)
     }
 
     private func remove(id: String) {
+        updateEntries { entries in
+            let originalCount = entries.count
+            entries.removeAll { $0.id == id }
+            return entries.count != originalCount
+        }
+    }
+
+    private func updateEntries(_ update: (inout [BrowserWebExtensionEntry]) -> Bool) {
         guard model.hasObservedValue else { return }
-        model.set(model.current.filter { $0.id != id })
+        var entries = effectiveEntries
+        guard update(&entries) else { return }
+        commitEntries(entries)
+    }
+
+    private func commitEntries(_ entries: [BrowserWebExtensionEntry]) {
+        pendingEntries = entries
+        model.set(entries)
     }
 
     private func importSafariExtension(_ candidate: SettingsDiscoveredBrowserExtension) {
@@ -254,10 +284,10 @@ struct BrowserWebExtensionsCard: View {
         alert.runModal()
     }
 
-    private func effectiveEnabledByID() -> [String: Bool] {
+    private func effectiveEnabledByID(for entries: [BrowserWebExtensionEntry]) -> [String: Bool] {
         var seenEnabledPaths = Set<String>()
         var result: [String: Bool] = [:]
-        for entry in model.current {
+        for entry in entries {
             let path = standardizedResourcePath(for: entry)
             let isFirstEnabledEntryForPath = entry.enabled && seenEnabledPaths.insert(path).inserted
             result[entry.id] = isFirstEnabledEntryForPath

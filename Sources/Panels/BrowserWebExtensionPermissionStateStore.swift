@@ -20,6 +20,12 @@ struct BrowserWebExtensionPermissionStateStore {
         saveAllStates(states)
     }
 
+    func removeState(for entryID: String) {
+        var states = allStates()
+        guard states.removeValue(forKey: entryID) != nil else { return }
+        saveAllStates(states)
+    }
+
     private func allStates() -> [String: BrowserWebExtensionPermissionState] {
         guard let data = defaults.data(forKey: Self.storageKey),
               let states = try? PropertyListDecoder().decode(
@@ -32,6 +38,10 @@ struct BrowserWebExtensionPermissionStateStore {
     }
 
     private func saveAllStates(_ states: [String: BrowserWebExtensionPermissionState]) {
+        guard !states.isEmpty else {
+            defaults.removeObject(forKey: Self.storageKey)
+            return
+        }
         guard let data = try? PropertyListEncoder().encode(states) else { return }
         defaults.set(data, forKey: Self.storageKey)
     }
