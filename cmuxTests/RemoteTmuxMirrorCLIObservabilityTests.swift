@@ -69,20 +69,68 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(defaultSend.sentSurfaceID == activeSurfaceID)
     }
 
+    @Test func unfocusedMirrorStillPublishesInnerPanes() throws {
+        let harness = try Harness(focusAwayFromMirror: true)
+        defer { harness.tearDown() }
+
+        let nonMirrorPanelID = try #require(harness.nonMirrorPanelID)
+        let nonMirrorPaneID = try #require(harness.workspace.paneId(forPanelId: nonMirrorPanelID))
+        #expect(harness.workspace.focusedPanelId == nonMirrorPanelID)
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: harness.workspace.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+        let expectedRemotePaneIDs = harness.mirror.paneIDsInOrder.compactMap {
+            harness.mirror.syntheticPaneID(forPane: $0)?.id
+        }
+        let expectedRemoteSurfaceIDs = harness.mirror.paneIDsInOrder.compactMap {
+            harness.mirror.panel(forPane: $0)?.id
+        }
+
+        let paneList = try #require(TerminalController.shared.controlPaneList(routing: routing))
+        let remotePanes = paneList.panes.filter { expectedRemotePaneIDs.contains($0.paneID) }
+        #expect(remotePanes.map(\.paneID) == expectedRemotePaneIDs)
+        #expect(remotePanes.compactMap(\.selectedSurfaceID) == expectedRemoteSurfaceIDs)
+        #expect(remotePanes.allSatisfy { !$0.isFocused })
+        #expect(!paneList.panes.flatMap(\.surfaceIDs).contains(harness.outerPanelID))
+
+        let nonMirrorPane = try #require(paneList.panes.first {
+            $0.paneID == nonMirrorPaneID.id
+        })
+        #expect(nonMirrorPane.surfaceIDs == [nonMirrorPanelID])
+        #expect(nonMirrorPane.selectedSurfaceID == nonMirrorPanelID)
+        #expect(nonMirrorPane.isFocused)
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
         let windowID: UUID
         let workspace: Workspace
         let outerPanelID: UUID
+        let nonMirrorPanelID: UUID?
         let mirror: RemoteTmuxWindowMirror
 
-        init() throws {
+        init(focusAwayFromMirror: Bool = false) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             workspace = try #require(manager.selectedWorkspace)
             outerPanelID = try #require(workspace.focusedPanelId)
+            if focusAwayFromMirror {
+                nonMirrorPanelID = try #require(workspace.newTerminalSplit(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true
+                )?.id)
+            } else {
+                nonMirrorPanelID = nil
+            }
 
             let connection = RemoteTmuxControlConnection(
                 host: RemoteTmuxHost(destination: "user@host"),
