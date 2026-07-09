@@ -91,7 +91,15 @@ const updateRows = mock((table: unknown) => ({
       updatedRows.push({ table, values });
     }
     return {
-      where: async () => {},
+      where: async () => {
+        if (
+          table === accountDeletionTombstones &&
+          (values as { readonly status?: unknown }).status === "completed" &&
+          tombstoneCompleteError
+        ) {
+          throw tombstoneCompleteError;
+        }
+      },
     };
   },
 }));
@@ -190,6 +198,7 @@ let deletedTables: unknown[] = [];
 let deletedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let tombstoneUpdates: unknown[] = [];
+let tombstoneCompleteError: unknown = null;
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
@@ -426,6 +435,7 @@ beforeEach(() => {
   deletedWhere = [];
   updatedRows = [];
   tombstoneUpdates = [];
+  tombstoneCompleteError = null;
   routeEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
@@ -1261,6 +1271,24 @@ describe("account deletion route", () => {
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
       "Error: post-delete vault unavailable",
+    );
+  });
+
+  test("returns accepted deletion when tombstone completion fails after the account is deleted", async () => {
+    tombstoneCompleteError = new Error("tombstone unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      cleanupIncomplete: true,
+      destroyedVms: 2,
+    });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.post_stack_cleanup_failed",
+      "Error: tombstone unavailable",
     );
   });
 

@@ -157,8 +157,8 @@ export async function DELETE(request: Request): Promise<Response> {
         destroyedVms,
       }, 500);
     }
-    await markAccountDeletionTombstoneCompleted(userId);
     try {
+      await markAccountDeletionTombstoneCompleted(userId);
       await finishPostStackAccountCleanup(userId, accountScope.teamIds);
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
