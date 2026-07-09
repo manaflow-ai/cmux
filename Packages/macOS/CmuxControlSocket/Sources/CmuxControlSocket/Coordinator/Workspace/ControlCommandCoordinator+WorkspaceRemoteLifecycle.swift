@@ -10,12 +10,17 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        guard let relayPort = strictInt(params, "relay_port"), relayPort > 0, relayPort <= 65535 else {
-            return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
-        }
         let sessionID = optionalTrimmedRawString(params, "session_id")
         let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
-        let lifecycleOnly = (bool(params, "lifecycle_only") ?? false) && sessionID != nil && lifecycleID != nil
+        let lifecycleOnly = bool(params, "lifecycle_only") ?? false
+        if lifecycleOnly, sessionID == nil || lifecycleID == nil {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        let relayPort = strictInt(params, "relay_port")
+        let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
+        if invalidRelayPort || (params["relay_port"] != nil && relayPort == nil) || (!lifecycleOnly && relayPort == nil) {
+            return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
+        }
 
         let resolution = context?.controlWorkspaceRemoteTerminalSessionEnd(
             workspaceID: workspaceID,
@@ -32,7 +37,7 @@ extension ControlCommandCoordinator {
                 "workspace_ref": ref(.workspace, workspaceID),
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
-                "relay_port": .int(Int64(relayPort)),
+                "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
             ]))
         case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
             return .ok(.object([
@@ -42,7 +47,7 @@ extension ControlCommandCoordinator {
                 "workspace_ref": ref(.workspace, resolvedWorkspaceID),
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
-                "relay_port": .int(Int64(relayPort)),
+                "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
                 "remote": remoteStatus,
             ]))
         }

@@ -307,6 +307,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(command.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, command)
         XCTAssertFalse(command.contains("-$$"), command)
         XCTAssertTrue(command.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), command)
+        XCTAssertTrue(command.contains("ssh-session-end --lifecycle-only"), command)
     }
 
     // MARK: - Fake RemoteCommand-host harness

@@ -363,7 +363,7 @@ extension ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        relayPort: Int?, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
 }
 

@@ -15,7 +15,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     )?
     var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
     var terminalSessionEndCall: (
-        workspaceID: UUID, surfaceID: UUID, relayPort: Int,
+        workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
         sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     )?
 
@@ -71,7 +71,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     }
 
     func controlWorkspaceRemoteTerminalSessionEnd(
-        workspaceID: UUID, surfaceID: UUID, relayPort: Int,
+        workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
         sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
         terminalSessionEndCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID, lifecycleOnly)

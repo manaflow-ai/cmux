@@ -714,7 +714,7 @@ extension TerminalController: ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        relayPort: Int,
+        relayPort: Int?,
         sessionID: String?,
         lifecycleID: String?,
         lifecycleOnly: Bool

@@ -181,7 +181,6 @@ struct ControlCommandCoordinatorWorkspaceTests {
         guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_end", [
             "workspace_id": .string(workspaceID.uuidString),
             "surface_id": .string(surfaceID.uuidString),
-            "relay_port": .int(64_007),
             "session_id": .string(sessionID),
             "lifecycle_id": .string(lifecycleID),
             "lifecycle_only": .bool(true),
@@ -192,8 +191,27 @@ struct ControlCommandCoordinatorWorkspaceTests {
 
         #expect(context.terminalSessionEndCall?.workspaceID == workspaceID)
         #expect(context.terminalSessionEndCall?.surfaceID == surfaceID)
+        #expect(context.terminalSessionEndCall?.relayPort == nil)
         #expect(context.terminalSessionEndCall?.sessionID == sessionID)
         #expect(context.terminalSessionEndCall?.lifecycleID == lifecycleID)
         #expect(context.terminalSessionEndCall?.lifecycleOnly == true)
+    }
+
+    @Test func lifecycleOnlySessionEndRejectsMissingGeneration() throws {
+        let (coordinator, context) = coordinator()
+        guard case .err(let code, _, _) = coordinator.handle(request(
+            "workspace.remote.terminal_session_end",
+            [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "lifecycle_only": .bool(true),
+            ]
+        )) else {
+            Issue.record("incomplete lifecycle-only request was accepted")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(context.terminalSessionEndCall == nil)
     }
 }
