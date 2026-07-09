@@ -237,6 +237,10 @@ class TerminalController {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
 
+    private nonisolated static var terminalSurfaceUnavailableSocketError: String {
+        "ERROR: \(terminalSurfaceUnavailableMessage)"
+    }
+
     private nonisolated static let focusIntentV1Commands: Set<String> = [
         "__internal_flags",
         "focus_window",
@@ -262,7 +266,6 @@ class TerminalController {
         "pane.focus",
         "pane.last",
         "file.open",
-        "workspace.todo.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
@@ -11735,19 +11738,19 @@ class TerminalController {
 
         switch keyToken.lowercased() {
         case "left":
-            storedKey = "\u{F702}"
+            storedKey = "←"
             keyCode = 123
             charactersIgnoringModifiers = storedKey
         case "right":
-            storedKey = "\u{F703}"
+            storedKey = "→"
             keyCode = 124
             charactersIgnoringModifiers = storedKey
         case "down":
-            storedKey = "\u{F701}"
+            storedKey = "↓"
             keyCode = 125
             charactersIgnoringModifiers = storedKey
         case "up":
-            storedKey = "\u{F700}"
+            storedKey = "↑"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
         case "enter", "return", "tab":

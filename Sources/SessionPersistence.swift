@@ -1594,11 +1594,24 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
+struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
+    var mode: RightSidebarMode?
+
+    init(mode: RightSidebarMode?) {
+        self.mode = mode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decodeIfPresent(String.self, forKey: .mode)
+        self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+    }
+}
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
-/// Marker for a workspace todo pane; the pane has no content of its own (the
-/// checklist persists on the workspace), so the panel `type` plus this empty
-/// marker is enough to restore it.
-struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1648,7 +1661,6 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
-    var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
 }
 
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
@@ -1777,16 +1789,6 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// User-defined per-workspace environment variables (issue #5995). Optional
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
-    /// Manual task-status override raw values and the persisted checklist.
-    /// Optional-with-nil-default (the `groupId` back-compat pattern); the
-    /// bridging to/from live `WorkspaceTodoState` lives in
-    /// `SessionPersistence+Todos.swift`.
-    var taskStatusOverride: String? = nil
-    var taskStatusInferredAtOverride: String? = nil
-    /// `true` when the workspace opted out of the status feature (None); absent
-    /// for the default (feature engaged), so old manifests decode unchanged.
-    var taskStatusHidden: Bool? = nil
-    var checklist: [SessionChecklistItemSnapshot]? = nil
 }
 
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
