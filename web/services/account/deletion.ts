@@ -91,6 +91,13 @@ export class AccountDeletionMutationBlockedError extends Error {
   }
 }
 
+export class AccountDeletionNonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AccountDeletionNonRetryableError";
+  }
+}
+
 const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   cloudDb,
   deleteObject,
@@ -1376,7 +1383,9 @@ function assertNoUnretainedSharedTeamBilling(
 ): void {
   const teamIds = unretainedSharedTeamBillingTeamIds(scope, customerRows, subscriptionRows);
   if (teamIds.length === 0) return;
-  throw new Error(`Shared team Stripe billing requires retained owner for account deletion: ${teamIds.join(", ")}`);
+  throw new AccountDeletionNonRetryableError(
+    `Shared team Stripe billing requires retained owner for account deletion: ${teamIds.join(", ")}`,
+  );
 }
 
 async function assertNoDeletingRetainedTeamBillingOwners(
@@ -1391,7 +1400,9 @@ async function assertNoDeletingRetainedTeamBillingOwners(
       .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(ownerUserId)))
       .limit(1);
     if (deletion && isBlockingAccountDeletionStatus(deletion.status)) {
-      throw new Error(`Retained team Stripe billing owner is deleting for account deletion: ${teamId}`);
+      throw new AccountDeletionNonRetryableError(
+        `Retained team Stripe billing owner is deleting for account deletion: ${teamId}`,
+      );
     }
   }
 }

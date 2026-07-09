@@ -15,6 +15,7 @@ import {
   markAccountDeletionFailed,
   markAccountDeletionRetryPending,
   markAccountDeletionStackDeletePending,
+  AccountDeletionNonRetryableError,
   type AccountDeletionJob,
   type AccountDeletionStatus,
   type RetainedTeamBillingOwner,
@@ -133,6 +134,8 @@ export async function processAccountDeletionForUser(
   } catch (error) {
     if (stackDeletePending) {
       await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId, error });
+    } else if (error instanceof AccountDeletionNonRetryableError) {
+      await dependencies.markAccountDeletionFailed({ userId: input.userId, error });
     } else {
       await dependencies.markAccountDeletionRetryPending({ userId: input.userId, error });
     }

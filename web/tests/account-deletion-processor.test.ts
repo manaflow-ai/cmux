@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { AccountDeletionJob, AccountDeletionStatus } from "../services/account/deletion";
+import {
+  AccountDeletionNonRetryableError,
+  type AccountDeletionJob,
+  type AccountDeletionStatus,
+} from "../services/account/deletion";
 import type { AccountDeletionProcessorDependencies } from "../services/account/deletionProcessor";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
@@ -262,6 +266,23 @@ describe("account deletion processor", () => {
       "load-stack:user-1",
       "cleanup:user-1",
       "retry-pending:user-1:cleanup failed",
+    ]);
+  });
+
+  test("marks non-retryable pre-stack failures failed", async () => {
+    cleanupError = new AccountDeletionNonRetryableError(
+      "Retained team Stripe billing owner is deleting for account deletion: team-shared",
+    );
+
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies()),
+    ).rejects.toThrow("Retained team Stripe billing owner is deleting for account deletion: team-shared");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "cleanup:user-1",
+      "failed:user-1:Retained team Stripe billing owner is deleting for account deletion: team-shared",
     ]);
   });
 
