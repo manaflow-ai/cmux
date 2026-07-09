@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
+import { accountDeletionTombstones, stripeSubscriptions } from "../db/schema";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
+
 // Capture real implementations BY VALUE before mocking. bun's mock.module can
 // mutate an already-loaded namespace in place, so delegating through copied
 // function references avoids recursive mocks.
@@ -28,7 +31,12 @@ let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let subscriptionRows: { id: string }[] = [{ id: "sub_123" }];
-const dbUpdates: Array<{ values: Record<string, unknown> }> = [];
+let accountDeletionRows: Array<{ userIdHash: string; status: string }> = [];
+let createAccountDeletionTombstoneOnLock = false;
+let accountDeletionLockCount = 0;
+let inAccountDeletionTransaction = false;
+const subscriptionReadsInLock: boolean[] = [];
+const dbUpdates: Array<{ values: Record<string, unknown>; inLock: boolean }> = [];
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -53,21 +61,7 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
-  cloudDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => subscriptionRowsResult(),
-      }),
-    }),
-    update: () => ({
-      set: (values: Record<string, unknown>) => ({
-        where: () => {
-          dbUpdates.push({ values });
-          return Promise.resolve();
-        },
-      }),
-    }),
-  }),
+  cloudDb: () => fakeCloudDb(),
 }));
 
 mock.module("../services/billing/stripe", () => ({
@@ -88,11 +82,68 @@ mock.module("../services/errors", () => ({
 
 const { POST } = await import("../app/api/billing/subscription/route");
 
+function fakeCloudDb() {
+  return {
+    ...fakeDbMethods(),
+    transaction: async <T>(callback: (tx: unknown) => Promise<T>) => {
+      const wasInAccountDeletionTransaction = inAccountDeletionTransaction;
+      inAccountDeletionTransaction = true;
+      try {
+        return await callback(fakeDbMethods());
+      } finally {
+        inAccountDeletionTransaction = wasInAccountDeletionTransaction;
+      }
+    },
+  };
+}
+
+function fakeDbMethods() {
+  return {
+    execute: async () => {
+      accountDeletionLockCount += 1;
+      if (createAccountDeletionTombstoneOnLock) {
+        accountDeletionRows = [{
+          userIdHash: accountDeletionUserHash("user-pro"),
+          status: "pending",
+        }];
+      }
+      return [];
+    },
+    select: () => ({
+      from: (table: unknown) => ({
+        where: () =>
+          table === accountDeletionTombstones
+            ? accountDeletionRowsResult()
+            : table === stripeSubscriptions
+              ? subscriptionRowsResult()
+              : subscriptionRowsResult(),
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => {
+          dbUpdates.push({ values, inLock: inAccountDeletionTransaction });
+          return Promise.resolve();
+        },
+      }),
+    }),
+  };
+}
+
+function accountDeletionRowsResult() {
+  return {
+    limit: mock(async () => accountDeletionRows),
+  };
+}
+
 function subscriptionRowsResult() {
   return {
     limit: mock(async () => []),
     orderBy: () => ({
-      limit: mock(async () => subscriptionRows),
+      limit: mock(async () => {
+        subscriptionReadsInLock.push(inAccountDeletionTransaction);
+        return subscriptionRows;
+      }),
     }),
   };
 }
@@ -104,6 +155,11 @@ describe("billing subscription route", () => {
     returnNullUser = signedInUser;
     anonymousIfExistsUser = null;
     subscriptionRows = [{ id: "sub_123" }];
+    accountDeletionRows = [];
+    createAccountDeletionTombstoneOnLock = false;
+    accountDeletionLockCount = 0;
+    inAccountDeletionTransaction = false;
+    subscriptionReadsInLock.length = 0;
     dbUpdates.length = 0;
     signedInUser.clientReadOnlyMetadata = {};
     anonymousUser.clientReadOnlyMetadata = {};
@@ -125,7 +181,10 @@ describe("billing subscription route", () => {
     expect(updateSubscription).toHaveBeenCalledWith("sub_123", {
       cancel_at_period_end: true,
     });
+    expect(accountDeletionLockCount).toBe(1);
+    expect(subscriptionReadsInLock).toEqual([true]);
     expect(dbUpdates).toHaveLength(1);
+    expect(dbUpdates[0].inLock).toBe(true);
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(true);
     expect(dbUpdates[0].values.raw).toMatchObject({
       id: "sub_123",
@@ -144,6 +203,21 @@ describe("billing subscription route", () => {
       "https://cmux.test/dashboard/billing?billing=error",
     );
     expect(getUser).not.toHaveBeenCalled();
+    expect(updateSubscription).not.toHaveBeenCalled();
+    expect(dbUpdates).toHaveLength(0);
+    expect(captureBillingError).not.toHaveBeenCalled();
+  });
+
+  test("blocks subscription changes when account deletion starts at the mutation lock", async () => {
+    createAccountDeletionTombstoneOnLock = true;
+
+    const response = await postAction("cancel");
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=error",
+    );
+    expect(accountDeletionLockCount).toBe(1);
     expect(updateSubscription).not.toHaveBeenCalled();
     expect(dbUpdates).toHaveLength(0);
     expect(captureBillingError).not.toHaveBeenCalled();
