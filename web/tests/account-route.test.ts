@@ -161,6 +161,16 @@ const deleteCustomer = mock(async (...args: unknown[]) => {
   deletedStripeCustomers.push(customerId);
   if (stripeDeleteCustomerError) throw stripeDeleteCustomerError;
 });
+const updateCustomer = mock(async (...args: unknown[]) => {
+  const [customerId, params] = args as [string, Record<string, unknown>];
+  routeEvents.push("stripe-update-customer");
+  updatedStripeCustomers.push({ id: customerId, params });
+});
+const updateSubscription = mock(async (...args: unknown[]) => {
+  const [subscriptionId, params] = args as [string, Record<string, unknown>];
+  routeEvents.push("stripe-update-subscription");
+  updatedStripeSubscriptions.push({ id: subscriptionId, params });
+});
 const removeTester = mock(async (...args: unknown[]) => {
   const [email] = args as [string];
   routeEvents.push(`testflight-remove:${email}`);
@@ -192,6 +202,8 @@ let stripeConfigured = true;
 let ascConfigured = false;
 let cancelledStripeSubscriptions: string[] = [];
 let deletedStripeCustomers: string[] = [];
+let updatedStripeCustomers: Array<{ readonly id: string; readonly params: Record<string, unknown> }> = [];
+let updatedStripeSubscriptions: Array<{ readonly id: string; readonly params: Record<string, unknown> }> = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let removeTesterError: unknown = null;
@@ -311,8 +323,8 @@ mock.module("../services/billing/stripe", () => ({
     : realIsStripeBillingConfigured(),
   stripe: () => useAccountRouteStubs
     ? {
-        subscriptions: { cancel: cancelSubscription },
-        customers: { del: deleteCustomer },
+        subscriptions: { cancel: cancelSubscription, update: updateSubscription },
+        customers: { del: deleteCustomer, update: updateCustomer },
       }
     : realStripe(),
 }));
@@ -404,6 +416,8 @@ beforeEach(() => {
   deleteObject.mockClear();
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
+  updateCustomer.mockClear();
+  updateSubscription.mockClear();
   removeTester.mockClear();
   captureAscError.mockClear();
   revokeTenant.mockClear();
@@ -424,6 +438,8 @@ beforeEach(() => {
   ascConfigured = false;
   cancelledStripeSubscriptions = [];
   deletedStripeCustomers = [];
+  updatedStripeCustomers = [];
+  updatedStripeSubscriptions = [];
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
   removeTesterError = null;
@@ -601,6 +617,64 @@ describe("account deletion route", () => {
       providerVmId: "shared-team-vm",
     });
     expect(transactionExecute).toHaveBeenCalledTimes(3);
+  });
+
+  test("reassigns retained shared-team Stripe billing to another team member", async () => {
+    listedPersonalVmIds = [];
+    stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
+    selectResults = [
+      [{ id: "sub_shared", stackTeamId: "team-shared", scope: "team", status: "active" }],
+      [{ id: "cus_shared", stackTeamId: "team-shared" }],
+      [],
+      [],
+      [],
+      [],
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(cancelledStripeSubscriptions).toEqual([]);
+    expect(deletedStripeCustomers).toEqual([]);
+    expect(updatedStripeCustomers).toEqual([{
+      id: "cus_shared",
+      params: {
+        email: "",
+        metadata: expect.objectContaining({ stackUserId: "other-user" }),
+      },
+    }]);
+    expect(updatedStripeSubscriptions).toEqual([{
+      id: "sub_shared",
+      params: {
+        metadata: expect.objectContaining({ stackUserId: "other-user" }),
+      },
+    }]);
+    expect(updatedRows.map(({ table, values }) => ({
+      table,
+      values: stripUpdatedAt(values),
+    }))).toContainEqual({
+      table: stripeCustomers,
+      values: { stackUserId: "other-user", email: null },
+    });
+    expect(updatedRows.map(({ table, values }) => ({
+      table,
+      values: stripUpdatedAt(values),
+    }))).toContainEqual({
+      table: stripeSubscriptions,
+      values: { stackUserId: "other-user", raw: null },
+    });
+  });
+
+  test("fails closed when Stack cannot list selected team members", async () => {
+    stackUserSelectedTeam = { id: "team-shared" };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
   test("revokes the personal Subrouter tenant before deleting local rows", async () => {
@@ -1180,6 +1254,10 @@ describe("account deletion route", () => {
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(transaction).toHaveBeenCalledTimes(2);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown; readonly userId?: unknown }).status === "completed" &&
+      (values as { readonly userId?: unknown }).userId === null
+    )).toBe(true);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
       "Error: post-delete vault unavailable",
