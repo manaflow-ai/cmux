@@ -32,16 +32,19 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
     /// Closes a persistent PTY session through the ready tunnel.
     func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws
 
-    /// Invalidates live local PTY bridges through the ready tunnel.
-    ///
-    /// - Parameters:
-    ///   - configuration: The transport configuration selecting the shared tunnel.
-    ///   - sessionID: The persistent PTY session identifier.
-    /// - Returns: The number of invalidated endpoints for each attachment identifier.
-    func invalidatePTYBridges(
+    /// Returns the shared lifecycle for one logical PTY attach generation.
+    func ptySessionLifecycle(
         configuration: WorkspaceRemoteConfiguration,
-        sessionID: String
-    ) throws -> [String: Int]
+        sessionID: String,
+        lifecycleID: String
+    ) throws -> RemotePTYSessionLifecycle
+
+    /// Retires one logical PTY attach generation after CLI reconciliation.
+    func acknowledgePTYLifecycle(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        lifecycleID: String
+    ) throws
 
     /// Resizes a PTY attachment through the ready tunnel.
     func resizePTY(
@@ -66,6 +69,7 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
     func startPTYBridge(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool

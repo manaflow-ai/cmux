@@ -1,6 +1,5 @@
-/// One live local bridge server and the remote attachment identity it serves.
+/// One live local bridge server and the logical generation it serves.
 struct RemotePTYBridgeServerRecord {
     let server: RemotePTYBridgeServer
-    let sessionID: String
-    let attachmentID: String
+    let lifecycleKey: RemotePTYLifecycleKey
 }

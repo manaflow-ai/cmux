@@ -29,11 +29,11 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// Closes a persistent PTY session on the daemon.
     func closePTY(sessionID: String) throws
 
-    /// Invalidates live local PTY bridges for one persistent session.
-    ///
-    /// - Parameter sessionID: The persistent PTY session identifier.
-    /// - Returns: The number of invalidated endpoints for each attachment identifier.
-    func invalidatePTYBridges(sessionID: String) -> [String: Int]
+    /// Returns the shared lifecycle for one logical PTY attach generation.
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle
+
+    /// Retires one logical PTY attach generation after CLI reconciliation.
+    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String)
 
     /// Resizes a PTY attachment.
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws
@@ -43,5 +43,5 @@ public protocol RemoteProxyTunneling: AnyObject {
 
     /// Starts a single-use loopback PTY bridge server for a terminal attach
     /// and returns its endpoint.
-    func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint
+    func startPTYBridge(sessionID: String, lifecycleID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint
 }

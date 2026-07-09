@@ -23,8 +23,10 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceID: String?,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         attachmentToken: String,
+        retireLifecycle: Bool,
         clearLocalSurface: Bool
     ) {
         let normalizedAttachmentToken = attachmentToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,6 +43,17 @@ extension CMUXCLI {
             }
             _ = try? client.sendV2(method: "workspace.remote.pty_detach", params: detachParams)
         }
+        if retireLifecycle {
+            var lifecycleParams: [String: Any] = [
+                "workspace_id": workspaceId, "session_id": sessionID,
+                "lifecycle_id": lifecycleID, "acknowledge_lifecycle": true,
+            ]
+            if let surfaceID {
+                lifecycleParams["surface_id"] = surfaceID
+                lifecycleParams["allow_moved_surface"] = true
+            }
+            _ = try? client.sendV2(method: "workspace.remote.pty_sessions", params: lifecycleParams)
+        }
         guard clearLocalSurface else { return }
         guard let surfaceID else { return }
         _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
@@ -54,6 +67,7 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceID: String?,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool
@@ -61,6 +75,7 @@ extension CMUXCLI {
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "session_id": sessionID,
+            "lifecycle_id": lifecycleID,
             "attachment_id": attachmentID,
             "command": command ?? "",
             "require_existing": requireExisting,
@@ -70,6 +85,72 @@ extension CMUXCLI {
             params["allow_moved_surface"] = true
         }
         return params
+    }
+
+    /// Reconciles one bridge end against the tunnel-owned logical generation.
+    @discardableResult
+    func reconcileSSHPTYBridgeEnd(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceID: String?,
+        sessionID: String,
+        lifecycleID: String,
+        intentionalOnly: Bool
+    ) throws -> Bool {
+        let response: [String: Any]
+        do {
+            var params: [String: Any] = [
+                "workspace_id": workspaceId,
+                "session_id": sessionID,
+                "lifecycle_id": lifecycleID,
+            ]
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+                params["allow_moved_surface"] = true
+            }
+            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
+        } catch {
+            throw CLIError(
+                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(userFacingRemotePTYErrorMessage(error))",
+                exitCode: SSHPTYAttachExitCode.retryableTransient
+            )
+        }
+
+        let intentionallyClosed = ((response["requested_session_lifecycle"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)) == "intentionally_closed"
+        let errors = response["errors"] as? [[String: Any]] ?? []
+        if !intentionallyClosed, !errors.isEmpty {
+            throw CLIError(
+                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
+                exitCode: SSHPTYAttachExitCode.retryableTransient
+            )
+        }
+        if intentionalOnly, !intentionallyClosed { return false }
+
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        let sessionStillRunning = sessions.contains {
+            (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
+        }
+        if !intentionallyClosed, sessionStillRunning {
+            throw CLIError(
+                message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
+                exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning
+            )
+        }
+        guard let surfaceID else { return true }
+        do {
+            _ = try client.sendV2(method: "workspace.remote.pty_attach_end", params: [
+                "workspace_id": workspaceId,
+                "surface_id": surfaceID,
+                "session_id": sessionID,
+            ])
+        } catch {
+            throw CLIError(
+                message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
+                exitCode: SSHPTYAttachExitCode.retryableTransient
+            )
+        }
+        return true
     }
 
     func readSSHPTYBridgeReady(fd: Int32) throws -> String {

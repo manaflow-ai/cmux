@@ -67,9 +67,13 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         record("closePTY", [sessionID])
     }
 
-    func invalidatePTYBridges(sessionID: String) -> [String: Int] {
-        record("invalidatePTYBridges", [sessionID])
-        return ["a": 2]
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
+        record("ptySessionLifecycle", [sessionID, lifecycleID])
+        return .intentionallyClosed
+    }
+
+    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
+        record("acknowledgePTYLifecycle", [sessionID, lifecycleID])
     }
 
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
@@ -80,13 +84,14 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         record("detachPTY", [sessionID, attachmentID, attachmentToken])
     }
 
-    func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
-        record("startPTYBridge", [sessionID, attachmentID, command ?? "", String(requireExisting)])
+    func startPTYBridge(sessionID: String, lifecycleID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
+        record("startPTYBridge", [sessionID, lifecycleID, attachmentID, command ?? "", String(requireExisting)])
         return RemotePTYBridgeServer.Endpoint(
             host: "127.0.0.1",
             port: 4242,
             token: "tok",
             sessionID: sessionID,
+            lifecycleID: lifecycleID,
             attachmentID: attachmentID
         )
     }
@@ -440,21 +445,23 @@ struct RemoteProxyBrokerTests {
 
         let sessions = try broker.listPTY(configuration: configuration)
         #expect(sessions.first?["session_id"] as? String == "s-1")
-        let invalidated = try broker.invalidatePTYBridges(configuration: configuration, sessionID: "s-8")
+        let lifecycle = try broker.ptySessionLifecycle(configuration: configuration, sessionID: "s-8", lifecycleID: "life-8")
+        try broker.acknowledgePTYLifecycle(configuration: configuration, sessionID: "s-8", lifecycleID: "life-8")
         try broker.closePTY(configuration: configuration, sessionID: "s-9")
         try broker.resizePTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t", cols: 80, rows: 24)
         try broker.detachPTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t")
-        let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", attachmentID: "a", command: "top", requireExisting: true)
+        let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", lifecycleID: "life", attachmentID: "a", command: "top", requireExisting: true)
         #expect(endpoint.port == 4242)
-        #expect(invalidated == ["a": 2])
+        #expect(lifecycle == .intentionallyClosed)
 
         #expect(tunnel.ptyCalls == [
             FakeProxyTunnel.PTYCall(name: "listPTY", arguments: []),
-            FakeProxyTunnel.PTYCall(name: "invalidatePTYBridges", arguments: ["s-8"]),
+            FakeProxyTunnel.PTYCall(name: "ptySessionLifecycle", arguments: ["s-8", "life-8"]),
+            FakeProxyTunnel.PTYCall(name: "acknowledgePTYLifecycle", arguments: ["s-8", "life-8"]),
             FakeProxyTunnel.PTYCall(name: "closePTY", arguments: ["s-9"]),
             FakeProxyTunnel.PTYCall(name: "resizePTY", arguments: ["s", "a", "t", "80", "24"]),
             FakeProxyTunnel.PTYCall(name: "detachPTY", arguments: ["s", "a", "t"]),
-            FakeProxyTunnel.PTYCall(name: "startPTYBridge", arguments: ["s", "a", "top", "true"]),
+            FakeProxyTunnel.PTYCall(name: "startPTYBridge", arguments: ["s", "life", "a", "top", "true"]),
         ])
     }
 

@@ -121,18 +121,25 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    /// Invalidates live local PTY bridges through the ready tunnel.
-    ///
-    /// - Parameters:
-    ///   - configuration: The transport configuration selecting the shared tunnel.
-    ///   - sessionID: The persistent PTY session identifier.
-    /// - Returns: The number of invalidated endpoints for each attachment identifier.
-    public func invalidatePTYBridges(
+    /// Returns the shared lifecycle for one logical PTY attach generation.
+    public func ptySessionLifecycle(
         configuration: WorkspaceRemoteConfiguration,
-        sessionID: String
-    ) throws -> [String: Int] {
+        sessionID: String,
+        lifecycleID: String
+    ) throws -> RemotePTYSessionLifecycle {
         try withReadyTunnel(configuration: configuration) { tunnel in
-            tunnel.invalidatePTYBridges(sessionID: sessionID)
+            tunnel.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+        }
+    }
+
+    /// Retires one logical PTY attach generation after CLI reconciliation.
+    public func acknowledgePTYLifecycle(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        lifecycleID: String
+    ) throws {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            tunnel.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
         }
     }
 
@@ -176,6 +183,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     public func startPTYBridge(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool
@@ -183,6 +191,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         try withReadyTunnel(configuration: configuration) { tunnel in
             try tunnel.startPTYBridge(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting

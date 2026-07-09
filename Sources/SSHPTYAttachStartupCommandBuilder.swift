@@ -34,11 +34,13 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         if let foregroundAuth {
             lines += foregroundAuthLines(foregroundAuth)
         }
+        // The wrapper PID is stable across child retries and changes for an explicit new attach.
+        lines.append("cmux_ssh_attach_lifecycle_id=\"${CMUX_SURFACE_ID:-attach}-$$\"")
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandB64Flag = normalized(remoteCommand).map {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
         lines += retryingAttachLines(command: attachCommand)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }

@@ -5659,7 +5659,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: "printf done",
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5706,7 +5706,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5747,7 +5747,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {}
+        ) { _ in }
         let endpoint = try server.start()
         let fd = try connectLoopbackTCP(port: endpoint.port)
         defer {
@@ -5790,7 +5790,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         guard let endpoint = try server?.start() else {
@@ -5814,7 +5814,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5853,7 +5853,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5894,7 +5894,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5937,7 +5937,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5975,7 +5975,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()

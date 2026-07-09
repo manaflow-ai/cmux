@@ -4144,29 +4144,31 @@ class TerminalController {
         if let error = resolved.error { return error }
         guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
-                "workspace_id": target.workspaceId.uuidString,
-                "workspace_ref": target.workspaceRef,
-            ])
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
         do {
-            if let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !sessionID.isEmpty,
-               try controller.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed {
+            let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines), lifecycleID = v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty, v2Bool(params, "acknowledge_lifecycle") == true {
+                try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID); var payload = v2RemotePTYTargetPayload(target); payload["sessions"] = [[String: Any]](); return .ok(payload)
+            }
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty,
+               try controller.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID) == .intentionallyClosed {
+                try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
                 var payload = v2RemotePTYTargetPayload(target)
                 payload["sessions"] = [[String: Any]]()
                 payload["requested_session_lifecycle"] = RemotePTYSessionLifecycle.intentionallyClosed.rawValue
                 return .ok(payload)
             }
             let sessions = try controller.listPTYSessions()
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty,
+               !sessions.contains(where: { ($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == sessionID }) {
+                try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+            }
             var payload = v2RemotePTYTargetPayload(target)
             payload["sessions"] = sessions.map { v2RemotePTYSessionPayload($0, target: target) }
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
-                "workspace_id": target.workspaceId.uuidString,
-                "workspace_ref": target.workspaceRef,
-            ])
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
     }
 
@@ -4253,16 +4255,9 @@ class TerminalController {
             preferredSurfaceId: surfaceSelection.surfaceId
         )
         if let error = resolved.error { return error }
-        guard let target = resolved.target else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
+        guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
-                "workspace_id": target.workspaceId.uuidString,
-                "workspace_ref": target.workspaceRef,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-            ])
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef, "session_id": sessionID, "attachment_id": attachmentID])
         }
 
         do {
@@ -4305,6 +4300,7 @@ class TerminalController {
         let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
         if let error = surfaceSelection.error { return error }
         let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
+        let lifecycleID = (v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? preferredSurfaceId?.uuidString.lowercased() ?? UUID().uuidString.lowercased()
 
         let controllerDeadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
         let resolved = waitForReady
@@ -4335,6 +4331,7 @@ class TerminalController {
         do {
             let endpoint = try controller.startPTYBridge(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command?.isEmpty == true ? nil : command,
                 requireExisting: requireExisting,
@@ -4346,13 +4343,16 @@ class TerminalController {
             payload["port"] = endpoint.port
             payload["token"] = endpoint.token
             payload["session_id"] = endpoint.sessionID
+            payload["lifecycle_id"] = endpoint.lifecycleID
             payload["attachment_id"] = endpoint.attachmentID
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+            let code = (error as? RemotePTYLifecycleError) == .intentionallyClosed ? "pty_lifecycle_closed" : "remote_pty_error"
+            return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
+                "lifecycle_id": lifecycleID,
                 "attachment_id": attachmentID,
             ])
         }

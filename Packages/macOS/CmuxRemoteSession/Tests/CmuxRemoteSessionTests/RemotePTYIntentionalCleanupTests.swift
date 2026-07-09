@@ -7,164 +7,60 @@ import Testing
 
 @Suite("Remote PTY intentional cleanup")
 struct RemotePTYIntentionalCleanupTests {
-    @Test("cleanup of an attached PTY prevents the require-existing reconnect loop")
-    func attachedCleanupStopsReconnect() throws {
+    @Test("a second coordinator observes and acknowledges the shared tunnel generation")
+    func lifecycleIsSharedAcrossCoordinators() throws {
         let provider = IntentionalCleanupTestTunnelProvider()
         let broker = RemoteProxyBroker(tunnelProvider: provider)
         let configuration = Self.configuration()
-        let coordinator = Self.coordinator(configuration: configuration, broker: broker)
-        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
+        let first = Self.coordinator(configuration: configuration, broker: broker)
+        let second = Self.coordinator(configuration: configuration, broker: broker)
+        let firstLease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
+        let secondLease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
         let sessionID = "ssh-workspace-surface"
+        let lifecycleID = "logical-surface-generation"
 
-        coordinator.queue.sync {
-            coordinator.proxyLease = lease
-            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
-            coordinator.daemonReady = true
-        }
+        Self.markReady(first, lease: firstLease)
+        Self.markReady(second, lease: secondLease)
         defer {
-            coordinator.stop()
+            first.stop()
+            second.stop()
             provider.tunnel.stop()
         }
 
-        _ = try coordinator.startPTYBridge(
+        _ = try first.startPTYBridge(
             sessionID: sessionID,
+            lifecycleID: lifecycleID,
             attachmentID: "surface",
             command: nil,
             requireExisting: false
         )
-        provider.tunnel.reportInvalidatedPTYBridges(["surface": 1])
-        try coordinator.closePTYSession(sessionID: sessionID)
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed)
+        try first.closePTYSession(sessionID: sessionID)
 
+        #expect(try second.ptySessionLifecycle(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        ) == .intentionallyClosed)
+        try second.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
         for requireExisting in [true, false] {
-            #expect(throws: (any Error).self) {
-                try coordinator.startPTYBridge(
+            #expect(throws: RemotePTYLifecycleError.self) {
+                try second.startPTYBridge(
                     sessionID: sessionID,
+                    lifecycleID: lifecycleID,
                     attachmentID: "surface",
                     command: nil,
                     requireExisting: requireExisting
                 )
             }
         }
-        #expect(provider.tunnel.calls == [
-            .init(name: "bridge", sessionID: sessionID),
-            .init(name: "invalidate", sessionID: sessionID),
-            .init(name: "close", sessionID: sessionID),
-        ])
+        #expect(provider.makeCount == 1)
     }
 
-    @Test("cleanup state retires only after every affected attachment acknowledges")
-    func cleanupWaitsForAllAttachmentAcknowledgements() throws {
-        let provider = IntentionalCleanupTestTunnelProvider()
-        let broker = RemoteProxyBroker(tunnelProvider: provider)
-        let configuration = Self.configuration()
-        let coordinator = Self.coordinator(configuration: configuration, broker: broker)
-        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
-        let sessionID = "ssh-workspace-surface"
-
+    private static func markReady(_ coordinator: RemoteSessionCoordinator, lease: RemoteProxyLease) {
         coordinator.queue.sync {
             coordinator.proxyLease = lease
             coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
             coordinator.daemonReady = true
         }
-        defer {
-            coordinator.stop()
-            provider.tunnel.stop()
-        }
-
-        provider.tunnel.reportInvalidatedPTYBridges(["surface-a": 2, "surface-b": 1])
-        try coordinator.closePTYSession(sessionID: sessionID)
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed)
-
-        coordinator.acknowledgePTYAttachEnd(sessionID: "other-session", attachmentID: "surface-a")
-        coordinator.acknowledgePTYAttachEnd(sessionID: sessionID, attachmentID: "other-surface")
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed)
-
-        coordinator.acknowledgePTYAttachEnd(sessionID: sessionID, attachmentID: "surface-a")
-        coordinator.acknowledgePTYAttachEnd(sessionID: sessionID, attachmentID: "surface-b")
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .intentionallyClosed)
-
-        coordinator.acknowledgePTYAttachEnd(sessionID: sessionID, attachmentID: "surface-a")
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .active)
-    }
-
-    @Test("cleanup without a local bridge does not retain lifecycle state")
-    func cleanupWithoutBridgeDoesNotRetainTombstone() throws {
-        let provider = IntentionalCleanupTestTunnelProvider()
-        let broker = RemoteProxyBroker(tunnelProvider: provider)
-        let configuration = Self.configuration()
-        let coordinator = Self.coordinator(configuration: configuration, broker: broker)
-        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
-        let sessionID = "ssh-workspace-surface"
-
-        coordinator.queue.sync {
-            coordinator.proxyLease = lease
-            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
-            coordinator.daemonReady = true
-        }
-        defer {
-            coordinator.stop()
-            provider.tunnel.stop()
-        }
-
-        try coordinator.closePTYSession(sessionID: sessionID)
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .active)
-        _ = try coordinator.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: "surface",
-            command: nil,
-            requireExisting: false
-        )
-        #expect(provider.tunnel.calls == [
-            .init(name: "invalidate", sessionID: sessionID),
-            .init(name: "close", sessionID: sessionID),
-            .init(name: "bridge", sessionID: sessionID),
-        ])
-    }
-
-    @Test("failed cleanup rolls the lifecycle back and keeps reconnect eligible")
-    func failedCleanupRollsBack() throws {
-        let provider = IntentionalCleanupTestTunnelProvider()
-        let broker = RemoteProxyBroker(tunnelProvider: provider)
-        let configuration = Self.configuration()
-        let coordinator = Self.coordinator(configuration: configuration, broker: broker)
-        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
-        let sessionID = "ssh-workspace-surface"
-
-        coordinator.queue.sync {
-            coordinator.proxyLease = lease
-            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
-            coordinator.daemonReady = true
-        }
-        defer {
-            coordinator.stop()
-            provider.tunnel.stop()
-        }
-
-        _ = try coordinator.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: "surface",
-            command: nil,
-            requireExisting: false
-        )
-        provider.tunnel.reportInvalidatedPTYBridges(["surface": 1])
-        provider.tunnel.failCloseRequests()
-        #expect(throws: (any Error).self) {
-            try coordinator.closePTYSession(sessionID: sessionID)
-        }
-        #expect(try coordinator.ptySessionLifecycle(sessionID: sessionID) == .active)
-        _ = try coordinator.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: "surface",
-            command: nil,
-            requireExisting: true
-        )
-        #expect(provider.tunnel.calls == [
-            .init(name: "bridge", sessionID: sessionID),
-            .init(name: "invalidate", sessionID: sessionID),
-            .init(name: "close", sessionID: sessionID),
-            .init(name: "bridge", sessionID: sessionID),
-        ])
     }
 
     private static func configuration() -> WorkspaceRemoteConfiguration {
@@ -244,9 +140,7 @@ private struct IntentionalCleanupRelayCommandRewriter: RemoteRelayCommandRewriti
         _ commandLine: Data,
         workspaceAliases: [UUID: UUID],
         surfaceAliases: [UUID: UUID]
-    ) -> Data {
-        commandLine
-    }
+    ) -> Data { commandLine }
 }
 
 private struct IntentionalCleanupBuildInfo: RemoteSessionBuildInfoProviding {

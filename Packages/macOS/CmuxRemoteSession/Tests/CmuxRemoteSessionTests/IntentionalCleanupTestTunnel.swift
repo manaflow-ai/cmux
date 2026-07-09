@@ -1,70 +1,51 @@
 import CmuxRemoteWorkspace
 import Foundation
 
-/// Records PTY calls while presenting a ready in-memory tunnel to the session coordinator.
+/// Shared fake whose lifecycle table models the tunnel-owned coordinator seam.
 final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Sendable {
-    struct Call: Equatable {
-        let name: String
+    private struct Key: Hashable {
         let sessionID: String
+        let lifecycleID: String
     }
 
     private let lock = NSLock()
-    private var recordedCalls: [Call] = []
+    private var lifecycleByKey: [Key: RemotePTYSessionLifecycle] = [:]
     private var bridgeServers: [RemotePTYBridgeServer] = []
-    private var shouldFailClose = false
-    private var invalidatedAttachmentCounts: [String: Int] = [:]
-
-    var calls: [Call] {
-        lock.withLock { recordedCalls }
-    }
-
-    func failCloseRequests() {
-        lock.withLock {
-            shouldFailClose = true
-        }
-    }
-
-    func reportInvalidatedPTYBridges(_ attachmentCounts: [String: Int]) {
-        lock.withLock {
-            invalidatedAttachmentCounts = attachmentCounts
-        }
-    }
 
     func start() throws {}
+
     func stop() {
         let servers = lock.withLock {
             let servers = bridgeServers
             bridgeServers.removeAll()
+            lifecycleByKey.removeAll()
             return servers
         }
-        for server in servers {
-            server.stop()
-        }
+        for server in servers { server.stop() }
     }
 
-    func listPTY() throws -> [[String: Any]] {
-        []
-    }
+    func listPTY() throws -> [[String: Any]] { [] }
 
     func closePTY(sessionID: String) throws {
-        record(name: "close", sessionID: sessionID)
-        if lock.withLock({ shouldFailClose }) {
-            throw NSError(domain: "cmux.tests.intentional-cleanup", code: 1)
+        let servers = lock.withLock {
+            for key in lifecycleByKey.keys where key.sessionID == sessionID {
+                lifecycleByKey[key] = .intentionallyClosed
+            }
+            let servers = bridgeServers
+            bridgeServers.removeAll()
+            return servers
         }
+        for server in servers { server.stop() }
     }
 
-    func invalidatePTYBridges(sessionID: String) -> [String: Int] {
-        record(name: "invalidate", sessionID: sessionID)
-        let snapshot = lock.withLock {
-            let snapshot = (invalidatedAttachmentCounts, bridgeServers)
-            invalidatedAttachmentCounts = [:]
-            bridgeServers = []
-            return snapshot
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
+        lock.withLock { lifecycleByKey[Key(sessionID: sessionID, lifecycleID: lifecycleID)] ?? .active }
+    }
+
+    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
+        lock.withLock {
+            lifecycleByKey[Key(sessionID: sessionID, lifecycleID: lifecycleID)] = .intentionallyClosed
         }
-        for server in snapshot.1 {
-            server.stop()
-        }
-        return snapshot.0
     }
 
     func resizePTY(
@@ -83,30 +64,30 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
 
     func startPTYBridge(
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
-        record(name: "bridge", sessionID: sessionID)
+        let key = Key(sessionID: sessionID, lifecycleID: lifecycleID)
+        if lock.withLock({ lifecycleByKey[key] == .intentionallyClosed }) {
+            throw RemotePTYLifecycleError.intentionallyClosed
+        }
         let server = RemotePTYBridgeServer(
             rpcClient: IntentionalCleanupBridgeRPCClient(),
             sessionID: sessionID,
+            lifecycleID: lifecycleID,
             attachmentID: attachmentID,
             command: command,
             requireExisting: requireExisting,
             strings: IntentionalCleanupBridgeStrings(),
-            onStop: {}
+            onStop: { _ in }
         )
         let endpoint = try server.start()
         lock.withLock {
+            lifecycleByKey[key] = .active
             bridgeServers.append(server)
         }
         return endpoint
-    }
-
-    private func record(name: String, sessionID: String) {
-        lock.withLock {
-            recordedCalls.append(Call(name: name, sessionID: sessionID))
-        }
     }
 }

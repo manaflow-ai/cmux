@@ -5270,25 +5270,6 @@ final class Workspace: Identifiable, ObservableObject {
         try controller.closePTYSession(sessionID: sessionID)
     }
 
-    func startRemotePTYBridge(
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) throws -> RemotePTYBridgeServer.Endpoint {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            command: command,
-            requireExisting: requireExisting
-        )
-    }
-
     func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [

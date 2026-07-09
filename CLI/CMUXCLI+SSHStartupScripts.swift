@@ -79,6 +79,7 @@ extension CMUXCLI {
             "--wait",
             "--workspace", "\"$cmux_ssh_pty_workspace_id\"",
             "--session-id", "\"$cmux_ssh_pty_session_id\"",
+            "--lifecycle-id", "\"$cmux_ssh_pty_lifecycle_id\"",
             "--attachment-id", "\"$cmux_ssh_pty_surface_id\"",
             "--command-b64", shellQuote(commandB64),
         ].joined(separator: " ")
@@ -88,6 +89,8 @@ extension CMUXCLI {
             "if [ -z \"$cmux_ssh_pty_workspace_id\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
             "if [ -z \"$cmux_ssh_pty_surface_id\" ]; then printf '%s\\n' '[cmux] required terminal context missing for SSH PTY attach.' >&2; exit 1; fi",
             "cmux_ssh_pty_session_id=\"ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id\"",
+            // Stable across the outer wrapper's child retries, fresh for a new wrapper.
+            "cmux_ssh_pty_lifecycle_id=\"$cmux_ssh_pty_surface_id-$$\"",
             "exec \(attachCommand)",
         ].joined(separator: "\n")
     }

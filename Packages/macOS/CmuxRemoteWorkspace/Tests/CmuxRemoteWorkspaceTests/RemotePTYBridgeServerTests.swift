@@ -250,7 +250,7 @@ private final class BridgeTestClient: @unchecked Sendable {
 struct RemotePTYBridgeServerTests {
     private func makeServer(
         client: any RemotePTYBridgeRPCClient,
-        onStop: @escaping () -> Void = {}
+        onStop: @escaping (RemotePTYBridgeStopDisposition) -> Void = { _ in }
     ) -> RemotePTYBridgeServer {
         RemotePTYBridgeServer(
             rpcClient: client,
@@ -285,6 +285,7 @@ struct RemotePTYBridgeServerTests {
         #expect(endpoint.port > 0)
         #expect(!endpoint.token.isEmpty)
         #expect(endpoint.sessionID == "session-1")
+        #expect(endpoint.lifecycleID == "attachment-1")
         #expect(endpoint.attachmentID == "attachment-1")
     }
 
@@ -473,7 +474,7 @@ struct RemotePTYBridgeServerTests {
     func stopFiresOnStopOnce() throws {
         let counter = NSLock()
         nonisolated(unsafe) var stops = 0
-        let server = makeServer(client: RecordingPTYBridgeRPCClient()) {
+        let server = makeServer(client: RecordingPTYBridgeRPCClient()) { _ in
             counter.lock()
             stops += 1
             counter.unlock()

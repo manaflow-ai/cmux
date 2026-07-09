@@ -39,12 +39,15 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         public let token: String
         /// Remote persistent PTY session this bridge attaches to.
         public let sessionID: String
+        /// Stable logical generation shared by every reconnect bridge for this attach.
+        public let lifecycleID: String
         /// Attachment identifier requested for this bridge.
         public let attachmentID: String
     }
 
     private let rpcClient: any RemotePTYBridgeRPCClient
     private let sessionID: String
+    private let lifecycleID: String
     private let attachmentID: String
     private let command: String?
     private let requireExisting: Bool
@@ -52,11 +55,12 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     private let clock: any RemoteProxyRetryClock
     private let token = UUID().uuidString.lowercased()
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.\(UUID().uuidString)", qos: .userInitiated)
-    private let onStop: () -> Void
+    private let onStop: (RemotePTYBridgeStopDisposition) -> Void
 
     private var listener: NWListener?
     private var session: Session?
     private var isStopped = false
+    private var acceptedClient = false
     private var unusedBridgeTimeoutTask: Task<Void, Never>?
 
     /// Creates a bridge server for one remote PTY attachment.
@@ -64,6 +68,8 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     /// - Parameters:
     ///   - rpcClient: Daemon RPC seam used to attach/write/detach.
     ///   - sessionID: Remote persistent PTY session identifier.
+    ///   - lifecycleID: Stable logical generation reused across reconnect attempts;
+    ///     defaults to `attachmentID` for standalone callers.
     ///   - attachmentID: Attachment identifier to request.
     ///   - command: Optional command to start when the session does not
     ///     exist yet.
@@ -73,20 +79,22 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     ///     app-side).
     ///   - clock: Sleep seam driving the handshake and unused-bridge
     ///     timeouts (virtual time in tests).
-    ///   - onStop: Invoked exactly once, on the bridge queue, when the
-    ///     bridge stops for any reason.
+    ///   - onStop: Invoked exactly once, on the bridge queue, with whether a
+    ///     local client had connected.
     public init(
         rpcClient: any RemotePTYBridgeRPCClient,
         sessionID: String,
+        lifecycleID: String? = nil,
         attachmentID: String,
         command: String?,
         requireExisting: Bool,
         strings: any RemotePTYBridgeStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
-        onStop: @escaping () -> Void
+        onStop: @escaping (RemotePTYBridgeStopDisposition) -> Void
     ) {
         self.rpcClient = rpcClient
         self.sessionID = sessionID
+        self.lifecycleID = lifecycleID ?? attachmentID
         self.attachmentID = attachmentID
         self.command = command
         self.requireExisting = requireExisting
@@ -152,6 +160,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             port: startupPort,
             token: token,
             sessionID: sessionID,
+            lifecycleID: lifecycleID,
             attachmentID: attachmentID
         )
     }
@@ -168,6 +177,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             connection.cancel()
             return
         }
+        acceptedClient = true
         unusedBridgeTimeoutTask?.cancel()
         unusedBridgeTimeoutTask = nil
         listener?.newConnectionHandler = nil
@@ -219,7 +229,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         let activeSession = session
         session = nil
         activeSession?.stop()
-        onStop()
+        onStop(acceptedClient ? .acceptedClient : .unused)
     }
 
     private static func makeLoopbackListener() throws -> NWListener {

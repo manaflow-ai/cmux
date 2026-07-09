@@ -17,7 +17,7 @@ struct RemotePTYBridgeSessionErrorCodeTests {
             command: nil,
             requireExisting: true,
             strings: TestPTYBridgeStrings(),
-            onStop: {}
+            onStop: { _ in }
         )
         defer { server.stop() }
         let endpoint = try server.start()

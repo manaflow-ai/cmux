@@ -1,7 +1,6 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
-import CmuxRemoteSession
 import CmuxWorkspaces
 import Foundation
 
@@ -702,9 +701,7 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound
         }
-        let controller = workspace.remotePTYSessionControllerForSocketCommand()
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
-        controller?.acknowledgePTYAttachEnd(sessionID: sessionID, attachmentID: surfaceId.uuidString)
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId, workspaceID: workspace.id,

@@ -58,6 +58,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "port": bridge.port,
                         "token": "bridge-token-\(bridgeCount)",
                         "session_id": sessionId,
+                        "lifecycle_id": params["lifecycle_id"] as? String ?? "",
                         "attachment_id": surfaceId,
                     ]
                 )
@@ -127,6 +128,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return (request["params"] as? [String: Any])?["require_existing"] as? Bool
         }
         XCTAssertEqual(bridgeRequireExisting, [true, false])
+        let lifecycleIDs = requests.compactMap { request -> String? in
+            guard ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions"]
+                .contains(request["method"] as? String) else { return nil }
+            return (request["params"] as? [String: Any])?["lifecycle_id"] as? String
+        }
+        XCTAssertFalse(lifecycleIDs.isEmpty)
+        XCTAssertEqual(Set(lifecycleIDs).count, 1, "logical generation changed across respawn: \(lifecycleIDs)")
 
         // The session-lost respawn must keep the app-side surface tracking
         // intact between the failed require-existing attach and the fresh
@@ -179,6 +187,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "port": bridge.port,
                     "token": "bridge-token",
                     "session_id": sessionId,
+                    "lifecycle_id": surfaceId,
                     "attachment_id": surfaceId,
                 ])
             case "workspace.remote.pty_resize":
@@ -219,6 +228,75 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 1, "\(methods)")
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")
+    }
+
+    func testSSHPTYAttachClosedGenerationBeforeReadyEndsWithoutWrapperRetry() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyclosedstart")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let lifecycleId = "44444444-4444-4444-4444-444444444444"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if method != "workspace.remote.pty_attach_end" {
+                XCTAssertEqual(params["lifecycle_id"] as? String, lifecycleId)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "pty_lifecycle_closed", "message": "remote PTY operation failed"]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: [
+                    "requested_session_lifecycle": "intentionally_closed",
+                    "sessions": [],
+                ])
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(id: id, ok: true, result: ["ended": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach", "--wait", "--require-existing",
+                "--workspace", workspaceId, "--session-id", sessionId,
+                "--lifecycle-id", lifecycleId, "--attachment-id", surfaceId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }

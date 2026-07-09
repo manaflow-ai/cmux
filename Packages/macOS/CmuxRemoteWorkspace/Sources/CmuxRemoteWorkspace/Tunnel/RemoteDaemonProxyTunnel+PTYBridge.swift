@@ -1,63 +1,108 @@
 internal import Foundation
 
 extension RemoteDaemonProxyTunnel {
-    /// Starts a single-use loopback PTY bridge server for a terminal attach
-    /// and returns its endpoint.
+    /// Starts a single-use loopback bridge for one stable logical attach generation.
     public func startPTYBridge(
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
         try queue.sync {
-            guard let rpcClient, !isStopped else {
+            guard let ptyRPCClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
+            let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
             let bridgeID = UUID()
+            try ptyLifecycleRegistry.registerBridge(
+                key: lifecycleKey,
+                attachmentID: attachmentID,
+                bridgeID: bridgeID
+            )
             let server = RemotePTYBridgeServer(
-                rpcClient: rpcClient,
-                sessionID: sessionID,
+                rpcClient: ptyRPCClient,
+                sessionID: lifecycleKey.sessionID,
+                lifecycleID: lifecycleKey.lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting,
                 strings: ptyBridgeStrings,
                 clock: clock
-            ) { [weak self] in
+            ) { [weak self] disposition in
                 guard let self else { return }
                 self.queue.async {
-                    self.ptyBridgeServers.removeValue(forKey: bridgeID)
+                    guard let record = self.ptyBridgeServers.removeValue(forKey: bridgeID) else { return }
+                    self.ptyLifecycleRegistry.bridgeStopped(
+                        key: record.lifecycleKey,
+                        bridgeID: bridgeID,
+                        disposition: disposition
+                    )
                 }
             }
-            let endpoint = try server.start()
-            ptyBridgeServers[bridgeID] = RemotePTYBridgeServerRecord(
-                server: server,
-                sessionID: sessionID,
-                attachmentID: attachmentID
-            )
-            return endpoint
+            do {
+                let endpoint = try server.start()
+                ptyBridgeServers[bridgeID] = RemotePTYBridgeServerRecord(
+                    server: server,
+                    lifecycleKey: lifecycleKey
+                )
+                return endpoint
+            } catch {
+                ptyLifecycleRegistry.bridgeStopped(
+                    key: lifecycleKey,
+                    bridgeID: bridgeID,
+                    disposition: .unused
+                )
+                throw error
+            }
         }
     }
 
-    /// Invalidates every live local bridge for `sessionID` and returns the
-    /// number of affected endpoints for each attachment identifier.
-    ///
-    /// - Parameter sessionID: The persistent PTY session identifier.
-    /// - Returns: The number of invalidated endpoints for each attachment identifier.
-    public func invalidatePTYBridges(sessionID: String) -> [String: Int] {
-        queue.sync {
-            let invalidated = ptyBridgeServers.filter { $0.value.sessionID == sessionID }
-            for bridgeID in invalidated.keys {
-                ptyBridgeServers.removeValue(forKey: bridgeID)
+    /// Intentionally closes a remote PTY and gates every known logical attach generation first.
+    public func closePTY(sessionID: String) throws {
+        try queue.sync {
+            guard let ptyRPCClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
             }
-
-            var attachmentCounts: [String: Int] = [:]
-            for record in invalidated.values {
-                attachmentCounts[record.attachmentID, default: 0] += 1
+            let previous = ptyLifecycleRegistry.requestIntentionalClose(sessionID: sessionID)
+            let matchingServers = ptyBridgeServers.values.filter {
+                $0.lifecycleKey.sessionID == RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: "").sessionID
+            }
+            for record in matchingServers {
                 record.server.stop()
             }
-            return attachmentCounts
+            do {
+                try ptyRPCClient.closePTY(sessionID: sessionID)
+                ptyLifecycleRegistry.completeIntentionalClose(previous)
+            } catch {
+                ptyLifecycleRegistry.rollbackIntentionalClose(previous)
+                throw error
+            }
+        }
+    }
+
+    /// Returns the shared tunnel decision for one logical attach generation.
+    public func ptySessionLifecycle(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYSessionLifecycle {
+        queue.sync {
+            ptyLifecycleRegistry.lifecycle(
+                for: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+
+    /// Retires one logical attach generation after its CLI reconciles terminal end state.
+    public func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
+        queue.sync {
+            ptyLifecycleRegistry.acknowledge(
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
         }
     }
 }
