@@ -52,8 +52,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function SubrouterOverviewPage({ params, searchParams }: PageProps) {
-  const { locale } = await params;
-  const { team: teamParam } = await searchParams;
+  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
 
   if (!isStackConfigured()) {
@@ -64,8 +63,10 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
 
-  const tPage = await getTranslations({ locale, namespace: "dashboard.subrouter" });
-  const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
+  const [tPage, t] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.subrouter" }),
+    getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
+  ]);
   const teams = await dashboardTeams(stackUser, t("personalTeam"));
   const selectedTeam = selectTeam(teams, team);
   const accountState = await loadAccounts(selectedTeam);

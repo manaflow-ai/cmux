@@ -102,7 +102,9 @@ mock.module("../services/billing/stripe", () => ({
   }),
 }));
 
+const actualErrorsModule = await import("../services/errors");
 mock.module("../services/errors", () => ({
+  ...actualErrorsModule,
   captureBillingError,
 }));
 

@@ -1,0 +1,130 @@
+name: sdk publish java
+
+on:
+  push:
+    tags:
+      - "mux-sdk-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SDK version to validate, for example 0.1.0"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: sdk-publish-java-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate tag and package versions
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^mux-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match mux-sdk-vX.Y.Z" >&2
+              exit 1
+            }
+            version="${GITHUB_REF_NAME#mux-sdk-v}"
+          else
+            version="$DISPATCH_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          python3 - "$version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import tomllib
+
+          expected = sys.argv[1]
+          root = pathlib.Path.cwd()
+          versions = {
+              "typescript package.json": json.loads((root / "mux/bindings/typescript/package.json").read_text())["version"],
+              "python pyproject.toml": tomllib.loads((root / "mux/bindings/python/pyproject.toml").read_text())["project"]["version"],
+              "rust Cargo.toml": tomllib.loads((root / "mux/bindings/rust/Cargo.toml").read_text())["package"]["version"],
+          }
+          mismatches = {name: got for name, got in versions.items() if got != expected}
+          if mismatches:
+              for name, got in mismatches.items():
+                  print(f"{name}: expected {expected}, got {got}", file=sys.stderr)
+              raise SystemExit(1)
+          print(f"All package versions match {expected}")
+          PY
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  bindings-e2e-java:
+    needs: version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Java version
+        run: |
+          echo "JAVA_HOME_17_X64=$JAVA_HOME_17_X64"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          export PATH="$JAVA_HOME_17_X64/bin:$PATH"
+          java -version
+          javac -version
+
+      - name: Build mux server
+        working-directory: mux
+        run: cargo build -p mux-tui
+
+      - name: Python conformance fixtures
+        run: python3 mux/bindings/conformance/runner.py
+
+      - name: Java binding e2e
+        run: bash mux/bindings/conformance/e2e.sh --require java
+
+  maven-central-todo:
+    needs: bindings-e2e-java
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Maven Central publish not implemented
+        run: |
+          echo "Java publishing is intentionally not automated yet."
+          echo "TODO: add Maven Central publishing after com.cmux namespace verification, project metadata, and signing/provenance setup are complete."

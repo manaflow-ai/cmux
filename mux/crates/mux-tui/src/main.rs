@@ -16,8 +16,8 @@ mod session;
 mod ui;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mux_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
@@ -54,6 +54,7 @@ OPTIONS:
   --headless         Run only the control socket, no TUI.
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
+  -V, --version      Print the cmux-mux version.
 
 KEYS (prefix: Ctrl-b)
   c  new tab in pane   B    new browser tab    n/p  next/prev tab
@@ -73,13 +74,17 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, list-workspaces, send, read-screen, vt-state, new-tab,
-  new-browser-tab, new-workspace, new-screen, split, set-ratio,
-  set-default-colors, close-surface, close-pane, close-screen,
-  close-workspace, rename-pane, rename-surface, rename-screen,
-  rename-workspace, resize-surface, focus-pane, select-tab,
-  select-screen, select-workspace, move-tab, move-workspace,
-  scroll-surface, subscribe, attach-surface
+  identify, ping, reload-config, set-window-title, clear-window-title,
+  list-workspaces, export-layout, apply-layout, send,
+  read-screen, vt-state, new-tab, new-browser-tab, new-workspace,
+  new-screen, split, set-ratio, pane-neighbor, focus-direction,
+  swap-pane, zoom-pane, process-info, set-default-colors,
+  close-surface, close-pane, close-screen, close-workspace,
+  rename-pane, rename-surface, rename-screen, rename-workspace,
+  resize-surface, focus-pane, select-tab, select-screen,
+  select-workspace, move-tab, move-workspace, scroll-surface,
+  subscribe, attach-surface, wait-for, run, send-key, copy, ids,
+  notify, list-agents, report-agent
 ";
 
 struct Args {
@@ -106,24 +111,38 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--session" => {
-                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"))
+                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"));
             }
             "--socket" => {
-                out.socket =
-                    Some(args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into())
+                out.socket = Some(
+                    args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
+                );
             }
             "--headless" => out.headless = true,
             "--term" => {
-                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")))
+                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")));
             }
             "-h" | "--help" => {
                 print!("{USAGE}");
+                std::process::exit(0);
+            }
+            "-V" | "--version" => {
+                println!("cmux-mux {}", version_string());
                 std::process::exit(0);
             }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
     }
     out
+}
+
+fn version_string() -> String {
+    // CI artifact builds stamp the commit so binaries in cloud snapshots are
+    // traceable back to a cmux revision; local builds report the crate version.
+    match option_env!("CMUX_MUX_BUILD_COMMIT") {
+        Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
 }
 
 fn main() {
@@ -154,14 +173,7 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
-    surface_options.chrome_binary = config.browser.chrome_binary.clone();
-    surface_options.cdp_url = config.browser.cdp_url.clone();
-    surface_options.browser_discover = config.browser.discover;
-    surface_options.browser_discover_ports = config.browser.discover_ports.clone();
-    surface_options.browser_user_data_dir = config.browser.user_data_dir.clone();
-    surface_options.browser_ephemeral = config.browser.ephemeral;
-    surface_options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
-    surface_options.browser_capture_scale = config.browser.capture_scale;
+    config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
     }
@@ -171,6 +183,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
     let mux = Mux::new(args.session.clone(), surface_options);
+    mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     let result = if args.headless {
@@ -207,7 +220,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
             Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250))
+                std::thread::park_timeout(std::time::Duration::from_millis(250));
             }
         }
     }

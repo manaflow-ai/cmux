@@ -1,4 +1,4 @@
-import { MuxClient, MuxCommandError, MuxTimeoutError, Tree } from "../src/index.js";
+import { CmuxClient, CmuxCommandError, CmuxTimeoutError, Tree } from "../src/index.js";
 
 async function main(): Promise<void> {
   const socketPath = process.env.CMUX_MUX_SOCKET;
@@ -6,7 +6,7 @@ async function main(): Promise<void> {
 
   const marker = `CMUX_TS_E2E_${process.pid}_${Date.now()}`;
   const later = `${marker}_ATTACH`;
-  const client = new MuxClient({ socketPath, timeoutMs: 5000 });
+  const client = new CmuxClient({ socketPath, timeoutMs: 5000 });
   try {
     const identify = await client.identify();
     assert(identify.app === "cmux-mux", `unexpected app ${identify.app}`);
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${JSON.stringify(resized)}`);
     await client.resizeSurface(created.surface, 100, 31);
     const duplicate = await nextSurfaceResized(events, created.surface, 500).catch((err) => {
-      if (err instanceof MuxTimeoutError) return null;
+      if (err instanceof CmuxTimeoutError) return null;
       throw err;
     });
     assert(duplicate === null, "same-size resize emitted surface-resized");
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
       await client.readScreen(created.surface);
       throw new Error("read-screen on closed surface unexpectedly succeeded");
     } catch (err) {
-      assert(err instanceof MuxCommandError, `closed surface error was not command error: ${err}`);
+      assert(err instanceof CmuxCommandError, `closed surface error was not command error: ${err}`);
       assert(String(err.message).length > 0, "command error did not preserve server message");
     }
   } finally {
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function waitForMarker(client: MuxClient, surface: number, marker: string): Promise<void> {
+async function waitForMarker(client: CmuxClient, surface: number, marker: string): Promise<void> {
   const deadline = Date.now() + 5000;
   let last = "";
   while (Date.now() < deadline) {
@@ -69,21 +69,21 @@ async function waitForMarker(client: MuxClient, surface: number, marker: string)
   throw new Error(`marker not found; last screen: ${JSON.stringify(last)}`);
 }
 
-async function nextSurfaceResized(events: Awaited<ReturnType<MuxClient["subscribe"]>>, surface: number, timeoutMs: number) {
+async function nextSurfaceResized(events: Awaited<ReturnType<CmuxClient["subscribe"]>>, surface: number, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new MuxTimeoutError("surface-resized not observed");
+    if (remaining <= 0) throw new CmuxTimeoutError("surface-resized not observed");
     const event = await events.next(remaining);
     if (event.event === "surface-resized" && event.surface === surface) return event;
   }
 }
 
-async function nextAttachOutput(attach: Awaited<ReturnType<MuxClient["attachSurface"]>>, timeoutMs: number) {
+async function nextAttachOutput(attach: Awaited<ReturnType<CmuxClient["attachSurface"]>>, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new MuxTimeoutError("attach output not observed");
+    if (remaining <= 0) throw new CmuxTimeoutError("attach output not observed");
     const event = await attach.next(remaining);
     if (event.event === "output" || event.event === "resized") return event;
   }

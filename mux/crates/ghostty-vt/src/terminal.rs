@@ -3,7 +3,7 @@ use std::ptr;
 
 use ghostty_vt_sys as sys;
 
-use crate::{check, Result};
+use crate::{Result, check};
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -357,25 +357,25 @@ impl Terminal {
                 value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
             };
             let mut out = sys::GhosttyGridRef {
-                size: std::mem::size_of::<sys::GhosttyGridRef>(),
+                size: size_of::<sys::GhosttyGridRef>(),
                 ..Default::default()
             };
             let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
             (result == sys::GHOSTTY_SUCCESS).then_some(out)
         };
         let selection = sys::GhosttySelection {
-            size: std::mem::size_of::<sys::GhosttySelection>(),
+            size: size_of::<sys::GhosttySelection>(),
             start: grid_ref(start.0, start.1)?,
             end: grid_ref(end.0, end.1)?,
             rectangle: false,
         };
         let opts = sys::GhosttyFormatterTerminalOptions {
-            size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
             unwrap: unwrap_lines,
             trim,
             extra: sys::GhosttyFormatterTerminalExtra {
-                size: std::mem::size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
                 ..Default::default()
             },
             selection: &selection,
@@ -388,12 +388,12 @@ impl Terminal {
     /// scrollback. For the rendered viewport only, use [`Self::viewport_text`].
     pub fn plain_text(&mut self) -> Result<String> {
         let opts = sys::GhosttyFormatterTerminalOptions {
-            size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
             unwrap: false,
             trim: true,
             extra: sys::GhosttyFormatterTerminalExtra {
-                size: std::mem::size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
                 ..Default::default()
             },
             selection: ptr::null(),
@@ -408,12 +408,12 @@ impl Terminal {
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<Vec<u8>> {
         let opts = sys::GhosttyFormatterTerminalOptions {
-            size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
             unwrap: false,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
-                size: std::mem::size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
                 palette: true,
                 modes: true,
                 scrolling_region: true,
@@ -421,7 +421,7 @@ impl Terminal {
                 pwd: true,
                 keyboard: true,
                 screen: sys::GhosttyFormatterScreenExtra {
-                    size: std::mem::size_of::<sys::GhosttyFormatterScreenExtra>(),
+                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
                     cursor: true,
                     style: true,
                     hyperlink: true,

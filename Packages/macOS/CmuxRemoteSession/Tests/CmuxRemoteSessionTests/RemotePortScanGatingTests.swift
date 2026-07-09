@@ -17,6 +17,23 @@ import CmuxRemoteWorkspace
 // returns immediately, so `runCount` and the timer/coalesce state are exact.
 @Suite("Remote port scan settings gating")
 struct RemotePortScanGatingTests {
+    @Test("Ready update for an existing proxy endpoint republishes connected")
+    func readyForExistingProxyEndpointRepublishesConnected() {
+        let runner = SpyProcessRunner()
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host, terminalStartupCommand: "true")
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 49152)
+
+        coordinator.queue.sync {
+            coordinator.proxyEndpoint = endpoint
+            coordinator.handleProxyBrokerUpdateLocked(.ready(endpoint))
+        }
+
+        #expect(host.connectionStates.map(\.state).contains(.connected))
+        #expect(host.connectionStates.last?.detail?.contains("shared local proxy 127.0.0.1:49152") == true)
+        coordinator.stop()
+    }
+
     @Test("Disabling stops the host-wide poll timer and spawns no ssh")
     func disablingStopsPollTimer() {
         let runner = SpyProcessRunner()
@@ -207,12 +224,38 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("Baked VM preflight ignores persistent PTY capabilities")
+    func bakedVMPreflightIgnoresPersistentPTYCapabilities() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        #expect(coordinator.requiredDaemonCapabilities == [
+            "proxy.stream.push",
+            "pty.session",
+            "pty.session.token",
+            "pty.write.notification",
+            "pty.resize.notification",
+            "pty.session.persistent_daemon",
+        ])
+        #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
+        coordinator.stop()
+    }
+
     // MARK: - Harness
 
     private static func makeCoordinator(
         runner: SpyProcessRunner,
+        host: any RemoteSessionHosting = NoopRemoteSessionHost(),
         terminalStartupCommand: String? = nil,
-        relayPort: Int? = nil
+        relayPort: Int? = nil,
+        preserveAfterTerminalExit: Bool = false,
+        persistentDaemonSlot: String? = nil,
+        skipDaemonBootstrap: Bool = false
     ) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
@@ -225,11 +268,12 @@ struct RemotePortScanGatingTests {
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: terminalStartupCommand,
-            preserveAfterTerminalExit: false,
-            persistentDaemonSlot: nil
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
         )
         return RemoteSessionCoordinator(
-            host: NoopRemoteSessionHost(),
+            host: host,
             configuration: configuration,
             proxyBroker: UnusedRemoteProxyBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
@@ -277,6 +321,27 @@ private final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Se
 
 private struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
+    func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
+    func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
+    func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}
+    func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
+    func publishBootstrapRemoteTTY(_ ttyName: String) {}
+}
+
+private final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []
+
+    var connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] {
+        lock.withLock { _connectionStates }
+    }
+
+    func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
+        lock.withLock {
+            _connectionStates.append((state, detail))
+        }
+    }
+
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
     func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}

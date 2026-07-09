@@ -123,9 +123,9 @@ rust_cmd() {
   case "$1" in
     check)
       command -v cargo >/dev/null || { echo "cargo not found"; return 127; }
-      (cd "$MUX_DIR" && cargo build -p cmux-mux-client --example e2e --locked)
+      (cd "$MUX_DIR" && cargo build -p cmux-client --example e2e --locked)
       ;;
-    run) (cd "$MUX_DIR" && cargo run -p cmux-mux-client --example e2e --locked --quiet) ;;
+    run) (cd "$MUX_DIR" && cargo run -p cmux-client --example e2e --locked --quiet) ;;
   esac
 }
 
@@ -146,9 +146,9 @@ java_cmd() {
       command -v java >/dev/null || { echo "java not found"; return 127; }
       javac -version >/dev/null 2>&1 || { javac -version 2>&1; return 127; }
       java -version >/dev/null 2>&1 || { java -version 2>&1; return 127; }
-      (cd "$ROOT/mux/bindings/java" && bash scripts/build.sh && java -cp out com.manaflow.cmux.mux.JsonTest && java -cp out com.manaflow.cmux.mux.StreamOpenTest && java -cp out com.manaflow.cmux.mux.WireCaptureTest)
+      (cd "$ROOT/mux/bindings/java" && bash scripts/build.sh && java -cp out com.cmux.JsonTest && java -cp out com.cmux.StreamOpenTest && java -cp out com.cmux.WireCaptureTest)
       ;;
-    run) (cd "$ROOT/mux/bindings/java" && java -cp out com.manaflow.cmux.mux.E2e) ;;
+    run) (cd "$ROOT/mux/bindings/java" && java -cp out com.cmux.E2e) ;;
   esac
 }
 

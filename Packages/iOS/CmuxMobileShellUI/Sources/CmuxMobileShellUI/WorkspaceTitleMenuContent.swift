@@ -4,6 +4,8 @@ import SwiftUI
 
 struct WorkspaceTitleMenuContent: View {
     let workspace: MobileWorkspacePreview
+    let canRenameWorkspace: Bool
+    let canToggleReadState: Bool
     let canCloseWorkspace: Bool
     let presentConnectionInfo: () -> Void
     let presentRename: () -> Void
@@ -11,6 +13,7 @@ struct WorkspaceTitleMenuContent: View {
     let requestClose: () -> Void
 
     var body: some View {
+        // Connection info is always available, so the title menu always renders.
         Section(workspace.name) {
             Button(action: presentConnectionInfo) {
                 Label(
@@ -23,40 +26,36 @@ struct WorkspaceTitleMenuContent: View {
             }
             .accessibilityIdentifier("MobileWorkspaceTitleConnectionInfoMenuItem")
 
-            if workspace.actionCapabilities.supportsWorkspaceActions
-                || workspace.actionCapabilities.supportsReadStateActions
-                || canCloseWorkspace {
-                if workspace.actionCapabilities.supportsWorkspaceActions {
-                    Button(action: presentRename) {
-                        Label(
-                            L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
-                            systemImage: "pencil"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+            if canRenameWorkspace {
+                Button(action: presentRename) {
+                    Label(
+                        L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
+                        systemImage: "pencil"
+                    )
                 }
+                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+            }
 
-                if workspace.actionCapabilities.supportsReadStateActions {
-                    Button(action: toggleReadState) {
-                        Label(
-                            workspace.hasUnread
-                                ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
-                                : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                            systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+            if canToggleReadState {
+                Button(action: toggleReadState) {
+                    Label(
+                        workspace.hasUnread
+                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                    )
                 }
+                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+            }
 
-                if canCloseWorkspace {
-                    Button(role: .destructive, action: requestClose) {
-                        Label(
-                            L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
-                            systemImage: "xmark.square"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleCloseMenuItem")
+            if canCloseWorkspace {
+                Button(role: .destructive, action: requestClose) {
+                    Label(
+                        L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
+                        systemImage: "xmark.square"
+                    )
                 }
+                .accessibilityIdentifier("MobileWorkspaceTitleCloseMenuItem")
             }
         }
     }

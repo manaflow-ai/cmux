@@ -20,8 +20,8 @@ const proUser = {
   isAnonymous: false,
   primaryEmail: "pro@example.com",
   clientReadOnlyMetadata: {},
-  selectedTeam: null as null | { id: string; displayName?: string },
-  listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
+  selectedTeam: null as null | { id: string; displayName?: string; clientReadOnlyMetadata?: unknown },
+  listTeams: mock(async () => [] as Array<{ id: string; displayName?: string; clientReadOnlyMetadata?: unknown }>),
   listProducts: mock(async () =>
     Object.assign(
       stackProductsActive
@@ -90,16 +90,23 @@ describe("dashboard billing page", () => {
     customerRows = [];
     proUser.selectedTeam = null;
     proUser.listTeams.mockClear();
+    mockImplementation(proUser.listTeams, async () => []);
     proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
 
-  test("renders the Free plan state with a pricing link", async () => {
+  test("renders the Free plan state with pricing cards and TestFlight link", async () => {
     const html = await renderBillingPage();
 
     expect(html).toContain("Free");
     expect(html).toContain("You are currently on the Free plan.");
-    expect(html).toContain('href="/pricing"');
+    expect(html).toContain("Upgrade when you need cloud agents or team billing.");
+    expect(html).toContain('href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1"');
+    expect(html).toContain('href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1"');
+    expect(html).toContain("Get Pro");
+    expect(html).toContain("Get Teams");
+    expect(html).toContain('href="/dashboard/testflight"');
+    expect(html).toContain("Join the iOS beta");
     expect(html).not.toContain("/api/billing/subscription");
   });
 
@@ -154,6 +161,33 @@ describe("dashboard billing page", () => {
     expect(html).toContain("$35/seat/month");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
+  });
+
+  test("renders active Stripe Team for a paid team when no team is selected", async () => {
+    mockImplementation(proUser.listTeams, async () => [
+      { id: "team-free", displayName: "Team Free", clientReadOnlyMetadata: { cmuxPlan: "free" } },
+      { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+    ]);
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Team");
+    expect(html).toContain("Team Pro renews on");
+    expect(html).toContain('name="scope" value="team"');
+    expect(html).not.toContain("Upgrade when you need cloud agents or team billing.");
   });
 
   test("renders legacy Stack Pro without Stripe self-serve actions", async () => {
@@ -266,5 +300,14 @@ function interpolate(message: string, values?: Record<string, unknown>) {
   return Object.entries(values).reduce(
     (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
     message,
+  );
+}
+
+function mockImplementation(
+  fn: unknown,
+  implementation: (...args: never[]) => unknown,
+) {
+  (fn as { mockImplementation(next: typeof implementation): void }).mockImplementation(
+    implementation,
   );
 }

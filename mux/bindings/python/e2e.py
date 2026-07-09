@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cmux_mux_client import CommandError, MuxClient, TimeoutError as MuxTimeoutError  # noqa: E402
+from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
 
 
 def main() -> int:
@@ -17,7 +17,7 @@ def main() -> int:
         raise SystemExit("CMUX_MUX_SOCKET is required")
     marker = f"CMUX_PY_E2E_{os.getpid()}_{time.time_ns()}"
     later = f"{marker}_ATTACH"
-    with MuxClient(socket_path=socket_path, timeout=5.0, allow_protocol_v6_attach=True) as client:
+    with CmuxClient(socket_path=socket_path, timeout=5.0, allow_protocol_v6_attach=True) as client:
         info = client.identify()
         assert info.app == "cmux-mux", info
         assert 5 <= info.protocol <= 6, info
@@ -36,7 +36,7 @@ def main() -> int:
             client.resize_surface(created.surface, 100, 31)
             try:
                 next_resized(events, created.surface, 0.5)
-            except MuxTimeoutError:
+            except CmuxTimeoutError:
                 pass
             else:
                 raise AssertionError("same-size resize emitted surface-resized")
@@ -61,7 +61,7 @@ def main() -> int:
     return 0
 
 
-def wait_for_marker(client: MuxClient, surface: int, marker: str) -> None:
+def wait_for_marker(client: CmuxClient, surface: int, marker: str) -> None:
     deadline = time.time() + 5.0
     last = ""
     while time.time() < deadline:
@@ -84,7 +84,7 @@ def next_resized(stream, surface: int, timeout: float):
                 return event
     finally:
         stream._conn.sock.settimeout(old_timeout)
-    raise MuxTimeoutError("surface-resized not observed")
+    raise CmuxTimeoutError("surface-resized not observed")
 
 
 def next_attach_output(stream, timeout: float) -> None:
@@ -99,7 +99,7 @@ def next_attach_output(stream, timeout: float) -> None:
                 return
     finally:
         stream._conn.sock.settimeout(old_timeout)
-    raise MuxTimeoutError("attach output not observed")
+    raise CmuxTimeoutError("attach output not observed")
 
 
 def find_workspace_for_surface(tree, surface: int) -> int | None:

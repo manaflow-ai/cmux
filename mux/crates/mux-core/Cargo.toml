@@ -2,9 +2,13 @@
 name = "mux-core"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, control socket"
+
+[lints]
+workspace = true
 
 [dependencies]
 ghostty-vt.workspace = true
@@ -15,6 +19,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
+regex.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

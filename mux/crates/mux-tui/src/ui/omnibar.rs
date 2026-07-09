@@ -1,6 +1,6 @@
 use mux_core::{BrowserStatus, Rect, SurfaceKind};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
+use ratatui::style::{Color, Modifier, Style};
 
 use super::truncate;
 use crate::app::{App, OmnibarHit, PaneArea};

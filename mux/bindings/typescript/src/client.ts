@@ -22,7 +22,7 @@ import {
   Tree,
   VtStateResult,
 } from "./types.js";
-import { MuxCommandError, MuxConnectionError, MuxProtocolError, MuxTimeoutError } from "./errors.js";
+import { CmuxCommandError, CmuxConnectionError, CmuxProtocolError, CmuxTimeoutError } from "./errors.js";
 
 type ResponseEnvelope = { id?: unknown; ok: true; data: unknown } | { id?: unknown; ok: false; error: string };
 type EventObject = { event: string; [key: string]: unknown };
@@ -47,15 +47,15 @@ class JsonLineConnection {
     this.socket = socket;
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => this.onData(chunk));
-    socket.on("error", (err: Error) => this.closeWith(new MuxConnectionError(`socket error: ${err.message}`)));
-    socket.on("close", () => this.closeWith(new MuxConnectionError("session socket closed")));
+    socket.on("error", (err: Error) => this.closeWith(new CmuxConnectionError(`socket error: ${err.message}`)));
+    socket.on("close", () => this.closeWith(new CmuxConnectionError("session socket closed")));
   }
 
   static connect(socketPath: string): Promise<JsonLineConnection> {
     return new Promise((resolve, reject) => {
       const socket = net.createConnection({ path: socketPath });
       socket.once("connect", () => resolve(new JsonLineConnection(socket)));
-      socket.once("error", (err: Error) => reject(new MuxConnectionError(`cannot connect to session socket ${socketPath}: ${err.message}`)));
+      socket.once("error", (err: Error) => reject(new CmuxConnectionError(`cannot connect to session socket ${socketPath}: ${err.message}`)));
     });
   }
 
@@ -63,7 +63,7 @@ class JsonLineConnection {
     const line = `${JSON.stringify(value)}\n`;
     return new Promise((resolve, reject) => {
       this.socket.write(line, "utf8", (err?: Error | null) => {
-        if (err) reject(new MuxConnectionError(`socket write failed: ${err.message}`));
+        if (err) reject(new CmuxConnectionError(`socket write failed: ${err.message}`));
         else resolve();
       });
     });
@@ -75,12 +75,12 @@ class JsonLineConnection {
     try {
       const value = JSON.parse(line) as unknown;
       if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new MuxProtocolError("server sent non-object JSON line");
+        throw new CmuxProtocolError("server sent non-object JSON line");
       }
       return value as JsonObject;
     } catch (err) {
-      if (err instanceof MuxProtocolError) throw err;
-      throw new MuxProtocolError(`bad JSON from server: ${(err as Error).message}`);
+      if (err instanceof CmuxProtocolError) throw err;
+      throw new CmuxProtocolError(`bad JSON from server: ${(err as Error).message}`);
     }
   }
 
@@ -147,7 +147,7 @@ class JsonLineConnection {
   }
 }
 
-export class MuxStream<T extends EventObject> implements AsyncIterable<T> {
+export class CmuxStream<T extends EventObject> implements AsyncIterable<T> {
   private readonly buffered: T[] = [];
   private closed = false;
 
@@ -163,7 +163,7 @@ export class MuxStream<T extends EventObject> implements AsyncIterable<T> {
     socketPath: string,
     timeoutMs: number,
     request: JsonObject,
-  ): Promise<MuxStream<T>> {
+  ): Promise<CmuxStream<T>> {
     const conn = await JsonLineConnection.connect(socketPath);
     await conn.send(request);
     const requestId = request.id;
@@ -176,13 +176,13 @@ export class MuxStream<T extends EventObject> implements AsyncIterable<T> {
       }
       if (value.id !== requestId) continue;
       const response = value as ResponseEnvelope;
-      if (response.ok === true) return new MuxStream(conn, timeoutMs, buffered);
-      throw new MuxCommandError(response.error || "unknown error", response.id, response);
+      if (response.ok === true) return new CmuxStream(conn, timeoutMs, buffered);
+      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
     }
   }
 
   async next(timeoutMs = this.timeoutMs): Promise<T> {
-    if (this.closed) throw new MuxConnectionError("stream is closed");
+    if (this.closed) throw new CmuxConnectionError("stream is closed");
     if (this.buffered.length > 0) return this.buffered.shift()!;
     for (;;) {
       const value = await this.conn.recv(timeoutMs);
@@ -207,7 +207,7 @@ export class MuxStream<T extends EventObject> implements AsyncIterable<T> {
   }
 }
 
-export class MuxClient {
+export class CmuxClient {
   readonly socketPath: string;
   readonly timeoutMs: number;
   readonly allowProtocolV6Attach: boolean;
@@ -244,7 +244,7 @@ export class MuxClient {
   async request(cmd: string, params: JsonObject = {}): Promise<unknown> {
     const response = await this.sendRaw({ id: this.nextId(), cmd, ...dropUndefined(params) });
     if (response.ok === true) return response.data;
-    throw new MuxCommandError(response.error || "unknown error", response.id, response);
+    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
   }
 
   async identify(): Promise<IdentifyResult> {
@@ -285,16 +285,16 @@ export class MuxClient {
   async moveWorkspace(workspace: number, index: number): Promise<EmptyResult> { await this.request("move-workspace", { workspace, index }); return {}; }
   async scrollSurface(surface: number, delta: number): Promise<EmptyResult> { await this.request("scroll-surface", { surface, delta }); return {}; }
 
-  async subscribe(): Promise<MuxStream<SubscribeEvent>> {
-    return MuxStream.open<SubscribeEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "subscribe" });
+  async subscribe(): Promise<CmuxStream<SubscribeEvent>> {
+    return CmuxStream.open<SubscribeEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "subscribe" });
   }
 
-  async attachSurface(surface: number): Promise<MuxStream<AttachEvent>> {
+  async attachSurface(surface: number): Promise<CmuxStream<AttachEvent>> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
     if (protocol > 6 || (protocol > 5 && !this.allowProtocolV6Attach)) {
-      throw new MuxProtocolError(`unsupported attach protocol ${protocol}`);
+      throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
     }
-    return MuxStream.open<AttachEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "attach-surface", surface });
+    return CmuxStream.open<AttachEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "attach-surface", surface });
   }
 
   private nextId(): number {
@@ -311,7 +311,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string,
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       onTimeout?.();
-      reject(new MuxTimeoutError(message));
+      reject(new CmuxTimeoutError(message));
     }, timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));

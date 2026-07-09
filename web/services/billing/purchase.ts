@@ -38,6 +38,11 @@ type StackBillingUser = {
   }): Promise<unknown>;
 };
 
+type StackBillingUserLookup = {
+  readonly id: string;
+  readonly primaryEmail?: string | null;
+};
+
 type StackBillingTeam = {
   readonly id: string;
   readonly clientReadOnlyMetadata?: unknown;
@@ -48,6 +53,12 @@ type StackBillingTeam = {
 
 type StackBillingApp = {
   getUser(id: string): Promise<StackBillingUser | null>;
+  listUsers?(options?: {
+    query?: string;
+    limit?: number;
+    includeAnonymous?: boolean;
+    includeRestricted?: boolean;
+  }): Promise<readonly StackBillingUserLookup[]>;
   getTeam?(id: string): Promise<StackBillingTeam | null>;
 };
 
@@ -121,6 +132,7 @@ export async function recordCheckoutCompletion(
       email,
       stripeCustomerId: customerId,
       stackUserId,
+      stackApp: dependencies.stackApp ?? stackServerApp,
     });
   }
   await syncProPlanMetadata(user, true);
@@ -473,9 +485,20 @@ async function attachPurchaseEmailOrRecordClaim(
     email: string;
     stripeCustomerId: string;
     stackUserId: string;
+    stackApp: StackBillingApp | null | undefined;
   },
 ): Promise<void> {
   if (input.user.primaryEmail) return;
+  let ownerId: string | null = null;
+  try {
+    ownerId = await findUserIdByEmail(input.stackApp, input.email);
+  } catch {
+    ownerId = null;
+  }
+  if (ownerId && ownerId !== input.stackUserId) {
+    await recordBillingEmailClaim(db, input);
+    return;
+  }
   try {
     await input.user.update({
       primaryEmail: input.email,
@@ -483,26 +506,57 @@ async function attachPurchaseEmailOrRecordClaim(
     });
   } catch (error) {
     if (!isEmailAlreadyUsedError(error)) throw error;
-    const existing = await db
-      .select({ id: billingEmailClaims.id })
-      .from(billingEmailClaims)
-      .where(
-        and(
-          eq(billingEmailClaims.email, input.email),
-          eq(billingEmailClaims.stripeCustomerId, input.stripeCustomerId),
-          eq(billingEmailClaims.stackUserId, input.stackUserId),
-          eq(billingEmailClaims.plan, PRO_PLAN_ID),
-        ),
-      )
-      .limit(1);
-    if (existing.length > 0) return;
-    await db.insert(billingEmailClaims).values({
-      email: input.email,
-      stripeCustomerId: input.stripeCustomerId,
-      stackUserId: input.stackUserId,
-      plan: PRO_PLAN_ID,
-    });
+    await recordBillingEmailClaim(db, input);
   }
+}
+
+async function findUserIdByEmail(
+  stackApp: StackBillingApp | null | undefined,
+  email: string,
+): Promise<string | null> {
+  if (!stackApp?.listUsers) {
+    throw new Error("Stack Auth server SDK cannot list users");
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const users = await stackApp.listUsers({
+    query: normalizedEmail,
+    limit: 20,
+    includeAnonymous: true,
+    includeRestricted: true,
+  });
+  const owner = users.find(
+    (user) => user.primaryEmail?.trim().toLowerCase() === normalizedEmail,
+  );
+  return owner?.id ?? null;
+}
+
+async function recordBillingEmailClaim(
+  db: BillingDb,
+  input: {
+    email: string;
+    stripeCustomerId: string;
+    stackUserId: string;
+  },
+): Promise<void> {
+  const existing = await db
+    .select({ id: billingEmailClaims.id })
+    .from(billingEmailClaims)
+    .where(
+      and(
+        eq(billingEmailClaims.email, input.email),
+        eq(billingEmailClaims.stripeCustomerId, input.stripeCustomerId),
+        eq(billingEmailClaims.stackUserId, input.stackUserId),
+        eq(billingEmailClaims.plan, PRO_PLAN_ID),
+      ),
+    )
+    .limit(1);
+  if (existing.length > 0) return;
+  await db.insert(billingEmailClaims).values({
+    email: input.email,
+    stripeCustomerId: input.stripeCustomerId,
+    stackUserId: input.stackUserId,
+    plan: PRO_PLAN_ID,
+  });
 }
 
 async function stackUserIdForStripeCustomer(
