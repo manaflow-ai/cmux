@@ -25,14 +25,14 @@ struct BrowserWebExtensionReconciliationPlanner {
         let unloadEntryIDs = loadedEntries
             .filter { loaded in
                 guard let desired = desiredByID[loaded.id] else { return true }
-                return Self.standardizedPath(desired.path) != loaded.standardizedPath
+                return Self.standardizedResourceRootPath(for: desired) != loaded.standardizedPath
             }
             .map(\.id)
             .sorted()
 
         let loadEntries = desiredEntries.filter { entry in
             guard let loaded = loadedByID[entry.id] else { return true }
-            return loaded.standardizedPath != Self.standardizedPath(entry.path)
+            return loaded.standardizedPath != Self.standardizedResourceRootPath(for: entry)
         }
 
         return Plan(
@@ -51,11 +51,14 @@ struct BrowserWebExtensionReconciliationPlanner {
     }
 
     static func standardizedResourceRootPath(forEnvironmentPath path: String) -> String {
+        BrowserWebExtensionEntry.standardizedResourceRootPath(for: kind(forEnvironmentPath: path), path: path)
+    }
+
+    private static func kind(forEnvironmentPath path: String) -> BrowserWebExtensionEntry.Kind {
         let standardizedPath = BrowserWebExtensionEntry.standardizedPath(path)
-        let kind: BrowserWebExtensionEntry.Kind = URL(fileURLWithPath: standardizedPath).pathExtension == "appex"
+        return URL(fileURLWithPath: standardizedPath).pathExtension == "appex"
             ? .safariAppExtension
             : .unpackedDirectory
-        return BrowserWebExtensionEntry.standardizedResourceRootPath(for: kind, path: path)
     }
 
     private func desired(
@@ -81,7 +84,7 @@ struct BrowserWebExtensionReconciliationPlanner {
             guard desiredIDs.insert(path).inserted else { continue }
             desired.append(BrowserWebExtensionEntry(
                 id: path,
-                kind: path.hasSuffix(".appex") ? .safariAppExtension : .unpackedDirectory,
+                kind: Self.kind(forEnvironmentPath: path),
                 path: path,
                 enabled: true
             ))
