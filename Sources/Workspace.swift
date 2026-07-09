@@ -2273,22 +2273,6 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.progress }
         set { sidebarMetadata.progress = newValue }
     }
-    var gitBranch: SidebarGitBranchState? {
-        get { sidebarMetadata.gitBranch }
-        set { sidebarMetadata.gitBranch = newValue; reconcileExpiredTaskStatusOverride() }
-    }
-    var panelGitBranches: [UUID: SidebarGitBranchState] {
-        get { sidebarMetadata.panelGitBranches }
-        set { sidebarMetadata.panelGitBranches = newValue; reconcileExpiredTaskStatusOverride() }
-    }
-    var pullRequest: SidebarPullRequestState? {
-        get { sidebarMetadata.pullRequest }
-        set { sidebarMetadata.pullRequest = newValue; reconcileExpiredTaskStatusOverride() }
-    }
-    var panelPullRequests: [UUID: SidebarPullRequestState] {
-        get { sidebarMetadata.panelPullRequests }
-        set { sidebarMetadata.panelPullRequests = newValue; reconcileExpiredTaskStatusOverride() }
-    }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
