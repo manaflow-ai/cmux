@@ -16,6 +16,7 @@ public actor InMemoryMobileManualHostTrustStore: MobileManualHostTrustStoring {
     /// Persists trust for exactly the given host/port/account scope.
     /// - Parameter scope: The scope to approve.
     public func trust(_ scope: MobileManualHostTrustScope) async {
+        guard !Task.isCancelled else { return }
         trustedScopes.insert(scope)
     }
 

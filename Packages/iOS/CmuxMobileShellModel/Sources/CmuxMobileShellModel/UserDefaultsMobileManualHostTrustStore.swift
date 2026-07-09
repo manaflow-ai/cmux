@@ -75,6 +75,7 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
     /// Persists trust for exactly the given host/port/account scope until its expiry time.
     /// - Parameter scope: The scope to approve.
     public func trust(_ scope: MobileManualHostTrustScope) async {
+        guard !Task.isCancelled else { return }
         let currentTime = now().timeIntervalSince1970
         var trusted = trustedExpirations().filter { _, expiresAt in
             expiresAt > currentTime

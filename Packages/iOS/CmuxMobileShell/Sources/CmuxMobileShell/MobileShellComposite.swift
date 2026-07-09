@@ -1642,6 +1642,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     route: directRoute,
                     displayHost: normalizedHost,
                     pending: .manual(
+                        attemptID: approvalAttemptID,
                         name: name,
                         host: normalizedHost,
                         port: port,
@@ -3216,6 +3217,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 route: approval.route,
                 displayHost: host,
                 pending: .pairingURL(
+                    attemptID: validationAttemptID,
                     rawURL: rawURL,
                     acceptedVersionWarning: acceptedVersionWarning
                 )
@@ -3250,6 +3252,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let noThrowFailure = try await connect(
                 ticket: ticket,
                 pendingManualHostTrust: .pairingURL(
+                    attemptID: attemptID,
                     rawURL: rawURL,
                     acceptedVersionWarning: acceptedVersionWarning
                 )
@@ -3291,16 +3294,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Cancels the active pairing attempt and clears transient pairing prompts.
     public func cancelPairing() {
         invalidatePairingAttempt()
         clearPairingError()
-        if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil || manualHostTrustWarning != nil {
-            clearPairingVersionWarning()
-            clearManualHostTrustWarning()
-            return
-        }
+        let hadBlockingPrompt = pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil || manualHostTrustWarning != nil
         clearPairingVersionWarning()
         clearManualHostTrustWarning()
+        if hadBlockingPrompt { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
@@ -5506,7 +5507,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingAttemptMethod = nil
     }
 
-    private func isCurrentPairingAttempt(_ attemptID: UUID) -> Bool {
+    func isCurrentPairingAttempt(_ attemptID: UUID) -> Bool {
         pairingAttemptID == attemptID && isSignedIn
     }
 
