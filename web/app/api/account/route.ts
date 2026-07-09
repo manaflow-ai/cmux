@@ -92,7 +92,7 @@ export async function DELETE(request: Request): Promise<Response> {
     accountDeletionTombstoneStarted = true;
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
-    await resolveUserBillingForAccountDeletion(userId, {
+    await resolveUserBillingForAccountDeletion(userId, accountScope.teamIds, {
       beforeExternalRequest: () => {
         restoreBillingEntitlementsOnFailure = false;
         destructiveCleanupStarted = true;
@@ -404,16 +404,26 @@ async function finishPostStackAccountCleanup(userId: string, accountTeamIds: rea
 
 async function resolveUserBillingForAccountDeletion(
   userId: string,
+  accountTeamIds: readonly string[],
   options: { readonly beforeExternalRequest?: () => void } = {},
 ): Promise<void> {
   const db = cloudDb();
+  const deletionTeamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
   const activeSubscriptions = await db
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
     .where(and(
       eq(stripeSubscriptions.stackUserId, userId),
-      eq(stripeSubscriptions.scope, "user"),
-      isNull(stripeSubscriptions.stackTeamId),
+      or(
+        and(
+          eq(stripeSubscriptions.scope, "user"),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+        and(
+          eq(stripeSubscriptions.scope, "team"),
+          inArray(stripeSubscriptions.stackTeamId, deletionTeamIds),
+        ),
+      ),
       inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
     ));
   const customers = await db
@@ -421,7 +431,10 @@ async function resolveUserBillingForAccountDeletion(
     .from(stripeCustomers)
     .where(and(
       eq(stripeCustomers.stackUserId, userId),
-      isNull(stripeCustomers.stackTeamId),
+      or(
+        isNull(stripeCustomers.stackTeamId),
+        inArray(stripeCustomers.stackTeamId, deletionTeamIds),
+      ),
     ));
 
   if (activeSubscriptions.length === 0 && customers.length === 0) return;

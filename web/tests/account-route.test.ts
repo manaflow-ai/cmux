@@ -556,8 +556,8 @@ describe("account deletion route", () => {
     listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
     stackUserTeams = [stackTeam("team-personal", ["account-user-1"])];
     selectResults = [
-      [],
-      [],
+      [{ id: "sub_user_active" }, { id: "sub_team_active" }],
+      [{ id: "cus_user" }, { id: "cus_team" }],
       [],
       [],
       [],
@@ -577,6 +577,8 @@ describe("account deletion route", () => {
       teamIds: ["account-user-1", "team-personal"],
       providerVmId: "personal-team-vm",
     });
+    expect(cancelledStripeSubscriptions).toEqual(["sub_user_active", "sub_team_active"]);
+    expect(deletedStripeCustomers).toEqual(["cus_user", "cus_team"]);
     expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
     expect(transactionExecute).toHaveBeenCalledTimes(5);
   });
