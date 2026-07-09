@@ -33,6 +33,9 @@ enum AgentHibernationTranscriptGuard {
         backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
         fileManager: FileManager = .default
     ) async {
+        var completed = false
+        defer { if completed { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
+
         if !processIDs.isEmpty {
             let deadline = ContinuousClock.now.advanced(by: .seconds(30))
             while ContinuousClock.now < deadline {
@@ -56,6 +59,7 @@ enum AgentHibernationTranscriptGuard {
             if Task.isCancelled { return }
             _ = restoreIfClobbered(snapshot, fileManager: fileManager)
         }
+        completed = !Task.isCancelled
     }
 
     static func resolveTranscriptPath(

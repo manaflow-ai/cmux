@@ -110,7 +110,7 @@ struct AgentHibernationTranscriptGuardScanTests {
         await task.value
 
         #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
-        #expect(FileManager.default.fileExists(atPath: snapshot.path))
+        #expect(FileManager.default.fileExists(atPath: snapshot.path) == false)
     }
 
     @Test
