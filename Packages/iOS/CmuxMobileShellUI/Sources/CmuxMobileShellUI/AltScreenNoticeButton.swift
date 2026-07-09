@@ -16,20 +16,18 @@ struct AltScreenNoticeButton: View {
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
         .popover(isPresented: $isPresentingExplanation) {
-            ViewThatFits(in: .vertical) {
+            ScrollView {
                 popoverContent
-
-                ScrollView {
-                    popoverContent
-                }
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(width: 340, height: 260)
             .presentationSizing(.fitted)
             .presentationCompactAdaptation(.popover)
         }
     }
 
     private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Label {
                 Text(title)
                     .fixedSize(horizontal: false, vertical: true)
@@ -46,11 +44,13 @@ struct AltScreenNoticeButton: View {
 
             Button(action: dismissFromPopover) {
                 Text(dismissActionTitle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .font(.footnote.weight(.medium))
+            .accessibilityIdentifier("MobileTerminalAltScreenNoticeDismissPermanentlyButton")
         }
         .padding(16)
-        .frame(maxWidth: 320, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .multilineTextAlignment(.leading)
     }
 
