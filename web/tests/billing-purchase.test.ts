@@ -153,6 +153,7 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks checkout completion while account deletion is in progress", async () => {
     const update = mock(async () => undefined);
+    const cancelSubscription = mock(async () => undefined);
     const user = {
       id: "user_123",
       primaryEmail: null,
@@ -164,9 +165,17 @@ describe("recordCheckoutCompletion", () => {
       recordCheckoutCompletion(checkoutInput() as never, {
         db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+        }) as never,
       }),
-    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
 
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(update).not.toHaveBeenCalled();

@@ -15,6 +15,7 @@ import {
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import { removeTester } from "../asc/testflight";
 import { captureAscError } from "../errors";
@@ -27,6 +28,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 
 type BillingDb = ReturnType<typeof cloudDb>;
+type StripeBillingClient = Pick<ReturnType<typeof stripe>, "subscriptions">;
 
 type StripeSubscriptionValuesInput = {
   subscription: Stripe.Subscription;
@@ -74,6 +76,7 @@ type StackBillingApp = {
 type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
+  stripeClient?: () => StripeBillingClient;
   testflight?: {
     isAscConfigured?: () => boolean;
     removeTester?: (email: string) => Promise<void>;
@@ -96,6 +99,7 @@ export async function recordCheckoutCompletion(
 ): Promise<
   | { scope: "user"; stackUserId: string; subscriptionId: string }
   | { scope: "team"; stackTeamId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
 > {
   const subscription = input.subscription ?? expandedSubscription(input.session);
   if (!subscription) {
@@ -123,7 +127,12 @@ export async function recordCheckoutCompletion(
   const db = dependencies.db ?? cloudDb();
   const user = await loadStackUser(stackUserId, dependencies.stackApp);
   if (isAccountDeletionInProgress(user)) {
-    throw new Error("Billing writes are disabled while account deletion is in progress.");
+    await cancelCheckoutSubscriptionForAccountDeletion(subscription, dependencies);
+    return {
+      skipped: "account_deletion_in_progress",
+      stackUserId,
+      subscriptionId: subscription.id,
+    };
   }
 
   const email = checkoutEmail(input.session, input.customer);
@@ -151,6 +160,19 @@ export async function recordCheckoutCompletion(
   await syncProPlanMetadata(user, true);
 
   return { scope: "user", stackUserId, subscriptionId: subscription.id };
+}
+
+async function cancelCheckoutSubscriptionForAccountDeletion(
+  subscription: Stripe.Subscription,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  const client = (dependencies.stripeClient ?? stripe)();
+  try {
+    await client.subscriptions.cancel(subscription.id);
+  } catch (error) {
+    if (isStripeSubscriptionAlreadyCanceledError(error)) return;
+    throw error;
+  }
 }
 
 export async function applySubscriptionUpdate(
@@ -269,6 +291,21 @@ export async function latestStripeSubscriptionForSession(
 
 export function isActiveStripeSubscriptionStatus(status: string): boolean {
   return ACTIVE_STRIPE_SUBSCRIPTION_STATUSES.has(status);
+}
+
+function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
+  const statusCode =
+    error && typeof error === "object"
+      ? (error as { statusCode?: unknown; raw?: { statusCode?: unknown } }).statusCode ??
+        (error as { raw?: { statusCode?: unknown } }).raw?.statusCode
+      : undefined;
+  if (statusCode === 404) return true;
+
+  const message =
+    error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : String(error);
+  return /already been canceled/i.test(message);
 }
 
 export function isCmuxCheckoutSession(
