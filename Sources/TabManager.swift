@@ -4124,7 +4124,7 @@ class TabManager: ObservableObject {
 
         let preRestoreFocus = currentFocusHistoryEntry
         let panelId = withFocusHistoryRecordingSuppressed {
-            workspace.restoreClosedPanel(entry)
+            workspace.restoreClosedPanel(entry, excludingStableIdentities: liveStableIdentitySet())
         }
 
         guard let panelId else { return false }
@@ -4149,7 +4149,7 @@ class TabManager: ObservableObject {
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
+        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
@@ -5584,6 +5584,7 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+            workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(
@@ -5784,24 +5785,6 @@ extension TabManager {
         hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
     }
 
-    nonisolated private static func hashNotifications(
-        _ notifications: [TerminalNotification],
-        into hasher: inout Hasher
-    ) {
-        hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            hasher.combine(notification.id)
-            hasher.combine(notification.title)
-            hasher.combine(notification.subtitle)
-            hasher.combine(notification.body)
-            hasher.combine(notification.createdAt.timeIntervalSince1970)
-            hasher.combine(notification.isRead)
-            hasher.combine(notification.paneFlash)
-            hasher.combine(notification.panelId)
-            hasher.combine(notification.clickAction)
-        }
-    }
-
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
         if let value {
             hasher.combine(true)
@@ -5959,7 +5942,7 @@ extension TabManager {
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
-        remapClosedPanelHistory: Bool = true
+        remapClosedPanelHistory: Bool = true, excludingStableIdentities: Set<UUID> = []
     ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
@@ -6006,7 +5989,7 @@ extension TabManager {
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
+            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)

@@ -35,7 +35,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// Creates a launch environment policy.
     public init() {}
 
-    private let hermesAgentEnvironmentKeys: Set<String> = [
+    private static let hermesAgentEnvironmentKeys: Set<String> = [
         "CUSTOM_BASE_URL",
         "HERMES_CODEX_BASE_URL",
     ]
@@ -50,12 +50,12 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// `CAMPFIRE_CODING_AGENT_DIR`). Both are dropped for campfire resumes
     /// specifically; pi/omp keep them (Nix installs and custom Pi session
     /// roots rely on them).
-    private let campfireManagedEnvironmentKeys: Set<String> = [
+    private static let campfireManagedEnvironmentKeys: Set<String> = [
         "PI_CODING_AGENT_SESSION_DIR",
         "PI_PACKAGE_DIR",
     ]
 
-    private let safeEnvironmentKeys: Set<String> = [
+    private static let safeEnvironmentKeys: Set<String> = [
         // AMP_API_KEY is intentionally NOT allowlisted: it's a secret.
         // Amp resolves auth from ~/.config/amp/settings.json on resume.
         "AMP_LOG_FILE",
@@ -111,13 +111,15 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "USE_BUILTIN_RIPGREP"
     ]
 
+    private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
+
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///
     /// The optional `kind` applies agent-specific exclusions for values that are safe for one
     /// agent but managed or incorrect for another.
     public func selectedEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
         var result: [String: String] = [:]
-        for key in safeEnvironmentKeys.sorted() where key != "NODE_OPTIONS" {
+        for key in Self.sortedSafeEnvironmentKeys where key != "NODE_OPTIONS" {
             guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
             result[key] = value
         }
@@ -125,12 +127,12 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             result["NODE_OPTIONS"] = nodeOptions
         }
         if kind != "hermes-agent" {
-            for key in hermesAgentEnvironmentKeys {
+            for key in Self.hermesAgentEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
         if kind == "campfire" {
-            for key in campfireManagedEnvironmentKeys {
+            for key in Self.campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
@@ -139,7 +141,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
 
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
-        guard safeEnvironmentKeys.contains(key) else { return nil }
+        guard Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }

@@ -4,6 +4,7 @@ import Foundation
 
 enum AIAccountsClientError: Error, CustomStringConvertible {
     case notSignedIn
+    case sessionRefreshFailed
     case httpStatus(Int, String)
     case malformedResponse(String)
     case backendUnreachable(url: String, detail: String)
@@ -12,6 +13,8 @@ enum AIAccountsClientError: Error, CustomStringConvertible {
         switch self {
         case .notSignedIn:
             return "Not signed in. Run `cmux auth login`, then retry."
+        case .sessionRefreshFailed:
+            return "Signed in, but cmux could not refresh your session (network or server issue). Retry in a moment."
         case let .httpStatus(status, body):
             return AIAccountsClient.formatHTTPError(status: status, body: body)
         case let .malformedResponse(message):
@@ -109,6 +112,8 @@ actor AIAccountsClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw AIAccountsClientError.sessionRefreshFailed
         } catch {
             throw AIAccountsClientError.notSignedIn
         }

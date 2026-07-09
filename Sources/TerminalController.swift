@@ -237,10 +237,6 @@ class TerminalController {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
 
-    private nonisolated static var terminalSurfaceUnavailableSocketError: String {
-        "ERROR: \(terminalSurfaceUnavailableMessage)"
-    }
-
     private nonisolated static let focusIntentV1Commands: Set<String> = [
         "__internal_flags",
         "focus_window",
@@ -266,6 +262,7 @@ class TerminalController {
         "pane.focus",
         "pane.last",
         "file.open",
+        "workspace.todo.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
@@ -823,7 +820,6 @@ class TerminalController {
         self.authCoordinator = coordinator
         self.browserSignInFlow = browserSignIn
     }
-
 
     func start(
         tabManager: TabManager,
@@ -1383,8 +1379,12 @@ class TerminalController {
             return v2RemoteTmuxState(id: request.id, params: request.params)
         case "remote.tmux.mirror":
             return v2RemoteTmuxMirror(id: request.id, params: request.params)
-        case "remote.tmux.window":
-            return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
+#if DEBUG
+        case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
+        case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+#endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
         case "sidebar.custom.reload":
@@ -1479,30 +1479,18 @@ class TerminalController {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
             let pid = peerPid ?? transport.peerProcessID(of: socket)
-            if let pid {
-                guard isDescendant(pid) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Access denied — only processes started inside cmux can connect",
-                        to: socket
-                    )
-                    return
-                }
-            }
-            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
-            // could read it — common with ncat --send-only). We still verify the
-            // peer runs as the same user via LOCAL_PEERCRED. This is the same
-            // security boundary as the socket file permissions (0600), so it does
-            // not widen the attack surface. We also require that the peer actually
-            // sent data (checked in the read loop below) — a connect-only probe
-            // with no data is harmless.
-            if pid == nil {
-                guard transport.peerHasSameUID(socket) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Unable to verify client process",
-                        to: socket
-                    )
-                    return
-                }
+            guard SocketClientAuthorization().isCmuxOnlyClientAllowed(
+                peerProcessID: pid,
+                peerHasSameUID: false,
+                isDescendant: { isDescendant($0) }
+            ) else {
+                _ = writeSocketResponse(
+                    pid == nil
+                        ? "ERROR: Unable to verify client process"
+                        : "ERROR: Access denied — only processes started inside cmux can connect",
+                    to: socket
+                )
+                return
             }
         }
 
@@ -2027,7 +2015,6 @@ class TerminalController {
             // hop collapses inline on main).
             return readScreenText(args)
 
-
 #if DEBUG
         case "send_workspace":
             return sendInputToWorkspace(args)
@@ -2237,7 +2224,6 @@ class TerminalController {
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
-
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
         // still-shared v2SurfaceMove). surface.action/tab.action and
@@ -2331,7 +2317,6 @@ class TerminalController {
         // entry of a worker-lane method (e.g. via runV2CommandLine) answers
         // invalid_dispatch ("must run on the socket worker") from the policy
         // guard in processParsedV2Command — not method_not_found.
-
 
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
         // textbox fixtures, command palette, browser probes, sidebar/terminal
@@ -2433,13 +2418,9 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_close",
-            "workspace.remote.pty_detach",
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_resize",
-            "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window",
+            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
+            "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -3816,26 +3797,6 @@ class TerminalController {
         ])
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
         error: V2CallResult?
@@ -4466,11 +4427,6 @@ class TerminalController {
         }
     }
 
-
-
-
-
-
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
@@ -4700,21 +4656,7 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
-
-
-
-
-
-
-
-
-
-
-
     @MainActor
-
-
-
 
     private func v2AgentSessionOptions(params: [String: Any]) -> (
         providerID: AgentSessionProviderID,
@@ -4772,10 +4714,6 @@ class TerminalController {
 
         return (providerID, rendererKind, nil)
     }
-
-
-
-
 
     // `internal` (not `private`): the Pane domain's app conformance forwards
     // `pane.join` to this body. The Surface domain extraction will relocate it.
@@ -4927,8 +4865,6 @@ class TerminalController {
 
         return result
     }
-
-
 
     func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
         var payload: [String: Any]?
@@ -5191,10 +5127,6 @@ class TerminalController {
         }
         return .ok(payload)
     }
-
-
-
-
 
     struct TerminalTextRawSnapshot {
         var viewport: String?
@@ -5649,7 +5581,6 @@ class TerminalController {
             lineLimit: lineLimit
         )
     }
-
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
         guard let email = params["email"] as? String else {
@@ -8239,7 +8170,6 @@ class TerminalController {
             """
         }
     }
-
 
     private nonisolated func v2BrowserNavSimple(params: [String: Any], action: String) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -11805,19 +11735,19 @@ class TerminalController {
 
         switch keyToken.lowercased() {
         case "left":
-            storedKey = "←"
+            storedKey = "\u{F702}"
             keyCode = 123
             charactersIgnoringModifiers = storedKey
         case "right":
-            storedKey = "→"
+            storedKey = "\u{F703}"
             keyCode = 124
             charactersIgnoringModifiers = storedKey
         case "down":
-            storedKey = "↓"
+            storedKey = "\u{F701}"
             keyCode = 125
             charactersIgnoringModifiers = storedKey
         case "up":
-            storedKey = "↑"
+            storedKey = "\u{F700}"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
         case "enter", "return", "tab":
@@ -13965,7 +13895,7 @@ class TerminalController {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
-        guard let tab = resolveSidebarMutationTab(target),
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key), let tab = resolveSidebarMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
@@ -14099,6 +14029,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.move":
+            result = v2MobileWorkspaceMove(params: request.params)
+        case "workspace.group.action":
+            result = v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
@@ -14241,7 +14175,6 @@ class TerminalController {
         }
         return v2WorkspaceAction(params: params)
     }
-
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {
         case let .ok(payload):
@@ -14252,7 +14185,6 @@ class TerminalController {
             return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
         }
     }
-
     func v2MobileHostStatus(
         params: [String: Any],
         includePrivateMetadata: Bool = true
@@ -14410,7 +14342,7 @@ class TerminalController {
         }
     }
 
-    private func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
+    func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
         guard v2HasNonNullParam(params, "workspace_id"),
               v2UUID(params, "workspace_id") == nil else {
             return nil

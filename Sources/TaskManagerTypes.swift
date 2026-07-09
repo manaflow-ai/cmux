@@ -582,7 +582,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         CmuxTaskManagerCodingAgentDefinition(
             id: "omp",
             displayName: "OMP",
-            assetName: nil,
+            assetName: "AgentIcons/Pi",
             launchKinds: ["omp"],
             directBasenames: ["omp"],
             argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
@@ -593,7 +593,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             assetName: nil,
             launchKinds: ["campfire"],
             directBasenames: ["campfire"],
-            argumentNeedles: ["packages/session/bin/campfire.ts", "dist/campfire"]
+            argumentNeedles: ["packages/session/bin/campfire.ts", "packages/session/dist/campfire"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "pi",

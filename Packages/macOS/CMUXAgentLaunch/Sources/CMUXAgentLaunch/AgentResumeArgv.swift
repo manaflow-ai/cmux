@@ -53,8 +53,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
 
     /// The shell token that resolves cmux's `codex` wrapper at exec time.
     ///
-    /// The codex resume argv emits a bare `codex` executable, but the captured
-    /// auto-resume command (`codex resume <id>`) resolves to the *real* codex
+    /// When the codex resume argv emits a bare `codex` executable, the captured
+    /// auto-resume command (`codex resume <id>`) can resolve to the *real* codex
     /// binary inside the `$SHELL -lic` restore launcher, bypassing
     /// `cmux-codex-wrapper` and dropping every cmux hook (no `SessionStart`, the
     /// session registry never marks the resumed session live, so the iOS GUI
@@ -219,8 +219,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
     ///
     /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — the wrapper executable emitted by the
-    /// codex resume builder — is replaced; every other token is quoted normally.
+    /// the first element equal to `codex` — a logical wrapper executable emitted
+    /// by the codex resume builder — is replaced; every other token is quoted normally.
     /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
@@ -314,8 +314,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
-            return [parts.executable, "resume", sessionId]
+            guard let preserved = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return nil }
+            let replayExecutable = codexReplayExecutable(
+                capturedExecutable: parts.executable,
+                launchTail: parts.tail
+            )
+            return [replayExecutable, "resume", sessionId]
                 + codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)

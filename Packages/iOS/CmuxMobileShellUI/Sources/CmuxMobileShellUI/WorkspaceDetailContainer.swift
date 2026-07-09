@@ -14,6 +14,9 @@ struct WorkspaceDetailContainer: View {
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
+    let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
@@ -32,17 +35,6 @@ struct WorkspaceDetailContainer: View {
         return store.selectedWorkspace
     }
 
-    /// Close-workspace closure for the detail top-bar menu. Present only when
-    /// this workspace's owning Mac advertises `workspace.close.v1`, matching the
-    /// workspace list's row-scoped gating. Built as an explicit closure literal
-    /// because the compiler fails to type-check a method-reference ternary
-    /// inside the large `WorkspaceDetailView` init.
-    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard workspace?.actionCapabilities.supportsCloseActions == true else { return nil }
-        let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
-    }
-
     var body: some View {
         Group {
             if let workspace {
@@ -54,7 +46,9 @@ struct WorkspaceDetailContainer: View {
                     createWorkspace: createWorkspace,
                     canCreateWorkspace: canCreateWorkspace,
                     createTerminal: { store.createTerminal(in: workspace.id) },
-                    closeWorkspace: closeWorkspaceClosure,
+                    renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+                    setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
+                    closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
                     reportTerminalViewport: store.reportTerminalViewport,
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,

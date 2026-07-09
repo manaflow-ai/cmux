@@ -1,9 +1,9 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let campfireExtensionMarker = "cmux-campfire-session-extension-marker"
-    private static let campfireExtensionFilename = "cmux-campfire-session.ts"
-    private static let campfireExtensionSource = #"""
+    static let campfireExtensionMarker = "cmux-campfire-session-extension-marker"
+    static let campfireExtensionFilename = "cmux-campfire-session.ts"
+    static let campfireExtensionSource = #"""
 // cmux-campfire-session-extension-marker v1
 // Bridges Campfire session lifecycle events into cmux's restorable session store,
 // and Campfire's collaborative moments (join requests, capability asks) into cmux
@@ -252,6 +252,8 @@ interface CampfireObserverEvent {
 }
 
 const OBSERVER_KEY = Symbol.for("campfire.observer.v1");
+const OBSERVER_MAX_IN_FLIGHT = 8;
+const OBSERVER_MAX_PENDING = 32;
 
 function observerBridge(): { listeners: Set<(event: CampfireObserverEvent) => void> } {
   const holder = globalThis as Record<symbol, { listeners: Set<(event: CampfireObserverEvent) => void> } | undefined>;
@@ -277,158 +279,139 @@ function observerPayload(event: CampfireObserverEvent): Record<string, unknown> 
   }
 }
 
+function observerDeliveryKey(ctx: ExtensionContext, event: CampfireObserverEvent, payload: Record<string, unknown>): string {
+  const sessionId = firstString(ctx.sessionManager.getSessionId()) || "unknown-session";
+  const eventType = firstString(payload.campfire_event_type) || event.type || "unknown-event";
+  const displayName = firstString(event.displayName) || "";
+  const capability = firstString(event.capability) || "";
+  return [sessionId, eventType, displayName, capability].join("\u0000");
+}
+
+interface ObserverDelivery {
+  ctx: ExtensionContext;
+  payload: Record<string, unknown>;
+}
+
+type Cleanup = () => void;
+
+function cleanupFrom(value: unknown): Cleanup | null {
+  return typeof value === "function" ? (value as Cleanup) : null;
+}
+
+function registerApiListener(
+  api: ExtensionAPI,
+  eventName: string,
+  handler: (...args: unknown[]) => unknown,
+): Cleanup {
+  try {
+    const registered = (api as unknown as { on: (name: string, handler: (...args: unknown[]) => unknown) => unknown }).on(
+      eventName,
+      handler,
+    );
+    return cleanupFrom(registered) || (() => {});
+  } catch (_) {
+    return () => {};
+  }
+}
+
 export default function cmuxCampfireSessionExtension(api: ExtensionAPI) {
   let activeContext: ExtensionContext | null = null;
+  let disposed = false;
+  const cleanupCallbacks: Cleanup[] = [];
+  const bridge = observerBridge();
+  const inFlightObserverDeliveries = new Set<string>();
+  const pendingObserverDeliveries = new Map<string, ObserverDelivery>();
 
-  api.on("session_start", async (_event, ctx) => {
-    activeContext = ctx;
-    await sendHook("session-start", ctx);
-  });
+  function enqueueObserverDelivery(key: string, delivery: ObserverDelivery) {
+    if (pendingObserverDeliveries.has(key)) {
+      pendingObserverDeliveries.set(key, delivery);
+      return;
+    }
+    if (pendingObserverDeliveries.size >= OBSERVER_MAX_PENDING) return;
+    pendingObserverDeliveries.set(key, delivery);
+  }
 
-  api.on("before_agent_start", async (event, ctx) => {
-    activeContext = ctx;
-    await sendHook("prompt-submit", ctx, { prompt: event.prompt });
-  });
+  function startObserverDelivery(key: string, delivery: ObserverDelivery) {
+    if (disposed) return;
+    if (inFlightObserverDeliveries.has(key) || inFlightObserverDeliveries.size >= OBSERVER_MAX_IN_FLIGHT) {
+      enqueueObserverDelivery(key, delivery);
+      return;
+    }
+    inFlightObserverDeliveries.add(key);
+    void sendHook("notification", delivery.ctx, delivery.payload, { waitForExit: false }).finally(() => {
+      inFlightObserverDeliveries.delete(key);
+      drainObserverDeliveries();
+    });
+  }
 
-  api.on("agent_end", async (event, ctx) => {
-    activeContext = ctx;
-    await sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
-  });
+  function drainObserverDeliveries() {
+    if (disposed) return;
+    while (inFlightObserverDeliveries.size < OBSERVER_MAX_IN_FLIGHT && pendingObserverDeliveries.size > 0) {
+      let entry: [string, ObserverDelivery] | null = null;
+      for (const candidate of pendingObserverDeliveries.entries()) {
+        if (!inFlightObserverDeliveries.has(candidate[0])) {
+          entry = candidate;
+          break;
+        }
+      }
+      if (!entry) return;
+      const [key, delivery] = entry;
+      pendingObserverDeliveries.delete(key);
+      startObserverDelivery(key, delivery);
+    }
+  }
 
-  observerBridge().listeners.add((event) => {
+  function cleanup() {
+    if (disposed) return;
+    disposed = true;
+    activeContext = null;
+    pendingObserverDeliveries.clear();
+    inFlightObserverDeliveries.clear();
+    for (const callback of cleanupCallbacks.splice(0).reverse()) {
+      try {
+        callback();
+      } catch (_) {}
+    }
+  }
+
+  cleanupCallbacks.push(registerApiListener(api, "session_start", async (_event, ctx) => {
+    if (disposed) return;
+    const context = ctx as ExtensionContext;
+    activeContext = context;
+    await sendHook("session-start", context);
+  }));
+
+  cleanupCallbacks.push(registerApiListener(api, "before_agent_start", async (event, ctx) => {
+    if (disposed) return;
+    const context = ctx as ExtensionContext;
+    activeContext = context;
+    const typed = event as { prompt?: unknown };
+    await sendHook("prompt-submit", context, { prompt: typed.prompt });
+  }));
+
+  cleanupCallbacks.push(registerApiListener(api, "agent_end", async (event, ctx) => {
+    if (disposed) return;
+    const context = ctx as ExtensionContext;
+    activeContext = context;
+    await sendHook("stop", context, { last_assistant_message: lastAssistantMessage(event as AgentEndEvent) });
+  }));
+
+  cleanupCallbacks.push(registerApiListener(api, "session_end", cleanup));
+
+  const observerListener = (event: CampfireObserverEvent) => {
     const ctx = activeContext;
-    if (!ctx) return;
+    if (disposed || !ctx) return;
     const payload = observerPayload(event);
     if (!payload) return;
-    void sendHook("notification", ctx, payload, { waitForExit: false });
+    const key = observerDeliveryKey(ctx, event, payload);
+    startObserverDelivery(key, { ctx, payload });
+  };
+  bridge.listeners.add(observerListener);
+  cleanupCallbacks.push(() => {
+    bridge.listeners.delete(observerListener);
   });
+
+  return cleanup;
 }
 """#
-
-    static func resolvedCampfireAgentDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let agentRoot = nonEmptyCampfireEnvironmentValue("CAMPFIRE_CODING_AGENT_DIR", in: environment) {
-            return URL(
-                fileURLWithPath: NSString(string: agentRoot).expandingTildeInPath,
-                isDirectory: true
-            )
-        }
-
-        let home = nonEmptyCampfireEnvironmentValue("HOME", in: environment) ?? NSHomeDirectory()
-        return URL(fileURLWithPath: NSString(string: home).expandingTildeInPath, isDirectory: true)
-            .appendingPathComponent(".campfire", isDirectory: true)
-            .appendingPathComponent("agent", isDirectory: true)
-    }
-
-    private static func nonEmptyCampfireEnvironmentValue(_ name: String, in environment: [String: String]) -> String? {
-        let trimmed = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func campfireExtensionURL() -> URL {
-        return Self.resolvedCampfireAgentDirectory()
-            .appendingPathComponent("extensions", isDirectory: true)
-            .appendingPathComponent(Self.campfireExtensionFilename, isDirectory: false)
-    }
-
-    private func existingCampfireExtensionContents(at url: URL, fileManager: FileManager = .default) throws -> String {
-        guard fileManager.fileExists(atPath: url.path) else { return "" }
-        do {
-            return try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            let message = String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.campfire.error.readFailed",
-                    defaultValue: "Failed to read %@"
-                ),
-                url.path
-            )
-            throw CLIError(message: message)
-        }
-    }
-
-    func installCampfireExtensionHooks(_ _: AgentHookDef) throws {
-        let extensionURL = campfireExtensionURL()
-        let fileManager = FileManager.default
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-        let existing = try existingCampfireExtensionContents(at: extensionURL, fileManager: fileManager)
-        if existing == Self.campfireExtensionSource {
-            print(String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.campfire.alreadyUpToDate",
-                    defaultValue: "Campfire hooks already up to date at %@"
-                ),
-                extensionURL.path
-            ))
-            return
-        }
-        if !existing.isEmpty, !existing.contains(Self.campfireExtensionMarker) {
-            throw CLIError(message: String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.campfire.error.notCmuxExtension",
-                    defaultValue: "%@ exists and is not a cmux extension; leaving it alone"
-                ),
-                extensionURL.path
-            ))
-        }
-        if !skipConfirm {
-            Self.printInstallPreview(
-                path: extensionURL.path,
-                oldContent: existing,
-                newContent: Self.campfireExtensionSource,
-                fallbackContent: Self.campfireExtensionSource
-            )
-            print(String(localized: "cli.hooks.campfire.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
-            guard readLine()?.lowercased().hasPrefix("y") == true else {
-                print(String(localized: "cli.hooks.campfire.aborted", defaultValue: "Aborted."))
-                return
-            }
-        }
-        try fileManager.createDirectory(
-            at: extensionURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Self.campfireExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
-        print(String.localizedStringWithFormat(
-            String(
-                localized: "cli.hooks.campfire.installed",
-                defaultValue: "Campfire hooks installed at %@"
-            ),
-            extensionURL.path
-        ))
-    }
-
-    func uninstallCampfireExtensionHooks(_ _: AgentHookDef) throws {
-        let extensionURL = campfireExtensionURL()
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: extensionURL.path) else {
-            print(String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.campfire.noneFound",
-                    defaultValue: "No Campfire cmux extension found at %@"
-                ),
-                extensionURL.path
-            ))
-            return
-        }
-        let existing = try existingCampfireExtensionContents(at: extensionURL, fileManager: fm)
-        guard existing.contains(Self.campfireExtensionMarker) else {
-            print(String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.campfire.refuseRemoveMissingMarker",
-                    defaultValue: "Refusing to remove %@: missing cmux marker"
-                ),
-                extensionURL.path
-            ))
-            return
-        }
-        try fm.removeItem(at: extensionURL)
-        print(String.localizedStringWithFormat(
-            String(
-                localized: "cli.hooks.campfire.removed",
-                defaultValue: "Removed Campfire cmux extension from %@"
-            ),
-            extensionURL.path
-        ))
-    }
 }

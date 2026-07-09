@@ -126,6 +126,10 @@ final class HostAccountFlow: AccountFlow {
         ProUpgradePresenter.present()
     }
 
+    func prefetchProUpgrade() {
+        ProUpgradePresenter.prefetch()
+    }
+
     func openBillingPortal() {
         ProUpgradePresenter.presentBillingPortal()
     }

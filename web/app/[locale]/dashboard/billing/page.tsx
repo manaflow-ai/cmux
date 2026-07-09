@@ -2,8 +2,15 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
+import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "@/app/lib/billing";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import {
+  FeatureList,
+  PlanCard,
+  PrimaryLink,
+  visibleProFeatures,
+} from "@/app/components/pricing-shared";
 import { cloudDb } from "@/db/client";
 import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
@@ -13,6 +20,7 @@ import {
   TEAM_PLAN_ID,
   resolveProPlanStatus,
 } from "@/services/billing/pro";
+import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +38,6 @@ type StripeSubscriptionRow = {
   raw: Record<string, unknown> | null;
 };
 
-type BillingTeam = {
-  id: string;
-  displayName: string | null;
-};
-
 export default async function DashboardBillingPage({
   params,
   searchParams,
@@ -42,8 +45,10 @@ export default async function DashboardBillingPage({
   params: Promise<{ locale: string }>;
   searchParams?: Promise<SearchParams>;
 }) {
-  const { locale } = await params;
-  const query = await searchParams;
+  const [{ locale }, query] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve(undefined),
+  ]);
 
   if (!isStackConfigured()) {
     redirect("/");
@@ -53,16 +58,28 @@ export default async function DashboardBillingPage({
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/billing")));
   }
 
-  const t = await getTranslations({ locale, namespace: "dashboard.billing" });
-  const status = await resolveProPlanStatus(user);
-  const billingTeam = await billingTeamForUser(user);
-  const [subscription, hasStripeCustomer, teamSubscription, hasTeamStripeCustomer] = await Promise.all([
+  const billingTeamPromise = resolveBillingTeam(user);
+  const [
+    t,
+    pricingT,
+    status,
+    billingTeam,
+    subscription,
+    hasStripeCustomer,
+  ] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.billing" }),
+    getTranslations({ locale, namespace: "pricing" }),
+    resolveProPlanStatus(user),
+    billingTeamPromise,
     latestActiveStripeSubscription(user.id),
     hasCustomerRow(user.id),
+  ]);
+  const [teamSubscription, hasTeamStripeCustomer] = await Promise.all([
     billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
     billingTeam ? hasTeamCustomerRow(billingTeam.id) : Promise.resolve(false),
   ]);
   const banner = billingBanner(Array.isArray(query?.billing) ? query?.billing[0] : query?.billing);
+  const isFreePlan = !status.isPro && !teamSubscription;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
@@ -78,7 +95,9 @@ export default async function DashboardBillingPage({
         </div>
       ) : null}
 
-      {!status.isPro ? (
+      {isFreePlan ? (
+        <FreePlanUpsell t={t} pricingT={pricingT} />
+      ) : !status.isPro ? (
         <FreePlan t={t} />
       ) : subscription ? (
         <StripePlan
@@ -172,32 +191,6 @@ async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-async function billingTeamForUser(user: unknown): Promise<BillingTeam | null> {
-  const stackUser = user as {
-    selectedTeam?: unknown;
-    listTeams?: () => Promise<readonly unknown[]>;
-  };
-  const selected = teamFromUnknown(stackUser.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof stackUser.listTeams === "function"
-    ? (await stackUser.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeam => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeam | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  if (typeof id !== "string" || !id) return null;
-  const displayName = (value as { displayName?: unknown }).displayName;
-  return {
-    id,
-    displayName: typeof displayName === "string" && displayName.trim()
-      ? displayName
-      : null,
-  };
-}
-
 function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
   return (
     <section className="border border-border p-3">
@@ -210,6 +203,69 @@ function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
         {t("actions.viewPricing")}
       </Link>
     </section>
+  );
+}
+
+function FreePlanUpsell({
+  t,
+  pricingT,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  pricingT: Awaited<ReturnType<typeof getTranslations>>;
+}) {
+  const proFeatures = visibleProFeatures({
+    base: pricingT.raw("pro.features") as string[],
+    vault: pricingT.raw("pro.vaultFeatures") as string[],
+    hostedNetworking: pricingT.raw("pro.hostedNetworkingFeatures") as string[],
+  });
+  const teamFeatures = pricingT.raw("team.features") as string[];
+
+  return (
+    <div className="space-y-3">
+      <section className="border border-border p-3">
+        <h2 className="text-sm font-medium">{t("free.name")}</h2>
+        <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
+      </section>
+
+      <section>
+        <div className="mb-2">
+          <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
+          <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <PlanCard
+            name={pricingT("pro.name")}
+            price={pricingT("pro.price")}
+            period={pricingT("perMonth")}
+          >
+            <PrimaryLink href={PRO_CHECKOUT_URL}>{pricingT("pro.cta")}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
+            <FeatureList items={proFeatures} />
+          </PlanCard>
+
+          <PlanCard
+            name={pricingT("team.name")}
+            price={pricingT("team.price")}
+            period={pricingT("perUserMonth")}
+          >
+            <PrimaryLink href={TEAM_CHECKOUT_URL}>{pricingT("team.cta")}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium">{pricingT("team.featuresLead")}</p>
+            <FeatureList items={teamFeatures} />
+          </PlanCard>
+        </div>
+      </section>
+
+      <section className="border border-border p-3">
+        <h2 className="text-sm font-medium">{t("free.testflightTitle")}</h2>
+        <p className="mt-2 max-w-2xl text-muted">{t("free.testflightBody")}</p>
+        <Link
+          href="/dashboard/testflight"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("free.testflightCta")}
+        </Link>
+      </section>
+    </div>
   );
 }
 
@@ -305,7 +361,7 @@ function TeamPlan({
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   locale: string;
-  team: BillingTeam;
+  team: BillingTeamLike;
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
