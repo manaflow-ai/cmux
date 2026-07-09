@@ -423,12 +423,41 @@ struct MobileSettingsView: View {
             } catch {
                 await MainActor.run {
                     isDeletingAccount = false
-                    accountDeletionErrorMessage = L10n.string(
-                        "mobile.settings.deleteAccountFailedMessage",
-                        defaultValue: "Check your connection and try again. If this keeps failing, contact founders@manaflow.com."
-                    )
+                    accountDeletionErrorMessage = accountDeletionFailureMessage(for: error)
                 }
             }
+        }
+    }
+
+    private func accountDeletionFailureMessage(for error: Error) -> String {
+        guard let deletionError = error as? MobileAccountDeletionClient.DeletionError else {
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedMessage",
+                defaultValue: "Check your connection and try again. If this keeps failing, contact founders@manaflow.com."
+            )
+        }
+
+        switch deletionError {
+        case .missingRefreshToken:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedSignedOutMessage",
+                defaultValue: "Sign in again, then try deleting your account. If this keeps failing, contact founders@manaflow.com."
+            )
+        case .rejected(let statusCode) where statusCode == 401 || statusCode == 403:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedSignedOutMessage",
+                defaultValue: "Sign in again, then try deleting your account. If this keeps failing, contact founders@manaflow.com."
+            )
+        case .rejected:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedRejectedMessage",
+                defaultValue: "The server rejected the deletion request. Try again later or contact founders@manaflow.com."
+            )
+        case .invalidURL, .invalidResponse:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedUnexpectedResponseMessage",
+                defaultValue: "cmux received an unexpected account deletion response. Try again later or contact founders@manaflow.com."
+            )
         }
     }
 

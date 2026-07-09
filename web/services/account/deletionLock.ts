@@ -7,3 +7,7 @@ export function accountDeletionUserHash(userId: string): string {
 export function accountDeletionAdvisoryLockKey(userId: string): string {
   return `account-deletion:${accountDeletionUserHash(userId)}`;
 }
+
+export function isBlockingAccountDeletionStatus(status: string): boolean {
+  return status === "pending" || status === "in_progress";
+}

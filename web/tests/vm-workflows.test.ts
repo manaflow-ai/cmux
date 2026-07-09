@@ -477,6 +477,31 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("destroyAccountOwnedVm treats an already-destroyed account VM as success", async () => {
+    const vm = testCloudVmRow();
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm }),
+      findAccountOwnedVm: () => Effect.succeed(null),
+    };
+    let providerDestroyCalled = false;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: () =>
+        Effect.sync(() => {
+          providerDestroyCalled = true;
+        }),
+    };
+
+    await Effect.runPromise(
+      destroyAccountOwnedVm({
+        userId: "user-workflow-account-delete",
+        providerVmId: "provider-vm-account-delete",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(providerDestroyCalled).toBe(false);
+  });
+
   test("createVm destroys provider handle when account deletion claims the provisioning row", async () => {
     const requested = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000134",

@@ -9,12 +9,14 @@ import type { AccountDeletionJob } from "../services/account/deletion";
 const calls: string[] = [];
 let claimResult = true;
 let cleanupError: Error | null = null;
+let stackDeleteError: Error | null = null;
 let pendingJobs: AccountDeletionJob[] = [];
 
 beforeEach(() => {
   calls.length = 0;
   claimResult = true;
   cleanupError = null;
+  stackDeleteError = null;
   pendingJobs = [];
 });
 
@@ -37,8 +39,8 @@ describe("account deletion processor", () => {
       "load-stack:user-1",
       "cleanup:user-1",
       "posthog:user-1",
-      "stack-delete:user-1",
       "completed:user-1",
+      "stack-delete:user-1",
     ]);
   });
 
@@ -54,6 +56,24 @@ describe("account deletion processor", () => {
       "load-stack:user-1",
       "cleanup:user-1",
       "failed:user-1:cleanup failed",
+    ]);
+  });
+
+  test("records a retryable failure when Stack deletion fails after completion is marked", async () => {
+    stackDeleteError = new Error("Stack delete failed");
+
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies()),
+    ).rejects.toThrow("Stack delete failed");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "cleanup:user-1",
+      "posthog:user-1",
+      "completed:user-1",
+      "stack-delete:user-1",
+      "failed:user-1:Stack delete failed",
     ]);
   });
 
@@ -100,6 +120,7 @@ function dependencies(
         update: async () => {},
         delete: async () => {
           calls.push(`stack-delete:${userId}`);
+          if (stackDeleteError) throw stackDeleteError;
         },
       };
     },

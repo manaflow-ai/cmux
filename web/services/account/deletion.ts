@@ -33,7 +33,11 @@ import { isStripeBillingConfigured, stripe } from "../billing/stripe";
 import { destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
 import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
-import { accountDeletionAdvisoryLockKey, accountDeletionUserHash } from "./deletionLock";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
+} from "./deletionLock";
 
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const ACCOUNT_DELETION_JOB_STALE_MS = 60 * 60 * 1000;
@@ -114,11 +118,14 @@ export async function hasAccountDeletionTombstone(
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
   const [row] = await db
-    .select({ userIdHash: accountDeletionTombstones.userIdHash })
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+    })
     .from(accountDeletionTombstones)
     .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
     .limit(1);
-  return row?.userIdHash === userIdHash;
+  return row?.userIdHash === userIdHash && isBlockingAccountDeletionStatus(row.status);
 }
 
 export async function markStackUserDeletionInProgress(
@@ -426,6 +433,7 @@ async function destroyProviderBackedAccountVms(
   userId: string,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
+  let lastWorkflowError: unknown = null;
   for (let pass = 0; pass < MAX_ACCOUNT_VM_CLEANUP_PASSES; pass += 1) {
     const activeVms = await providerBackedAccountVms(userId, runtime);
     if (activeVms.length === 0) return;
@@ -438,13 +446,14 @@ async function destroyProviderBackedAccountVms(
         }));
       } catch (error) {
         if (isVmNotFoundError(error)) continue;
-        throw error;
+        lastWorkflowError = error;
       }
     }
   }
 
   const remaining = await providerBackedAccountVms(userId, runtime);
   if (remaining.length > 0) {
+    if (lastWorkflowError) throw lastWorkflowError;
     throw new Error("Cloud VM account deletion cleanup did not settle");
   }
 }

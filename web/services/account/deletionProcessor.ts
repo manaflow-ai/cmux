@@ -51,8 +51,8 @@ export async function processAccountDeletionForUser(
     const user = await dependencies.loadStackUser(input.userId);
     await dependencies.deleteCmuxAccountData({ userId: input.userId });
     await dependencies.deletePostHogPersonData(input.userId);
-    if (user) await user.delete();
     await dependencies.markAccountDeletionCompleted({ userId: input.userId });
+    if (user) await user.delete();
     return "processed";
   } catch (error) {
     await dependencies.markAccountDeletionFailed({ userId: input.userId, error });

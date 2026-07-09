@@ -1281,7 +1281,7 @@ export function destroyAccountOwnedVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* repo.findAccountOwnedVm(input);
     if (!vm || !vm.providerVmId) {
-      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+      return;
     }
 
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });

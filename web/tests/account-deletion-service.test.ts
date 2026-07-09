@@ -46,7 +46,10 @@ describe("account deletion cleanup", () => {
   test("detects durable tombstones by hashed Stack user id", async () => {
     const runtime = {
       cloudDb: () => ({
-        select: () => selectBuilder(() => [{ userIdHash: accountDeletionUserHash("user-1") }]),
+        select: () => selectBuilder(() => [{
+          userIdHash: accountDeletionUserHash("user-1"),
+          status: "in_progress",
+        }]),
       }) as unknown as ReturnType<typeof cloudDb>,
       deleteObject,
       destroyAccountOwnedVm,
@@ -55,6 +58,22 @@ describe("account deletion cleanup", () => {
 
     await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(true);
     await expect(hasAccountDeletionTombstone({ userId: "other-user" }, runtime)).resolves.toBe(false);
+  });
+
+  test("does not block auth on terminal tombstone statuses", async () => {
+    const runtime = {
+      cloudDb: () => ({
+        select: () => selectBuilder(() => [{
+          userIdHash: accountDeletionUserHash("user-1"),
+          status: "failed",
+        }]),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
   });
 
   test("claims providerless VMs before destroying provider-backed account VMs", async () => {
@@ -116,7 +135,9 @@ describe("account deletion cleanup", () => {
   test("fails closed when provider-backed VM destruction fails", async () => {
     providerBackedVmBatches = [
       [{ providerVmId: "provider-vm-1" }],
-      [],
+      [{ providerVmId: "provider-vm-1" }],
+      [{ providerVmId: "provider-vm-1" }],
+      [{ providerVmId: "provider-vm-1" }],
     ];
     workflowErrorsByProviderId.set("provider-vm-1", new Error("provider destroy failed"));
 
@@ -124,8 +145,26 @@ describe("account deletion cleanup", () => {
       userId: "user-1",
     }, fakeRuntime())).rejects.toThrow("provider destroy failed");
 
-    expect(runVmWorkflow).toHaveBeenCalledTimes(1);
+    expect(runVmWorkflow).toHaveBeenCalledTimes(3);
     expect(calls).toContain("destroy-error:user-1:provider-vm-1");
+    expect(calls).not.toContain("delete-cloud-vm-sessions");
+  });
+
+  test("continues a cleanup pass after one provider-backed VM fails", async () => {
+    providerBackedVmBatches = [
+      [{ providerVmId: "provider-vm-1" }, { providerVmId: "provider-vm-2" }],
+      [{ providerVmId: "provider-vm-1" }],
+      [{ providerVmId: "provider-vm-1" }],
+      [{ providerVmId: "provider-vm-1" }],
+    ];
+    workflowErrorsByProviderId.set("provider-vm-1", new Error("provider destroy failed"));
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("provider destroy failed");
+
+    expect(calls).toContain("destroy-error:user-1:provider-vm-1");
+    expect(calls).toContain("destroy:user-1:provider-vm-2");
     expect(calls).not.toContain("delete-cloud-vm-sessions");
   });
 
