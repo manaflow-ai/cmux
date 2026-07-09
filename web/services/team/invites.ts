@@ -565,10 +565,14 @@ async function canManageTeam(user: StackTeamUserLike, team: StackTeam): Promise<
   if (await hasTeamAdminPermission(user, team)) return true;
   const members = await requireTeamUsers(team);
   if (!members.some((member) => member.id === user.id)) return false;
-  const roles = await roleMapForMembers(team, members);
-  const hasAnyAdmin = Array.from(roles.values()).includes("admin");
-  if (!hasAnyAdmin) {
-    console.warn("team has no admins; applying legacy member-as-admin fallback", { teamId: team.id });
+  // Fail CLOSED: never treat a member of a multi-member team as admin just
+  // because the admin lookup came back empty (an API error, propagation lag, or
+  // a legacy team with no grant would otherwise escalate every member to admin).
+  // Only self-bootstrap admin for a SOLE member, who is unambiguously the owner
+  // of their own team; that covers legacy personal teams without opening a
+  // privilege-escalation hole on shared teams.
+  if (members.length === 1 && members[0]?.id === user.id) {
+    await grantTeamAdmin(user, team);
     return true;
   }
   return false;
