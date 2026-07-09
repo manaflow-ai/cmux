@@ -6399,7 +6399,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             if let hostedInspectorHit {
                 cacheHostedInspectorDividerHit(hostedInspectorHit, at: point)
-                if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
+                if !hostedInspectorHit.dockSide.isHorizontalDivider,
+                   let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
 #if DEBUG
                     debugLogHitTest(stage: "hitTest.hostedInspectorNative", point: point, passThrough: false, hitView: nativeHit)
 #endif
@@ -6511,6 +6512,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) {
             let finalDragState = hostedInspectorDividerDrag
             hostedInspectorDividerDrag = nil
+            cachedHostedInspectorDividerHit = nil
             isHostedInspectorDividerDragActive = false
             updateDividerCursor(at: convert(event.locationInWindow, from: nil))
             if let finalDragState {

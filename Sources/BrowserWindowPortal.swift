@@ -522,6 +522,7 @@ final class WindowBrowserHostView: NSView {
             scheduleHostedInspectorDividerReapply(in: dragState.slotView, reason: "dragEndAsync")
         }
         hostedInspectorDividerDrag = nil
+        cachedHostedInspectorDividerHit = nil
         updateDividerCursor(at: convert(event.locationInWindow, from: nil))
         super.mouseUp(with: event)
     }

@@ -2411,7 +2411,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
 
     func testBrowserPanelHostAllowsRightDockedInspectorToExpandLeftAfterPromotion() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 260),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -2422,14 +2422,14 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 420, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
         let slotView = host.ensureLocalInlineSlotView()
-        let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 92, height: host.bounds.height))
+        let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 272, height: host.bounds.height))
         let inspectorView = WKWebView(
-            frame: NSRect(x: 92, y: 0, width: slotView.bounds.width - 92, height: host.bounds.height)
+            frame: NSRect(x: 272, y: 0, width: slotView.bounds.width - 272, height: host.bounds.height)
         )
         slotView.addSubview(pageView)
         slotView.addSubview(inspectorView)
