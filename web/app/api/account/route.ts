@@ -54,9 +54,13 @@ export async function DELETE(request: Request): Promise<Response> {
   const stackUser = await currentDeletableStackUser(request);
   if (!stackUser || stackUser.id !== user.id) return unauthorized();
 
+  const originalStackMetadata = stackUser.clientReadOnlyMetadata;
+  let stackMetadataMarked = false;
+  let cmuxOwnedRowsDeleted = false;
   try {
     await resolveUserBillingForAccountDeletion(user.id);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
+    stackMetadataMarked = true;
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultRowsAndObjectsForAccount(user.id);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
@@ -64,6 +68,7 @@ export async function DELETE(request: Request): Promise<Response> {
     // These deletes are idempotent, so the same signed-in user can retry the
     // final Stack deletion when the distinct response below is returned.
     await deleteCmuxOwnedAccountRows(user.id);
+    cmuxOwnedRowsDeleted = true;
     try {
       await stackUser.delete();
     } catch (error) {
@@ -77,6 +82,9 @@ export async function DELETE(request: Request): Promise<Response> {
     await finishPostStackAccountCleanup(user.id);
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
+    if (stackMetadataMarked && !cmuxOwnedRowsDeleted) {
+      await restoreStackMetadataAfterAccountDeletionFailure(stackUser, originalStackMetadata);
+    }
     logAccountDeleteError("account.delete.failed", error);
     return jsonResponse({ error: "account_delete_failed" }, 500);
   }
@@ -234,14 +242,27 @@ async function resolveUserBillingForAccountDeletion(userId: string): Promise<voi
 }
 
 async function markAccountDeletingAndClearBillingEntitlements(user: DeletableStackUser): Promise<void> {
-  const raw = user.clientReadOnlyMetadata;
-  const metadata: Record<string, unknown> =
-    raw && typeof raw === "object" && !Array.isArray(raw)
-      ? { ...(raw as Record<string, unknown>) }
-      : {};
+  const metadata = stackMetadataRecord(user.clientReadOnlyMetadata);
   delete metadata.cmuxPlan;
   metadata.cmuxAccountDeleting = true;
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+}
+
+async function restoreStackMetadataAfterAccountDeletionFailure(
+  user: DeletableStackUser,
+  metadata: unknown,
+): Promise<void> {
+  try {
+    await user.update({ clientReadOnlyMetadata: stackMetadataRecord(metadata) as ProMetadataJson });
+  } catch (error) {
+    logAccountDeleteError("account.delete.metadata_restore_failed", error);
+  }
+}
+
+function stackMetadataRecord(metadata: unknown): Record<string, unknown> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? { ...(metadata as Record<string, unknown>) }
+    : {};
 }
 
 async function cancelStripeSubscriptionForAccountDeletion(

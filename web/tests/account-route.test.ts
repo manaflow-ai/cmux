@@ -418,6 +418,12 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ error: "account_delete_failed" });
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
   });
 
   test("attempts every personal VM before failing account deletion on VM teardown errors", async () => {
@@ -432,6 +438,12 @@ describe("account deletion route", () => {
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.vm_destroy_failed",
       "Error: destroy failed for personal-vm-1",
@@ -460,6 +472,7 @@ describe("account deletion route", () => {
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).not.toHaveBeenCalled();
   });
 
   test("returns a retryable partial-failure response when Stack deletion fails after cmux data deletion", async () => {
@@ -480,6 +493,7 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(routeEvents).toEqual([
       "metadata-update",
