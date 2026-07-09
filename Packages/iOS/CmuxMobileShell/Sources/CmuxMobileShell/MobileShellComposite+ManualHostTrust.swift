@@ -80,15 +80,19 @@ extension MobileShellComposite {
             return .failed
         }
         guard isPendingManualHostTrustCurrent(pending) else {
+            finishPendingManualHostSwitchAttempt(pending)
             clearManualHostTrustWarning()
             return .superseded
         }
         clearManualHostTrustWarning()
         await manualHostTrustStore.trust(warning.scope)
-        guard isPendingManualHostTrustCurrent(pending) else { return .superseded }
+        guard isPendingManualHostTrustCurrent(pending) else {
+            finishPendingManualHostSwitchAttempt(pending)
+            return .superseded
+        }
         switch pending {
-        case let .manual(_, name, host, port, pairedMacDeviceID, recordsPairingAttempt, ifStillCurrent):
-            return await connectManualHost(
+        case let .manual(_, name, host, port, pairedMacDeviceID, recordsPairingAttempt, _, ifStillCurrent):
+            let result = await connectManualHost(
                 name: name,
                 host: host,
                 port: port,
@@ -96,6 +100,8 @@ extension MobileShellComposite {
                 recordsPairingAttempt: recordsPairingAttempt,
                 ifStillCurrent: ifStillCurrent
             )
+            finishPendingManualHostSwitchAttempt(pending)
+            return result
         case let .pairingURL(_, rawURL, acceptedVersionWarning):
             return await connectPairingURLResult(
                 rawURL,
@@ -111,5 +117,10 @@ extension MobileShellComposite {
             return false
         }
         return true
+    }
+
+    private func finishPendingManualHostSwitchAttempt(_ pending: PendingManualHostTrust) {
+        guard let attemptID = pending.macSwitchAttemptID else { return }
+        finishMacSwitchAttempt(attemptID)
     }
 }

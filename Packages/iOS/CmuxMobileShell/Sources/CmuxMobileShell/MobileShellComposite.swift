@@ -1592,6 +1592,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
+        pendingMacSwitchAttemptID: UUID? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> MobilePairingURLConnectionResult {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1637,6 +1638,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         port: port,
                         pairedMacDeviceID: pairedMacDeviceID,
                         recordsPairingAttempt: recordsPairingAttempt,
+                        macSwitchAttemptID: pendingMacSwitchAttemptID,
                         ifStillCurrent: ifStillCurrent
                     )
                 )
@@ -2602,7 +2604,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func switchToMac(macDeviceID: String) async -> Bool {
         guard let pairedMacStore else { return false }
         let switchAttemptID = beginMacSwitchAttempt()
-        defer { finishMacSwitchAttempt(switchAttemptID) }
+        var shouldFinishSwitchAttempt = true
+        defer { if shouldFinishSwitchAttempt { finishMacSwitchAttempt(switchAttemptID) } }
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
         if await promoteSecondaryToForeground(macDeviceID, switchAttemptID: switchAttemptID) {
@@ -2699,11 +2702,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 port: route.port,
                 pairedMacDeviceID: macDeviceID,
                 recordsPairingAttempt: true,
+                pendingMacSwitchAttemptID: switchAttemptID,
                 ifStillCurrent: { [weak self] in
                     self?.isCurrentMacSwitchAttempt(switchAttemptID) == true
                 }
             )
-            if result == .needsUserApproval || result == .superseded {
+            if result == .needsUserApproval {
+                shouldFinishSwitchAttempt = false
+                return false
+            }
+            if result == .superseded {
                 return false
             }
             guard isCurrentMacSwitchAttempt(switchAttemptID) else {
@@ -2741,9 +2749,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
             // the user is not left stranded on a failed switch.
-            // Keep the attempt alive through the restore so a rapid follow-up
-            // picker selection can either cancel this rollback while preserving
-            // its baseline, or replace it with a new live foreground baseline.
             let restoreTarget = macSwitchRestoreBaseline ?? previousForegroundMac
             if await restorePreviousMacIfNeeded(restoreTarget, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
@@ -3319,8 +3324,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         invalidatePairingAttempt()
         clearPairingError()
         let hadBlockingPrompt = pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil || manualHostTrustWarning != nil
+        let pendingSwitchAttemptID = pendingManualHostTrust?.macSwitchAttemptID
         clearPairingVersionWarning()
         clearManualHostTrustWarning()
+        if let pendingSwitchAttemptID { finishMacSwitchAttempt(pendingSwitchAttemptID) }
         if hadBlockingPrompt { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -5543,7 +5550,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
-    private func finishMacSwitchAttempt(_ attemptID: UUID) {
+    func finishMacSwitchAttempt(_ attemptID: UUID) {
         if macSwitchAttemptID == attemptID {
             macSwitchAttemptID = nil
             macSwitchAttemptSignInGeneration = nil
