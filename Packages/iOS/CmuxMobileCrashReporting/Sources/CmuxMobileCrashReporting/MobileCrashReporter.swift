@@ -29,14 +29,22 @@ public struct MobileCrashReporter {
         consent: any AnalyticsConsentProviding,
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        notificationCenter: NotificationCenter = .default,
+        revocationWatcher: RevocationWatcher = .shared,
         start: (Options) -> Void = { SentrySDK.start(options: $0) },
+        close: @escaping @Sendable () -> Void = { SentrySDK.close() },
+        purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
         crash: () -> Void = { SentrySDK.crash() }
     ) {
         Self().startIfEnabled(
             consent: consent,
             arguments: arguments,
             environment: environment,
+            notificationCenter: notificationCenter,
+            revocationWatcher: revocationWatcher,
             start: start,
+            close: close,
+            purgeCache: purgeCache,
             crash: crash
         )
     }
@@ -64,10 +72,20 @@ public struct MobileCrashReporter {
         consent: any AnalyticsConsentProviding,
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        notificationCenter: NotificationCenter = .default,
+        revocationWatcher: RevocationWatcher = .shared,
         start: (Options) -> Void = { SentrySDK.start(options: $0) },
+        close: @escaping @Sendable () -> Void = { SentrySDK.close() },
+        purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
         crash: () -> Void = { SentrySDK.crash() }
     ) {
-        guard consent.isTelemetryEnabled else { return }
+        guard consent.isTelemetryEnabled else {
+            // A crash captured during an earlier opted-out window must never
+            // upload after a later re-opt-in: with consent off, any envelopes
+            // Sentry persisted before the opt-out landed are deleted.
+            purgeCache()
+            return
+        }
         // Never report from test runs: unit-test hosts, XCUITest
         // app-under-test launches (which do NOT get XCTestConfigurationFilePath;
         // they carry other XCTest markers or this repo's CMUX_UITEST_ keys),
@@ -84,6 +102,18 @@ public struct MobileCrashReporter {
             consent.isTelemetryEnabled ? event : nil
         }
         start(options)
+        // Mid-session revocation fails closed at the SDK level too: the crash
+        // handlers stop persisting reports and cached envelopes are deleted, so
+        // nothing captured after (or pending from before) the opt-out can ever
+        // leave the device. Re-enabling takes effect on the next launch.
+        revocationWatcher.arm(
+            consent: consent,
+            notificationCenter: notificationCenter,
+            onRevoke: {
+                close()
+                purgeCache()
+            }
+        )
 
         #if DEBUG
         if arguments.contains(Self.debugCrashArgument) {
@@ -134,6 +164,64 @@ public struct MobileCrashReporter {
         options.enableMetricKit = true
         #endif
         return options
+    }
+
+    /// Watches for the shared telemetry opt-out flipping off after Sentry has
+    /// started and closes the SDK + purges its cache exactly once. UserDefaults
+    /// changes are observed via `UserDefaults.didChangeNotification`, the same
+    /// backing store the consent provider reads.
+    public final class RevocationWatcher: @unchecked Sendable {
+        public static let shared = RevocationWatcher()
+
+        /// Tests inject fresh instances so parallel suites cannot stomp each
+        /// other's registration on the shared watcher.
+        public init() {}
+
+        // Serial low-level primitive guarding token/armed across the
+        // notification queue and arm callers.
+        private let lock = NSLock()
+        private var token: (any NSObjectProtocol)?
+        private var center: NotificationCenter?
+
+        func arm(
+            consent: any AnalyticsConsentProviding,
+            notificationCenter: NotificationCenter,
+            onRevoke: @escaping @Sendable () -> Void
+        ) {
+            lock.lock()
+            defer { lock.unlock() }
+            if let token, let center { center.removeObserver(token) }
+            center = notificationCenter
+            token = notificationCenter.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                // Strong self on purpose: the observation (and this watcher)
+                // must stay alive until revocation fires or a re-arm replaces
+                // it; disarm breaks the center->closure->self cycle.
+                guard !consent.isTelemetryEnabled else { return }
+                self.disarm()
+                onRevoke()
+            }
+        }
+
+        private func disarm() {
+            lock.lock()
+            defer { lock.unlock() }
+            if let token, let center { center.removeObserver(token) }
+            token = nil
+            center = nil
+        }
+    }
+
+    /// Deletes Sentry's on-disk envelope/report cache (`Caches/io.sentry`).
+    public static func purgeSentryCache() {
+        guard let caches = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first else { return }
+        try? FileManager.default.removeItem(at: caches.appendingPathComponent("io.sentry"))
     }
 
     static func isTestRun(environment: [String: String]) -> Bool {
