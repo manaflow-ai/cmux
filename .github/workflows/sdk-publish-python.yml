@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "mux-sdk-v*"
+      - "cmux-sdk-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -36,11 +37,13 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            [[ "$GITHUB_REF_NAME" =~ ^mux-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "tag must match mux-sdk-vX.Y.Z" >&2
+            [[ "$GITHUB_REF_NAME" =~ ^(mux|cmux)-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match mux-sdk-vX.Y.Z or cmux-sdk-vX.Y.Z" >&2
               exit 1
             }
-            version="${GITHUB_REF_NAME#mux-sdk-v}"
+            version="$GITHUB_REF_NAME"
+            version="${version#mux-sdk-v}"
+            version="${version#cmux-sdk-v}"
           else
             version="$DISPATCH_VERSION"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -57,9 +60,9 @@ jobs:
           expected = sys.argv[1]
           root = pathlib.Path.cwd()
           versions = {
-              "typescript package.json": json.loads((root / "mux/bindings/typescript/package.json").read_text())["version"],
-              "python pyproject.toml": tomllib.loads((root / "mux/bindings/python/pyproject.toml").read_text())["project"]["version"],
-              "rust Cargo.toml": tomllib.loads((root / "mux/bindings/rust/Cargo.toml").read_text())["package"]["version"],
+              "typescript package.json": json.loads((root / "cmux-tui/bindings/typescript/package.json").read_text())["version"],
+              "python pyproject.toml": tomllib.loads((root / "cmux-tui/bindings/python/pyproject.toml").read_text())["project"]["version"],
+              "rust Cargo.toml": tomllib.loads((root / "cmux-tui/bindings/rust/Cargo.toml").read_text())["package"]["version"],
           }
           mismatches = {name: got for name, got in versions.items() if got != expected}
           if mismatches:
@@ -100,15 +103,15 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
 
-      - name: Build mux server
-        working-directory: mux
-        run: cargo build -p mux-tui
+      - name: Build cmux-tui server
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui
 
       - name: Python conformance fixtures
-        run: python3 mux/bindings/conformance/runner.py
+        run: python3 cmux-tui/bindings/conformance/runner.py
 
       - name: Python binding e2e
-        run: bash mux/bindings/conformance/e2e.sh --require python
+        run: bash cmux-tui/bindings/conformance/e2e.sh --require python
 
   build:
     needs: bindings-e2e-python
@@ -121,7 +124,7 @@ jobs:
           persist-credentials: false
 
       - name: Build sdist and wheel
-        working-directory: mux/bindings/python
+        working-directory: cmux-tui/bindings/python
         run: |
           python3 -m pip install --upgrade build
           python3 -m build --sdist --wheel
@@ -130,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-python-dist
-          path: mux/bindings/python/dist/*
+          path: cmux-tui/bindings/python/dist/*
           if-no-files-found: error
 
   publish:

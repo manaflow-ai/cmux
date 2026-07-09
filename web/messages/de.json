@@ -3462,6 +3462,9 @@
       "faqA4": "Ja. cmux ist kostenlos und quelloffen für macOS."
     }
   },
+  "pricing": {
+    "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

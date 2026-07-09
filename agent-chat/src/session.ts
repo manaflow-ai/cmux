@@ -1,5 +1,6 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { applyThemeVars } from "./theme";
 
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
@@ -357,6 +358,9 @@ export function useSession(): SessionState {
             break;
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            break;
+          case "theme":
+            if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
             break;
           case "file-diff":
             if (msg.sessionId === sessionIdRef.current) {

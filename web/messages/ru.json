@@ -3462,6 +3462,9 @@
       }
     }
   },
+  "pricing": {
+    "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

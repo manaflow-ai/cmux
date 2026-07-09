@@ -25,7 +25,14 @@
     },
     {
       "target" : {
-        "containerPath" : "container:..\/Packages\/iOS\/CmuxMobileTerminal",
+        "containerPath" : "container:../Packages/iOS/CmuxMobileShellUI",
+        "identifier" : "CmuxMobileShellUITests",
+        "name" : "CmuxMobileShellUITests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:../Packages/iOS/CmuxMobileTerminal",
         "identifier" : "CmuxMobileTerminalTests",
         "name" : "CmuxMobileTerminalTests"
       }
