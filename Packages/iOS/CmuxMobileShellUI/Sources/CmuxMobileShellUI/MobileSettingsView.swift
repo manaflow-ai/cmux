@@ -6,10 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 
-/// The mobile app's settings page. Surfaces the signed-in account (so the user
-/// can confirm which cmux account this device uses, since the account must match the
-/// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
-/// paired Mac. Presented as a sheet from the workspace list.
 struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
@@ -18,8 +14,6 @@ struct MobileSettingsView: View {
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
-    /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
-    /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
     let telemetryConsentStore: MobileTelemetryConsentStore
     let accountDeletionClient: MobileAccountDeletionClient?
@@ -108,13 +102,6 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                // Stack team switcher. Only shown when the user belongs to more than
-                // one team. Rendered as an INLINE picker: each team is a row with a
-                // checkmark on the current one, so every team is visible at a glance
-                // and one tap switches (clearer than a menu/navigation push for a
-                // small set). Selecting a team writes `selectedTeamID`, which the root
-                // view observes to re-scope the team-bound surfaces (paired Macs,
-                // presence, backup) to that team without dropping the live terminal.
                 if authManager.availableTeams.count > 1 {
                     Section {
                         Picker(selection: teamSelection) {
@@ -139,9 +126,6 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                // Hidden entirely when there is nothing to show (no connected
-                // Mac, no store to switch with, no rescan), so the no-devices
-                // screen's reuse of this sheet does not render an empty header.
                 if hasConnectionSection {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
                         if !connectedHostName.isEmpty {
@@ -366,17 +350,12 @@ struct MobileSettingsView: View {
                 }
             }
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since Settings means setup passed.
                 OnboardingFlowView(
                     onComplete: { showingOnboarding = false },
                     setupHelpHighlight: setupHelpHighlight
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings means setup passed.
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
             .mobileSettingsAccountDeletionAlerts(
@@ -389,10 +368,6 @@ struct MobileSettingsView: View {
         .accessibilityIdentifier("MobileSettingsView")
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
     }
@@ -461,17 +436,10 @@ struct MobileSettingsView: View {
         }
     }
 
-    /// Whether the Connection section has any rows to show. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac, no store to
-    /// switch with, and no rescan action, so the section is omitted entirely.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil || rescanQR != nil
     }
 
-    /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
-    /// which falls back to the first team when nothing is explicitly selected) so
-    /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
             get: { authManager.resolvedTeamID },
