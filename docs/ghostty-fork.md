@@ -67,11 +67,12 @@ https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-4117298e4bc198ce
 
 ### Previous pin
 
-The previous cmux pin was `870ed36f9`, the initial compression merge before the
-preserved-page OOM ownership fix. Its previous cmux parent was `dd726a9a6`,
-carrying the iOS external renderer-drain mode and IOSurface detach fixes on top
-of `a78fe53ef`. The fork's prior `main` head was `cc31d54ee`, which merged
-upstream through `d560c645`; both histories are ancestors of `4117298e4`.
+The previous cmux pin was `dd726a9a6`, carrying the iOS external renderer-drain
+mode and IOSurface detach fixes on top of `a78fe53ef`. The initial compression
+merge for this update was `870ed36f9`; it was superseded by `4117298e4` after
+the preserved-page OOM ownership fix. The fork's prior `main` head was
+`cc31d54ee`, which merged upstream through `d560c645`; both histories are
+ancestors of `4117298e4`.
 
 ### Earlier pin
 
