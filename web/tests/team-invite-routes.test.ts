@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Import real modules so the process-wide mock.module overrides below only
+// replace the specific exports the test controls, never dropping the rest (bun
+// mock.module leaks into every later-sorted test file for the whole run).
+const errorsModule = await import("../services/errors");
+const dbClientModule = await import("../db/client");
+const billingProModule = await import("../services/billing/pro");
+const stackModule = await import("../app/lib/stack");
+
 let currentUser: ReturnType<typeof stackUser> | null = null;
 let members: Array<{ id: string; primaryEmail: string }> = [];
 let invitations: Array<{
@@ -25,17 +33,15 @@ const getUser = mock(async () => currentUser);
 const emailSend = mock(async () => ({ error: null }));
 
 mock.module("../app/lib/stack", () => ({
+  ...stackModule,
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
 
-mock.module("drizzle-orm", () => ({
-  and: (...parts: unknown[]) => parts,
-  desc: (value: unknown) => value,
-  eq: (left: unknown, right: unknown) => [left, right],
-  inArray: (left: unknown, right: unknown) => [left, right],
-}));
+// drizzle-orm and db/schema are left real: the mocked cloudDb below ignores the
+// built query, so real operators/tables are harmless here and mocking them
+// process-wide would corrupt every later db test.
 
 mock.module("../app/env", () => ({
   env: {
@@ -46,6 +52,7 @@ mock.module("../app/env", () => ({
 }));
 
 mock.module("../db/client", () => ({
+  ...dbClientModule,
   cloudDb: () => ({
     select: () => ({
       from: () => ({
@@ -59,24 +66,17 @@ mock.module("../db/client", () => ({
   }),
 }));
 
-mock.module("../db/schema", () => ({
-  stripeSubscriptions: {
-    seats: "seats",
-    stackTeamId: "stackTeamId",
-    scope: "scope",
-    plan: "plan",
-    status: "status",
-    currentPeriodEnd: "currentPeriodEnd",
-    updatedAt: "updatedAt",
-  },
-}));
-
 mock.module("../services/billing/pro", () => ({
+  ...billingProModule,
   ACTIVE_STRIPE_PRO_STATUSES: ["active", "trialing"],
   TEAM_PLAN_ID: "team",
 }));
 
+// bun's mock.module replaces the module process-wide for the whole run, so it
+// must carry EVERY export other test files import (e.g. testflight-service
+// relies on captureAscError). Spreading the real module avoids dropping exports.
 mock.module("../services/errors", () => ({
+  ...errorsModule,
   captureBillingError: mock(() => undefined),
 }));
 
