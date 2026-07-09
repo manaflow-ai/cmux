@@ -7885,6 +7885,7 @@ extension BrowserPanel {
     }
 }
 
+#if DEBUG
 extension BrowserPanel {
     private static func debugRectDescription(_ rect: NSRect) -> String {
         String(
