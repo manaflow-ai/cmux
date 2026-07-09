@@ -44,7 +44,7 @@ public struct AnalyticsConsentProvider: AnalyticsConsentProviding {
 ///
 /// The iOS app cannot import the macOS-only `CmuxSettings` package, so this reads
 /// the same backing key that `CmuxSettings.catalog.app.sendAnonymousTelemetry`
-/// writes (`"sendAnonymousTelemetry"`), with the same default of `true`. The
+    /// writes (`"sendAnonymousTelemetry"`), with the same default of `false`. The
 /// value is read on every capture so toggling the Settings switch takes effect
 /// immediately without rewiring.
 public struct UserDefaultsAnalyticsConsentProvider: AnalyticsConsentProviding {

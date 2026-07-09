@@ -12,24 +12,39 @@ public struct MobileTelemetryConsentStore: Sendable {
     /// Product analytics stay off until the user explicitly opts in.
     public static let defaultIsEnabled = false
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let backing: MobileTelemetryConsentDefaultsBacking
 
     /// Creates a consent store over `defaults`.
     /// - Parameter defaults: The user defaults store. Use `.standard` in app
     ///   code and a suite-scoped store in tests.
     public init(defaults: UserDefaults) {
-        self.defaults = defaults
+        self.backing = MobileTelemetryConsentDefaultsBacking(defaults: defaults)
     }
 
     /// Whether product analytics may be sent right now.
     public var isEnabled: Bool {
-        defaults.object(forKey: Self.defaultsKey) as? Bool ?? Self.defaultIsEnabled
+        backing.bool(forKey: Self.defaultsKey) ?? Self.defaultIsEnabled
     }
 
     /// Persists the user's current analytics consent.
     /// - Parameter isEnabled: `true` to allow analytics, `false` to opt out.
     public func setEnabled(_ isEnabled: Bool) {
-        defaults.set(isEnabled, forKey: Self.defaultsKey)
+        backing.set(isEnabled, forKey: Self.defaultsKey)
+    }
+}
+
+private final class MobileTelemetryConsentDefaultsBacking: @unchecked Sendable {
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
+
+    func bool(forKey key: String) -> Bool? {
+        defaults.object(forKey: key) as? Bool
+    }
+
+    func set(_ value: Bool, forKey key: String) {
+        defaults.set(value, forKey: key)
     }
 }
