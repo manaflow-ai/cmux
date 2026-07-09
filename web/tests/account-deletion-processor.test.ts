@@ -189,9 +189,6 @@ function dependencies(
         },
       };
     },
-    clearStackUserDeletionInProgress: async (user) => {
-      calls.push(`clear-deleting:${user.id}`);
-    },
     markAccountDeletionCompleted: async ({ userId }) => {
       calls.push(`completed:${userId}`);
     },

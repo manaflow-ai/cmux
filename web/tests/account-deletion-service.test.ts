@@ -4,10 +4,8 @@ import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms, subrouter
 import type { ProviderId } from "../services/vms/drivers";
 import {
   claimAccountDeletionProcessing,
-  clearStackUserDeletionInProgress,
   deleteCmuxAccountData,
   hasAccountDeletionTombstone,
-  isStackAccountDeletionInProgress,
 } from "../services/account/deletion";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 
@@ -123,25 +121,6 @@ describe("account deletion cleanup", () => {
     };
 
     await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
-  });
-
-  test("clears only account deletion Stack metadata", async () => {
-    let metadata: unknown = {
-      cmuxAccountDeletionInProgress: true,
-      preserved: "value",
-    };
-
-    await clearStackUserDeletionInProgress({
-      get clientReadOnlyMetadata() {
-        return metadata;
-      },
-      update: async ({ clientReadOnlyMetadata }) => {
-        metadata = clientReadOnlyMetadata;
-      },
-    });
-
-    expect(isStackAccountDeletionInProgress(metadata)).toBe(false);
-    expect(metadata).toEqual({ preserved: "value" });
   });
 
   test("claims Stack-delete retries as in-progress work", async () => {

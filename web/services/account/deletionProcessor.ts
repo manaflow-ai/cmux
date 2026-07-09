@@ -6,7 +6,6 @@ import {
 import { deletePostHogPersonData } from "../analytics/posthogDeletion";
 import {
   claimAccountDeletionProcessing,
-  clearStackUserDeletionInProgress,
   deleteCmuxAccountData,
   listPendingAccountDeletionJobs,
   markAccountDeletionCompleted,
@@ -33,7 +32,6 @@ export type AccountDeletionProcessorDependencies = {
   ) => Promise<void>;
   readonly listPostHogDeletionDistinctIds: (input: { readonly userId: string }) => Promise<readonly string[]>;
   readonly loadStackUser: (userId: string) => Promise<StackAccountDeletionUser | null>;
-  readonly clearStackUserDeletionInProgress: (user: StackAccountDeletionUser) => Promise<void>;
   readonly markAccountDeletionCompleted: (input: { readonly userId: string }) => Promise<void>;
   readonly markAccountDeletionFailed: (
     input: { readonly userId: string; readonly error: unknown },
@@ -57,7 +55,6 @@ const defaultAccountDeletionProcessorDependencies: AccountDeletionProcessorDepen
   listPostHogDeletionDistinctIds,
   loadStackUser: async (userId) =>
     await getStackServerApp().getUser(userId) as StackAccountDeletionUser | null,
-  clearStackUserDeletionInProgress,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
   markAccountDeletionRetryPending,
@@ -75,9 +72,8 @@ export async function processAccountDeletionForUser(
   let stackDeletePending =
     claimedStatus === "stack_delete_pending" || claimedStatus === "stack_delete_in_progress";
   let cleanupStarted = false;
-  let user: StackAccountDeletionUser | null = null;
   try {
-    user = await dependencies.loadStackUser(input.userId);
+    const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
       cleanupStarted = true;
       await dependencies.deleteCmuxAccountData({ userId: input.userId });
@@ -96,16 +92,6 @@ export async function processAccountDeletionForUser(
     } else if (cleanupStarted) {
       await dependencies.markAccountDeletionRetryPending({ userId: input.userId, error });
     } else {
-      if (user) {
-        try {
-          await dependencies.clearStackUserDeletionInProgress(user);
-        } catch (metadataError) {
-          console.error("[account-deletion] Stack metadata clear failed after cleanup failure", {
-            userId: input.userId,
-            error: metadataError,
-          });
-        }
-      }
       await dependencies.markAccountDeletionFailed({ userId: input.userId, error });
     }
     throw error;
