@@ -186,6 +186,14 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func customizeWorkspaceLayouts() {
+        guard let appDelegate = AppDelegate.shared else {
+            SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+            return
+        }
+        appDelegate.openWorkspaceLayoutsCustomization()
+    }
+
     func setMenuBarOnly(_ enabled: Bool) -> Bool {
         MenuBarOnlySettings.setEnabled(enabled)
         return true
