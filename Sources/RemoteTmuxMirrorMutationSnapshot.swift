@@ -30,9 +30,10 @@ struct RemoteTmuxMirrorMutationSnapshot {
     }
 
     func restore(in workspace: Workspace) {
-        if let selectedWorkspaceId,
-           tabManager?.selectedTabId != selectedWorkspaceId,
-           tabManager?.tabs.contains(where: { $0.id == selectedWorkspaceId }) == true {
+        let selectedWorkspaceStillExists = selectedWorkspaceId.map { selectedWorkspaceId in
+            tabManager?.tabs.contains(where: { $0.id == selectedWorkspaceId }) == true
+        } ?? true
+        if tabManager?.selectedTabId != selectedWorkspaceId, selectedWorkspaceStillExists {
             tabManager?.selectedTabId = selectedWorkspaceId
         }
 
