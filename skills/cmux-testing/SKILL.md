@@ -44,3 +44,4 @@ Swift Testing is the current Apple-supported primitive for tests on this codebas
 - Read [references/swift-testing-migration.md](references/swift-testing-migration.md) when converting XCTest unit tests to Swift Testing or adding new package tests.
 - Read [references/regression-and-quality.md](references/regression-and-quality.md) when adding a regression test, deciding whether a test is behavioral enough, or checking Xcode project test wiring.
 - Read [references/local-vs-ci-validation.md](references/local-vs-ci-validation.md) when choosing between `reload.sh`, `cmux-unit`, GitHub Actions, E2E/UI tests, and Python socket tests.
+- Read [references/remote-tmux-sizing-e2e.md](references/remote-tmux-sizing-e2e.md) when working on remote-tmux mirror sizing, the sizing UI-test suite, its ssh shim, or the `remote.tmux.pane_grids` / `remote.tmux.test_exec` debug verbs.

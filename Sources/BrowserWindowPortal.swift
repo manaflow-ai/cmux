@@ -1155,57 +1155,6 @@ struct BrowserPortalSearchOverlayConfiguration {
     let onFieldDidFocus: () -> Void
 }
 
-struct BrowserPortalOmnibarSuggestionsConfiguration {
-    let panelId: UUID
-    let popupFrame: CGRect
-    let colorScheme: ColorScheme
-    let engineName: String
-    let items: [OmnibarSuggestion]
-    let selectedIndex: Int
-    let isLoadingRemoteSuggestions: Bool
-    let searchSuggestionsEnabled: Bool
-    let onCommit: (OmnibarSuggestion) -> Void
-    let onHighlight: (Int) -> Void
-}
-
-private struct BrowserPortalOmnibarSuggestionsOverlay: View {
-    let configuration: BrowserPortalOmnibarSuggestionsConfiguration
-
-    var body: some View {
-        Color.clear
-            .overlay(alignment: .topLeading) {
-                OmnibarSuggestionsView(
-                    engineName: configuration.engineName,
-                    items: configuration.items,
-                    selectedIndex: configuration.selectedIndex,
-                    isLoadingRemoteSuggestions: configuration.isLoadingRemoteSuggestions,
-                    searchSuggestionsEnabled: configuration.searchSuggestionsEnabled,
-                    onCommit: configuration.onCommit,
-                    onHighlight: configuration.onHighlight
-                )
-                .frame(width: configuration.popupFrame.width)
-                .offset(x: configuration.popupFrame.minX, y: configuration.popupFrame.minY)
-                .environment(\.colorScheme, configuration.colorScheme)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private final class BrowserPortalOmnibarSuggestionsHostingView: NSHostingView<BrowserPortalOmnibarSuggestionsOverlay> {
-    var popupFrameInTopLeftCoordinates: CGRect = .zero
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let topLeftPoint: NSPoint
-        if isFlipped {
-            topLeftPoint = point
-        } else {
-            topLeftPoint = NSPoint(x: point.x, y: bounds.height - point.y)
-        }
-        guard popupFrameInTopLeftCoordinates.contains(topLeftPoint) else { return nil }
-        return super.hitTest(point)
-    }
-}
-
 struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
@@ -2184,22 +2133,6 @@ final class WindowBrowserPortal: NSObject {
             frame.maxY > bounds.maxY + epsilon
     }
 
-    private static func hasVisibleInspectorDescendant(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if current !== root {
-                if cmuxIsWebInspectorObject(current),
-                   !current.isHidden,
-                   current.alphaValue > 0,
-                   current.frame.width > 1,
-                   current.frame.height > 1 {
-                    return true
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
 
     private static func inferredBottomDockedInspectorFrame(
         in containerView: NSView,
@@ -2211,7 +2144,7 @@ final class WindowBrowserPortal: NSObject {
 
         let candidates = containerView.subviews.compactMap { candidate -> NSRect? in
             guard candidate !== primaryWebView else { return nil }
-            guard hasVisibleInspectorDescendant(in: candidate) else { return nil }
+            guard hasVisibleInspectorView(in: candidate) else { return nil }
 
             let frame = candidate.frame
             guard frame.width > 1, frame.height > 1 else { return nil }
@@ -3530,25 +3463,37 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameBottomDock")
-        } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
-            let oldWebFrame = preNormalizeWebFrame
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            webView.frame = containerBounds
-            CATransaction.commit()
+        } else if containerOwnsWebView &&
+            Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+            if Self.hasVisibleInspectorView(in: containerView) {
 #if DEBUG
-            cmuxDebugLog(
-                "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
-                "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
-                "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
-                "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
-                "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
-                "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
-                "inspectorSubviews=\(inspectorSubviews) " +
-                "source=\(source)"
-            )
+                cmuxDebugLog(
+                    "browser.portal.webframe.preserveInspectorLayout web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) frame=\(browserPortalDebugFrame(preNormalizeWebFrame)) " +
+                    "bounds=\(browserPortalDebugFrame(containerBounds)) source=\(source)"
+                )
 #endif
-            refreshReasons.append("webFrame")
+                refreshReasons.append("webFrameBottomDock")
+            } else {
+                let oldWebFrame = preNormalizeWebFrame
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                webView.frame = containerBounds
+                CATransaction.commit()
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
+                    "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
+                    "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
+                    "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
+                    "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
+                    "inspectorSubviews=\(inspectorSubviews) " +
+                    "source=\(source)"
+                )
+#endif
+                refreshReasons.append("webFrame")
+            }
         }
 
         let revealedForDisplay = !shouldHide && containerView.isHidden

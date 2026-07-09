@@ -391,6 +391,7 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
 ## 社群
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)

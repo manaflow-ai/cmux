@@ -525,54 +525,6 @@ final class RemoteTmuxController {
 
     // MARK: - Create / destroy propagation (P5)
 
-    /// A new tab was requested in a mirrored workspace → create a tmux window in
-    /// that session. The new tab arrives via the `%window-add` notification (one
-    /// source of truth), so the caller must NOT also create a local tab.
-    ///
-    /// `placement` mirrors cmux's `newTabPosition` for the workspace tab strip so
-    /// a remote new tab lands where a local one would (after the selected tab, or
-    /// at the end), instead of wherever tmux's bare `new-window` picks (the lowest
-    /// free index, which lands mid-list when the session has window-index gaps).
-    ///
-    /// Requires a live `.connected` stream — NOT just `!exited`: while
-    /// reconnecting there is no stdin and `send` silently drops the command, so
-    /// returning `true` would let socket callers report an accepted mutation
-    /// that never reached tmux.
-    ///
-    /// - Parameter workingDirectory: the directory the new tmux window should
-    ///   start in (the active tab's cwd, resolved by the caller), so a new tab
-    ///   inherits the active tab's directory the way local cmux does. A
-    ///   nil/blank/unsafe value, or a source panel that is not backed by a live
-    ///   mirror window, omits `-c` and lets tmux pick its default-path.
-    /// - Returns: `true` if routed to the remote; `false` if there is no live
-    ///   mirror/connection (callers must still NOT create a local tab in a
-    ///   mirror workspace — they report failure instead).
-    func handleMirrorNewTabRequested(
-        workspaceId: UUID,
-        placement: RemoteTmuxMirrorNewTabPlacement,
-        workingDirectory: String?,
-        workingDirectorySourcePanelId: UUID?
-    ) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              mirror.connection.connectionState == .connected else { return false }
-        let afterWindowId: Int?
-        switch placement {
-        case .end:
-            afterWindowId = nil
-        case .afterPanel(let panelId):
-            // nil (panel has no live window) falls back to end placement.
-            afterWindowId = mirror.windowId(forPanel: panelId)
-        }
-        let commandWorkingDirectory = Self.liveMirrorWindowWorkingDirectory(
-            workingDirectory,
-            sourcePanelId: workingDirectorySourcePanelId,
-            windowIdForPanel: mirror.windowId(forPanel:)
-        )
-        return mirror.connection.send(
-            Self.newWindowCommand(afterWindowId: afterWindowId, workingDirectory: commandWorkingDirectory)
-        )
-    }
-
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.
     func handleMirrorWorkspaceRenamed(workspaceId: UUID, title: String?) {
@@ -1143,13 +1095,12 @@ final class RemoteTmuxController {
     }
 
     /// Returns the control connection for a host+session, if attached.
-    func connection(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxControlConnection? {
-        connectionsByHostSession[Self.connectionKey(
-            host: host,
-            sessionName: sessionName
-        )]
-    }
+    func connection(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxControlConnection? { connectionsByHostSession[Self.connectionKey(host: host, sessionName: sessionName)] }
+    func sessionMirror(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxSessionMirror? { sessionMirrors[Self.connectionKey(host: host, sessionName: sessionName)] }
 
+    func sessionMirror(workspaceId: UUID) -> RemoteTmuxSessionMirror? {
+        sessionMirrors.values.first { $0.mirroredWorkspaceId == workspaceId }
+    }
     /// Detaches a control client and removes its mirror workspace while leaving
     /// the remote session alive (#7364). Internal callers that already removed the
     /// mirror keep the low-level stop-only path, preserving their kill semantics.

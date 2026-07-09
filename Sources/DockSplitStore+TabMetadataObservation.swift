@@ -71,8 +71,19 @@ extension DockSplitStore {
                     // unchanged, so a terminal re-emitting the same title does not
                     // re-render the Dock tree.
                     let resolvedTitle = terminal.displayTitle
-                    guard existing.title != resolvedTitle else { return }
-                    self.bonsplitController.updateTab(tabId, title: resolvedTitle)
+                    let didMutateTitleDerivedAgent = self.updateTitleDerivedTerminalAgentStatusKey(
+                        forPanelId: terminal.id,
+                        title: resolvedTitle
+                    )
+                    let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                    let iconPayloadUpdate = didMutateTitleDerivedAgent ? self.terminalTabAgentIconPayload(forPanelId: terminal.id) : nil
+                    guard titleUpdate != nil || iconPayloadUpdate != nil else { return }
+                    self.bonsplitController.updateTab(
+                        tabId,
+                        title: titleUpdate,
+                        iconImageData: iconPayloadUpdate.map(\.imageData),
+                        iconAsset: iconPayloadUpdate.map(\.assetName)
+                    )
                 }
             panelCancellables[panel.id] = cancellable
         }

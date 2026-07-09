@@ -22,6 +22,8 @@ final class MobileWorkspaceListObserver {
         let currentDirectory: String
         let panelDirectories: [UUID: String]
         let activeRemoteTerminalSessionCount: Int
+        let todoStatusOverride: WorkspaceTaskStatusOverride?
+        let todoChecklist: [WorkspaceChecklistItem]
 
         static let empty = WorkspaceObservedFields(
             panelTitles: [:],
@@ -31,7 +33,9 @@ final class MobileWorkspaceListObserver {
             groupId: nil,
             currentDirectory: "",
             panelDirectories: [:],
-            activeRemoteTerminalSessionCount: 0
+            activeRemoteTerminalSessionCount: 0,
+            todoStatusOverride: nil,
+            todoChecklist: []
         )
     }
 
@@ -199,7 +203,12 @@ final class MobileWorkspaceListObserver {
                         groupId: workspace.groupId,
                         currentDirectory: workspace.currentDirectory,
                         panelDirectories: workspace.panelDirectories,
-                        activeRemoteTerminalSessionCount: workspace.activeRemoteTerminalSessionCount
+                        activeRemoteTerminalSessionCount: workspace.activeRemoteTerminalSessionCount,
+                        // Todo status override + checklist are workspace-list-facing
+                        // (status lane, checklist progress); a pure todo mutation must
+                        // re-emit to external listeners.
+                        todoStatusOverride: workspace.todoState.statusOverride,
+                        todoChecklist: workspace.todoState.checklist
                     )
                 }
                 .map { _ in () }
@@ -301,6 +310,10 @@ final class MobileWorkspaceListObserver {
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
             hasher.combine(workspace.presentedCurrentDirectory)
+            // Todo mutations change the list-facing shape; without these the
+            // hash-diff would suppress the re-emit the publishers above fire.
+            hasher.combine(workspace.todoState.statusOverride)
+            hasher.combine(workspace.todoState.checklist)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel
             // registers. The ordered loop above already covers in-panel

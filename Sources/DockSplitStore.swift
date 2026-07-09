@@ -34,6 +34,8 @@ import SwiftUI
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: ObservationToken] = [:]
+    @ObservationIgnored
+    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
@@ -579,6 +581,7 @@ import SwiftUI
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }
@@ -622,6 +625,7 @@ import SwiftUI
         for panel in panels.values { panel.close() }
         panels.removeAll(); surfaceIdToPanelId.removeAll()
         detachedSurfaceTransfersByPanelId.removeAll()
+        titleDerivedAgentStatusKeysByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

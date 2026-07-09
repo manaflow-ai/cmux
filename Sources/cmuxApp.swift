@@ -51,6 +51,7 @@ struct cmuxApp: App {
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
 
+    private let resolvedIconAppearanceObserver = ResolvedIconAppearanceObserver()
     @State private var tabManager: TabManager
     @State private var notificationStore = TerminalNotificationStore.shared
     @State var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -66,7 +67,6 @@ struct cmuxApp: App {
     @State var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
-
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
     }
@@ -158,9 +158,8 @@ struct cmuxApp: App {
         _ = KeyboardShortcutSettings.settingsFileStore
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
-        // Apply saved language preference before any UI loads
-        let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
-        languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
+        // Reconcile saved language preference before any UI loads
+        LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
@@ -1140,6 +1139,7 @@ struct cmuxApp: App {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
+        resolvedIconAppearanceObserver.startObserving()
     }
 
     private var currentSocketMode: SocketControlMode {
@@ -1461,7 +1461,6 @@ private struct MainWindowBootstrapView: View {
     }
 }
 
-
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
@@ -1487,6 +1486,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.extensionSidebarInspector",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
+    "cmux.spinnerGallery",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",

@@ -1,5 +1,6 @@
 import Combine
 import CmuxCore
+import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
 import SwiftUI
@@ -35,6 +36,9 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let taskStatusOverride: WorkspaceTaskStatusOverride?
+    let statusHidden: Bool
+    let checklist: [WorkspaceChecklistItem]
 }
 
 private struct SidebarWorkspaceObservationFields: Equatable {
@@ -96,7 +100,10 @@ extension Workspace {
                     customColor: nil,
                     latestConversationMessage: nil,
                     latestSubmittedMessage: nil,
-                    latestSubmittedAt: nil
+                    latestSubmittedAt: nil,
+                    taskStatusOverride: nil,
+                    statusHidden: false,
+                    checklist: []
                 )
             }
             return SidebarImmediateObservationState(
@@ -106,7 +113,13 @@ extension Workspace {
                 customColor: self.customColor,
                 latestConversationMessage: self.latestConversationMessage,
                 latestSubmittedMessage: self.latestSubmittedMessage,
-                latestSubmittedAt: self.latestSubmittedAt
+                latestSubmittedAt: self.latestSubmittedAt,
+                // Todo state is row-affecting (status pill, checklist progress);
+                // it lives in the todoState sub-model, whose properties are
+                // Observation-tracked, so reading them here registers them.
+                taskStatusOverride: self.todoState.statusOverride,
+                statusHidden: self.todoState.statusHidden,
+                checklist: self.todoState.checklist
             )
         }
             .removeDuplicates()

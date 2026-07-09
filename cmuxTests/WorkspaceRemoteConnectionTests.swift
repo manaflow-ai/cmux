@@ -3657,7 +3657,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3679,7 +3679,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3694,7 +3694,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3709,7 +3709,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3726,7 +3726,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3743,7 +3743,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3775,7 +3775,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3794,7 +3794,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
@@ -3840,7 +3840,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3851,7 +3851,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             let writeCount: Int
