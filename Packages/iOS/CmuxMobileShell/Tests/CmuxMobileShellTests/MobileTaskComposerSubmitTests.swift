@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -49,6 +50,30 @@ import Testing
                 initialEnv: nil
             )
         ])
+    }
+
+    @Test func staleGenerationCreateFailureStillSurfacesFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        await router.setRejectWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+        let spec = MobileWorkspaceCreateSpec(title: "Task")
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest(spec: spec)
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        // The connection was replaced mid-flight (reconnect / Mac switch). The
+        // rejected create must still report failure: mapping it to success lets
+        // the composer dismiss and persist last-used defaults for a task that
+        // was never created.
+        store.connectionGeneration = UUID()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .failure = result else {
+            return #expect(Bool(false), "stale rejected create should surface failure, got \(String(describing: result))")
+        }
     }
 
     @Test func specCreateDoesNotCoalesceWithInFlightCreate() async throws {
