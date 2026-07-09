@@ -304,6 +304,109 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")
     }
 
+    func testSSHPTYAttachTransientPreReadyFailureKeepsLifecycleForRetry() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptypreretry")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let firstBridge = try bindLoopbackTCP()
+        let secondBridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let bridgeCounter = BridgeRequestCounter()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let lifecycleId = "44444444-4444-4444-4444-444444444444"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(firstBridge.fd)
+            Darwin.close(secondBridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 2
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if method != "workspace.remote.pty_attach_end" {
+                XCTAssertEqual(params["lifecycle_id"] as? String, lifecycleId)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                let count = bridgeCounter.next()
+                let bridge = count == 1 ? firstBridge : secondBridge
+                return self.v2Response(id: id, ok: true, result: [
+                    "host": "127.0.0.1", "port": bridge.port,
+                    "token": "bridge-token-\(count)", "session_id": sessionId,
+                    "lifecycle_id": lifecycleId, "attachment_id": surfaceId,
+                ])
+            case "workspace.remote.pty_resize":
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(id: id, ok: true, result: ["ended": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+        let firstBridgeHandled = startBridgeErrorServer(
+            listenerFD: firstBridge.fd,
+            message: "connection reset",
+            code: "remote_pty_error"
+        )
+        let secondBridgeHandled = startBridgeReadyThenCloseServer(listenerFD: secondBridge.fd)
+        let arguments = [
+            "ssh-pty-attach", "--wait", "--workspace", workspaceId,
+            "--session-id", sessionId, "--lifecycle-id", lifecycleId,
+            "--attachment-id", surfaceId,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+
+        let first = runProcess(
+            executablePath: cliPath,
+            arguments: arguments,
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertEqual(first.status, SSHPTYAttachExitCode.retryableTransient.rawValue, first.stderr)
+
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "0"
+        let second = runProcess(
+            executablePath: cliPath,
+            arguments: arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, firstBridgeHandled, secondBridgeHandled], timeout: 5)
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, second.stderr)
+        let requests = state.snapshot().compactMap { self.jsonObject($0) }
+        let reconciliationFlags = requests.compactMap { request -> Bool? in
+            guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
+            return (request["params"] as? [String: Any])?["acknowledge_lifecycle_if_session_absent"] as? Bool
+        }
+        XCTAssertEqual(reconciliationFlags, [false, true])
+        let methods = requests.compactMap { $0["method"] as? String }
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 2, "\(methods)")
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")
+    }
+
     private func startBridgeErrorServer(listenerFD: Int32, message: String, code: String) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge coded error server handled")
         DispatchQueue.global(qos: .userInitiated).async {
