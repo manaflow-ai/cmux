@@ -6,6 +6,7 @@ struct SidebarWorkspaceLeadingStatusSlot: View {
     let showsSpinner: Bool
     let unreadCount: Int
     let side: CGFloat
+    let spinnerSide: CGFloat
     let badgeFont: Font
     let badgeFillColor: Color
     let badgeTextColor: Color
@@ -26,7 +27,7 @@ struct SidebarWorkspaceLeadingStatusSlot: View {
             }
             if showsSpinner {
                 SidebarWorkspaceLoadingSpinner(
-                    side: side,
+                    side: spinnerSide,
                     color: spinnerColor,
                     tooltip: spinnerTooltip
                 )
