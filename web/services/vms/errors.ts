@@ -59,6 +59,12 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
   readonly cause: unknown;
 }> {}
 
+export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
+  "VmAccountDeletionIdentityRevocationError",
+)<{
+  readonly cause: unknown;
+}> {}
+
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
@@ -70,7 +76,8 @@ export type VmWorkflowError =
   | VmImageConfigError
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
-  | VmBillingError;
+  | VmBillingError
+  | VmAccountDeletionIdentityRevocationError;
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
@@ -108,6 +115,12 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmAccountDeletionIdentityRevocationError(
+  err: unknown,
+): err is VmAccountDeletionIdentityRevocationError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccountDeletionIdentityRevocationError";
+}
+
 export function isVmDatabaseError(err: unknown): err is VmDatabaseError {
   return (err as { _tag?: string } | null)?._tag === "VmDatabaseError";
 }
@@ -127,6 +140,7 @@ const vmWorkflowErrorTags = new Set([
   "VmLimitExceededError",
   "VmCreateCreditsInsufficientError",
   "VmBillingError",
+  "VmAccountDeletionIdentityRevocationError",
 ]);
 
 export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {

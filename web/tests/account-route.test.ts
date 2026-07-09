@@ -37,6 +37,7 @@ const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
 const subrouterClientModule = await import("../services/subrouter/client");
 const realCreateSubrouterClientFromEnv = subrouterClientModule.createSubrouterClientFromEnv;
+const vmErrorsModule = await import("../services/vms/errors");
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
 const realListUserVms = workflowsModule.listUserVms;
@@ -494,6 +495,29 @@ describe("account deletion route", () => {
     );
   });
 
+  test("keeps deletion retryable when identity revocation partially mutates provider state", async () => {
+    listedPersonalVmIds = [];
+    revokeIdentityLeasesError = new vmErrorsModule.VmAccountDeletionIdentityRevocationError({
+      cause: new Error("provider identity revoke failed"),
+    });
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(revokeUserIdentityLeasesForAccountDeletion).toHaveBeenCalledWith("account-user-1");
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("keeps deletion retryable when account SSH identity revocation fails", async () => {
     revokeIdentityLeasesError = new Error("provider identity revoke failed");
 
@@ -509,6 +533,38 @@ describe("account deletion route", () => {
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(deletedTables).not.toContain(cloudVmLeases);
+  });
+
+  test("keeps deletion retryable after Subrouter 404 removes local tenant state", async () => {
+    listedPersonalVmIds = [];
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ tenantId: "tenant-personal" }],
+    ];
+    subrouterRevokeError = new subrouterClientModule.SubrouterClientError("revokeTenant", 404);
+    revokeIdentityLeasesError = new Error("identity lookup failed");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
+    expect(deletedTables).toContain(subrouterTenants);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("does not delete personal VM rows that gained a provider id before account row deletion", async () => {

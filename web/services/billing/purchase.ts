@@ -28,7 +28,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 
 type BillingDb = ReturnType<typeof cloudDb>;
-type StripeBillingClient = Pick<ReturnType<typeof stripe>, "subscriptions">;
+type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "subscriptions">;
 
 type StripeSubscriptionValuesInput = {
   subscription: Stripe.Subscription;
@@ -125,9 +125,9 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
-  if (isAccountDeletionInProgress(user)) {
-    await cancelCheckoutSubscriptionForAccountDeletion(subscription, dependencies);
+  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  if (!user || isAccountDeletionInProgress(user)) {
+    await deleteCheckoutStripeResourcesForAccountDeletion(subscription, customerId, dependencies);
     return {
       skipped: "account_deletion_in_progress",
       stackUserId,
@@ -162,8 +162,9 @@ export async function recordCheckoutCompletion(
   return { scope: "user", stackUserId, subscriptionId: subscription.id };
 }
 
-async function cancelCheckoutSubscriptionForAccountDeletion(
+async function deleteCheckoutStripeResourcesForAccountDeletion(
   subscription: Stripe.Subscription,
+  customerId: string,
   dependencies: BillingPurchaseDependencies,
 ): Promise<void> {
   const client = (dependencies.stripeClient ?? stripe)();
@@ -171,6 +172,12 @@ async function cancelCheckoutSubscriptionForAccountDeletion(
     await client.subscriptions.cancel(subscription.id);
   } catch (error) {
     if (isStripeSubscriptionAlreadyCanceledError(error)) return;
+    throw error;
+  }
+  try {
+    await client.customers.del(customerId);
+  } catch (error) {
+    if (isStripeCustomerAlreadyDeletedError(error)) return;
     throw error;
   }
 }
@@ -306,6 +313,21 @@ function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
       ? (error as { message: string }).message
       : String(error);
   return /already been canceled/i.test(message);
+}
+
+function isStripeCustomerAlreadyDeletedError(error: unknown): boolean {
+  const statusCode =
+    error && typeof error === "object"
+      ? (error as { statusCode?: unknown; raw?: { statusCode?: unknown } }).statusCode ??
+        (error as { raw?: { statusCode?: unknown } }).raw?.statusCode
+      : undefined;
+  if (statusCode === 404) return true;
+
+  const message =
+    error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : String(error);
+  return /no such customer|already deleted/i.test(message);
 }
 
 export function isCmuxCheckoutSession(

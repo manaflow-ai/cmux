@@ -19,6 +19,7 @@ import {
 } from "./billingGateway";
 import {
   VmBillingError,
+  VmAccountDeletionIdentityRevocationError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
@@ -1334,7 +1335,7 @@ export function revokeUserIdentityLeasesForAccountDeletion(
             if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
             return repo.markLeasesRevoked(revokedIds).pipe(
               Effect.catchAll(() => Effect.void),
-              Effect.andThen(Effect.fail(err)),
+              Effect.andThen(Effect.fail(new VmAccountDeletionIdentityRevocationError({ cause: err }))),
             );
           }),
         );

@@ -38,6 +38,7 @@ import {
 } from "../../../services/subrouter/client";
 import { deleteObject } from "../../../services/vault/storage";
 import { unauthorized } from "../../../services/vms/auth";
+import { isVmAccountDeletionIdentityRevocationError } from "../../../services/vms/errors";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
   destroyVm,
@@ -97,8 +98,13 @@ export async function DELETE(request: Request): Promise<Response> {
         destructiveCleanupStarted = true;
       },
     });
-    const revokedIdentityLeases = await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(userId));
-    if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
+    try {
+      const revokedIdentityLeases = await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(userId));
+      if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
+    } catch (error) {
+      if (isVmAccountDeletionIdentityRevocationError(error)) destructiveCleanupStarted = true;
+      throw error;
+    }
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -506,10 +512,10 @@ async function deletePersonalSubrouterTenant(
 
   try {
     await createSubrouterClientFromEnv().revokeTenant(tenant.tenantId);
-    options.afterExternalMutation?.();
   } catch (error) {
     if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
   }
+  options.afterExternalMutation?.();
   await db.delete(subrouterTenants).where(eq(subrouterTenants.teamId, userId));
 }
 

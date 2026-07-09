@@ -154,6 +154,7 @@ describe("recordCheckoutCompletion", () => {
   test("blocks checkout completion while account deletion is in progress", async () => {
     const update = mock(async () => undefined);
     const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
     const user = {
       id: "user_123",
       primaryEmail: null,
@@ -167,6 +168,7 @@ describe("recordCheckoutCompletion", () => {
         stackApp: { getUser: async () => user } as never,
         stripeClient: () => ({
           subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
         }) as never,
       }),
     ).resolves.toEqual({
@@ -176,19 +178,33 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(deleteCustomer).toHaveBeenCalledWith("cus_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(update).not.toHaveBeenCalled();
   });
 
   test("does not recreate checkout billing rows after the Stack user is gone", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+
     await expect(
       recordCheckoutCompletion(checkoutInput() as never, {
         db: fakeDb() as never,
         stackApp: { getUser: async () => null } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
       }),
-    ).rejects.toThrow("Stack user not found for Stripe purchase: user_123");
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
 
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(deleteCustomer).toHaveBeenCalledWith("cus_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
   });
