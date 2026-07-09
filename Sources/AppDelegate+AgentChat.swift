@@ -54,7 +54,9 @@ nonisolated struct AgentChatActionInFlightGate {
 
 struct AgentChatServerAvailability: Sendable {
     var isReachable: Bool
-    var browserURL: URL
+    /// nil means the owned launch failed and nothing safe exists to open;
+    /// the action must fail instead of falling back to the legacy URL.
+    var browserURL: URL?
 }
 
 extension AppDelegate {
@@ -123,9 +125,18 @@ extension AppDelegate {
             )
             AgentChatThemeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
+            guard let browserURL = availability.browserURL else {
+                // Owned launch failed: never fall back to the legacy URL.
+                NSSound.beep()
+                self.postAgentChatServerUnavailableNotification(
+                    workspace: nil,
+                    agentChat: agentChat
+                )
+                return
+            }
             guard let workspace = self.openAgentChatWorkspace(
                 tabManager: tabManager,
-                url: availability.browserURL
+                url: browserURL
             ) else {
                 NSSound.beep()
                 return
@@ -183,7 +194,7 @@ extension AppDelegate {
     }
 
     private func postAgentChatServerUnavailableNotification(
-        workspace: Workspace,
+        workspace: Workspace?,
         agentChat: CmuxAgentChatConfiguration
     ) {
         let body: String
@@ -200,17 +211,28 @@ extension AppDelegate {
             )
             body = String(format: format, agentChat.url.absoluteString)
         }
+        // With no workspace (owned launch failed, nothing opened) anchor the
+        // notification to the focused workspace so the failure is still visible.
+        guard let anchorTabId = workspace?.id ?? activeTabManagerForCommands(preferredWindow: nil)?.selectedTabId else {
+            return
+        }
+        let subtitle = workspace == nil
+            ? String(
+                localized: "notification.agentChat.serverUnavailable.subtitleLaunchFailed",
+                defaultValue: "Could not start Agent Chat"
+            )
+            : String(
+                localized: "notification.agentChat.serverUnavailable.subtitle",
+                defaultValue: "Opened Agent Chat"
+            )
         TerminalNotificationStore.shared.addNotification(
-            tabId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
+            tabId: anchorTabId,
+            surfaceId: workspace?.focusedPanelId,
             title: String(
                 localized: "notification.agentChat.serverUnavailable.title",
                 defaultValue: "Agent chat server isn't running"
             ),
-            subtitle: String(
-                localized: "notification.agentChat.serverUnavailable.subtitle",
-                defaultValue: "Opened Agent Chat"
-            ),
+            subtitle: subtitle,
             body: body,
             cooldownKey: "agent-chat-server-unavailable.\(agentChat.url.absoluteString)",
             cooldownInterval: 30
@@ -305,11 +327,11 @@ extension AppDelegate {
         guard let token = Self.generateAgentChatToken(),
               let launchId = Self.generateAgentChatLaunchID(),
               let stateFileStore = AgentChatActionInFlightGate.sidecarStateFileStore() else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
         let launchDate = Date()
         guard let stateFileURL = await stateFileStore.prepareStateFileURL(launchDate: launchDate) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
 
         guard await authorizeAgentChatStartCommandIfNeeded(
@@ -318,7 +340,7 @@ extension AppDelegate {
             globalConfigPath: globalConfigPath,
             preferredWindow: preferredWindow
         ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
         guard Self.launchDetachedAgentChatStartCommand(
             startCommand,
@@ -330,7 +352,7 @@ extension AppDelegate {
                 "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
             ]
         ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
 
         guard let session = await stateFileStore.waitForSession(
@@ -338,7 +360,7 @@ extension AppDelegate {
             launchId: launchId,
             launchDate: launchDate
         ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
