@@ -86,7 +86,6 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             ).map { _ in windowAdapter }
         }
 
-        guard activeTabAdapter?.panel != nil else { return nil }
         let requestedTabs = configuration.tabURLs.map { url in
             (url: url, webViewConfiguration: webViewConfigurationForExtensionRequestedBrowserURL(url, for: extensionContext))
         }
@@ -110,7 +109,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         return windowAdapter
     }
 
-    private func closeOpenedBrowserTab(_ panel: BrowserPanel) {
+    func closeOpenedBrowserTab(_ panel: BrowserPanel) {
         if let workspace = AppDelegate.shared?.workspaceContainingPanel(
             panelId: panel.id,
             preferredWorkspaceId: panel.workspaceId
@@ -152,29 +151,61 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         completionHandler(adapter, nil)
     }
 
-    private func openBrowserTab(
+    func openBrowserTab(
         url: URL?,
         shouldActivate: Bool,
         webViewConfiguration: WKWebViewConfiguration?
     ) -> BrowserWebExtensionTabAdapter? {
-        guard let sourcePanel = activeTabAdapter?.panel else { return nil }
-        if let panel = openWorkspaceBrowserTab(
-            sourcePanel: sourcePanel,
+        if let sourcePanel = activeTabAdapter?.panel {
+            if let panel = openWorkspaceBrowserTab(
+                sourcePanel: sourcePanel,
+                url: url,
+                shouldActivate: shouldActivate,
+                webViewConfiguration: webViewConfiguration
+            ) {
+                return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
+            }
+            if let panel = openDockBrowserTab(
+                sourcePanel: sourcePanel,
+                url: url,
+                shouldActivate: shouldActivate,
+                webViewConfiguration: webViewConfiguration
+            ) {
+                return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
+            }
+        }
+
+        guard let tabManager = AppDelegate.shared?.activeTabManagerForCommands(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) else { return nil }
+        return openBrowserTab(
+            in: tabManager,
             url: url,
             shouldActivate: shouldActivate,
             webViewConfiguration: webViewConfiguration
-        ) {
-            return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
+        )
+    }
+
+    func openBrowserTab(
+        in tabManager: TabManager,
+        url: URL?,
+        shouldActivate: Bool,
+        webViewConfiguration: WKWebViewConfiguration?
+    ) -> BrowserWebExtensionTabAdapter? {
+        guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
+              let paneID = workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first else { return nil }
+        if tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
         }
-        if let panel = openDockBrowserTab(
-            sourcePanel: sourcePanel,
+        guard let panel = workspace.newBrowserSurface(
+            inPane: paneID,
             url: url,
-            shouldActivate: shouldActivate,
+            focus: shouldActivate,
+            preferredProfileID: workspace.preferredBrowserProfileID,
             webViewConfiguration: webViewConfiguration
-        ) {
-            return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
-        }
-        return nil
+        ) else { return nil }
+        return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
     }
 
     private func openWorkspaceBrowserTab(
