@@ -455,6 +455,7 @@ extension CmuxSettingsFileStore {
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
+        "browser.engine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",

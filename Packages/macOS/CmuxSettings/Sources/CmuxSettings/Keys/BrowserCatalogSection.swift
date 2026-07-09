@@ -32,6 +32,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserThemeMode"
     )
 
+    /// Engine for newly created browser surfaces. Existing surfaces keep
+    /// the engine they were created with.
+    public let engineChoice = DefaultsKey<BrowserEngineChoice>(
+        id: "browser.engine",
+        defaultValue: .webkit,
+        userDefaultsKey: "browserEngineOverride"
+    )
+
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",
         defaultValue: true,

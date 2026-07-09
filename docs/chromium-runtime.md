@@ -23,7 +23,9 @@ Runtimes install under `~/Library/Application Support/cmux/chromium-runtime/<tag
 
 ## Try it
 
-**File → New Chromium Browser Window (Experimental)** (all build configurations) opens a window with an omnibar (back/forward/reload run through JavaScript history APIs — the wire protocol has no native history calls yet), a loading indicator, and a DevTools toggle.
+Set `browser.engine` to `chromium` (Settings → Browser → Browser Engine, or `"browser": { "engine": "chromium" }` in `cmux.json`; default `webkit`) to render newly created cmux browser surfaces with the embedded Chromium engine instead of WebKit. Existing surfaces keep the engine they were created with; see [`docs/configuration.md`](./configuration.md#browserengine).
+
+**File → New Chromium Browser Window (Experimental)** (all build configurations) also opens a standalone window with an omnibar (back/forward/reload run through JavaScript history APIs — the wire protocol has no native history calls yet), a loading indicator, and a DevTools toggle.
 
 ## Integration shape
 

@@ -149,6 +149,7 @@ enum SettingsSearchAliasIndex {
         "browser:search-suggestions": localized("settings.search.alias.setting.browser.search-suggestions", defaultValue: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
         "browser:dev-host-no-cache": localized("settings.search.alias.setting.browser.dev-host-no-cache", defaultValue: "browser.disableCacheForDevHosts localhost cache stale fresh hard reload dev server no-cache turbopack vite next"),
         "browser:theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
+        "browser:engine": localized("settings.search.alias.setting.browser.engine", defaultValue: "browser.engine webkit chromium engine experimental owl runtime browser surfaces"),
         "browser:hidden-webview-discard": localized("settings.search.alias.setting.browser.hidden-webview-discard", defaultValue: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
         "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),
