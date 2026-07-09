@@ -7,7 +7,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         openWindowsFor extensionContext: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
-        let openWindows: [any WKWebExtensionWindow] = [windowAdapter] + popouts
+        let openWindows: [any WKWebExtensionWindow] = [windowAdapter] + popouts(for: extensionContext)
         guard let focusedWindow = webExtensionController(controller, focusedWindowFor: extensionContext) else {
             return openWindows
         }
@@ -21,7 +21,11 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         focusedWindowFor extensionContext: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        popouts.first(where: \.isKeyWindow) ?? windowAdapter
+        popouts(for: extensionContext).first(where: \.isKeyWindow) ?? windowAdapter
+    }
+
+    private func popouts(for extensionContext: WKWebExtensionContext) -> [BrowserWebExtensionPopoutWindowController] {
+        popouts.filter { $0.extensionContext === extensionContext }
     }
 
     func webExtensionController(

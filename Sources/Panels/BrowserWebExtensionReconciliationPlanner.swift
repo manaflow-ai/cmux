@@ -43,27 +43,39 @@ struct BrowserWebExtensionReconciliationPlanner {
     }
 
     static func standardizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.path
+        BrowserWebExtensionEntry.standardizedPath(path)
+    }
+
+    static func standardizedResourceRootPath(for entry: BrowserWebExtensionEntry) -> String {
+        entry.standardizedResourceRootPath
+    }
+
+    static func standardizedResourceRootPath(forEnvironmentPath path: String) -> String {
+        let standardizedPath = BrowserWebExtensionEntry.standardizedPath(path)
+        let kind: BrowserWebExtensionEntry.Kind = URL(fileURLWithPath: standardizedPath).pathExtension == "appex"
+            ? .safariAppExtension
+            : .unpackedDirectory
+        return BrowserWebExtensionEntry.standardizedResourceRootPath(for: kind, path: path)
     }
 
     private func desired(
         settingsEntries: [BrowserWebExtensionEntry],
         environmentPaths: [String]
     ) -> [BrowserWebExtensionEntry] {
-        let settingsPaths = Set(settingsEntries.map { Self.standardizedPath($0.path) })
+        let settingsPaths = Set(settingsEntries.map { Self.standardizedResourceRootPath(for: $0) })
         var seenDesiredPaths = Set<String>()
         var desired: [BrowserWebExtensionEntry] = []
         var desiredIDs = Set<String>()
 
         for entry in settingsEntries where entry.enabled {
-            let standardizedPath = Self.standardizedPath(entry.path)
+            let standardizedPath = Self.standardizedResourceRootPath(for: entry)
             guard seenDesiredPaths.insert(standardizedPath).inserted else { continue }
             guard desiredIDs.insert(entry.id).inserted else { continue }
             desired.append(entry)
         }
 
         for path in environmentPaths {
-            let standardizedPath = Self.standardizedPath(path)
+            let standardizedPath = Self.standardizedResourceRootPath(forEnvironmentPath: path)
             guard !settingsPaths.contains(standardizedPath) else { continue }
             guard seenDesiredPaths.insert(standardizedPath).inserted else { continue }
             guard desiredIDs.insert(path).inserted else { continue }

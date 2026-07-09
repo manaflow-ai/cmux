@@ -108,11 +108,20 @@ extension BrowserWebExtensionSupport {
 #endif
     }
 
+    func unloadAllWebExtensions() {
+        for entryID in Array(loadedEntryIDsInOrder) {
+            unload(entryID: entryID)
+        }
+        loadErrorsByEntryID.removeAll()
+        refreshLoadErrors()
+        rebuildActionSnapshots()
+    }
+
     private func load(entry: BrowserWebExtensionEntry) async {
         do {
             let webExtension = try await makeWebExtension(for: entry)
             let context = try load(webExtension, entryID: entry.id)
-            let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedPath(entry.path)
+            let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
                 entryID: entry.id,
                 standardizedPath: standardizedPath,

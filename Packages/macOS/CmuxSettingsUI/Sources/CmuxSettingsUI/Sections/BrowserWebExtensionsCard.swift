@@ -152,10 +152,10 @@ struct BrowserWebExtensionsCard: View {
         guard model.hasObservedValue else { return }
         var entries = model.current
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        let targetPath = standardizedPath(entries[index].path)
+        let targetPath = standardizedResourcePath(for: entries[index])
         entries[index].enabled = enabled
         for candidateIndex in entries.indices where candidateIndex != index {
-            if standardizedPath(entries[candidateIndex].path) == targetPath {
+            if standardizedResourcePath(for: entries[candidateIndex]) == targetPath {
                 entries[candidateIndex].enabled = false
             }
         }
@@ -258,7 +258,7 @@ struct BrowserWebExtensionsCard: View {
         var seenEnabledPaths = Set<String>()
         var result: [String: Bool] = [:]
         for entry in model.current {
-            let path = standardizedPath(entry.path)
+            let path = standardizedResourcePath(for: entry)
             let isFirstEnabledEntryForPath = entry.enabled && seenEnabledPaths.insert(path).inserted
             result[entry.id] = isFirstEnabledEntryForPath
         }
@@ -266,24 +266,19 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func standardizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.path
+        BrowserWebExtensionEntry.standardizedPath(path)
     }
 
     private func standardizedResourcePath(for entry: BrowserWebExtensionEntry) -> String {
         switch entry.kind {
         case .safariAppExtension:
-            return standardizedSafariAppExtensionResourcePath(entry.path)
+            return BrowserWebExtensionEntry.standardizedSafariAppExtensionResourceRootPath(entry.path)
         case .unpackedDirectory:
             return standardizedPath(entry.path)
         }
     }
 
     private func standardizedSafariAppExtensionResourcePath(_ path: String) -> String {
-        let url = URL(fileURLWithPath: path)
-        guard url.pathExtension == "appex" else { return standardizedPath(path) }
-        return url
-            .appendingPathComponent("Contents/Resources", isDirectory: true)
-            .standardizedFileURL
-            .path
+        BrowserWebExtensionEntry.standardizedSafariAppExtensionResourceRootPath(path)
     }
 }

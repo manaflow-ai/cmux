@@ -34,6 +34,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var settingsObservationTask: Task<Void, Never>?
     @ObservationIgnored
+    var browserAvailabilityObserverToken: NSObjectProtocol?
+    @ObservationIgnored
     var loadedByEntryID: [String: BrowserWebExtensionLoadedRecord] = [:]
     @ObservationIgnored
     var loadedEntryIDsInOrder: [String] = []
@@ -73,6 +75,9 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     deinit {
         settingsObservationTask?.cancel()
+        if let browserAvailabilityObserverToken {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserverToken)
+        }
         removeAllPermissionStateObservers()
     }
 
@@ -101,14 +106,48 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     /// Called once from app startup so extensions begin loading before the
     /// first browser page navigates.
     func configure(jsonStore: JSONConfigStore, catalog: SettingCatalog) {
-        guard settingsObservationTask == nil else { return }
+        guard browserAvailabilityObserverToken == nil else { return }
         let key = catalog.browser.webExtensions
+        browserAvailabilityObserverToken = NotificationCenter.default.addObserver(
+            forName: BrowserAvailabilitySettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self, jsonStore] _ in
+            Task { @MainActor in
+                self?.reconcileBrowserAvailability(jsonStore: jsonStore, key: key)
+            }
+        }
+        reconcileBrowserAvailability(jsonStore: jsonStore, key: key)
+    }
+
+    private func reconcileBrowserAvailability(
+        jsonStore: JSONConfigStore,
+        key: JSONKey<[BrowserWebExtensionEntry]>
+    ) {
+        if BrowserAvailabilitySettings.isEnabled() {
+            startSettingsObservation(jsonStore: jsonStore, key: key)
+        } else {
+            stopSettingsObservationAndUnload()
+        }
+    }
+
+    private func startSettingsObservation(
+        jsonStore: JSONConfigStore,
+        key: JSONKey<[BrowserWebExtensionEntry]>
+    ) {
+        guard settingsObservationTask == nil else { return }
         settingsObservationTask = Task { @MainActor [weak self] in
             for await entries in jsonStore.values(for: key) {
                 guard let self else { return }
                 await self.apply(entries: entries)
             }
         }
+    }
+
+    private func stopSettingsObservationAndUnload() {
+        settingsObservationTask?.cancel()
+        settingsObservationTask = nil
+        unloadAllWebExtensions()
     }
 
     static func environmentExtensionPaths() -> [String] {
