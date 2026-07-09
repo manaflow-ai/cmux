@@ -35,18 +35,23 @@ extension AgentHibernationTranscriptGuard {
 
         let configRoots = claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager)
         if let workingDirectory = normalized(agent.workingDirectory) {
-            var candidates: [String] = []
+            var standardCandidates: [String] = []
+            var workflowCandidates: [String] = []
             for configRoot in configRoots {
                 let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
                 let projectRoot = (projectsRoot as NSString)
                     .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
-                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId)
-                    + workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
-                    appendCandidate(candidate, to: &candidates)
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                    appendCandidate(candidate, to: &standardCandidates)
+                }
+                for candidate in workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
+                    appendCandidate(candidate, to: &workflowCandidates)
                 }
             }
-            let resolution = resolve(candidates)
-            if resolution.shouldStop { return resolution.path }
+            let standardResolution = resolve(standardCandidates)
+            if standardResolution.shouldStop { return standardResolution.path }
+            let workflowResolution = resolve(workflowCandidates, requireUniqueConversation: true)
+            if workflowResolution.shouldStop { return workflowResolution.path }
         }
 
         var directFallbackCandidates: [String] = []
@@ -125,7 +130,7 @@ extension AgentHibernationTranscriptGuard {
             fileManager: fileManager,
             matches: &matches
         )
-        return matches.count == 1 ? matches : []
+        return matches
     }
 
     private static func collectWorkflowTranscriptCandidates(

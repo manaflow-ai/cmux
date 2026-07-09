@@ -351,6 +351,42 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
+    func resolveTranscriptPathFailsClosedOnDuplicateWorkflowCandidatesAfterMetadataStub() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/ambiguous-workflow"
+        let sessionId = "ambiguous-workflow-session"
+        let directTranscript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        let firstWorkflowTranscript = workflowTranscriptURL(
+            home: home,
+            cwd: cwd,
+            containerSessionId: "workflow-one",
+            sessionId: sessionId
+        )
+        let secondWorkflowTranscript = workflowTranscriptURL(
+            home: home,
+            cwd: cwd,
+            containerSessionId: "workflow-two",
+            sessionId: sessionId
+        )
+        try writeFile(metadataStub, to: directTranscript)
+        try writeFile(#"{"type":"user","message":{"content":"first"}}"# + "\n", to: firstWorkflowTranscript)
+        try writeFile(#"{"type":"user","message":{"content":"second"}}"# + "\n", to: secondWorkflowTranscript)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == nil)
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
+    }
+
+    @Test
     func resolveTranscriptPathFindsWorkflowResolvedClaudeTranscript() throws {
         let home = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
