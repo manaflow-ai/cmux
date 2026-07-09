@@ -41,7 +41,8 @@ nonisolated enum SSHPTYAttachExitCode: Int32 {
         if description.contains("pty_session_not_found") ||
             ((description.contains("persistent ssh pty session") ||
               description.contains("persistent pty session")) &&
-             description.contains("not running")) {
+             (description.contains("not running") ||
+              description.contains("no longer running"))) {
             return .sessionNotFound
         }
 
