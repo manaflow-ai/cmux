@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -163,11 +164,18 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Applies the host-side OS `AppleLanguages` override for a changed app
+    /// language selection.
+    func applyLanguageOverride(_ language: AppLanguage)
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for package previews and tests without app-language ownership.
+    func applyLanguageOverride(_ language: AppLanguage) {}
 
     func openMobilePairingWindow() {}
 
