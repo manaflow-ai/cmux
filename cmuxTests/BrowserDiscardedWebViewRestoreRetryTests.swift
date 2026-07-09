@@ -457,7 +457,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
 
         // Simulate WebKit converting the pending restore navigation into a
         // main-frame download before any document commits.
-        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true)
+        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true, panel.currentDiscardRestoreAttemptID)
 
         let payload = panel.webViewLifecycleTopPayload()
         #expect(payload["restore_pending"] as? Bool == false)

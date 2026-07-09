@@ -3269,7 +3269,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         cancelHiddenWebViewDiscard()
-        webViewLifecycleState = .newTab
+        webViewLifecycleState = .newTab; pendingDiscardRestoreNavigation = nil; currentDiscardRestoreAttemptID = nil
         if resetVisibility {
             webViewLastVisibleAt = nil
             webViewLastHiddenAt = nil
@@ -3840,13 +3840,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             }
         }
-        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame in
+        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
             MainActor.assumeIsolated {
-                guard isMainFrame else { return }
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                // A main-frame download is a terminal outcome with no document
-                // commit; treat it as committed so blank-shell healing and stall
-                // retries never restart the download on the next reveal.
+                guard isMainFrame, let restoreAttemptID else { return }
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID), restoreAttemptID == self.currentDiscardRestoreAttemptID else { return }
+                // A main-frame download is a terminal outcome with no document commit; never restart it on the next reveal.
                 self.hasCommittedDocumentSinceWebViewReplacement = true
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
@@ -4043,6 +4041,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             )
         }
+        navDelegate.currentRestoreAttemptID = { [weak self] in self?.currentDiscardRestoreAttemptID }
         navDelegate.terminalPolicyCancellationReporter = { [weak self] navigationAction, webView in
             let restoreAttemptID = self?.currentDiscardRestoreAttemptID
             return { [weak self, weak webView] in

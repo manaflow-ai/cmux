@@ -12,7 +12,7 @@ import WebKit
     var didFailNavigation: ((WKWebView, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
-    var didBecomeDownload: ((WKWebView, Bool) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -20,6 +20,7 @@ import WebKit
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
@@ -37,6 +38,7 @@ import WebKit
     private var activeSSLTrustBypassErrorPageFailedURL: String?
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
+    private var pendingMainFrameDownloadRestoreAttemptID: UUID?
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -255,6 +257,9 @@ import WebKit
         )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
+        if navigationAction.targetFrame?.isMainFrame == true {
+            pendingMainFrameDownloadRestoreAttemptID = currentRestoreAttemptID?()
+        }
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -588,20 +593,25 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        let restoreAttemptID = isMainFrame ? pendingMainFrameDownloadRestoreAttemptID : nil
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
-        didBecomeDownload?(webView, navigationAction.targetFrame?.isMainFrame ?? true)
+        didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
+        if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        let restoreAttemptID = navigationResponse.isForMainFrame ? pendingMainFrameDownloadRestoreAttemptID : nil
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
-        didBecomeDownload?(webView, navigationResponse.isForMainFrame)
+        didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
+        if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
 }
