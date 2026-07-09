@@ -13,7 +13,12 @@ extension MobileShellComposite {
         macDeviceID: String,
         spec: MobileWorkspaceCreateSpec
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        if macDeviceID != foregroundMacDeviceID {
+        // A dropped connection can leave `foregroundMacDeviceID` pointing at the
+        // selected Mac while `remoteClient` is already gone; a matching id alone
+        // must not skip the switch, or the create fails as not-connected without
+        // ever attempting a re-dial. `switchToMac` short-circuits when the
+        // foreground connection to this Mac is genuinely live.
+        if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
             guard await switchToMac(macDeviceID: macDeviceID) else {
                 return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
             }
