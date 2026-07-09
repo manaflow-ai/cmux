@@ -176,3 +176,5 @@ cmux-mux subscribe |
 sid=$(cmux-mux ids --kind surface | awk 'NR == 1 {print $3}')
 cmux-mux send-key --surface "$sid" enter
 ```
+
+`sidebar-plugin` has no CLI verb: it is client-internal, issued by attach clients to obtain and size the sidebar plugin surface.

@@ -43,10 +43,10 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if target != host {
-        if let Some(zig_target) = zig_target_for_rust_target(&target) {
-            command.arg(format!("-Dtarget={zig_target}"));
-        }
+    if target != host
+        && let Some(zig_target) = zig_target_for_rust_target(&target)
+    {
+        command.arg(format!("-Dtarget={zig_target}"));
     }
     // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
     // extension zig's default target detection can select (e.g. some AVX-512

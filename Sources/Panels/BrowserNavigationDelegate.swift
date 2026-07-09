@@ -20,6 +20,7 @@ import WebKit
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
@@ -236,6 +237,21 @@ import WebKit
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
             handleSSLTrustBypassAction(url, in: webView)
+            return
+        }
+
+        if let url = navigationAction.request.url,
+           BrowserFileDropNavigationGuard.isDropFallbackNavigation(
+               url: url,
+               isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+               navigationType: navigationAction.navigationType
+           ),
+           let droppedURLs = BrowserFileDropNavigationGuard.shared.consumeDropNavigation(webView: webView, url: url),
+           handleDroppedFileNavigation?(droppedURLs) == true {
+#if DEBUG
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=dropFilePreview url=\(browserNavigationDebugURL(url))")
+#endif
+            decisionHandler(.cancel)
             return
         }
 
@@ -613,21 +629,5 @@ import WebKit
         didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
-    }
-}
-
-extension WKWebView {
-    @MainActor
-    func cmuxRunPrintOperation() {
-        guard #available(macOS 11.0, *) else { return }
-        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
-        let operation = printOperation(with: printInfo)
-        operation.showsPrintPanel = true
-        operation.showsProgressPanel = true
-        if let window {
-            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
-        } else {
-            operation.run()
-        }
     }
 }

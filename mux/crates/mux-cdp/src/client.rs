@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
-use tungstenite::{client, Error as WsError, Message, WebSocket};
+use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
@@ -127,7 +127,7 @@ impl CdpClient {
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("mux-cdp-reader".into()).spawn(move || {
-            reader_loop(weak, ws, outbound);
+            reader_loop(&weak, ws, &outbound);
         })?;
         Ok(())
     }
@@ -147,8 +147,9 @@ impl CdpClient {
         let mut msg = json!({
             "id": id,
             "method": method,
-            "params": params,
+            "params": null,
         });
+        msg["params"] = params;
         if let Some(session_id) = session_id {
             msg["sessionId"] = json!(session_id);
         }
@@ -396,13 +397,13 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
-fn reader_loop(weak: Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: Receiver<String>) {
+fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Receiver<String>) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
-        if let Err(err) = drain_outbound(&mut ws, &outbound) {
+        if let Err(err) = drain_outbound(&mut ws, outbound) {
             close_inner(&inner, &format!("CDP socket error: {err}"));
             break;
         }
@@ -410,7 +411,7 @@ fn reader_loop(weak: Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: Receiv
         match message {
             Ok(Message::Text(text)) => handle_text(&inner, &text),
             Ok(Message::Binary(bytes)) => {
-                if let Ok(text) = String::from_utf8(bytes) {
+                if let Ok(text) = String::from_utf8(bytes.to_vec()) {
                     handle_text(&inner, &text);
                 }
             }
@@ -441,7 +442,7 @@ fn drain_outbound(
 ) -> anyhow::Result<()> {
     loop {
         match outbound.try_recv() {
-            Ok(text) => ws.send(Message::Text(text))?,
+            Ok(text) => ws.send(Message::Text(text.into()))?,
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
         }
     }
@@ -666,7 +667,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use tungstenite::{accept, Message};
+    use tungstenite::{Message, accept};
 
     use super::*;
 
@@ -697,7 +698,8 @@ mod tests {
                             }
                         }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                 ))
                 .unwrap();
 
@@ -706,7 +708,9 @@ mod tests {
                         let request: Value = serde_json::from_str(&text).unwrap();
                         let id = request["id"].clone();
                         ws.send(Message::Text(
-                            json!({"id": id, "result": {"method": request["method"]}}).to_string(),
+                            json!({"id": id, "result": {"method": request["method"]}})
+                                .to_string()
+                                .into(),
                         ))
                         .unwrap();
                         responses += 1;
@@ -715,7 +719,9 @@ mod tests {
                         let request: Value = serde_json::from_slice(&bytes).unwrap();
                         let id = request["id"].clone();
                         ws.send(Message::Text(
-                            json!({"id": id, "result": {"method": request["method"]}}).to_string(),
+                            json!({"id": id, "result": {"method": request["method"]}})
+                                .to_string()
+                                .into(),
                         ))
                         .unwrap();
                         responses += 1;

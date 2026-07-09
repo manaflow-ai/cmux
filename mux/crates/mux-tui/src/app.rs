@@ -8,27 +8,27 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use crossterm::ExecutableCommand;
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
     EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
     MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    layout_screen, split_for_pane_edge, split_sides, BrowserSource, BrowserStatus, MuxEvent,
-    PaneId, Rect, SplitDir, SplitEdge, SurfaceId, SurfaceKind, WorkspaceId,
+    BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
+    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
+use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
@@ -324,11 +324,7 @@ impl Selection {
     pub fn range(&self) -> ((u16, u64), (u16, u64)) {
         let a = (self.anchor.1, self.anchor.0);
         let h = (self.head.1, self.head.0);
-        if a <= h {
-            (self.anchor, self.head)
-        } else {
-            (self.head, self.anchor)
-        }
+        if a <= h { (self.anchor, self.head) } else { (self.head, self.anchor) }
     }
 
     /// Whether a viewport cell is inside the (linear) selection at the
@@ -392,8 +388,12 @@ pub struct App {
     pub prefix_armed: bool,
     pub session_label: String,
     pub sidebar_visible: bool,
+    pub sidebar_focused: bool,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
+    pub sidebar_plugin_surface: Option<SurfaceId>,
+    pub sidebar_plugin_error: Option<String>,
+    pub sidebar_plugin_retry_after_ms: Option<u64>,
     sidebar_width_override: Option<u16>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
@@ -485,10 +485,10 @@ fn smart_split_target(
     cell_pixels: (u16, u16),
 ) -> Option<(PaneId, SplitDir)> {
     let ratio = cell_height_width_ratio(cell_pixels);
-    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane)) {
-        if let Some(dir) = zellij_smart_direction(area.content, ratio) {
-            return Some((area.pane, dir));
-        }
+    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane))
+        && let Some(dir) = zellij_smart_direction(area.content, ratio)
+    {
+        return Some((area.pane, dir));
     }
     areas
         .iter()
@@ -604,7 +604,6 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
     std::thread::Builder::new().name("input".into()).spawn({
-        let tx = tx.clone();
         move || {
             while let Ok(event) = crossterm::event::read() {
                 if tx.send(AppEvent::Input(event)).is_err() {
@@ -644,7 +643,11 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         prefix_armed: false,
         session_label,
         sidebar_visible: true,
+        sidebar_focused: false,
         sidebar_width: 0,
+        sidebar_plugin_surface: None,
+        sidebar_plugin_error: None,
+        sidebar_plugin_retry_after_ms: None,
         sidebar_width_override: None,
         content_area: Rect::default(),
         hits: Vec::new(),
@@ -873,6 +876,7 @@ impl App {
             height: height.saturating_sub(1), // status bar
         };
         self.content_area = area;
+        self.sync_sidebar_plugin(false);
         self.tree = self.session.tree();
         let layout = self
             .tree
@@ -920,6 +924,36 @@ impl App {
         }
     }
 
+    pub fn sidebar_plugin_rect(&self) -> Rect {
+        Rect {
+            x: 0,
+            y: 0,
+            width: self.sidebar_width.saturating_sub(1),
+            height: self.content_area.height.saturating_add(1),
+        }
+    }
+
+    fn sync_sidebar_plugin(&mut self, relaunch: bool) {
+        if self.config.sidebar.plugin.is_none() || self.sidebar_width < 3 || !self.sidebar_visible {
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = None;
+            self.sidebar_plugin_retry_after_ms = None;
+            self.sidebar_focused = false;
+            return;
+        }
+        let rect = self.sidebar_plugin_rect();
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+        let status = self.session.sidebar_plugin((rect.width, rect.height), relaunch);
+        self.sidebar_plugin_surface = status.surface_id;
+        self.sidebar_plugin_error = status.error;
+        self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
+        if self.sidebar_focused && self.sidebar_plugin_surface.is_none() {
+            self.sidebar_focused = false;
+        }
+    }
+
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         match event {
             AppEvent::Mux(MuxEvent::Empty) => {
@@ -929,6 +963,11 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.render_states.remove(&id);
                 self.session.forget_surface(id);
+                if self.sidebar_plugin_surface == Some(id) {
+                    self.sidebar_plugin_surface = None;
+                    self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
+                    self.sidebar_focused = false;
+                }
                 if self.selection.is_some_and(|s| s.surface == id) {
                     self.selection = None;
                 }
@@ -953,6 +992,9 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
+                if self.sidebar_plugin_surface == Some(id) {
+                    return Ok(RenderAction::Draw);
+                }
                 if self.frame_only_browser_update(id) {
                     Ok(RenderAction::Graphics)
                 } else {
@@ -979,6 +1021,9 @@ impl App {
                     clear_omnibar_selection(state);
                     state.input.insert_str(&text);
                     Ok(RenderAction::Draw)
+                } else if self.sidebar_focused {
+                    self.paste_sidebar(&text);
+                    Ok(RenderAction::None)
                 } else {
                     self.paste(&text);
                     Ok(RenderAction::None)
@@ -991,6 +1036,7 @@ impl App {
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
+                self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(_) => Ok(RenderAction::None),
@@ -1019,6 +1065,16 @@ impl App {
     }
 
     fn reassert_visible_surface_sizes(&self) {
+        if self.config.sidebar.plugin.is_some()
+            && self.sidebar_visible
+            && self.sidebar_width >= 3
+            && let Some(surface) = self.sidebar_surface_handle()
+        {
+            let rect = self.sidebar_plugin_rect();
+            if rect.width > 0 && rect.height > 0 {
+                surface.reassert_size(rect.width, rect.height);
+            }
+        }
         for area in &self.pane_areas {
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
@@ -1128,9 +1184,6 @@ impl App {
         if self.omnibar.is_some() {
             return self.handle_omnibar_key(key);
         }
-        if let Some(action) = self.config.keys.modeless_action_for(&key) {
-            return self.run_action(action);
-        }
         if self.prefix_armed {
             self.prefix_armed = false;
             return self.handle_prefixed(key);
@@ -1138,6 +1191,13 @@ impl App {
         if self.config.keys.prefix.matches(&key) {
             self.prefix_armed = true;
             return Ok(RenderAction::Draw);
+        }
+        if self.sidebar_focused {
+            self.forward_sidebar_key(&key);
+            return Ok(RenderAction::None);
+        }
+        if let Some(action) = self.config.keys.modeless_action_for(&key) {
+            return self.run_action(action);
         }
         // Typing replaces any selection highlight.
         self.selection = None;
@@ -1283,18 +1343,26 @@ impl App {
     fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         // Prefix twice forwards the prefix chord literally.
         if self.config.keys.prefix.matches(&key) {
-            self.forward_key(&key);
-            return Ok(RenderAction::Draw);
-        }
-        // 1-9 select a tab by number (fixed: they mirror the tab labels).
-        if let KeyCode::Char(c @ '1'..='9') = key.code {
-            let pane = self.active_pane();
-            self.session.select_tab(pane, Some(c as usize - '1' as usize), None);
+            if self.sidebar_focused {
+                self.forward_sidebar_key(&key);
+            } else {
+                self.forward_key(&key);
+            }
             return Ok(RenderAction::Draw);
         }
         let Some(action) = self.config.keys.action_for(&key) else {
+            if self.sidebar_focused {
+                self.sidebar_focused = false;
+            }
             return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
+        let was_sidebar_focused = self.sidebar_focused;
+        if self.sidebar_focused {
+            self.sidebar_focused = false;
+        }
+        if was_sidebar_focused && action == Action::FocusSidebar {
+            return Ok(RenderAction::Draw);
+        }
         if browser_only_action(action)
             && !self
                 .active_surface_handle()
@@ -1318,6 +1386,11 @@ impl App {
             Action::NewPaneSmart => self.new_pane_smart()?,
             Action::NextTab => self.session.select_tab(pane, None, Some(1)),
             Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
+            Action::SelectTab(_) => {
+                if let Some(index) = action.tab_index() {
+                    self.session.select_tab(pane, Some(index), None);
+                }
+            }
             Action::SplitRight => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Right)?;
@@ -1351,14 +1424,29 @@ impl App {
             }
             Action::PrevScreen => self.session.select_screen(None, Some(-1)),
             Action::NextScreen => self.session.select_screen(None, Some(1)),
+            Action::SelectScreen(_) => {
+                if let Some(index) = action.screen_index() {
+                    self.session.select_screen(Some(index), None);
+                }
+            }
             Action::NewScreen => self.new_screen()?,
             Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
             Action::NewWorkspace => self.new_workspace()?,
-            Action::ToggleSidebar => self.sidebar_visible = !self.sidebar_visible,
+            Action::ToggleSidebar => {
+                self.sidebar_visible = !self.sidebar_visible;
+                if !self.sidebar_visible {
+                    self.sidebar_focused = false;
+                }
+            }
+            Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::FocusLeft => self.move_focus(-1, 0),
             Action::FocusRight => self.move_focus(1, 0),
             Action::FocusUp => self.move_focus(0, -1),
             Action::FocusDown => self.move_focus(0, 1),
+            Action::FocusNextPane => self.focus_next_pane(),
+            Action::SwapPanePrev => self.swap_pane_by_order(-1),
+            Action::SwapPaneNext => self.swap_pane_by_order(1),
+            Action::ZoomPane => self.session.zoom_pane(pane),
             Action::ResizeGrow => self.resize_focused_split(0.05),
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
@@ -1629,6 +1717,38 @@ impl App {
         }
     }
 
+    fn active_screen_pane_order(&self) -> Vec<PaneId> {
+        self.tree
+            .active_screen()
+            .map(|screen| screen.panes.iter().map(|pane| pane.id).collect())
+            .unwrap_or_default()
+    }
+
+    fn adjacent_pane_by_order(&self, delta: isize) -> Option<PaneId> {
+        let active = self.active_pane()?;
+        let panes = self.active_screen_pane_order();
+        let position = panes.iter().position(|pane| *pane == active)?;
+        let len = panes.len();
+        if len < 2 {
+            return None;
+        }
+        let next = (position as isize + delta).rem_euclid(len as isize) as usize;
+        panes.get(next).copied()
+    }
+
+    fn focus_next_pane(&self) {
+        if let Some(next) = self.adjacent_pane_by_order(1) {
+            self.session.focus_pane(next);
+        }
+    }
+
+    fn swap_pane_by_order(&self, delta: isize) {
+        let Some(active) = self.active_pane() else { return };
+        if let Some(target) = self.adjacent_pane_by_order(delta) {
+            self.session.swap_pane(active, target);
+        }
+    }
+
     fn scroll_active(&mut self, delta: isize) {
         if let Some(surface) = self.active_surface_handle() {
             if surface.kind() == SurfaceKind::Browser {
@@ -1636,6 +1756,29 @@ impl App {
             }
             let _ = surface.scroll_delta(delta);
         }
+    }
+
+    fn toggle_sidebar_focus(&mut self) {
+        if self.sidebar_focused {
+            self.sidebar_focused = false;
+            return;
+        }
+        if self.config.sidebar.plugin.is_none() {
+            return;
+        }
+        self.sidebar_visible = true;
+        self.sync_sidebar_plugin(true);
+        if self.sidebar_plugin_surface.is_some() {
+            self.sidebar_focused = true;
+            self.menu = None;
+            self.prompt = None;
+            self.omnibar = None;
+            self.selection = None;
+        }
+    }
+
+    fn sidebar_surface_handle(&self) -> Option<SurfaceHandle> {
+        self.sidebar_plugin_surface.and_then(|surface| self.session.surface(surface))
     }
 
     fn forward_key(&mut self, key: &KeyEvent) {
@@ -1661,6 +1804,22 @@ impl App {
         }
     }
 
+    fn forward_sidebar_key(&mut self, key: &KeyEvent) {
+        let Some(input) = keys::key_input_from(key) else { return };
+        let Some(surface) = self.sidebar_surface_handle() else { return };
+        self.encode_buf.clear();
+        let _ = surface.scroll_to_bottom();
+        let Some(encoded) = surface.with_terminal(|term| {
+            self.encoder.sync_from_terminal(term);
+            self.encoder.encode(&input, &mut self.encode_buf)
+        }) else {
+            return;
+        };
+        if encoded.is_ok() && !self.encode_buf.is_empty() {
+            surface.write_bytes(&self.encode_buf);
+        }
+    }
+
     fn forward_browser_key(&mut self, key: &KeyEvent) {
         if matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
             && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -1671,18 +1830,17 @@ impl App {
             return;
         }
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
-        if let KeyCode::Char(c) = key.code {
-            if !key
+        if let KeyCode::Char(c) = key.code
+            && !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
-            {
-                self.browser_input.enqueue(BrowserInputEvent {
-                    surface_id,
-                    surface,
-                    kind: BrowserInputKind::InsertText(c.to_string()),
-                });
-                return;
-            }
+        {
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: BrowserInputKind::InsertText(c.to_string()),
+            });
+            return;
         }
         let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
         let modifiers = browser_modifiers(key.modifiers);
@@ -1719,6 +1877,22 @@ impl App {
             });
             return;
         }
+        let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
+            return;
+        };
+        if bracketed {
+            let mut bytes = Vec::with_capacity(text.len() + 12);
+            bytes.extend_from_slice(b"\x1b[200~");
+            bytes.extend_from_slice(text.as_bytes());
+            bytes.extend_from_slice(b"\x1b[201~");
+            surface.write_bytes(&bytes);
+        } else {
+            surface.write_bytes(text.as_bytes());
+        }
+    }
+
+    fn paste_sidebar(&mut self, text: &str) {
+        let Some(surface) = self.sidebar_surface_handle() else { return };
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
             return;
         };
@@ -1896,14 +2070,14 @@ impl App {
     /// hovered element actually changes.
     fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
-        if let Some(menu) = self.menu.as_mut() {
-            if let Some(item) = menu.item_at(x, y) {
-                if item != menu.selected {
-                    menu.selected = item;
-                    return Ok(RenderAction::Draw);
-                }
-                return Ok(RenderAction::None);
+        if let Some(menu) = self.menu.as_mut()
+            && let Some(item) = menu.item_at(x, y)
+        {
+            if item != menu.selected {
+                menu.selected = item;
+                return Ok(RenderAction::Draw);
             }
+            return Ok(RenderAction::None);
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
             let mut over_browser = false;
@@ -1970,11 +2144,11 @@ impl App {
         if (x, y) != menu.right_press {
             menu.right_drag_moved = true;
         }
-        if let Some(item) = menu.item_at(x, y) {
-            if item != menu.selected {
-                menu.selected = item;
-                return Ok(RenderAction::Draw);
-            }
+        if let Some(item) = menu.item_at(x, y)
+            && item != menu.selected
+        {
+            menu.selected = item;
+            return Ok(RenderAction::Draw);
         }
         Ok(RenderAction::None)
     }
@@ -2054,6 +2228,19 @@ impl App {
                 self.omnibar = None;
             }
         }
+
+        if self.config.sidebar.plugin.is_some()
+            && self.sidebar_plugin_rect().contains(x, y)
+            && self.sidebar_visible
+        {
+            self.sync_sidebar_plugin(true);
+            self.sidebar_focused = self.sidebar_plugin_surface.is_some();
+            return Ok(RenderAction::Draw);
+        }
+        // Any click outside the plugin rect returns keyboard focus to the
+        // panes; otherwise typing would keep going to the plugin PTY after
+        // the user clicked into a pane.
+        self.sidebar_focused = false;
 
         if let Some(hit) = self.hit_at(x, y) {
             match hit {
@@ -2681,16 +2868,16 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect, App,
-        PaneArea,
+        App, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
+        pane_parts_for_rect,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     use ghostty_vt::{KeyEncoder, RenderState};
     use mux_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{Config, ScrollbarPosition};
@@ -2801,7 +2988,11 @@ mod tests {
             prefix_armed: false,
             session_label: "test".to_string(),
             sidebar_visible: true,
+            sidebar_focused: false,
             sidebar_width: 0,
+            sidebar_plugin_surface: None,
+            sidebar_plugin_error: None,
+            sidebar_plugin_retry_after_ms: None,
             sidebar_width_override: None,
             content_area: Rect::default(),
             hits: Vec::new(),

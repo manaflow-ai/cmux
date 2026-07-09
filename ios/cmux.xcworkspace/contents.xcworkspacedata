@@ -5,6 +5,9 @@
       location = "group:cmuxPackage">
    </FileRef>
    <FileRef
+      location = "group:../Packages/iOS/CmuxMobileShellUI">
+   </FileRef>
+   <FileRef
       location = "group:cmux-ios.xcodeproj">
    </FileRef>
 </Workspace>

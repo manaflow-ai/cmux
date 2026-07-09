@@ -76,7 +76,7 @@ fn next_resized(
         }
         match events.recv_timeout(time_left(deadline))? {
             Event::SurfaceResized(event) if event.surface == surface => {
-                return Ok((event.cols, event.rows))
+                return Ok((event.cols, event.rows));
             }
             _ => {}
         }

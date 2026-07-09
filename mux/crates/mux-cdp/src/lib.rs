@@ -9,6 +9,6 @@ mod client;
 
 pub use chrome::{Chrome, ChromeLaunchOptions};
 pub use client::{
-    discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent, CdpKeyEvent,
-    NavigationEntry, NavigationHistory, ScreencastFrame, TargetCreated, TargetInfo,
+    CdpClient, CdpEvent, CdpKeyEvent, NavigationEntry, NavigationHistory, ScreencastFrame,
+    TargetCreated, TargetInfo, discover_browser_ws_url, resolve_browser_ws_url,
 };
