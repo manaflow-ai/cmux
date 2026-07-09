@@ -1279,7 +1279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
-        AppearanceObservers.startAtLaunch()
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
+        SystemAppearanceObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
