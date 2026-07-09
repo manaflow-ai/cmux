@@ -170,7 +170,6 @@ extension TerminalTabAgentIconResolver.RestoredAgent {
 extension Workspace {
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
-        guard !isRemoteTmuxMirror else { return false }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
         var didMutate = false
@@ -178,7 +177,7 @@ extension Workspace {
         var didMutateWorkspaceTitle = false
         var didMutateTitleDerivedAgent = false
 
-        if panelTitles[panelId] != trimmed {
+        if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
             didMutatePanelTitle = true
@@ -198,7 +197,7 @@ extension Workspace {
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let titleUpdate: String? = isRemoteTmuxMirror || existing.title == resolvedTitle ? nil : resolvedTitle
             let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
                 ? .some(terminalTabAgentIconAsset(forPanelId: panelId))
                 : nil
@@ -211,7 +210,7 @@ extension Workspace {
         }
 
         // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
+        if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true

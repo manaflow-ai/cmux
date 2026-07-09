@@ -149,6 +149,7 @@ struct RemoteTmuxSessionRenameTitleTests {
         let (_, workspace, manager) = makeMirror(sessionName: "work", title: "work")
         let panelId = try #require(workspace.focusedPanelId)
         let surface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
         manager.selectedTabId = workspace.id
         workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
 
@@ -165,17 +166,32 @@ struct RemoteTmuxSessionRenameTitleTests {
         }
         manager.refreshWindowTitle()
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidSetTitle,
-            object: surface,
-            userInfo: GhosttyTitleChange(
-                tabId: workspace.id,
-                surfaceId: panelId,
-                title: "/Users/austinwang"
-            ).userInfo
-        )
-        manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        let postTerminalTitle: (String) -> Void = { title in
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: surface,
+                userInfo: GhosttyTitleChange(
+                    tabId: workspace.id,
+                    surfaceId: panelId,
+                    title: title
+                ).userInfo
+            )
+            manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
 
+        postTerminalTitle("codex")
+
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panelId) == "AgentIcons/Codex")
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == "AgentIcons/Codex")
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+        #expect(window.title == "work")
+
+        postTerminalTitle("/Users/austinwang")
+
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panelId) == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")
