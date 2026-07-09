@@ -261,14 +261,19 @@ tend to conflict together during rebases.
   - `465a9a621` (Restore bg-image alpha in layer background mode)
   - `fa3753c24` (Cover custom shader background source)
   - `49f82cea4` (Preserve terminal input for custom shaders)
+  - `b0326b72a` (Cover repeatable path C queries)
+  - `f8d6c9e56` (Align background ownership with shader intent)
 - Files:
   - `src/config/Config.zig`
+  - `src/config/c_get.zig`
+  - `src/config/path.zig`
   - `src/renderer/generic.zig`
 - Summary:
   - Adds a `macos-background-from-layer` bool config (default false).
   - When it selects the host layer for a plain terminal frame, sets `bg_color[3] = 0` and skips the Metal renderer's full-screen background fill.
   - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
-  - Resolves the background owner once for both alpha setup and draw emission. Background images and custom postprocess shaders force renderer ownership so the shader input texture contains the complete terminal frame.
+  - Resolves background composition from configured custom-shader intent for both alpha setup and draw emission. Shader intent takes renderer ownership before pipelines load, including glass and reload transitions, so the input texture contains the complete terminal frame.
+  - Exposes repeatable-path counts through the C config bridge so cmux disables its host backdrop for custom shaders and avoids translucent alpha double-stacking.
   - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
 
 ### 8) TerminalStream kitty graphics APC handling
@@ -549,10 +554,14 @@ These files change frequently upstream; be careful when rebasing the fork:
     `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection` functions.
 
 - `src/renderer/generic.zig`
-  - The `macos-background-from-layer` background-source decision is shared by the bg_color uniform
-    update and background draw pass. If upstream refactors either path, preserve that single decision:
-    custom shaders and background images require a complete renderer-owned frame, while plain
-    layer-background mode zeroes `bg_color[3]` and skips the fullscreen fill.
+  - The `macos-background-from-layer` composition decision is shared by the bg_color uniform update
+    and background draw pass. Preserve configured custom-shader intent as the source of truth rather
+    than the loaded-pipeline flag: shader intent overrides glass and layer-background transparency,
+    while plain layer-background mode zeroes `bg_color[3]` and skips the fullscreen fill.
+
+- `src/config/path.zig`, `src/config/c_get.zig`
+  - Preserve the repeatable-path C count used by cmux to detect configured custom-shader intent and
+    clear its host backdrop in lockstep with renderer ownership.
 
 - `src/Surface.zig`, `src/apprt/embedded.zig`, `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
   - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
