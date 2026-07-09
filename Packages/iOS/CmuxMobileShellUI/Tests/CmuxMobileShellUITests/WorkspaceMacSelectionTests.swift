@@ -870,16 +870,14 @@ import Testing
             macSelection: macSelection ?? binding(initialValue: .all),
             switchMac: switchMac,
             cancelMacSwitch: cancelMacSwitch,
-            store: store
+            store: store,
+            telemetryConsentStore: .init(defaults: UserDefaults(suiteName: "WorkspaceMacSelectionTests.telemetry.\(UUID().uuidString)")!)
         )
     }
 
     private func binding(initialValue: WorkspaceMacSelection) -> Binding<WorkspaceMacSelection> {
         var value = initialValue
-        return Binding(
-            get: { value },
-            set: { value = $0 }
-        )
+        return Binding(get: { value }, set: { value = $0 })
     }
 
     private func shellStore(

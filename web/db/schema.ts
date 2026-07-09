@@ -79,6 +79,46 @@ export const cloudVms = pgTable(
   ],
 );
 
+export const accountDeletionTombstones = pgTable(
+  "account_deletion_tombstones",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    userId: text("user_id"),
+    status: text("status").$type<"pending" | "in_progress" | "posthog_delete_pending" | "posthog_delete_in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "failed">().notNull().default("pending"),
+    scope: jsonb("scope").$type<{
+      readonly ownedTeamIds: readonly string[];
+      readonly retainedTeamBillingOwners: readonly {
+        readonly stackTeamId: string;
+        readonly stackUserId: string;
+      }[];
+    }>(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
+    index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
+export const iosAnalyticsIdentities = pgTable(
+  "ios_analytics_identities",
+  {
+    userId: text("user_id").notNull(),
+    anonymousId: text("anonymous_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("ios_analytics_identities_user_anonymous_unique").on(table.userId, table.anonymousId),
+    index("ios_analytics_identities_user_idx").on(table.userId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {

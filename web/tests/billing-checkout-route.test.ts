@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { stripeCustomers } from "../db/schema";
+import { accountDeletionTombstones, stripeCustomers } from "../db/schema";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 // Capture real implementations BY VALUE: bun's mock.module can mutate an
 // already-loaded namespace in place, so calling through a captured namespace
@@ -21,15 +22,18 @@ const signedInUser = {
   id: "user-signed-in",
   isAnonymous: false,
   primaryEmail: "signed@example.com",
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   createCheckoutUrl: mock(async () => "https://checkout.test/signed-in"),
   listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
   selectedTeam: null as null | typeof teamCustomer,
+  createTeam: mock(async () => teamCustomer),
 };
 const anonymousUser = {
   id: "user-anonymous",
   isAnonymous: true,
   primaryEmail: null,
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   createCheckoutUrl: mock(async () => "https://checkout.test/anonymous"),
   listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
@@ -41,14 +45,28 @@ let stripeConfigured = false;
 const createdStripeSessions: unknown[] = [];
 const createdStripeCustomers: unknown[] = [];
 const insertedStripeCustomers: Record<string, unknown>[] = [];
+const expiredStripeSessions: string[] = [];
+const deletedStripeCustomers: string[] = [];
+const deletedStripeCustomerRows: string[] = [];
 let stripeCustomerRows: { id: string }[] = [];
+let accountDeletionRows: Array<{ userIdHash: string; status: string }> = [];
+let createAccountDeletionTombstoneOnLock = false;
+let accountDeletionLockCount = 0;
 const createStripeSession = mock(async (params: unknown) => {
   createdStripeSessions.push(params);
-  return { url: "https://checkout.stripe.com/c/session" };
+  return { id: "cs_test", url: "https://checkout.stripe.com/c/session" };
 });
 const createStripeCustomer = mock(async (params: unknown) => {
   createdStripeCustomers.push(params);
   return { id: "cus_team" };
+});
+const expireStripeSession = mock(async (...args: unknown[]) => {
+  const [sessionId] = args as [string];
+  expiredStripeSessions.push(sessionId);
+});
+const deleteStripeCustomer = mock(async (...args: unknown[]) => {
+  const [customerId] = args as [string];
+  deletedStripeCustomers.push(customerId);
 });
 const resolveProPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_month" : "price_year",
@@ -76,16 +94,48 @@ mock.module("../db/client", () => ({
               where: () => ({
                 limit: table === stripeCustomers
                   ? mock(async () => stripeCustomerRows)
-                  : stripeLimit,
+                  : table === accountDeletionTombstones
+                    ? mock(async () => accountDeletionRows)
+                    : stripeLimit,
               }),
             }),
           }),
+          transaction: async <T>(callback: (tx: unknown) => Promise<T>) =>
+            await callback({
+              execute: async () => {
+                accountDeletionLockCount += 1;
+                if (createAccountDeletionTombstoneOnLock) {
+                  accountDeletionRows = [{
+                    userIdHash: accountDeletionUserHash("user-signed-in"),
+                    status: "pending",
+                  }];
+                }
+                return [];
+              },
+              select: () => ({
+                from: (table: unknown) => ({
+                  where: () => ({
+                    limit: table === accountDeletionTombstones
+                      ? mock(async () => accountDeletionRows)
+                      : stripeLimit,
+                  }),
+                }),
+              }),
+            }),
           insert: () => ({
             values: (values: Record<string, unknown>) => {
               insertedStripeCustomers.push(values);
               return {
                 then: (resolve: (value: unknown) => void) => resolve(undefined),
               };
+            },
+          }),
+          delete: (table: unknown) => ({
+            where: async () => {
+              if (table === stripeCustomers) {
+                deletedStripeCustomerRows.push("cus_team");
+                stripeCustomerRows = stripeCustomerRows.filter((row) => row.id !== "cus_team");
+              }
             },
           }),
         } as unknown as ReturnType<typeof realCloudDb>)
@@ -99,10 +149,12 @@ mock.module("../services/billing/stripe", () => ({
   stripe: () => ({
     customers: {
       create: createStripeCustomer,
+      del: deleteStripeCustomer,
     },
     checkout: {
       sessions: {
         create: createStripeSession,
+        expire: expireStripeSession,
       },
     },
   }),
@@ -124,6 +176,7 @@ describe("billing checkout route", () => {
     signedInUser.createCheckoutUrl.mockClear();
     signedInUser.listProducts.mockClear();
     signedInUser.update.mockClear();
+    signedInUser.createTeam.mockClear();
     teamCustomer.createCheckoutUrl.mockClear();
     teamCustomer.listUsers.mockClear();
     anonymousUser.createCheckoutUrl.mockClear();
@@ -132,20 +185,39 @@ describe("billing checkout route", () => {
     signedInUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/signed-in");
     signedInUser.listProducts.mockResolvedValue(emptyProductsPage());
     signedInUser.update.mockResolvedValue(undefined);
+    signedInUser.createTeam.mockResolvedValue(teamCustomer);
     teamCustomer.createCheckoutUrl.mockResolvedValue("https://checkout.test/team");
     teamCustomer.listUsers.mockResolvedValue([{ id: "member-1" }, { id: "member-2" }]);
     anonymousUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/anonymous");
     anonymousUser.listProducts.mockResolvedValue(emptyProductsPage());
     anonymousUser.update.mockResolvedValue(undefined);
+    signedInUser.clientReadOnlyMetadata = {};
+    anonymousUser.clientReadOnlyMetadata = {};
     signedInUser.selectedTeam = null;
     userResponses = [];
     stripeConfigured = false;
     createdStripeSessions.length = 0;
     createdStripeCustomers.length = 0;
     insertedStripeCustomers.length = 0;
+    expiredStripeSessions.length = 0;
+    deletedStripeCustomers.length = 0;
+    deletedStripeCustomerRows.length = 0;
     stripeCustomerRows = [];
+    accountDeletionRows = [];
+    createAccountDeletionTombstoneOnLock = false;
+    accountDeletionLockCount = 0;
     createStripeSession.mockClear();
     createStripeCustomer.mockClear();
+    expireStripeSession.mockClear();
+    deleteStripeCustomer.mockClear();
+    mockImplementation(createStripeSession, async (params: unknown) => {
+      createdStripeSessions.push(params);
+      return { id: "cs_test", url: "https://checkout.stripe.com/c/session" };
+    });
+    mockImplementation(createStripeCustomer, async (params: unknown) => {
+      createdStripeCustomers.push(params);
+      return { id: "cus_team" };
+    });
     resolveProPrice.mockClear();
     resolveTeamPrice.mockClear();
     stripeLimit.mockClear();
@@ -202,6 +274,22 @@ describe("billing checkout route", () => {
       productId: "pro",
       returnUrl: "https://cmux.test/api/billing/confirm",
     });
+  });
+
+  test("blocks checkout while account deletion is in progress", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxAccountDeletionInProgress: true };
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+    expect(signedInUser.createCheckoutUrl).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("syncs metadata when Stack says Pro checkout is already granted and products confirm it", async () => {
@@ -313,6 +401,27 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("expires Stripe Pro checkout when account deletion starts after session creation", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+    mockImplementation(createStripeSession, async (params: unknown) => {
+      createdStripeSessions.push(params);
+      accountDeletionRows = [{
+        userIdHash: accountDeletionUserHash("user-signed-in"),
+        status: "pending",
+      }];
+      return { id: "cs_race", url: "https://checkout.stripe.com/c/session" };
+    });
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+    expect(expiredStripeSessions).toEqual(["cs_race"]);
+  });
+
   test("rejects dev callback schemes on non-local Stripe checkout hosts", async () => {
     process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
     stripeConfigured = true;
@@ -361,15 +470,56 @@ describe("billing checkout route", () => {
       ],
       customer: "cus_team",
       client_reference_id: "team-signed-in",
-      metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", plan: "team", app: "cmux" },
       subscription_data: {
-        metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", plan: "team", app: "cmux" },
       },
       allow_promotion_codes: true,
       success_url:
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled",
     });
+  });
+
+  test("blocks Team checkout before creating a Stack team when deletion starts at team resolution", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+    createAccountDeletionTombstoneOnLock = true;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+    expect(accountDeletionLockCount).toBe(1);
+    expect(signedInUser.createTeam).not.toHaveBeenCalled();
+    expect(createStripeCustomer).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("deletes a new Team customer when account deletion starts during checkout", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+    mockImplementation(createStripeCustomer, async (params: unknown) => {
+      createdStripeCustomers.push(params);
+      accountDeletionRows = [{
+        userIdHash: accountDeletionUserHash("user-signed-in"),
+        status: "pending",
+      }];
+      return { id: "cus_team" };
+    });
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+    expect(createStripeSession).not.toHaveBeenCalled();
+    expect(deletedStripeCustomerRows).toEqual(["cus_team"]);
+    expect(deletedStripeCustomers).toEqual(["cus_team"]);
   });
 
   test("rejects unknown checkout plans", async () => {

@@ -4,10 +4,16 @@ import type Stripe from "stripe";
 import { stackServerApp } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   billingEmailClaims,
   stripeCustomers,
   stripeSubscriptions,
 } from "../../db/schema";
+import { isStackAccountDeletionBlocked } from "../account/deletion";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+} from "../account/deletionLock";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -15,6 +21,7 @@ import {
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import { removeTester } from "../asc/testflight";
 import { captureAscError } from "../errors";
@@ -26,6 +33,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 
 type BillingDb = ReturnType<typeof cloudDb>;
+type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "invoices" | "refunds" | "subscriptions">;
 
 type StackBillingUser = {
   readonly id: string;
@@ -46,9 +54,14 @@ type StackBillingUserLookup = {
 type StackBillingTeam = {
   readonly id: string;
   readonly clientReadOnlyMetadata?: unknown;
+  listUsers?(options?: { cursor?: string | null; limit?: number }): Promise<StackBillingTeamUserPage>;
   update(options: {
     clientReadOnlyMetadata: ProMetadataJson;
   }): Promise<unknown>;
+};
+
+type StackBillingTeamUserPage = readonly unknown[] & {
+  readonly nextCursor?: string | null;
 };
 
 type StackBillingApp = {
@@ -65,6 +78,7 @@ type StackBillingApp = {
 type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
+  stripeClient?: () => StripeBillingClient;
   testflight?: {
     isAscConfigured?: () => boolean;
     removeTester?: (email: string) => Promise<void>;
@@ -87,6 +101,7 @@ export async function recordCheckoutCompletion(
 ): Promise<
   | { scope: "user"; stackUserId: string; subscriptionId: string }
   | { scope: "team"; stackTeamId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
 > {
   const subscription = input.subscription ?? expandedSubscription(input.session);
   if (!subscription) {
@@ -99,9 +114,11 @@ export async function recordCheckoutCompletion(
   const teamScope = teamScopeFromSession(input.session, subscription);
   if (teamScope) {
     return recordTeamCheckoutCompletion({
+      session: input.session,
       subscription,
       customerId,
       stackTeamId: teamScope.stackTeamId,
+      stackUserId: teamScope.stackUserId,
       dependencies,
     });
   }
@@ -111,33 +128,69 @@ export async function recordCheckoutCompletion(
     throw new Error("Stripe checkout session is missing stackUserId");
   }
 
-  const email = checkoutEmail(input.session, input.customer);
   const db = dependencies.db ?? cloudDb();
-  await upsertStripeCustomer(db, {
-    customerId,
-    stackUserId,
-    email,
-  });
-  await upsertStripeSubscription(db, {
-    subscription,
-    customerId,
-    stackUserId,
-    scope: "user",
-  });
+  return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+    if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, lockedDb)) {
+      await cleanupCheckoutStripeObjectsForAccountDeletion({
+        session: input.session,
+        subscription,
+        customerId,
+        stackUserId,
+        clearStackTeamId: false,
+        updateCustomer: true,
+        dependencies,
+      });
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId,
+        subscriptionId: subscription.id,
+      };
+    }
 
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
-  if (email) {
-    await attachPurchaseEmailOrRecordClaim(db, {
-      user,
-      email,
-      stripeCustomerId: customerId,
+    const user = await loadStackUser(stackUserId, dependencies.stackApp);
+    if (await isStackAccountDeletionBlocked(user, { cloudDb: () => lockedDb })) {
+      await cleanupCheckoutStripeObjectsForAccountDeletion({
+        session: input.session,
+        subscription,
+        customerId,
+        stackUserId,
+        clearStackTeamId: false,
+        updateCustomer: true,
+        dependencies,
+      });
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId,
+        subscriptionId: subscription.id,
+      };
+    }
+
+    const email = checkoutEmail(input.session, input.customer);
+    await upsertStripeCustomer(lockedDb, {
+      customerId,
       stackUserId,
-      stackApp: dependencies.stackApp ?? stackServerApp,
+      email,
     });
-  }
-  await syncProPlanMetadata(user, true);
+    await upsertStripeSubscription(lockedDb, {
+      subscription,
+      customerId,
+      stackUserId,
+      scope: "user",
+    });
 
-  return { scope: "user", stackUserId, subscriptionId: subscription.id };
+    if (email) {
+      await attachPurchaseEmailOrRecordClaim(lockedDb, {
+        user,
+        email,
+        stripeCustomerId: customerId,
+        stackUserId,
+        stackApp: dependencies.stackApp ?? stackServerApp,
+      });
+    }
+    await syncProPlanMetadata(user, true);
+
+    return { scope: "user", stackUserId, subscriptionId: subscription.id };
+  });
 }
 
 export async function applySubscriptionUpdate(
@@ -156,49 +209,77 @@ export async function applySubscriptionUpdate(
 
   const teamScope = teamScopeFromSubscription(subscription);
   if (teamScope) {
-    const stackUserId =
-      (await stackUserIdForTeamStripeCustomer(db, {
-        stackTeamId: teamScope.stackTeamId,
-        customerId,
-      })) ?? teamScope.stackTeamId;
-    await upsertTeamStripeCustomer(db, {
-      customerId,
-      stackUserId,
+    const stackUserId = await resolveTeamBillingStackUserId({
+      db,
       stackTeamId: teamScope.stackTeamId,
+      stackUserId: teamScope.stackUserId,
+      customerId,
+      stackApp: dependencies.stackApp,
     });
-    await upsertStripeSubscription(db, {
+    return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+      if (
+        await isTeamBillingStackUserDeletionBlocked(stackUserId, {
+          db: lockedDb,
+          stackTeamId: teamScope.stackTeamId,
+          stackApp: dependencies.stackApp,
+        })
+      ) return { skipped: true };
+      await upsertTeamStripeCustomer(lockedDb, {
+        customerId,
+        stackUserId,
+        stackTeamId: teamScope.stackTeamId,
+      });
+      await upsertStripeSubscription(lockedDb, {
+        subscription,
+        customerId,
+        stackUserId,
+        stackTeamId: teamScope.stackTeamId,
+        scope: "team",
+      });
+
+      const isActive = isActiveStripeSubscriptionStatus(subscription.status);
+      const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
+      await syncTeamPlanMetadata(team, isActive);
+      return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
+    });
+  }
+
+  if (isDeletedAccountStripeMetadata(subscription.metadata)) return { skipped: true };
+
+  const metadataStackUserId = nonEmptyString(subscription.metadata?.stackUserId);
+  const mappedStackUserId = await stackUserIdForStripeCustomer(db, customerId);
+  if (isDeletedAccountActorId(metadataStackUserId) || isDeletedAccountActorId(mappedStackUserId)) {
+    return { skipped: true };
+  }
+  if (
+    metadataStackUserId &&
+    mappedStackUserId &&
+    metadataStackUserId !== mappedStackUserId
+  ) return { skipped: true };
+
+  const stackUserId = mappedStackUserId ?? metadataStackUserId;
+  if (!stackUserId) return { skipped: true };
+
+  return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+    if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, lockedDb)) return { skipped: true };
+    const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+    if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
+    if (await isStackAccountDeletionBlocked(user, { cloudDb: () => lockedDb })) return { skipped: true };
+
+    await upsertStripeSubscription(lockedDb, {
       subscription,
       customerId,
       stackUserId,
-      stackTeamId: teamScope.stackTeamId,
-      scope: "team",
+      scope: "user",
     });
 
     const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-    const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
-    await syncTeamPlanMetadata(team, isActive);
-    return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
-  }
-
-  const stackUserId =
-    subscription.metadata?.stackUserId ??
-    (await stackUserIdForStripeCustomer(db, customerId));
-  if (!stackUserId) return { skipped: true };
-
-  await upsertStripeSubscription(db, {
-    subscription,
-    customerId,
-    stackUserId,
-    scope: "user",
+    await syncProPlanMetadata(user, isActive);
+    if (!isActive) {
+      await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
+    }
+    return { scope: "user", stackUserId, isActive };
   });
-
-  const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
-  await syncProPlanMetadata(user, isActive);
-  if (!isActive) {
-    await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
-  }
-  return { scope: "user", stackUserId, isActive };
 }
 
 export async function latestStripeSubscriptionForSession(
@@ -220,6 +301,186 @@ export function isActiveStripeSubscriptionStatus(status: string): boolean {
   return ACTIVE_STRIPE_SUBSCRIPTION_STATUSES.has(status);
 }
 
+async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
+  session: Stripe.Checkout.Session;
+  subscription: Stripe.Subscription;
+  customerId: string;
+  stackUserId: string;
+  clearStackTeamId: boolean;
+  updateCustomer: boolean;
+  dependencies: BillingPurchaseDependencies;
+}): Promise<void> {
+  const client = (input.dependencies.stripeClient ?? stripe)();
+  await cleanupCheckoutInitialPaymentForAccountDeletion(client, input);
+  const anonymizedUserId = deletedAccountId(input.stackUserId);
+  const metadata = accountDeletionStripeMetadata({
+    anonymizedUserId,
+    clearStackTeamId: input.clearStackTeamId,
+  });
+  if (input.updateCustomer) {
+    await ignoreStripeDeletionCleanupError(
+      client.customers.update(input.customerId, {
+        email: deletedAccountEmail(anonymizedUserId),
+        metadata,
+      }),
+    );
+  }
+  await ignoreStripeDeletionCleanupError(
+    client.subscriptions.update(input.subscription.id, { metadata }),
+  );
+  if (input.subscription.status === "canceled") return;
+  await ignoreStripeDeletionCleanupError(client.subscriptions.cancel(input.subscription.id));
+}
+
+async function cleanupCheckoutInitialPaymentForAccountDeletion(
+  client: StripeBillingClient,
+  input: { session: Stripe.Checkout.Session; subscription: Stripe.Subscription },
+): Promise<void> {
+  const invoiceId = checkoutInitialInvoiceId(input.session, input.subscription);
+  if (invoiceId) {
+    await ignoreStripeDeletionCleanupError(reverseCheckoutInvoicePayment(client, invoiceId));
+    return;
+  }
+  const paymentIntentId = stringId(input.session.payment_intent);
+  if (paymentIntentId) {
+    await ignoreStripeDeletionCleanupError(refundCheckoutPaymentIntent(client, paymentIntentId));
+  }
+}
+
+async function reverseCheckoutInvoicePayment(
+  client: StripeBillingClient,
+  invoiceId: string,
+): Promise<void> {
+  const invoice = await client.invoices.retrieve(invoiceId, {
+    expand: ["payments.data.payment.payment_intent"],
+  });
+  const paymentIntentIds = invoicePaymentIntentIds(invoice);
+  if (paymentIntentIds.length > 0) {
+    for (const paymentIntentId of paymentIntentIds) {
+      await refundCheckoutPaymentIntent(client, paymentIntentId);
+    }
+    return;
+  }
+  if ((invoice.amount_paid ?? 0) > 0) {
+    throw new Error(`Paid Stripe checkout invoice ${invoice.id} has no refundable payment intent`);
+  }
+  if (invoice.status === "draft" || invoice.status === "open") {
+    await client.invoices.voidInvoice(invoice.id);
+  }
+}
+
+function checkoutInitialInvoiceId(
+  session: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription,
+): string | null {
+  return stringId(session.invoice) ?? stringId(subscription.latest_invoice);
+}
+
+function invoicePaymentIntentIds(invoice: Stripe.Invoice): string[] {
+  const paymentIntentIds = new Set<string>();
+  for (const invoicePayment of invoice.payments?.data ?? []) {
+    if (invoicePayment.status !== "paid") continue;
+    if (invoicePayment.payment.type !== "payment_intent") continue;
+    const paymentIntentId = stringId(invoicePayment.payment.payment_intent);
+    if (paymentIntentId) paymentIntentIds.add(paymentIntentId);
+  }
+  return [...paymentIntentIds];
+}
+
+async function refundCheckoutPaymentIntent(
+  client: StripeBillingClient,
+  paymentIntentId: string,
+): Promise<void> {
+  await client.refunds.create({
+    payment_intent: paymentIntentId,
+    reason: "requested_by_customer",
+  });
+}
+
+async function ignoreStripeDeletionCleanupError<T>(
+  operation: Promise<T>,
+): Promise<void> {
+  try {
+    await operation;
+  } catch (error) {
+    if (
+      isStripeMissingResourceError(error) ||
+      isStripeSubscriptionAlreadyCanceledError(error) ||
+      isStripePaymentAlreadyReversedError(error)
+    ) return;
+    throw error;
+  }
+}
+
+function accountDeletionStripeMetadata(input: {
+  anonymizedUserId: string;
+  clearStackTeamId: boolean;
+}): Record<string, string> {
+  return {
+    stackUserId: "",
+    ...(input.clearStackTeamId ? { stackTeamId: "" } : {}),
+    deletedAccountId: input.anonymizedUserId,
+  };
+}
+
+function isDeletedAccountStripeMetadata(metadata: Stripe.Metadata | null | undefined): boolean {
+  return isDeletedAccountActorId(nonEmptyString(metadata?.deletedAccountId));
+}
+
+function isDeletedAccountActorId(value: string | null | undefined): boolean {
+  return Boolean(value?.startsWith("deleted_"));
+}
+
+function nonEmptyString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function deletedAccountId(userId: string): string {
+  return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
+}
+
+function deletedAccountEmail(anonymizedUserId: string): string {
+  const suffix = anonymizedUserId.startsWith("deleted_")
+    ? anonymizedUserId.slice("deleted_".length)
+    : anonymizedUserId.replace(/[^A-Za-z0-9]/g, "").slice(0, 24);
+  return `deleted+${suffix}@cmux.com`;
+}
+
+function isStripeMissingResourceError(error: unknown): boolean {
+  return stripeErrorCode(error) === "resource_missing" ||
+    stripeErrorStatusCode(error) === 404 ||
+    stripeErrorMessage(error).toLowerCase().includes("no such");
+}
+
+function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
+  if (isStripeMissingResourceError(error)) return true;
+  return /already (been )?canceled/i.test(stripeErrorMessage(error));
+}
+
+function isStripePaymentAlreadyReversedError(error: unknown): boolean {
+  const code = stripeErrorCode(error);
+  if (code === "charge_already_refunded") return true;
+  return /already (been )?(refunded|voided)|has already been (refunded|voided)/i.test(stripeErrorMessage(error));
+}
+
+function stripeErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function stripeErrorStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const statusCode = (error as { statusCode?: unknown }).statusCode ??
+    (error as { raw?: { statusCode?: unknown } }).raw?.statusCode;
+  return typeof statusCode === "number" ? statusCode : null;
+}
+
+function stripeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function isCmuxCheckoutSession(
   session: Pick<Stripe.Checkout.Session, "client_reference_id" | "metadata">,
 ): boolean {
@@ -232,11 +493,18 @@ async function loadStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
 ): Promise<StackBillingUser> {
-  const app = stackApp ?? stackServerApp;
-  if (!app) throw new Error("Stack Auth is not configured");
-  const user = await app.getUser(stackUserId);
+  const user = await loadOptionalStackUser(stackUserId, stackApp);
   if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
   return user;
+}
+
+async function loadOptionalStackUser(
+  stackUserId: string,
+  stackApp: StackBillingApp | null | undefined,
+): Promise<StackBillingUser | null> {
+  const app = stackApp ?? stackServerApp;
+  if (!app) throw new Error("Stack Auth is not configured");
+  return app.getUser(stackUserId);
 }
 
 async function loadStackTeam(
@@ -277,37 +545,177 @@ async function removeUserFromTestflightOnLapse(
 }
 
 async function recordTeamCheckoutCompletion(input: {
+  session: Stripe.Checkout.Session;
   subscription: Stripe.Subscription;
   customerId: string;
   stackTeamId: string;
+  stackUserId?: string | null;
   dependencies: BillingPurchaseDependencies;
-}): Promise<{ scope: "team"; stackTeamId: string; subscriptionId: string }> {
+}): Promise<
+  | { scope: "team"; stackTeamId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
+> {
   const db = input.dependencies.db ?? cloudDb();
-  const stackUserId =
-    (await stackUserIdForTeamStripeCustomer(db, {
-      stackTeamId: input.stackTeamId,
+  const stackUserId = await resolveTeamBillingStackUserId({
+    db,
+    stackTeamId: input.stackTeamId,
+    stackUserId: input.stackUserId,
+    customerId: input.customerId,
+    stackApp: input.dependencies.stackApp,
+  });
+  return await withAccountDeletionBillingLock(db, stackUserId, async (lockedDb) => {
+    if (
+      await isTeamBillingStackUserDeletionBlocked(stackUserId, {
+        db: lockedDb,
+        stackTeamId: input.stackTeamId,
+        stackApp: input.dependencies.stackApp,
+      })
+    ) {
+      await cleanupCheckoutStripeObjectsForAccountDeletion({
+        session: input.session,
+        subscription: input.subscription,
+        customerId: input.customerId,
+        stackUserId,
+        clearStackTeamId: true,
+        updateCustomer: true,
+        dependencies: input.dependencies,
+      });
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId,
+        subscriptionId: input.subscription.id,
+      };
+    }
+    await upsertTeamStripeCustomer(lockedDb, {
       customerId: input.customerId,
-    })) ?? input.stackTeamId;
-  await upsertTeamStripeCustomer(db, {
-    customerId: input.customerId,
-    stackUserId,
-    stackTeamId: input.stackTeamId,
-  });
-  await upsertStripeSubscription(db, {
-    subscription: input.subscription,
-    customerId: input.customerId,
-    stackUserId,
-    stackTeamId: input.stackTeamId,
-    scope: "team",
-  });
+      stackUserId,
+      stackTeamId: input.stackTeamId,
+    });
+    await upsertStripeSubscription(lockedDb, {
+      subscription: input.subscription,
+      customerId: input.customerId,
+      stackUserId,
+      stackTeamId: input.stackTeamId,
+      scope: "team",
+    });
 
-  const team = await loadStackTeam(input.stackTeamId, input.dependencies.stackApp);
-  await syncTeamPlanMetadata(team, true);
-  return {
-    scope: "team",
-    stackTeamId: input.stackTeamId,
-    subscriptionId: input.subscription.id,
-  };
+    const team = await loadStackTeam(input.stackTeamId, input.dependencies.stackApp);
+    await syncTeamPlanMetadata(team, true);
+    return {
+      scope: "team",
+      stackTeamId: input.stackTeamId,
+      subscriptionId: input.subscription.id,
+    };
+  });
+}
+
+async function resolveTeamBillingStackUserId(input: {
+  db: BillingDb;
+  stackTeamId: string;
+  stackUserId?: string | null;
+  customerId: string;
+  stackApp: StackBillingApp | null | undefined;
+}): Promise<string> {
+  let stackUserId = legacyTeamOwnerUserId(input.stackUserId, input.stackTeamId);
+  if (!stackUserId) {
+    stackUserId = legacyTeamOwnerUserId(
+      await stackUserIdForTeamStripeCustomer(input.db, {
+        stackTeamId: input.stackTeamId,
+        customerId: input.customerId,
+      }),
+      input.stackTeamId,
+    );
+  }
+
+  if (!stackUserId) {
+    const team = await loadStackTeam(input.stackTeamId, input.stackApp);
+    stackUserId = await singletonStackTeamUserId(team);
+  }
+
+  if (!stackUserId) {
+    return input.stackTeamId;
+  }
+  return stackUserId;
+}
+
+async function isTeamBillingStackUserDeletionBlocked(
+  stackUserId: string,
+  input: { db: BillingDb; stackTeamId: string; stackApp: StackBillingApp | null | undefined },
+): Promise<boolean> {
+  if (stackUserId === input.stackTeamId) return false;
+  return await isBillingStackUserDeletionBlocked(stackUserId, input);
+}
+
+function legacyTeamOwnerUserId(
+  stackUserId: string | null | undefined,
+  stackTeamId: string,
+): string | null {
+  return stackUserId && stackUserId !== stackTeamId ? stackUserId : null;
+}
+
+async function isBillingStackUserDeletionBlocked(
+  stackUserId: string,
+  input: { db: BillingDb; stackApp: StackBillingApp | null | undefined },
+): Promise<boolean> {
+  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, input.db)) return true;
+  const user = await loadStackUser(stackUserId, input.stackApp);
+  return await isStackAccountDeletionBlocked(user, { cloudDb: () => input.db });
+}
+
+async function hasCheckoutBlockingAccountDeletionTombstone(
+  stackUserId: string,
+  db: BillingDb,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ status: accountDeletionTombstones.status })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
+    .limit(1);
+  return row ? isCheckoutBillingBlockedTombstoneStatus(row.status) : false;
+}
+
+async function withAccountDeletionBillingLock<T>(
+  db: BillingDb,
+  stackUserId: string,
+  run: (lockedDb: BillingDb) => Promise<T>,
+): Promise<T> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(stackUserId)}, 0))`);
+    return await run(tx as unknown as BillingDb);
+  });
+}
+
+function isCheckoutBillingBlockedTombstoneStatus(status: string): boolean {
+  return status !== "failed";
+}
+
+async function singletonStackTeamUserId(team: StackBillingTeam): Promise<string | null> {
+  if (typeof team.listUsers !== "function") return null;
+
+  const userIds: string[] = [];
+  let cursor: string | null | undefined = null;
+  do {
+    const page = await team.listUsers({ cursor, limit: 2 });
+    for (const user of page) {
+      const id = billingTeamUserId(user);
+      if (!id) continue;
+      userIds.push(id);
+      if (userIds.length > 1) return null;
+    }
+    cursor = page.nextCursor ?? null;
+  } while (cursor);
+
+  return userIds[0] ?? null;
+}
+
+function billingTeamUserId(value: unknown): string | null {
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    (value as { id: string }).id
+    ? (value as { id: string }).id
+    : null;
 }
 
 async function upsertStripeCustomer(
@@ -604,25 +1012,30 @@ function expandedSubscription(
 function teamScopeFromSession(
   session: Stripe.Checkout.Session,
   subscription: Stripe.Subscription,
-): { stackTeamId: string } | null {
+): { stackTeamId: string; stackUserId: string | null } | null {
   const metadata = session.metadata?.plan === TEAM_PLAN_ID
     ? session.metadata
     : subscription.metadata;
   const stackTeamId = metadata?.stackTeamId;
   return metadata?.plan === TEAM_PLAN_ID && typeof stackTeamId === "string" && stackTeamId
-    ? { stackTeamId }
+    ? { stackTeamId, stackUserId: metadataStackUserId(metadata) }
     : null;
 }
 
 function teamScopeFromSubscription(
   subscription: Stripe.Subscription,
-): { stackTeamId: string } | null {
+): { stackTeamId: string; stackUserId: string | null } | null {
   const stackTeamId = subscription.metadata?.stackTeamId;
   return subscription.metadata?.plan === TEAM_PLAN_ID &&
     typeof stackTeamId === "string" &&
     stackTeamId
-    ? { stackTeamId }
+    ? { stackTeamId, stackUserId: metadataStackUserId(subscription.metadata) }
     : null;
+}
+
+function metadataStackUserId(metadata: Stripe.Metadata | null | undefined): string | null {
+  const stackUserId = metadata?.stackUserId;
+  return typeof stackUserId === "string" && stackUserId.trim() ? stackUserId.trim() : null;
 }
 
 function stackUserIdFromSession(

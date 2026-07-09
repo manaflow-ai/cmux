@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -13,8 +14,20 @@ import {
   cloudVms,
   cloudVmUsageEvents,
 } from "../../db/schema";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
+} from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
-import { VmCreateInProgressError, VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
+import {
+  VmCreateDisabledError,
+  VmCreateInProgressError,
+  VmDatabaseError,
+  VmLimitExceededError,
+  isVmCreateDisabledError,
+  isVmLimitExceededError,
+} from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -73,7 +86,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginCreateResult, VmCreateDisabledError | VmDatabaseError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -84,7 +97,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly baseName?: string;
-  }) => Effect.Effect<BeginBaseCreateResult, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmDatabaseError | VmLimitExceededError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -96,7 +109,7 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
     readonly baseName?: string;
     readonly reason?: string | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -123,9 +136,10 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly userId: string;
     readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
     readonly providerVmId: string;
     readonly maxActiveVms: number;
-  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<CloudVmRow | null, VmCreateDisabledError | VmDatabaseError | VmLimitExceededError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
@@ -155,6 +169,11 @@ export type VmRepositoryShape = {
   readonly findUserVm: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
+    readonly providerVmId: string;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
+  readonly findAccountOwnedVm: (input: {
+    readonly userId: string;
+    readonly provider: ProviderId;
     readonly providerVmId: string;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
@@ -198,6 +217,50 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<CloudVmSessionRow, VmDatabaseError>;
   readonly activeIdentityLeases: (vmId: string, limit?: number) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly assertAccountMutationAllowed: (input: {
+    readonly userId: string;
+    readonly provider?: ProviderId;
+  }) => Effect.Effect<void, VmCreateDisabledError | VmDatabaseError>;
+  readonly reserveSnapshotUsageEvent: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly billingPlanId?: string | null;
+    readonly vmId?: string | null;
+    readonly provider: ProviderId;
+    readonly imageId?: string;
+    readonly named: boolean;
+    readonly name?: string | null;
+  }) => Effect.Effect<string | null, VmDatabaseError>;
+  readonly completeSnapshotUsageEvent: (input: {
+    readonly eventId: string;
+    readonly userId: string;
+    readonly snapshotId: string;
+    readonly named: boolean;
+    readonly name?: string | null;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly deleteSnapshotUsageEvent: (input: {
+    readonly eventId: string;
+    readonly userId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  readonly reserveExecUsageEvent: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly billingPlanId?: string | null;
+    readonly vmId?: string | null;
+    readonly provider: ProviderId;
+    readonly imageId?: string;
+    readonly commandLength: number;
+  }) => Effect.Effect<string | null, VmDatabaseError>;
+  readonly completeExecUsageEvent: (input: {
+    readonly eventId: string;
+    readonly userId: string;
+    readonly commandLength: number;
+    readonly exitCode: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly deleteExecUsageEvent: (input: {
+    readonly eventId: string;
+    readonly userId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -207,7 +270,7 @@ export type VmRepositoryShape = {
     readonly provider?: ProviderId;
     readonly imageId?: string;
     readonly metadata?: Record<string, unknown>;
-  }) => Effect.Effect<void, VmDatabaseError>;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -240,6 +303,81 @@ function pgErrorCode(cause: unknown): string | null {
   const code = (cause as { code?: unknown }).code;
   if (typeof code === "string") return code;
   return pgErrorCode((cause as { cause?: unknown }).cause);
+}
+
+type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+async function assertAccountVmCreateAllowed(
+  tx: CloudDbTransaction,
+  input: { readonly userId: string; readonly provider: ProviderId },
+): Promise<void> {
+  if (!await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
+  throw new VmCreateDisabledError({
+    provider: input.provider,
+    reason: "Account deletion is in progress.",
+  });
+}
+
+async function hasAccountDeletionTombstoneWithLock(
+  tx: CloudDbTransaction,
+  userId: string,
+): Promise<boolean> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+  const userIdHash = accountDeletionUserHash(userId);
+  const [deletion] = await tx
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  return deletion?.userIdHash === userIdHash && isBlockingAccountDeletionStatus(deletion.status);
+}
+
+async function deletionAllowedUsageEvents<T extends { readonly userId: string }>(
+  tx: CloudDbTransaction,
+  inputs: readonly T[],
+): Promise<readonly T[]> {
+  const blockedUserIds = new Set<string>();
+  const userIds = [...new Set(inputs.map((input) => input.userId))].sort();
+  for (const userId of userIds) {
+    if (await hasAccountDeletionTombstoneWithLock(tx, userId)) {
+      blockedUserIds.add(userId);
+    }
+  }
+  return inputs.filter((input) => !blockedUserIds.has(input.userId));
+}
+
+async function persistCreateProviderHandle(
+  tx: CloudDbTransaction,
+  input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly image: string;
+    readonly imageVersion?: string | null;
+    readonly providerMetadata?: Record<string, unknown>;
+    readonly now: Date;
+  },
+): Promise<CloudVmRow | null> {
+  const [vm] = await tx
+    .update(cloudVms)
+    .set({
+      providerVmId: input.providerVmId,
+      imageId: input.image,
+      imageVersion: input.imageVersion ?? null,
+      providerMetadata: input.providerMetadata ?? {},
+      status: "running",
+      failureCode: null,
+      failureMessage: null,
+      updatedAt: input.now,
+    })
+    .where(and(
+      eq(cloudVms.id, input.id),
+      eq(cloudVms.status, "provisioning"),
+    ))
+    .returning();
+  return vm ?? null;
 }
 
 async function findByIdempotencyKey(
@@ -401,6 +539,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         const db = cloudDb();
         try {
           return await db.transaction(async (tx) => {
+            await assertAccountVmCreateAllowed(tx, {
+              userId: input.userId,
+              provider: input.provider,
+            });
             if (idempotencyKey) {
               const [existing] = await tx
                 .select()
@@ -474,7 +616,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmLimitExceededError(cause) || isVmCreateDisabledError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
     }),
@@ -488,6 +630,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         try {
           return await db.transaction(async (tx) => {
             await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${scope.scopeType}:${scope.scopeId}:${name}`}, 0))`);
+            await assertAccountVmCreateAllowed(tx, {
+              userId: input.userId,
+              provider: input.provider,
+            });
 
             const [existing] = await tx
               .select({
@@ -675,7 +821,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmLimitExceededError(cause) || isVmCreateDisabledError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -688,6 +834,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         const name = baseName(input.baseName);
         return await db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${scope.scopeType}:${scope.scopeId}:${name}`}, 0))`);
+          await assertAccountVmCreateAllowed(tx, {
+            userId: input.userId,
+            provider: input.provider,
+          });
           const [existing] = await tx
             .select({
               base: cloudVmBases,
@@ -836,7 +986,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           };
         });
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmLimitExceededError(cause) || isVmCreateDisabledError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),
@@ -844,8 +994,20 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markBaseCreateRunning: (input) =>
     dbEffect("markBaseCreateRunning", async () => {
       const db = cloudDb();
-      return await db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const now = new Date();
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
+          const vm = await persistCreateProviderHandle(tx, {
+            id: input.vmId,
+            providerVmId: input.providerVmId,
+            image: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            now,
+          });
+          if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
+          return null;
+        }
         const [vm] = await tx
           .update(cloudVms)
           .set({
@@ -858,7 +1020,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             failureMessage: null,
             updatedAt: now,
           })
-          .where(eq(cloudVms.id, input.vmId))
+          .where(and(
+            eq(cloudVms.id, input.vmId),
+            eq(cloudVms.status, "provisioning"),
+          ))
           .returning();
         if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
 
@@ -904,12 +1069,17 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
 
         return vm;
       });
+      if (!result) {
+        throw new Error("Account deletion is in progress.");
+      }
+      return result;
     }),
 
   markBaseCreateFailed: (input) =>
     dbEffect("markBaseCreateFailed", async () => {
       const db = cloudDb();
       await db.transaction(async (tx) => {
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
         const now = new Date();
         await tx
           .update(cloudVms)
@@ -1008,6 +1178,11 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       try: async () => {
         const db = cloudDb();
         return await db.transaction(async (tx) => {
+          await assertAccountVmCreateAllowed(tx, {
+            userId: input.userId,
+            provider: input.provider,
+          });
+
           const lockKey = input.billingTeamId ?? `user:${input.userId}`;
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 
@@ -1056,7 +1231,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         });
       },
       catch: (cause) =>
-        isVmLimitExceededError(cause)
+        isVmCreateDisabledError(cause) || isVmLimitExceededError(cause)
           ? cause
           : new VmDatabaseError({ operation: "reservePausedResume", cause }),
     }),
@@ -1096,36 +1271,74 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
-      const [vm] = await db
-        .update(cloudVms)
-        .set({
-          providerVmId: input.providerVmId,
-          imageId: input.image,
-          imageVersion: input.imageVersion ?? null,
-          providerMetadata: input.providerMetadata ?? {},
-          status: "running",
-          failureCode: null,
-          failureMessage: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(cloudVms.id, input.id))
-        .returning();
-      if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
-      return vm;
+      const result = await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ userId: cloudVms.userId })
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!current) throw new Error(`vm row missing during create finalization: ${input.id}`);
+        const now = new Date();
+        if (await hasAccountDeletionTombstoneWithLock(tx, current.userId)) {
+          const vm = await persistCreateProviderHandle(tx, {
+            id: input.id,
+            providerVmId: input.providerVmId,
+            image: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            now,
+          });
+          if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
+          return null;
+        }
+
+        const [vm] = await tx
+          .update(cloudVms)
+          .set({
+            providerVmId: input.providerVmId,
+            imageId: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            status: "running",
+            failureCode: null,
+            failureMessage: null,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.status, "provisioning"),
+          ))
+          .returning();
+        if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
+        return vm;
+      });
+      if (!result) {
+        throw new Error("Account deletion is in progress.");
+      }
+      return result;
     }),
 
   markCreateFailed: (input) =>
     dbEffect("markCreateFailed", async () => {
       const db = cloudDb();
-      await db
-        .update(cloudVms)
-        .set({
-          status: "failed",
-          failureCode: input.code,
-          failureMessage: input.message,
-          updatedAt: new Date(),
-        })
-        .where(eq(cloudVms.id, input.id));
+      await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ userId: cloudVms.userId })
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!current) return;
+        await hasAccountDeletionTombstoneWithLock(tx, current.userId);
+        await tx
+          .update(cloudVms)
+          .set({
+            status: "failed",
+            failureCode: input.code,
+            failureMessage: input.message,
+            updatedAt: new Date(),
+          })
+          .where(eq(cloudVms.id, input.id));
+      });
     }),
 
   hasOwnedSnapshot: (input) =>
@@ -1163,6 +1376,24 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       return vm ?? null;
     }),
 
+  findAccountOwnedVm: (input) =>
+    dbEffect("findAccountOwnedVm", async () => {
+      const db = cloudDb();
+      const [vm] = await db
+        .select()
+        .from(cloudVms)
+        .where(
+          and(
+            eq(cloudVms.userId, input.userId),
+            eq(cloudVms.provider, input.provider),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            ne(cloudVms.status, "destroyed"),
+          ),
+        )
+        .limit(1);
+      return vm ?? null;
+    }),
+
   markDestroyed: (id) =>
     dbEffect("markDestroyed", async () => {
       const db = cloudDb();
@@ -1179,46 +1410,53 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   recordLease: (input) =>
     dbEffect("recordLease", async () => {
       const db = cloudDb();
-      const values = {
-        vmId: input.vmId,
-        userId: input.userId,
-        kind: input.kind,
-        tokenHash: input.tokenHash,
-        providerIdentityHandle: input.providerIdentityHandle,
-        sessionId: input.sessionId,
-        transport: input.transport,
-        metadata: input.metadata ?? {},
-        expiresAt: input.expiresAt,
-      };
-      try {
-        await db.insert(cloudVmLeases).values(values);
-      } catch (err) {
-        if (pgErrorCode(err) !== "23505") throw err;
-        const [existing] = await db
-          .select()
-          .from(cloudVmLeases)
-          .where(eq(cloudVmLeases.tokenHash, input.tokenHash))
-          .limit(1);
-        if (
-          !existing ||
-          existing.vmId !== input.vmId ||
-          existing.userId !== input.userId ||
-          existing.kind !== input.kind
-        ) {
-          throw err;
+      await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
+          throw new Error("Account deletion is in progress.");
         }
-        await db
-          .update(cloudVmLeases)
-          .set({
-            providerIdentityHandle: input.providerIdentityHandle,
-            sessionId: input.sessionId,
-            transport: input.transport,
-            metadata: input.metadata ?? {},
-            expiresAt: input.expiresAt,
-            revokedAt: null,
-          })
-          .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
-      }
+        const values = {
+          vmId: input.vmId,
+          userId: input.userId,
+          kind: input.kind,
+          tokenHash: input.tokenHash,
+          providerIdentityHandle: input.providerIdentityHandle,
+          sessionId: input.sessionId,
+          transport: input.transport,
+          metadata: input.metadata ?? {},
+          expiresAt: input.expiresAt,
+        };
+        const inserted = await tx
+          .insert(cloudVmLeases)
+          .values(values)
+          .onConflictDoNothing({ target: cloudVmLeases.tokenHash })
+          .returning({ tokenHash: cloudVmLeases.tokenHash });
+        if (inserted.length === 0) {
+          const [existing] = await tx
+            .select()
+            .from(cloudVmLeases)
+            .where(eq(cloudVmLeases.tokenHash, input.tokenHash))
+            .limit(1);
+          if (
+            !existing ||
+            existing.vmId !== input.vmId ||
+            existing.userId !== input.userId ||
+            existing.kind !== input.kind
+          ) {
+            throw new Error("Cloud VM lease token collision");
+          }
+          await tx
+            .update(cloudVmLeases)
+            .set({
+              providerIdentityHandle: input.providerIdentityHandle,
+              sessionId: input.sessionId,
+              transport: input.transport,
+              metadata: input.metadata ?? {},
+              expiresAt: input.expiresAt,
+              revokedAt: null,
+            })
+            .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
+        }
+      });
     }),
 
   expiredIdentityLeases: (input) =>
@@ -1302,32 +1540,20 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   upsertVmSession: (input) =>
     dbEffect("upsertVmSession", async () => {
       const db = cloudDb();
-      const now = new Date();
-      const [session] = await db
-        .insert(cloudVmSessions)
-        .values({
-          vmId: input.vmId,
-          userId: input.userId,
-          providerSessionId: input.providerSessionId,
-          title: input.title ?? null,
-          status: input.status ?? "running",
-          attachmentCount: input.attachmentCount ?? 1,
-          effectiveCols: input.effectiveCols ?? null,
-          effectiveRows: input.effectiveRows ?? null,
-          lastKnownCols: input.lastKnownCols ?? null,
-          lastKnownRows: input.lastKnownRows ?? null,
-          scrollbackBytes: input.scrollbackBytes ?? 0,
-          metadata: input.metadata ?? {},
-          lastAttachedAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [cloudVmSessions.vmId, cloudVmSessions.providerSessionId],
-          set: {
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
+          throw new Error("Account deletion is in progress.");
+        }
+        const now = new Date();
+        const [session] = await tx
+          .insert(cloudVmSessions)
+          .values({
+            vmId: input.vmId,
             userId: input.userId,
+            providerSessionId: input.providerSessionId,
             title: input.title ?? null,
             status: input.status ?? "running",
-            attachmentCount: sql`${cloudVmSessions.attachmentCount} + ${input.attachmentCount ?? 1}`,
+            attachmentCount: input.attachmentCount ?? 1,
             effectiveCols: input.effectiveCols ?? null,
             effectiveRows: input.effectiveRows ?? null,
             lastKnownCols: input.lastKnownCols ?? null,
@@ -1336,12 +1562,29 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             metadata: input.metadata ?? {},
             lastAttachedAt: now,
             updatedAt: now,
-            closedAt: null,
-          },
-        })
-        .returning();
-      if (!session) throw new Error("cloud VM session upsert returned no row");
-      return session;
+          })
+          .onConflictDoUpdate({
+            target: [cloudVmSessions.vmId, cloudVmSessions.providerSessionId],
+            set: {
+              userId: input.userId,
+              title: input.title ?? null,
+              status: input.status ?? "running",
+              attachmentCount: sql`${cloudVmSessions.attachmentCount} + ${input.attachmentCount ?? 1}`,
+              effectiveCols: input.effectiveCols ?? null,
+              effectiveRows: input.effectiveRows ?? null,
+              lastKnownCols: input.lastKnownCols ?? null,
+              lastKnownRows: input.lastKnownRows ?? null,
+              scrollbackBytes: input.scrollbackBytes ?? 0,
+              metadata: input.metadata ?? {},
+              lastAttachedAt: now,
+              updatedAt: now,
+              closedAt: null,
+            },
+          })
+          .returning();
+        if (!session) throw new Error("cloud VM session upsert returned no row");
+        return session;
+      });
     }),
 
   activeIdentityLeases: (vmId, limit) =>
@@ -1377,33 +1620,181 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       );
     }),
 
+  assertAccountMutationAllowed: (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const db = cloudDb();
+        await db.transaction(async (tx) => {
+          if (!await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
+          throw new VmCreateDisabledError({
+            provider: input.provider,
+            reason: "Account deletion is in progress.",
+          });
+        });
+      },
+      catch: (cause) => isVmCreateDisabledError(cause)
+        ? cause
+        : new VmDatabaseError({ operation: "assertAccountMutationAllowed", cause }),
+    }),
+
+  reserveSnapshotUsageEvent: (input) =>
+    dbEffect("reserveSnapshotUsageEvent", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return null;
+        const [event] = await tx
+          .insert(cloudVmUsageEvents)
+          .values({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId ?? null,
+            billingPlanId: input.billingPlanId ?? null,
+            vmId: input.vmId ?? null,
+            eventType: "vm.snapshot.pending",
+            provider: input.provider,
+            imageId: input.imageId,
+            metadata: { named: input.named, name: input.name ?? null },
+          })
+          .returning({ id: cloudVmUsageEvents.id });
+        return event?.id ?? null;
+      });
+    }),
+
+  completeSnapshotUsageEvent: (input) =>
+    dbEffect("completeSnapshotUsageEvent", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        const accountDeletionBlocked = await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        const [updated] = await tx
+          .update(cloudVmUsageEvents)
+          .set({
+            eventType: accountDeletionBlocked ? "vm.snapshot.pending" : "vm.snapshot.created",
+            metadata: {
+              snapshotId: input.snapshotId,
+              named: input.named,
+              name: input.name ?? null,
+            },
+          })
+          .where(and(
+            eq(cloudVmUsageEvents.id, input.eventId),
+            eq(cloudVmUsageEvents.userId, input.userId),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.pending"),
+          ))
+          .returning({ id: cloudVmUsageEvents.id });
+        return !!updated && !accountDeletionBlocked;
+      });
+    }),
+
+  deleteSnapshotUsageEvent: (input) =>
+    dbEffect("deleteSnapshotUsageEvent", async () => {
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        await tx
+          .delete(cloudVmUsageEvents)
+          .where(and(
+            eq(cloudVmUsageEvents.id, input.eventId),
+            eq(cloudVmUsageEvents.userId, input.userId),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.pending"),
+          ));
+      });
+    }),
+
+  reserveExecUsageEvent: (input) =>
+    dbEffect("reserveExecUsageEvent", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return null;
+        const [event] = await tx
+          .insert(cloudVmUsageEvents)
+          .values({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId ?? null,
+            billingPlanId: input.billingPlanId ?? null,
+            vmId: input.vmId ?? null,
+            eventType: "vm.exec.pending",
+            provider: input.provider,
+            imageId: input.imageId,
+            metadata: { commandLength: input.commandLength },
+          })
+          .returning({ id: cloudVmUsageEvents.id });
+        return event?.id ?? null;
+      });
+    }),
+
+  completeExecUsageEvent: (input) =>
+    dbEffect("completeExecUsageEvent", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        const [updated] = await tx
+          .update(cloudVmUsageEvents)
+          .set({
+            eventType: "vm.exec",
+            metadata: {
+              commandLength: input.commandLength,
+              exitCode: input.exitCode,
+            },
+          })
+          .where(and(
+            eq(cloudVmUsageEvents.id, input.eventId),
+            eq(cloudVmUsageEvents.userId, input.userId),
+            eq(cloudVmUsageEvents.eventType, "vm.exec.pending"),
+          ))
+          .returning({ id: cloudVmUsageEvents.id });
+        return !!updated;
+      });
+    }),
+
+  deleteExecUsageEvent: (input) =>
+    dbEffect("deleteExecUsageEvent", async () => {
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        await tx
+          .delete(cloudVmUsageEvents)
+          .where(and(
+            eq(cloudVmUsageEvents.id, input.eventId),
+            eq(cloudVmUsageEvents.userId, input.userId),
+            eq(cloudVmUsageEvents.eventType, "vm.exec.pending"),
+          ));
+      });
+    }),
+
   recordUsageEvent: (input) =>
     dbEffect("recordUsageEvent", async () => {
       const db = cloudDb();
-      await db.insert(cloudVmUsageEvents).values({
-        userId: input.userId,
-        billingTeamId: input.billingTeamId ?? null,
-        billingPlanId: input.billingPlanId ?? null,
-        vmId: input.vmId ?? null,
-        eventType: input.eventType,
-        provider: input.provider,
-        imageId: input.imageId,
-        metadata: input.metadata ?? {},
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return false;
+        await tx.insert(cloudVmUsageEvents).values({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId ?? null,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        });
+        return true;
       });
     }),
   recordUsageEvents: (inputs) =>
     dbEffect("recordUsageEvents", async () => {
       if (inputs.length === 0) return;
       const db = cloudDb();
-      await db.insert(cloudVmUsageEvents).values(inputs.map((input) => ({
-        userId: input.userId,
-        billingTeamId: input.billingTeamId ?? null,
-        billingPlanId: input.billingPlanId ?? null,
-        vmId: input.vmId ?? null,
-        eventType: input.eventType,
-        provider: input.provider,
-        imageId: input.imageId,
-        metadata: input.metadata ?? {},
-      })));
+      await db.transaction(async (tx) => {
+        const allowed = await deletionAllowedUsageEvents(tx, inputs);
+        if (allowed.length === 0) return;
+        await tx.insert(cloudVmUsageEvents).values(allowed.map((input) => ({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId ?? null,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        })));
+      });
     }),
 });

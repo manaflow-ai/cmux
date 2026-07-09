@@ -21,6 +21,10 @@ import {
 } from "../../../services/vms/auth";
 import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
 import {
+  AccountDeletionMutationBlockedError,
+  withAccountDeletionUserMutationLock,
+} from "../../../services/account/deletion";
+import {
   manualRoutesAreValid,
   routesContainLoopback,
 } from "./route-classification";
@@ -191,7 +195,9 @@ export async function POST(request: Request): Promise<Response> {
   const db = cloudDb();
   const now = new Date();
 
-  const registered = await db.transaction(async (tx) => {
+  let registered: { error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null };
+  try {
+    registered = await withAccountDeletionUserMutationLock(db, user.id, async (tx) => {
     // Serialize concurrent registrations for the same team so the per-team cap
     // is enforced without a race (mirrors the device-tokens advisory lock).
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
@@ -295,8 +301,14 @@ export async function POST(request: Request): Promise<Response> {
         },
       });
 
-    return { error: null };
-  });
+      return { error: null };
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+    }
+    throw error;
+  }
 
   if (registered.error === "device_not_owned") {
     return jsonResponse({ error: "device_not_owned" }, 403);
@@ -416,16 +428,26 @@ export async function DELETE(request: Request): Promise<Response> {
   // and break their phone reconnect. Never touches another team's row for the
   // same physical Mac.
   const db = cloudDb();
-  const deletedRows = await db
-    .delete(devices)
-    .where(
-      and(
-        eq(devices.deviceUuid, deviceUuid),
-        eq(devices.teamId, team.teamId),
-        eq(devices.userId, user.id),
-      ),
-    )
-    .returning({ id: devices.id });
+  let deletedRows: Array<{ id: string }>;
+  try {
+    deletedRows = await withAccountDeletionUserMutationLock(db, user.id, async (tx) =>
+      await tx
+        .delete(devices)
+        .where(
+          and(
+            eq(devices.deviceUuid, deviceUuid),
+            eq(devices.teamId, team.teamId),
+            eq(devices.userId, user.id),
+          ),
+        )
+        .returning({ id: devices.id })
+    );
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+    }
+    throw error;
+  }
 
   // Report whether a row was actually removed. The delete is intentionally a
   // no-op (not an error) when the device does not exist or belongs to another

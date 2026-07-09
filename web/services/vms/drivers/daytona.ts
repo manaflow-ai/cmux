@@ -309,6 +309,26 @@ export class DaytonaProvider implements VMProvider {
     );
   }
 
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    await withVmSpan(
+      "cmux.vm.provider.delete_snapshot",
+      {
+        "cmux.vm.provider": "daytona",
+        "cmux.vm.operation": "delete_snapshot",
+        "cmux.snapshot.id": snapshotId,
+      },
+      async () => {
+        try {
+          const daytona = client();
+          const snapshot = await daytona.snapshot.get(snapshotId);
+          await daytona.snapshot.delete(snapshot);
+        } catch (err) {
+          throw new ProviderError("daytona", `deleteSnapshot(${snapshotId})`, err);
+        }
+      },
+    );
+  }
+
   async openSSH(vmId: string): Promise<SSHEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_ssh",

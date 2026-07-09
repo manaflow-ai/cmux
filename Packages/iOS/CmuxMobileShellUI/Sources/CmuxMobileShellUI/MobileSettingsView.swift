@@ -1,24 +1,22 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 
-/// The mobile app's settings page. Surfaces the signed-in account (so the user
-/// can confirm which cmux account this device uses — the account must match the
-/// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
-/// paired Mac. Presented as a sheet from the workspace list.
 struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(\.analytics) private var analytics
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
-    /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
-    /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
+    let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -27,13 +25,35 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var productAnalyticsEnabled: Bool
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var showingDeleteAccountConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var accountDeletionErrorMessage: String?
+    @State private var accountDeletionAcceptedMessage: String?
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
     #endif
+
+    init(
+        connectedHostName: String,
+        rescanQR: (() -> Void)?,
+        signOut: (() -> Void)?,
+        store: CMUXMobileShellStore?,
+        telemetryConsentStore: MobileTelemetryConsentStore,
+        accountDeletionClient: MobileAccountDeletionClient?
+    ) {
+        self.connectedHostName = connectedHostName
+        self.rescanQR = rescanQR
+        self.signOut = signOut
+        self.store = store
+        self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = accountDeletionClient
+        _productAnalyticsEnabled = State(initialValue: telemetryConsentStore.isEnabled)
+    }
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -60,6 +80,20 @@ struct MobileSettingsView: View {
                             )
                         }
                         .accessibilityIdentifier("MobileSettingsSignOut")
+                        .disabled(isDeletingAccount)
+                    }
+
+                    if authManager.currentUser != nil, accountDeletionClient != nil {
+                        Button(role: .destructive) {
+                            showingDeleteAccountConfirmation = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.deleteAccount", defaultValue: "Delete Account"),
+                                systemImage: "trash"
+                            )
+                        }
+                        .disabled(isDeletingAccount)
+                        .accessibilityIdentifier("MobileSettingsDeleteAccount")
                     }
                 } header: {
                     Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
@@ -70,13 +104,6 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                // Stack team switcher. Only shown when the user belongs to more than
-                // one team. Rendered as an INLINE picker — each team is a row with a
-                // checkmark on the current one — so every team is visible at a glance
-                // and one tap switches (clearer than a menu/navigation push for a
-                // small set). Selecting a team writes `selectedTeamID`, which the root
-                // view observes to re-scope the team-bound surfaces (paired Macs,
-                // presence, backup) to that team without dropping the live terminal.
                 if authManager.availableTeams.count > 1 {
                     Section {
                         Picker(selection: teamSelection) {
@@ -101,9 +128,6 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                // Hidden entirely when there is nothing to show (no connected
-                // Mac, no store to switch with, no rescan), so the no-devices
-                // screen's reuse of this sheet does not render an empty header.
                 if hasConnectionSection {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
                         if !connectedHostName.isEmpty {
@@ -197,7 +221,7 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
 
-                    debugLayoutSlider(
+                    developerLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.unreadIndicatorLeftness",
                             defaultValue: "Unread Indicator Leftness"
@@ -206,7 +230,7 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
-                    debugLayoutSlider(
+                    developerLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.profilePictureLeftness",
                             defaultValue: "Profile Picture Leftness"
@@ -215,7 +239,7 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.profilePictureLeftShiftRange,
                         identifier: "MobileSettingsProfilePictureLeftness"
                     )
-                    debugLayoutSlider(
+                    developerLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.profilePictureSize",
                             defaultValue: "Profile Picture Size"
@@ -265,6 +289,31 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
 
+                Section {
+                    Toggle(isOn: productAnalyticsBinding) {
+                        Text(L10n.string(
+                            "mobile.settings.shareProductAnalytics",
+                            defaultValue: "Share Product Analytics"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsProductAnalytics")
+
+                    Link(destination: Self.privacyPolicyURL) {
+                        Label(
+                            L10n.string("mobile.settings.privacyPolicy", defaultValue: "Privacy Policy"),
+                            systemImage: "hand.raised"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsPrivacyPolicy")
+                } header: {
+                    Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.privacyFooter",
+                        defaultValue: "Product analytics include app launches, pairing results, feature usage, and counts. They never include terminal text, prompts, pasted content, images, or files."
+                    ))
+                }
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -279,7 +328,10 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
+            .onAppear {
+                notificationsEnabled = pushCoordinator.isEnabled
+                productAnalyticsEnabled = telemetryConsentStore.isEnabled
+            }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -287,6 +339,7 @@ struct MobileSettingsView: View {
                     Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
                         dismiss()
                     }
+                    .disabled(isDeletingAccount)
                     .accessibilityIdentifier("MobileSettingsDone")
                 }
             }
@@ -307,45 +360,117 @@ struct MobileSettingsView: View {
                 }
             }
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
                 OnboardingFlowView(
                     onComplete: { showingOnboarding = false },
                     setupHelpHighlight: setupHelpHighlight
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
+            .mobileSettingsAccountDeletionAlerts(
+                showingConfirmation: $showingDeleteAccountConfirmation,
+                errorMessage: $accountDeletionErrorMessage,
+                acceptedMessage: $accountDeletionAcceptedMessage,
+                deleteAccount: deleteAccount,
+                acceptedAcknowledged: finishAcceptedAccountDeletion
+            )
         }
+        .interactiveDismissDisabled(isDeletingAccount)
         .accessibilityIdentifier("MobileSettingsView")
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
     }
 
-    /// Whether the Connection section has any rows to show. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac, no store to
-    /// switch with, and no rescan action, so the section is omitted entirely.
+    private static let privacyPolicyURL = URL(string: "https://cmux.com/privacy-policy")!
+    private var productAnalyticsBinding: Binding<Bool> {
+        Binding(
+            get: { productAnalyticsEnabled },
+            set: { newValue in
+                productAnalyticsEnabled = newValue
+                telemetryConsentStore.setEnabled(newValue)
+                analytics.setTelemetryConsentEnabled(newValue)
+            }
+        )
+    }
+
+    private func deleteAccount() {
+        guard let accountDeletionClient else { return }
+        isDeletingAccount = true
+        Task {
+            do {
+                let result = try await accountDeletionClient.deleteAccount()
+                await MainActor.run {
+                    isDeletingAccount = false
+                    switch result {
+                    case .completed:
+                        signOut?()
+                        dismiss()
+                    case .accepted:
+                        accountDeletionAcceptedMessage = L10n.string(
+                            "mobile.settings.deleteAccountAcceptedMessage",
+                            defaultValue: "Your deletion request was accepted and account cleanup is still running. cmux has locked account writes while deletion finishes. This device will sign out after you tap OK."
+                        )
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingAccount = false
+                    accountDeletionErrorMessage = accountDeletionFailureMessage(for: error)
+                }
+            }
+        }
+    }
+
+    private func finishAcceptedAccountDeletion() {
+        accountDeletionAcceptedMessage = nil
+        signOut?()
+        dismiss()
+    }
+
+    private func accountDeletionFailureMessage(for error: Error) -> String {
+        guard let deletionError = error as? MobileAccountDeletionClient.DeletionError else {
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedMessage",
+                defaultValue: "Check your connection and try again. If this keeps failing, contact founders@manaflow.com."
+            )
+        }
+
+        switch deletionError {
+        case .missingRefreshToken:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedSignedOutMessage",
+                defaultValue: "Sign in again, then try deleting your account. If this keeps failing, contact founders@manaflow.com."
+            )
+        case .rejected(let statusCode) where statusCode == 401 || statusCode == 403:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedSignedOutMessage",
+                defaultValue: "Sign in again, then try deleting your account. If this keeps failing, contact founders@manaflow.com."
+            )
+        case .rejected:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedRejectedMessage",
+                defaultValue: "The server rejected the deletion request. Try again later or contact founders@manaflow.com."
+            )
+        case .workflowFailed:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedWorkflowMessage",
+                defaultValue: "Account deletion cleanup failed before it finished. Try again later or contact founders@manaflow.com."
+            )
+        case .invalidURL, .invalidResponse:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedUnexpectedResponseMessage",
+                defaultValue: "cmux received an unexpected account deletion response. Try again later or contact founders@manaflow.com."
+            )
+        }
+    }
+
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil || rescanQR != nil
     }
 
-    /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
-    /// which falls back to the first team when nothing is explicitly selected) so
-    /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
             get: { authManager.resolvedTeamID },
@@ -368,34 +493,6 @@ struct MobileSettingsView: View {
         if let name, !name.isEmpty { return name }
         return L10n.string("mobile.settings.account", defaultValue: "Account")
     }
-
-    #if DEBUG
-    private func debugLayoutSlider(
-        title: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        identifier: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(debugPointValue(value.wrappedValue))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            Slider(value: value, in: range, step: 1)
-        }
-        .accessibilityIdentifier(identifier)
-    }
-
-    private func debugPointValue(_ value: Double) -> String {
-        String(
-            format: L10n.string("mobile.settings.pointsFormat", defaultValue: "%lld pt"),
-            Int64(value.rounded())
-        )
-    }
-    #endif
 
 }
 #endif

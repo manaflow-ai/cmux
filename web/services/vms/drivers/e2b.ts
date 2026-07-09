@@ -171,6 +171,20 @@ export class E2BProvider implements VMProvider {
     );
   }
 
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    await withVmSpan(
+      "cmux.vm.provider.delete_snapshot",
+      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "delete_snapshot", "cmux.snapshot.id": snapshotId },
+      async () => {
+        try {
+          await Sandbox.deleteSnapshot(snapshotId);
+        } catch (err) {
+          throw new ProviderError("e2b", `deleteSnapshot(${snapshotId})`, err);
+        }
+      },
+    );
+  }
+
   async openSSH(vmId: string): Promise<SSHEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_ssh",

@@ -1,11 +1,16 @@
 import type { StackServerApp } from "@stackframe/stack";
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import { isAppStoreDistributionMode } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
+import {
+  AccountDeletionMutationBlockedError,
+  isStackAccountDeletionBlocked,
+  withAccountDeletionUserMutationLock,
+} from "../../../../services/account/deletion";
 import {
   PRO_PRODUCT_ID,
   TEAM_PRODUCT_ID,
@@ -67,6 +72,7 @@ async function stripeProCheckout(
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
+  if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
 
   const status = await resolveProPlanStatus(user);
   if (status.isPro) {
@@ -90,7 +96,9 @@ async function stripeProCheckout(
   };
 
   try {
-    const session = await stripe().checkout.sessions.create({
+    const stripeClient = stripe();
+    await assertCheckoutMutationAllowed(user.id);
+    const session = await stripeClient.checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
@@ -107,8 +115,15 @@ async function stripeProCheckout(
       cancel_url: cancelUrl.toString(),
     });
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    try {
+      await assertCheckoutMutationAllowed(user.id);
+    } catch (error) {
+      await expireStripeCheckoutSessionBestEffort(stripeClient, session.id);
+      throw error;
+    }
     return NextResponse.redirect(session.url);
   } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) return accountDeletionBillingRedirect(request);
     captureBillingError(error, {
       route: "/api/billing/checkout",
       plan: "pro",
@@ -125,11 +140,7 @@ async function stripeTeamCheckout(
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
-  const team = await checkoutTeamCustomer(user);
-  const teamId = team.id;
-  if (!teamId) {
-    throw new Error("Stack team checkout customer is missing an id");
-  }
+  if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
 
   const scheme = validatedNativeCallbackScheme(
     request.nextUrl.searchParams.get("cmux_scheme"),
@@ -139,15 +150,30 @@ async function stripeTeamCheckout(
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
-  const metadata = {
-    stackTeamId: teamId,
-    plan: "team",
-    app: "cmux",
-  };
 
+  let teamId: string | undefined;
   try {
-    const customerId = await stripeCustomerForTeam(team, user.id);
-    const session = await stripe().checkout.sessions.create({
+    const team = await checkoutTeamCustomerForActiveAccount(user);
+    teamId = team.id;
+    if (!teamId) {
+      throw new Error("Stack team checkout customer is missing an id");
+    }
+    const metadata = {
+      stackTeamId: teamId,
+      stackUserId: user.id,
+      plan: "team",
+      app: "cmux",
+    };
+    const stripeClient = stripe();
+    await assertCheckoutMutationAllowed(user.id);
+    const customer = await stripeCustomerForTeam(team, user.id, stripeClient);
+    try {
+      await assertCheckoutMutationAllowed(user.id);
+    } catch (error) {
+      await deleteCreatedTeamStripeCustomerBestEffort(stripeClient, teamId, customer.createdCustomerId);
+      throw error;
+    }
+    const session = await stripeClient.checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
@@ -159,7 +185,7 @@ async function stripeTeamCheckout(
           },
         },
       ],
-      customer: customerId,
+      customer: customer.customerId,
       client_reference_id: teamId,
       metadata,
       subscription_data: { metadata },
@@ -168,8 +194,16 @@ async function stripeTeamCheckout(
       cancel_url: cancelUrl.toString(),
     });
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    try {
+      await assertCheckoutMutationAllowed(user.id);
+    } catch (error) {
+      await expireStripeCheckoutSessionBestEffort(stripeClient, session.id);
+      await deleteCreatedTeamStripeCustomerBestEffort(stripeClient, teamId, customer.createdCustomerId);
+      throw error;
+    }
     return NextResponse.redirect(session.url);
   } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) return accountDeletionBillingRedirect(request);
     captureBillingError(error, {
       route: "/api/billing/checkout",
       plan: "team",
@@ -187,6 +221,7 @@ async function legacyStackCheckout(
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
+  if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
 
   if (plan === "pro" && (await hasActiveProSubscription(user))) {
     await syncProPlanMetadata(user, true);
@@ -199,7 +234,13 @@ async function legacyStackCheckout(
   ).toString();
   let checkoutUrl: string;
   const productId = plan === "pro" ? PRO_PRODUCT_ID : TEAM_PRODUCT_ID;
-  const customer = plan === "pro" ? user : await checkoutTeamCustomer(user);
+  let customer: CheckoutTeamUser | CheckoutTeamCustomer;
+  try {
+    customer = plan === "pro" ? user : await checkoutTeamCustomerForActiveAccount(user);
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) return accountDeletionBillingRedirect(request);
+    throw error;
+  }
   try {
     checkoutUrl = await customer.createCheckoutUrl({
       productId,
@@ -248,7 +289,17 @@ type CheckoutTeamUser = {
   readonly selectedTeam?: CheckoutTeamCustomer | null;
   listTeams?(): Promise<CheckoutTeamCustomer[]>;
   createTeam?(data: { displayName: string }): Promise<CheckoutTeamCustomer>;
+  createCheckoutUrl(options: {
+    productId: string;
+    returnUrl?: string;
+  }): Promise<string>;
 };
+
+async function checkoutTeamCustomerForActiveAccount(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
+  return await withAccountDeletionUserMutationLock(cloudDb(), user.id, async () =>
+    await checkoutTeamCustomer(user)
+  );
+}
 
 async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
   if (user.selectedTeam) return user.selectedTeam;
@@ -268,16 +319,17 @@ async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTea
 async function stripeCustomerForTeam(
   team: CheckoutTeamCustomer,
   stackUserId: string,
-): Promise<string> {
+  stripeClient: ReturnType<typeof stripe>,
+): Promise<{ readonly customerId: string; readonly createdCustomerId?: string }> {
   if (!team.id) throw new Error("Stack team checkout customer is missing an id");
   const [existing] = await cloudDb()
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)
     .where(eq(stripeCustomers.stackTeamId, team.id))
     .limit(1);
-  if (existing?.id) return existing.id;
+  if (existing?.id) return { customerId: existing.id };
 
-  const customer = await stripe().customers.create({
+  const customer = await stripeClient.customers.create({
     name: team.displayName?.trim() || "cmux Team",
     metadata: {
       stackTeamId: team.id,
@@ -294,7 +346,7 @@ async function stripeCustomerForTeam(
         stackTeamId: team.id,
         email: null,
       });
-    return customer.id;
+    return { customerId: customer.id, createdCustomerId: customer.id };
   } catch (error) {
     if (!isStackTeamUniqueConflict(error)) throw error;
     const [raceWinner] = await cloudDb()
@@ -302,8 +354,44 @@ async function stripeCustomerForTeam(
       .from(stripeCustomers)
       .where(eq(stripeCustomers.stackTeamId, team.id))
       .limit(1);
-    if (raceWinner?.id) return raceWinner.id;
+    if (raceWinner?.id) return { customerId: raceWinner.id };
     throw error;
+  }
+}
+
+async function assertCheckoutMutationAllowed(userId: string): Promise<void> {
+  await withAccountDeletionUserMutationLock(cloudDb(), userId, async () => undefined);
+}
+
+async function expireStripeCheckoutSessionBestEffort(
+  stripeClient: ReturnType<typeof stripe>,
+  sessionId: string,
+): Promise<void> {
+  try {
+    await stripeClient.checkout.sessions.expire(sessionId);
+  } catch (error) {
+    console.warn("[Billing] failed to expire checkout session created during account deletion race", { sessionId, error });
+  }
+}
+
+async function deleteCreatedTeamStripeCustomerBestEffort(
+  stripeClient: ReturnType<typeof stripe>,
+  teamId: string,
+  customerId: string | undefined,
+): Promise<void> {
+  if (!customerId) return;
+  try {
+    await cloudDb().delete(stripeCustomers).where(and(
+      eq(stripeCustomers.id, customerId),
+      eq(stripeCustomers.stackTeamId, teamId),
+    ));
+  } catch (error) {
+    console.warn("[Billing] failed to delete Stripe customer row created during account deletion race", { customerId, error });
+  }
+  try {
+    await stripeClient.customers.del(customerId);
+  } catch (error) {
+    console.warn("[Billing] failed to delete Stripe customer created during account deletion race", { customerId, error });
   }
 }
 
@@ -342,6 +430,10 @@ function appStorePricingRedirect(request: NextRequest): URL {
   }
 
   return redirectURL;
+}
+
+function accountDeletionBillingRedirect(request: NextRequest): NextResponse {
+  return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
 }
 
 function isAlreadyGrantedError(error: unknown): boolean {

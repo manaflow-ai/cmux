@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { accountDeletionTombstones } from "../db/schema";
 
 // Capture real implementations BY VALUE: bun's mock.module can mutate an
 // already-loaded namespace in place, so calling through a captured namespace
@@ -36,9 +37,11 @@ mock.module("../db/client", () => ({
     useStubDb
       ? ({
           select: () => ({
-            from: () => ({
+            from: (table: unknown) => ({
               where: () => ({
-                limit: stripeLimit,
+                limit: table === accountDeletionTombstones
+                  ? mock(async () => [])
+                  : stripeLimit,
               }),
             }),
           }),
@@ -96,6 +99,23 @@ describe("billing confirm route", () => {
     expect(appListProducts).toHaveBeenCalledTimes(4);
     expect(userListProducts).toHaveBeenCalledTimes(1);
     expect(stripeLimit).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual([]);
+  });
+
+  test("blocks metadata sync while account deletion is in progress", async () => {
+    getUser.mockResolvedValue(confirmUser({ cmuxAccountDeletionInProgress: true }));
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/confirm"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+    expect(appListProducts).not.toHaveBeenCalled();
+    expect(userListProducts).not.toHaveBeenCalled();
+    expect(stripeLimit).not.toHaveBeenCalled();
     expect(updates).toEqual([]);
   });
 

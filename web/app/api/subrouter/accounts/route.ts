@@ -1,4 +1,6 @@
+import { and, eq } from "drizzle-orm";
 import { cloudDb } from "../../../../db/client";
+import { subrouterTenants } from "../../../../db/schema";
 import {
   browserMutationOriginAllowed,
   jsonResponse,
@@ -15,8 +17,12 @@ import {
   subrouterRuntimeConfig,
   type ClaudeAccountInput,
   type CodexAccountInput,
+  type SubrouterClient,
   type SubrouterAccountInput,
 } from "../../../../services/subrouter/client";
+import {
+  withAccountDeletionUserMutationLock,
+} from "../../../../services/account/deletion";
 import {
   resolveTeam,
   serviceUnavailableResponse,
@@ -68,25 +74,85 @@ export async function POST(request: Request): Promise<Response> {
   const validate = requestUrl(request)?.searchParams.get("validate") === "1";
 
   try {
+    const db = cloudDb();
+    await assertSubrouterAccountUploadAllowed(db, context.userId);
+    let createdTenantId: string | null = null;
     const tenant = await getOrCreateTenantForTeam(
-      cloudDb(),
+      db,
       context.team.teamId,
       context.team.teamName,
       {
         client: context.client,
+        onCreated: (createdTenant) => {
+          createdTenantId = createdTenant.tenantId;
+        },
         tenantKeySecret: context.config.tenantKeySecret,
       },
     );
+    try {
+      await assertSubrouterAccountUploadAllowed(db, context.userId);
+    } catch (err) {
+      if (createdTenantId) {
+        await revokeCreatedSubrouterTenantBestEffort(db, context.client, context.team.teamId, createdTenantId);
+      }
+      throw err;
+    }
     const account = await context.client.createAccount(tenant.tenantKey, input.value, { validate });
+    try {
+      await assertSubrouterAccountUploadAllowed(db, context.userId);
+    } catch (err) {
+      await deleteSubrouterAccountForDeletionRace(context.client, tenant.tenantKey, account.id);
+      if (createdTenantId) {
+        await revokeCreatedSubrouterTenantBestEffort(db, context.client, context.team.teamId, createdTenantId);
+      }
+      throw err;
+    }
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);
   }
 }
 
+async function assertSubrouterAccountUploadAllowed(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+): Promise<void> {
+  await withAccountDeletionUserMutationLock(db, userId, async () => undefined);
+}
+
+async function deleteSubrouterAccountForDeletionRace(
+  client: SubrouterClient,
+  tenantKey: string,
+  accountId: string,
+): Promise<void> {
+  await client.deleteAccount(tenantKey, accountId);
+}
+
+async function revokeCreatedSubrouterTenantBestEffort(
+  db: ReturnType<typeof cloudDb>,
+  client: SubrouterClient,
+  teamId: string,
+  tenantId: string,
+): Promise<void> {
+  try {
+    await client.revokeTenant(tenantId);
+  } catch (error) {
+    console.warn("[subrouter] failed to revoke tenant created during account deletion race", { tenantId, error });
+  }
+  try {
+    await db.delete(subrouterTenants).where(and(
+      eq(subrouterTenants.teamId, teamId),
+      eq(subrouterTenants.tenantId, tenantId),
+    ));
+  } catch (error) {
+    console.warn("[subrouter] failed to delete tenant mapping created during account deletion race", { tenantId, error });
+  }
+}
+
 async function resolveRequestContext(request: Request): Promise<
   | {
     ok: true;
+    userId: string;
     team: { teamId: string; teamName: string };
     config: NonNullable<ReturnType<typeof subrouterRuntimeConfig>>;
     client: ReturnType<typeof createSubrouterClient>;
@@ -120,6 +186,7 @@ async function resolveRequestContext(request: Request): Promise<
 
   return {
     ok: true,
+    userId: user.id,
     team,
     config,
     client: createSubrouterClient({

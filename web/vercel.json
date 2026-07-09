@@ -13,6 +13,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/account-deletion",
+      "schedule": "2,12,22,32,42,52 * * * *"
+    },
+    {
       "path": "/api/internal/vm/leases/revoke-expired",
       "schedule": "*/10 * * * *"
     }

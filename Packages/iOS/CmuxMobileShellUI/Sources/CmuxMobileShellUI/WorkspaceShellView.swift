@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -18,6 +19,8 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -133,6 +136,8 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure,
                 showAddDevice: showAddDevice,
                 store: store,
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
@@ -236,6 +241,8 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure,
                 showAddDevice: showAddDevice,
                 store: store,
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,

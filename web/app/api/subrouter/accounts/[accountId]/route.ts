@@ -15,6 +15,9 @@ import {
   subrouterRuntimeConfig,
 } from "../../../../../services/subrouter/client";
 import {
+  withAccountDeletionUserMutationLock,
+} from "../../../../../services/account/deletion";
+import {
   resolveTeam,
   serviceUnavailableResponse,
   subrouterErrorResponse,
@@ -57,17 +60,23 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   });
 
   try {
-    const tenant = await getTenantForTeam(
-      cloudDb(),
-      team.teamId,
-      {
-        tenantKeySecret: config.tenantKeySecret,
-      },
+    const db = cloudDb();
+    const tenant = await withAccountDeletionUserMutationLock(
+      db,
+      user.id,
+      async (tx) =>
+        await getTenantForTeam(
+          tx,
+          team.teamId,
+          {
+            tenantKeySecret: config.tenantKeySecret,
+          },
+        ),
     );
-    if (!tenant) {
-      return jsonResponse({ ok: true, teamId: team.teamId });
-    }
+    if (!tenant) return jsonResponse({ ok: true, teamId: team.teamId });
+
     await client.deleteAccount(tenant.tenantKey, normalizedAccountId);
+    await withAccountDeletionUserMutationLock(db, user.id, async () => undefined);
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {
     return subrouterErrorResponse(err);

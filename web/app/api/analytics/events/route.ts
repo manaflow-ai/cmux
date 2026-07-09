@@ -10,7 +10,7 @@
 // `web/app/api/**`, to stay structurally identical to that directly-analogous route.
 
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
-import { verifyRequest } from "../../../../services/vms/auth";
+import { verifyRequest as verifyVmRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   MAX_ANALYTICS_BATCH_EVENTS,
@@ -19,10 +19,24 @@ import {
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
   isAllowedAnalyticsEvent,
+  isAllowedAnalyticsProperty,
 } from "../../../../services/analytics/iosEventPolicy";
+import {
+  recordIOSAnalyticsIdentities,
+  recordIOSAnalyticsIdentitiesInTransaction,
+} from "../../../../services/analytics/iosAnalyticsIdentities";
+import { eq, sql } from "drizzle-orm";
+import { cloudDb } from "../../../../db/client";
+import { accountDeletionTombstones } from "../../../../db/schema";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+} from "../../../../services/account/deletionLock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const POSTHOG_FORWARD_TIMEOUT_MS = 5_000;
 
 type IncomingEvent = {
   readonly event: string;
@@ -31,14 +45,41 @@ type IncomingEvent = {
   readonly timestamp?: string;
 };
 
+type AnalyticsRouteDependencies = {
+  readonly verifyRequest: typeof verifyVmRequest;
+  readonly recordIOSAnalyticsIdentities: (
+    input: Parameters<typeof recordIOSAnalyticsIdentities>[0],
+    db?: Parameters<typeof recordIOSAnalyticsIdentitiesInTransaction>[1],
+  ) => Promise<readonly string[]>;
+  readonly forwardToPostHog: typeof forwardToPostHog;
+  readonly runAuthenticatedAnalytics: typeof runAuthenticatedAnalyticsWithAccountDeletionLock;
+};
+
+const defaultAnalyticsRouteDependencies: AnalyticsRouteDependencies = {
+  verifyRequest: verifyVmRequest,
+  recordIOSAnalyticsIdentities: async (input, db) =>
+    db
+      ? await recordIOSAnalyticsIdentitiesInTransaction(input, db)
+      : await recordIOSAnalyticsIdentities(input),
+  forwardToPostHog,
+  runAuthenticatedAnalytics: runAuthenticatedAnalyticsWithAccountDeletionLock,
+};
+
 export async function POST(request: Request): Promise<Response> {
+  return postAnalyticsEvents(request);
+}
+
+export async function postAnalyticsEvents(
+  request: Request,
+  dependencies: AnalyticsRouteDependencies = defaultAnalyticsRouteDependencies,
+): Promise<Response> {
   // Auth is read opportunistically, NOT required: the two-phase identity design
   // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
   // the user is still anonymous. When a Stack session is present we stamp the
-  // authoritative `user.id` over the client distinct id; when absent we trust the
-  // client-supplied anonymous `client_id`. The event-name allowlist is the abuse
-  // gate, not auth. The PostHog key is already public (the web client posts to
-  // r.cmux.com directly), so an anonymous proxy is no weaker than today.
+  // authoritative `user.id` over the client distinct id; when absent we accept
+  // only UUID-shaped install/client IDs. The event-name allowlist is the payload
+  // gate. The PostHog key is already public (the web client posts to r.cmux.com
+  // directly), so an anonymous proxy is no weaker than today.
   //
   // Rate limiting is deferred for Phase A (tracked in
   // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
@@ -51,7 +92,11 @@ export async function POST(request: Request): Promise<Response> {
   // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
   // downstream PostHog quota risk is no worse than the already-public direct
   // r.cmux.com path.
-  const user = await verifyRequest(request, { allowCookie: false });
+  const hasNativeAuth = request.headers.get("authorization")?.toLowerCase().startsWith("bearer ") === true;
+  const user = await dependencies.verifyRequest(request, { allowCookie: false });
+  if (!user && hasNativeAuth) {
+    return jsonResponse({ ok: true, forwarded: 0 });
+  }
 
   const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
   if (!body.ok) {
@@ -80,11 +125,104 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  const forwarded = await forwardToPostHog(accepted, user?.id ?? null);
+  if (user) {
+    let forwarded: Awaited<ReturnType<typeof forwardToPostHog>>;
+    try {
+      forwarded = await dependencies.runAuthenticatedAnalytics(user.id, async (tx) => {
+        const eventsForForwarding = await prepareAuthenticatedEvents(accepted, user.id, dependencies, tx);
+        return await dependencies.forwardToPostHog(eventsForForwarding, user.id);
+      });
+    } catch (error) {
+      if (error instanceof AnalyticsAccountDeletionBlockedError) {
+        return jsonResponse({ ok: true, forwarded: 0 });
+      }
+      if (error instanceof AnalyticsIdentityRecordingError) {
+        return jsonResponse({ error: "identity_recording_failed" }, 503);
+      }
+      throw error;
+    }
+
+    if (!forwarded.ok) {
+      return jsonResponse({ error: "forward_failed" }, forwarded.status);
+    }
+    return jsonResponse({ ok: true, forwarded: accepted.length });
+  }
+
+  const anonymousEvents = anonymousForwardingEvents(accepted);
+  if (anonymousEvents.length === 0) {
+    return jsonResponse({ ok: true, forwarded: 0 });
+  }
+
+  const forwarded = await dependencies.forwardToPostHog(anonymousEvents, null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
-  return jsonResponse({ ok: true, forwarded: accepted.length });
+  return jsonResponse({ ok: true, forwarded: anonymousEvents.length });
+}
+
+async function prepareAuthenticatedEvents(
+  accepted: readonly IncomingEvent[],
+  userId: string,
+  dependencies: AnalyticsRouteDependencies,
+  db: Parameters<typeof recordIOSAnalyticsIdentitiesInTransaction>[1],
+): Promise<readonly IncomingEvent[]> {
+  const anonymousIds = authenticatedAnonymousIds(accepted, userId);
+  let recordedAnonymousIds: readonly string[] = [];
+  try {
+    if (anonymousIds.length > 0) {
+      recordedAnonymousIds = await dependencies.recordIOSAnalyticsIdentities({
+        userId,
+        anonymousIds,
+      }, db);
+    }
+  } catch (error) {
+    console.error("[ios-analytics] identity recording failed", { error });
+    throw new AnalyticsIdentityRecordingError();
+  }
+  return stripUnrecordedAnonymousAliases(
+    accepted,
+    userId,
+    new Set(recordedAnonymousIds),
+  );
+}
+
+export class AnalyticsAccountDeletionBlockedError extends Error {
+  constructor() {
+    super("Account deletion is in progress");
+    this.name = "AnalyticsAccountDeletionBlockedError";
+  }
+}
+
+class AnalyticsIdentityRecordingError extends Error {
+  constructor() {
+    super("iOS analytics identity recording failed");
+    this.name = "AnalyticsIdentityRecordingError";
+  }
+}
+
+async function runAuthenticatedAnalyticsWithAccountDeletionLock<T>(
+  userId: string,
+  run: (db: Parameters<typeof recordIOSAnalyticsIdentitiesInTransaction>[1]) => Promise<T>,
+): Promise<T> {
+  const db = cloudDb();
+  return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
+    );
+    const [deletion] = await tx
+      .select({ status: accountDeletionTombstones.status })
+      .from(accountDeletionTombstones)
+      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)))
+      .limit(1);
+    if (deletion && isAnalyticsForwardBlockedTombstoneStatus(deletion.status)) {
+      throw new AnalyticsAccountDeletionBlockedError();
+    }
+    return await run(tx);
+  });
+}
+
+function isAnalyticsForwardBlockedTombstoneStatus(status: string): boolean {
+  return status !== "failed";
 }
 
 function sanitizeEvent(candidate: unknown): IncomingEvent | null {
@@ -107,7 +245,7 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   let count = 0;
   for (const [key, value] of Object.entries(rawProperties)) {
     if (count >= MAX_ANALYTICS_EVENT_PROPERTIES) break;
-    if (isScalar(value)) {
+    if (isScalar(value) && isAllowedAnalyticsProperty(record.event, key)) {
       properties[key] = value;
       count += 1;
     }
@@ -119,6 +257,55 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
     properties,
     timestamp: typeof record.timestamp === "string" ? record.timestamp : undefined,
   };
+}
+
+function authenticatedAnonymousIds(events: readonly IncomingEvent[], userId: string): string[] {
+  const ids: string[] = [];
+  for (const event of events) {
+    const anonymousId = trustedAnonymousAlias(event, userId);
+    if (anonymousId) ids.push(anonymousId);
+  }
+  return ids;
+}
+
+function stripUnrecordedAnonymousAliases(
+  events: readonly IncomingEvent[],
+  userId: string,
+  recordedAnonymousIds: ReadonlySet<string>,
+): readonly IncomingEvent[] {
+  return events.map((event) => {
+    if (!("$anon_distinct_id" in event.properties)) return event;
+    const anonymousId = trustedAnonymousAlias(event, userId);
+    if (anonymousId && recordedAnonymousIds.has(anonymousId)) return event;
+    const { $anon_distinct_id: _anonymousId, ...properties } = event.properties;
+    return { ...event, properties };
+  });
+}
+
+function anonymousForwardingEvents(events: readonly IncomingEvent[]): readonly IncomingEvent[] {
+  return events.flatMap((event) => {
+    if (event.event === "$identify") return [];
+    const distinctID = anonymousAnalyticsDistinctID(event);
+    return distinctID ? [{ ...event, distinctID }] : [];
+  });
+}
+
+function anonymousAnalyticsDistinctID(event: IncomingEvent): string | null {
+  if (isAnalyticsInstallID(event.distinctID)) return event.distinctID;
+  const clientID = event.properties.client_id;
+  return isAnalyticsInstallID(clientID) ? clientID : null;
+}
+
+function isAnalyticsInstallID(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function trustedAnonymousAlias(event: IncomingEvent, userId: string): string | null {
+  const anonymousId = event.properties.$anon_distinct_id;
+  if (event.event !== "$identify") return null;
+  if (event.distinctID !== userId) return null;
+  return typeof anonymousId === "string" ? anonymousId : null;
 }
 
 function isScalar(value: unknown): boolean {
@@ -145,11 +332,14 @@ async function forwardToPostHog(
     timestamp: event.timestamp,
   }));
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), POSTHOG_FORWARD_TIMEOUT_MS);
   try {
     const response = await fetch(`${POSTHOG_HOST}/batch/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: POSTHOG_PROJECT_KEY, batch }),
+      signal: controller.signal,
     });
     if (!response.ok) {
       // PostHog 4xx is a permanent client problem; 5xx is transient. Surface the
@@ -159,5 +349,7 @@ async function forwardToPostHog(
     return { ok: true };
   } catch {
     return { ok: false, status: 502 };
+  } finally {
+    clearTimeout(timeout);
   }
 }

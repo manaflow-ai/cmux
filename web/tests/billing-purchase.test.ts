@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { billingEmailClaims, stripeCustomers, stripeSubscriptions } from "../db/schema";
+import {
+  accountDeletionTombstones,
+  billingEmailClaims,
+  stripeCustomers,
+  stripeSubscriptions,
+} from "../db/schema";
 import {
   applySubscriptionUpdate,
   recordCheckoutCompletion,
@@ -8,14 +13,38 @@ import {
 
 const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+const operations: string[] = [];
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
+let tombstoneSelectResults: unknown[][] = [];
 
-function fakeDb() {
-  return {
+type FakeDb = {
+  insert(table: unknown): {
+    values(values: Record<string, unknown>): {
+      onConflictDoUpdate(): Promise<void>;
+      then(resolve: (value: unknown) => void): void;
+    };
+  };
+  select(): {
+    from(table: unknown): {
+      where(): ReturnType<typeof tombstoneSelectableResult> | ReturnType<typeof selectableResult>;
+    };
+  };
+  update(table: unknown): {
+    set(values: Record<string, unknown>): {
+      where(): Promise<void>;
+    };
+  };
+  execute(statement: unknown): Promise<void>;
+  transaction<T>(run: (tx: FakeDb) => Promise<T>): Promise<T>;
+};
+
+function fakeDb(): FakeDb {
+  const db: FakeDb = {
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
         inserts.push({ table, values });
+        operations.push(tableOperation("insert", table));
         return {
           onConflictDoUpdate: () => {
             const error = insertErrorsByTable.get(table);
@@ -27,25 +56,135 @@ function fakeDb() {
       },
     }),
     select: () => ({
-      from: () => ({
-        where: () => selectableResult(),
+      from: (table: unknown) => ({
+        where: () => {
+          operations.push(tableOperation("select", table));
+          return table === accountDeletionTombstones
+            ? tombstoneSelectableResult()
+            : selectableResult();
+        },
       }),
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
           updates.push({ table, values });
+          operations.push(tableOperation("update", table));
           return Promise.resolve();
         },
       }),
     }),
+    execute: async () => {
+      operations.push("account-deletion-lock");
+    },
+    transaction: async (run) => {
+      operations.push("transaction:start");
+      try {
+        return await run(db);
+      } finally {
+        operations.push("transaction:end");
+      }
+    },
   };
+  return db;
+}
+
+function tableOperation(prefix: string, table: unknown): string {
+  if (table === accountDeletionTombstones) return `${prefix}:accountDeletionTombstones`;
+  if (table === billingEmailClaims) return `${prefix}:billingEmailClaims`;
+  if (table === stripeCustomers) return `${prefix}:stripeCustomers`;
+  if (table === stripeSubscriptions) return `${prefix}:stripeSubscriptions`;
+  return `${prefix}:other`;
+}
+
+function operationIndex(label: string): number {
+  const index = operations.indexOf(label);
+  expect(index).toBeGreaterThanOrEqual(0);
+  return index;
 }
 
 function selectableResult() {
   return {
     orderBy: () => selectableResult(),
     limit: () => Promise.resolve(selectResults.shift() ?? []),
+  };
+}
+
+function tombstoneSelectableResult() {
+  return {
+    orderBy: () => tombstoneSelectableResult(),
+    limit: () => Promise.resolve(tombstoneSelectResults.shift() ?? []),
+  };
+}
+
+function mockCall(mockFn: unknown, index = 0): unknown[] {
+  return (mockFn as { mock: { calls: unknown[][] } }).mock.calls[index] ?? [];
+}
+
+function metadataFromStripeUpdate(params: unknown): Record<string, string> {
+  return (params as { metadata: Record<string, string> }).metadata;
+}
+
+function expectDeletedAccountMetadata(
+  metadata: Record<string, string>,
+  options: { stackTeamId?: boolean } = {},
+) {
+  expect(metadata.stackUserId).toBe("");
+  expect(/^deleted_[0-9a-f]{24}$/.test(metadata.deletedAccountId)).toBe(true);
+  if (options.stackTeamId) {
+    expect(metadata.stackTeamId).toBe("");
+  } else {
+    expect(metadata.stackTeamId).toBeUndefined();
+  }
+}
+
+function expectDeletedAccountEmail(value: unknown) {
+  expect(value).toMatch(/^deleted\+[0-9a-f]{24}@cmux\.com$/);
+}
+
+function checkoutCleanupStripeClient(invoice = paidCheckoutInvoice("in_123", "pi_123")) {
+  const updateCustomer = mock(async () => undefined);
+  const updateSubscription = mock(async () => undefined);
+  const cancelSubscription = mock(async () => undefined);
+  const retrieveInvoice = mock(async () => invoice);
+  const voidInvoice = mock(async () => undefined);
+  const createRefund = mock(async () => undefined);
+  return {
+    updateCustomer,
+    updateSubscription,
+    cancelSubscription,
+    retrieveInvoice,
+    voidInvoice,
+    createRefund,
+    stripeClient: () => ({
+      customers: { update: updateCustomer },
+      invoices: { retrieve: retrieveInvoice, voidInvoice },
+      refunds: { create: createRefund },
+      subscriptions: { update: updateSubscription, cancel: cancelSubscription },
+    }) as never,
+  };
+}
+
+function paidCheckoutInvoice(invoiceId: string, paymentIntentId: string) {
+  return {
+    id: invoiceId,
+    status: "paid",
+    amount_paid: 1_200,
+    payments: {
+      data: [{
+        status: "paid",
+        payment: { type: "payment_intent", payment_intent: paymentIntentId },
+      }],
+    },
+  };
+}
+
+function openCheckoutInvoice(invoiceId: string) {
+  return {
+    id: invoiceId,
+    status: "open",
+    amount_paid: 0,
+    payments: { data: [] },
   };
 }
 
@@ -56,11 +195,13 @@ function checkoutInput(customerId = "cus_123") {
       client_reference_id: "user_123",
       customer: customerId,
       customer_details: { email: "Buyer@Example.com" },
+      invoice: "in_123",
       subscription: "sub_123",
     },
     subscription: {
       id: "sub_123",
       customer: customerId,
+      latest_invoice: "in_123",
       status: "active",
       metadata: { stackUserId: "user_123", app: "cmux" },
       cancel_at_period_end: false,
@@ -88,14 +229,16 @@ function teamCheckoutInput(customerId = "cus_team") {
       client_reference_id: "team_123",
       customer: customerId,
       customer_details: { email: "buyer@example.com" },
+      invoice: "in_team",
       subscription: "sub_team",
-      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
     },
     subscription: {
       id: "sub_team",
       customer: customerId,
+      latest_invoice: "in_team",
       status: "active",
-      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
       cancel_at_period_end: false,
       items: {
         data: [
@@ -119,8 +262,10 @@ describe("recordCheckoutCompletion", () => {
   beforeEach(() => {
     inserts.length = 0;
     updates.length = 0;
+    operations.length = 0;
     insertErrorsByTable.clear();
     selectResults = [];
+    tombstoneSelectResults = [];
   });
 
   test("attaches Stripe email to a purchaser without a primary email", async () => {
@@ -139,6 +284,132 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
+  });
+
+  test("serializes user checkout completion with account deletion", async () => {
+    const update = mock(async () => {
+      operations.push("stack:update");
+    });
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user } as never,
+    });
+
+    const lockIndex = operationIndex("account-deletion-lock");
+    expect(operationIndex("transaction:start")).toBeLessThan(lockIndex);
+    expect(lockIndex).toBeLessThan(operationIndex("select:accountDeletionTombstones"));
+    expect(lockIndex).toBeLessThan(operationIndex("insert:stripeCustomers"));
+    expect(lockIndex).toBeLessThan(operationIndex("insert:stripeSubscriptions"));
+    expect(operationIndex("stack:update")).toBeLessThan(operationIndex("transaction:end"));
+  });
+
+  test("blocks user checkout completion while account deletion is in progress", async () => {
+    const update = mock(async () => undefined);
+    const stripeCleanup = checkoutCleanupStripeClient();
+    const user = {
+      id: "user_123",
+      primaryEmail: null,
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update,
+    };
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        stripeClient: stripeCleanup.stripeClient,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
+
+    expect(stripeCleanup.retrieveInvoice).toHaveBeenCalledWith("in_123", {
+      expand: ["payments.data.payment.payment_intent"],
+    });
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_123",
+      reason: "requested_by_customer",
+    });
+    expect(stripeCleanup.voidInvoice).not.toHaveBeenCalled();
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_123");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_123");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]));
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("cleans up user checkout completion after the Stack user is deleted", async () => {
+    const getUser = mock(async () => null);
+    const stripeCleanup = checkoutCleanupStripeClient();
+    tombstoneSelectResults = [[{ status: "completed" }]];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+        stripeClient: stripeCleanup.stripeClient,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
+
+    expect(getUser).not.toHaveBeenCalled();
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_123",
+      reason: "requested_by_customer",
+    });
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_123");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_123");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]));
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_123");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("voids unpaid checkout invoices when account deletion skips completion", async () => {
+    const stripeCleanup = checkoutCleanupStripeClient(openCheckoutInvoice("in_123"));
+    tombstoneSelectResults = [[{ status: "pending" }]];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load Stack user after deletion tombstone");
+          },
+        } as never,
+        stripeClient: stripeCleanup.stripeClient,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_123",
+      subscriptionId: "sub_123",
+    });
+
+    expect(stripeCleanup.voidInvoice).toHaveBeenCalledWith("in_123");
+    expect(stripeCleanup.createRefund).not.toHaveBeenCalled();
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_123");
   });
 
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {
@@ -363,19 +634,23 @@ describe("recordCheckoutCompletion", () => {
 
   test("records Team checkout rows and syncs the Stack team entitlement", async () => {
     const updateTeam = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: {},
       update: updateTeam,
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    selectResults = [[]];
 
     const result = await recordCheckoutCompletion(teamCheckoutInput() as never, {
       db: fakeDb() as never,
       stackApp: {
-        getUser: async () => {
-          throw new Error("should not load Stack user for Team checkout");
-        },
+        getUser: async () => owner,
         getTeam: async () => team,
       } as never,
     });
@@ -409,21 +684,128 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("blocks Team checkout completion while owner account deletion is in progress", async () => {
+    const updateTeam = mock(async () => undefined);
+    const stripeCleanup = checkoutCleanupStripeClient(paidCheckoutInvoice("in_team", "pi_team"));
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[]];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => ({
+            id: "team_123",
+            clientReadOnlyMetadata: {},
+            update: updateTeam,
+          }),
+        } as never,
+        stripeClient: stripeCleanup.stripeClient,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_team",
+      reason: "requested_by_customer",
+    });
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_team");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_team");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(updateTeam).not.toHaveBeenCalled();
+  });
+
+  test("blocks Team checkout completion when the singleton team owner is deleting", async () => {
+    const stripeCleanup = checkoutCleanupStripeClient(paidCheckoutInvoice("in_team", "pi_team"));
+    const input = teamCheckoutInput() as unknown as {
+      session: { metadata: Record<string, string> };
+      subscription: { metadata: Record<string, string> };
+    };
+    delete input.session.metadata.stackUserId;
+    delete input.subscription.metadata.stackUserId;
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: {},
+      listUsers: mock(async () => Object.assign([{ id: "owner_123" }], { nextCursor: null })),
+      update: mock(async () => undefined),
+    };
+    selectResults = [[], []];
+
+    await expect(
+      recordCheckoutCompletion(input as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => team,
+        } as never,
+        stripeClient: stripeCleanup.stripeClient,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
+    expect(stripeCleanup.createRefund).toHaveBeenCalledWith({
+      payment_intent: "pi_team",
+      reason: "requested_by_customer",
+    });
+    const customerUpdate = mockCall(stripeCleanup.updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_team");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
+    const subscriptionUpdate = mockCall(stripeCleanup.updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_team");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
+    expect(stripeCleanup.cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
   test("clears Team metadata when a Team subscription lapses", async () => {
     const updateTeam = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
       update: updateTeam,
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    selectResults = [[]];
 
     const result = await applySubscriptionUpdate(
       {
         id: "sub_team",
         customer: "cus_team",
         status: "canceled",
-        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
         cancel_at_period_end: false,
         items: {
           data: [
@@ -438,9 +820,7 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         stackApp: {
-          getUser: async () => {
-            throw new Error("should not load Stack user for Team subscription");
-          },
+          getUser: async () => owner,
           getTeam: async () => team,
         } as never,
       },
@@ -457,6 +837,104 @@ describe("recordCheckoutCompletion", () => {
     ).toBe(true);
     expect(updateTeam).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    });
+  });
+
+  test("skips Team subscription updates while owner account deletion is in progress", async () => {
+    const updateTeam = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => ({
+            id: "team_123",
+            clientReadOnlyMetadata: {},
+            update: updateTeam,
+          }),
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(updateTeam).not.toHaveBeenCalled();
+  });
+
+  test("processes legacy Team subscription rows that stored the team id as owner", async () => {
+    const updateTeam = mock(async () => undefined);
+    selectResults = [[{ stackUserId: "team_123" }], []];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load Stack user for legacy team-owner rows");
+          },
+          getTeam: async () => ({
+            id: "team_123",
+            clientReadOnlyMetadata: {},
+            update: updateTeam,
+          }),
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: true });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeCustomers &&
+          insert.values.id === "cus_team" &&
+          insert.values.stackUserId === "team_123" &&
+          insert.values.stackTeamId === "team_123",
+      ),
+    ).toBe(true);
+    expect(updates).toHaveLength(0);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
     });
   });
 
@@ -485,6 +963,167 @@ describe("recordCheckoutCompletion", () => {
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("serializes user subscription updates with account deletion", async () => {
+    const update = mock(async () => {
+      operations.push("stack:update");
+    });
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    const lockIndex = operationIndex("account-deletion-lock");
+    expect(operationIndex("transaction:start")).toBeLessThan(lockIndex);
+    expect(lockIndex).toBeLessThan(operationIndex("select:accountDeletionTombstones"));
+    expect(lockIndex).toBeLessThan(operationIndex("insert:stripeSubscriptions"));
+    expect(operationIndex("stack:update")).toBeLessThan(operationIndex("transaction:end"));
+  });
+
+  test("skips user subscription updates while account deletion is in progress", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update,
+    };
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("skips user subscription webhooks after completed account deletion", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user after completed deletion");
+    });
+    selectResults = [[]];
+    tombstoneSelectResults = [[{ status: "completed" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("skips user subscription webhooks for anonymized local customer rows", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for anonymized customer rows");
+    });
+    selectResults = [[{ stackUserId: "deleted_1234567890abcdef12345678" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("skips user subscription webhooks with deleted-account Stripe metadata", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for deleted-account metadata");
+    });
+    const subscription = userSubscriptionUpdate({ status: "active" }) as {
+      metadata: Record<string, string>;
+    };
+    subscription.metadata = {
+      app: "cmux",
+      plan: "pro",
+      stackUserId: "",
+      deletedAccountId: "deleted_1234567890abcdef12345678",
+    };
+
+    const result = await applySubscriptionUpdate(
+      subscription as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("skips Team subscription updates when the recorded owner is deleting", async () => {
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "owner_123" }]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 3,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team when owner row blocks");
+          },
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
   test("does not fail the webhook when TestFlight removal fails", async () => {
@@ -548,19 +1187,25 @@ describe("recordCheckoutCompletion", () => {
 
   test("does not remove TestFlight access when a Team subscription lapses", async () => {
     const removeTester = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: { cmuxPlan: "team" },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    selectResults = [[]];
 
     const result = await applySubscriptionUpdate(
       {
         id: "sub_team",
         customer: "cus_team",
         status: "canceled",
-        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
         cancel_at_period_end: false,
         items: {
           data: [
@@ -575,9 +1220,7 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         stackApp: {
-          getUser: async () => {
-            throw new Error("should not load Stack user for Team subscription");
-          },
+          getUser: async () => owner,
           getTeam: async () => team,
         } as never,
         testflight: {

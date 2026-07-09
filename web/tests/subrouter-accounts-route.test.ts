@@ -34,6 +34,7 @@ mock.module("../db/client", () => ({
 }));
 
 const { encryptTenantKey } = await import("../services/subrouter/crypto");
+const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
 const accountRoute = await import("../app/api/subrouter/accounts/[accountId]/route");
 
@@ -287,6 +288,7 @@ describe("subrouter accounts route", () => {
       label: "OpenAI",
       apiKey: "sk-test-openai",
     });
+    expect(upstream.accountCreatesInsideTransaction).toBe(0);
     expect(upstream.adminCreates).toBe(1);
     expect(fakeDb.rows).toHaveLength(1);
   });
@@ -308,6 +310,104 @@ describe("subrouter accounts route", () => {
     expect(json.account.kind).toBe("openai-apikey");
   });
 
+  test("blocks account uploads while account deletion is in progress", async () => {
+    fakeDb.deletionRows.push({
+      userIdHash: accountDeletionUserHash("user-1"),
+      status: "pending",
+    });
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+    expect(fakeDb.rows).toHaveLength(0);
+  });
+
+  test("deletes a created upstream account when account deletion starts during upload", async () => {
+    upstream.afterCreateAccount = () => {
+      fakeDb.deletionRows.push({
+        userIdHash: accountDeletionUserHash("user-1"),
+        status: "pending",
+      });
+    };
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
+    expect(upstream.accountCreatesInsideTransaction).toBe(0);
+    expect(upstream.deletedAccountIds).toEqual(["acct-created"]);
+    expect(upstream.revokedTenantIds).toEqual(["tenant-team-a"]);
+    expect(fakeDb.rows).toHaveLength(0);
+  });
+
+  test("fails closed when deleting a race-created upstream account fails", async () => {
+    upstream.deleteAccountFailureStatus = 503;
+    upstream.afterCreateAccount = () => {
+      fakeDb.deletionRows.push({
+        userIdHash: accountDeletionUserHash("user-1"),
+        status: "pending",
+      });
+    };
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(502);
+    expect(JSON.parse(body)).toEqual({ error: "upstream_request_failed" });
+    expect(upstream.deletedAccountIds).toEqual(["acct-created"]);
+    expect(upstream.revokedTenantIds).toEqual([]);
+    expect(fakeDb.rows).toHaveLength(1);
+  });
+
+  test("keeps first tenant mapping when account creation fails", async () => {
+    upstream.createAccountFailureStatus = 502;
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(502);
+    expect(JSON.parse(body)).toEqual({ error: "upstream_request_failed" });
+    expect(upstream.adminCreates).toBe(1);
+    expect(fakeDb.rows).toHaveLength(1);
+    expect(fakeDb.rows[0].tenantId).toBe("tenant-team-a");
+  });
+
   test("delete proxies to the tenant account endpoint", async () => {
     seedTenantMapping(fakeDb);
     const response = await accountRoute.DELETE(
@@ -319,6 +419,47 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(body)).toEqual({ ok: true, teamId: "team-a" });
     expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
+    expect(upstream.accountDeletesInsideTransaction).toBe(0);
+  });
+
+  test("blocks account deletes while account deletion is in progress", async () => {
+    seedTenantMapping(fakeDb);
+    fakeDb.deletionRows.push({
+      userIdHash: accountDeletionUserHash("user-1"),
+      status: "pending",
+    });
+
+    const response = await accountRoute.DELETE(
+      request("/api/subrouter/accounts/acct-1?teamId=team-a", { method: "DELETE" }),
+      { params: Promise.resolve({ accountId: "acct-1" }) },
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+    expect(upstream.deletedAccountIds).toEqual([]);
+  });
+
+  test("blocks account deletes when account deletion starts during upstream delete", async () => {
+    seedTenantMapping(fakeDb);
+    upstream.afterDeleteAccount = () => {
+      fakeDb.deletionRows.push({
+        userIdHash: accountDeletionUserHash("user-1"),
+        status: "pending",
+      });
+    };
+
+    const response = await accountRoute.DELETE(
+      request("/api/subrouter/accounts/acct-1?teamId=team-a", { method: "DELETE" }),
+      { params: Promise.resolve({ accountId: "acct-1" }) },
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
+    expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
+    expect(upstream.accountDeletesInsideTransaction).toBe(0);
   });
 
   test("delete is a no-op when no tenant mapping exists", async () => {
@@ -463,8 +604,15 @@ function createMockSubrouter() {
     tenantListCalls: 0,
     accounts: [] as Array<Record<string, unknown>>,
     deletedAccountIds: [] as string[],
+    revokedTenantIds: [] as string[],
     lastCreateAccountUrl: null as URL | null,
     lastCreateAccountBody: null as unknown,
+    accountCreatesInsideTransaction: 0,
+    accountDeletesInsideTransaction: 0,
+    afterCreateAccount: null as (() => void | Promise<void>) | null,
+    afterDeleteAccount: null as (() => void | Promise<void>) | null,
+    createAccountFailureStatus: null as number | null,
+    deleteAccountFailureStatus: null as number | null,
     fetch: undefined as unknown as ReturnType<typeof mock>,
   };
 
@@ -486,6 +634,14 @@ function createMockSubrouter() {
       });
     }
 
+    if (url.pathname.startsWith("/admin/tenants/") && url.pathname.endsWith("/revoke") && method === "POST") {
+      expect(authorization).toBe("Bearer admin-test-token");
+      state.revokedTenantIds.push(
+        decodeURIComponent(url.pathname.slice("/admin/tenants/".length, -"/revoke".length)),
+      );
+      return jsonResponse({ ok: true });
+    }
+
     if (url.pathname === "/tenant/accounts" && method === "GET") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
       state.tenantListCalls += 1;
@@ -494,8 +650,12 @@ function createMockSubrouter() {
 
     if (url.pathname === "/tenant/accounts" && method === "POST") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      if (fakeDb.transactionDepth > 0) state.accountCreatesInsideTransaction += 1;
       state.lastCreateAccountUrl = url;
       state.lastCreateAccountBody = JSON.parse(String(init?.body ?? "{}"));
+      if (state.createAccountFailureStatus) {
+        return jsonResponse({ error: "create failed" }, state.createAccountFailureStatus);
+      }
       const body = state.lastCreateAccountBody as { provider: string; label?: string };
       const account = {
         id: "acct-created",
@@ -504,12 +664,18 @@ function createMockSubrouter() {
         createdAt: "2026-07-02T00:00:00.000Z",
       };
       state.accounts.push(account);
+      await state.afterCreateAccount?.();
       return jsonResponse(account);
     }
 
     if (url.pathname.startsWith("/tenant/accounts/") && method === "DELETE") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      if (fakeDb.transactionDepth > 0) state.accountDeletesInsideTransaction += 1;
       state.deletedAccountIds.push(decodeURIComponent(url.pathname.slice("/tenant/accounts/".length)));
+      if (state.deleteAccountFailureStatus) {
+        return jsonResponse({ error: "delete failed" }, state.deleteAccountFailureStatus);
+      }
+      await state.afterDeleteAccount?.();
       return jsonResponse({ ok: true });
     }
 
@@ -535,26 +701,41 @@ function createFakeRouteDb() {
     tenantName: string;
     encryptedTenantKey: string;
   }> = [];
+  const deletionRows: Array<{
+    userIdHash: string;
+    status: string;
+  }> = [];
   let tail = Promise.resolve();
+  let transactionDepth = 0;
+
+  const selectRows = (projection: Record<string, unknown> | undefined) =>
+    projection && "status" in projection && "userIdHash" in projection
+      ? deletionRows.slice(0, 1)
+      : rows.slice(0, 1);
 
   const db = {
     rows,
+    deletionRows,
+    get transactionDepth() {
+      return transactionDepth;
+    },
     insertCalls: 0,
-    select: () => ({
+    select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: () => ({
-          limit: async () => rows.slice(0, 1),
+          limit: async () => selectRows(projection),
         }),
       }),
     }),
     transaction: async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => {
-      const run = tail.then(async () => {
+      const runCallback = async () => {
+        transactionDepth += 1;
         const tx = {
           execute: async () => [],
-          select: () => ({
+          select: (projection?: Record<string, unknown>) => ({
             from: () => ({
               where: () => ({
-                limit: async () => rows.slice(0, 1),
+                limit: async () => selectRows(projection),
               }),
             }),
           }),
@@ -565,11 +746,23 @@ function createFakeRouteDb() {
             },
           }),
         };
-        return await callback(tx);
-      });
+        try {
+          return await callback(tx);
+        } finally {
+          transactionDepth -= 1;
+        }
+      };
+      if (transactionDepth > 0) return await runCallback();
+
+      const run = tail.then(runCallback);
       tail = run.then(() => undefined, () => undefined);
       return await run;
     },
+    delete: () => ({
+      where: async () => {
+        rows.length = 0;
+      },
+    }),
   };
   return db;
 }

@@ -4,6 +4,7 @@ import {
   drizzleCliAuthRepository,
   type CliAuthTokens,
 } from "../../../../../../services/vault/cliAuth";
+import { hasAccountDeletionTombstone } from "../../../../../../services/account/deletion";
 import { withVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
@@ -54,6 +55,7 @@ export async function POST(request: Request): Promise<Response> {
         mintStackTokens,
         deviceCodeHash,
         new Date(),
+        async (userId) => await hasAccountDeletionTombstone({ userId }),
       );
       setSpanAttributes(span, { "cmux.vault.cli_auth.result_status": result.status });
 

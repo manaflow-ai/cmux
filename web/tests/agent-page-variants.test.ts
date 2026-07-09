@@ -385,6 +385,18 @@ describe("agent page variants", () => {
     expect(sitemapPaths).not.toContain("/de/docs/task-manager");
   });
 
+  test("keeps privacy policy sitemap entry canonical English-only", () => {
+    const entries = sitemap();
+    const sitemapPaths = entries.map((entry) => new URL(String(entry.url)).pathname);
+
+    expect(sitemapPaths).toContain("/privacy-policy");
+    expect(sitemapPaths).not.toContain("/ja/privacy-policy");
+    const englishEntry = entries.find(
+      (entry) => new URL(String(entry.url)).pathname === "/privacy-policy",
+    );
+    expect(englishEntry?.alternates).toBeUndefined();
+  });
+
   test("limits en-ja docs alternate links to live localized routes", () => {
     const path = featureWorkflowDocPathForRequest("/de/docs/vault");
     expect(path).toBe("/docs/vault");

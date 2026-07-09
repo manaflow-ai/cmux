@@ -9,6 +9,7 @@ import {
   withAuthedVaultApiRoute,
   withVaultApiRoute,
 } from "../services/vault/routeHelpers";
+import { VaultWritesDisabledError } from "../services/vault/usage";
 import type { AuthedUser } from "../services/vms/auth";
 
 let exporter: InMemorySpanExporter;
@@ -88,6 +89,25 @@ describe("Vault route helper", () => {
     } finally {
       console.error = originalError;
     }
+  });
+
+  test("returns account deletion conflict for disabled vault writes", async () => {
+    const response = await withVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test"),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      async () => {
+        throw new VaultWritesDisabledError();
+      },
+    );
+    await provider.forceFlush();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "account_deletion_in_progress" });
+    const span = latestVaultTestSpan();
+    expect(span?.status.code).not.toBe(SpanStatusCode.ERROR);
+    expect(span?.events.some((event) => event.name === "exception")).toBe(false);
   });
 
   test("blocks cross-site cookie-authenticated mutation requests before the handler", async () => {

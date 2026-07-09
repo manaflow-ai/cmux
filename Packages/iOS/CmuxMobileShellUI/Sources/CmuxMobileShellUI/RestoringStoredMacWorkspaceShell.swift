@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import SwiftUI
@@ -8,6 +9,8 @@ struct RestoringStoredMacWorkspaceShell: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
     let showAddDevice: (() -> Void)?
+    let telemetryConsentStore: MobileTelemetryConsentStore
+    let accountDeletionClient: MobileAccountDeletionClient?
     let reconnectStoredMac: () -> Void
 
     @Environment(AuthCoordinator.self) private var authManager
@@ -21,7 +24,9 @@ struct RestoringStoredMacWorkspaceShell: View {
             isInitialConnectionLoading: !loadingTimedOut,
             initialConnectionTimedOut: loadingTimedOut,
             retryInitialConnection: retry,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: accountDeletionClient
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()

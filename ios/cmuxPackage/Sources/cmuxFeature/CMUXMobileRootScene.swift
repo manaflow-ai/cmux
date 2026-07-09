@@ -37,6 +37,8 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let telemetryConsentStore: MobileTelemetryConsentStore
+    private let accountDeletionClient: MobileAccountDeletionClient
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -73,6 +75,9 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - telemetryConsentStore: The app-root product analytics consent store,
+    ///     injected into Settings so the opt-out uses the same persisted key as
+    ///     analytics.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -86,6 +91,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        telemetryConsentStore: MobileTelemetryConsentStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
@@ -96,6 +102,11 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = MobileAccountDeletionClient(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenProvider: auth.coordinator
+        )
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -248,10 +259,20 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
         } else {
-            CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+            CMUXMobileAppView(
+                store: makeStore(),
+                onboardingStore: onboardingStore,
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
+            )
         }
         #else
-        CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+        CMUXMobileAppView(
+            store: makeStore(),
+            onboardingStore: onboardingStore,
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: accountDeletionClient
+        )
         #endif
         #else
         CMUXMobileAppView(store: makeStore())

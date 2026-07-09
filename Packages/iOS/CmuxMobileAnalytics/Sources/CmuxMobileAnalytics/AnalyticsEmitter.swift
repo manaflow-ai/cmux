@@ -27,9 +27,13 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 /// ### Privacy gate
 ///
 /// ``capture(_:_:)`` consults the injected ``AnalyticsConsentProviding`` *before*
-/// yielding, so when telemetry is disabled nothing is even buffered, and no
-/// fire-site can bypass the opt-out. `identify` and super-property updates are
-/// gated the same way.
+/// yielding ordinary events, so when telemetry is disabled they are not buffered
+/// and no fire-site can bypass the opt-out. The one exception is the local
+/// `ios_app_first_launch` replay intent: a fresh install records it in memory
+/// while opted out, but it is only enqueued and uploaded after consent is
+/// granted. Identity and super-property updates still enter the actor while
+/// opted out so local attribution state cannot go stale, but the network
+/// identify call remains consent-gated.
 ///
 /// ### Flush barrier
 ///
@@ -40,8 +44,15 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 public actor AnalyticsEmitter: AnalyticsEmitting {
     private enum Item: Sendable {
         case event(name: String, properties: [String: AnalyticsValue], timestamp: Date)
-        case identify(userID: String?, alias: String?, properties: [String: AnalyticsValue])
+        case firstLaunch(properties: [String: AnalyticsValue], timestamp: Date)
+        case identify(
+            userID: String?,
+            alias: String?,
+            properties: [String: AnalyticsValue],
+            networkAllowed: Bool
+        )
         case superProperties([String: AnalyticsValue])
+        case consentChanged(isEnabled: Bool)
         case barrier(UUID)
     }
 
@@ -53,12 +64,17 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private let flushBatchSize: Int
     private let flushInterval: Duration
     private let maxPendingEvents: Int
+    private static let firstLaunchEventName = "ios_app_first_launch"
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
 
     private var superProperties: [String: AnalyticsValue] = [:]
     private var distinctID: String?
+    private var lastAuthenticatedIdentify: AnalyticsIdentifyRequest?
+    private var authenticatedIdentifyReplayPending = false
+    private var deferredFirstLaunchEvent: AnalyticsEvent?
+    private var telemetryEventsEnabled: Bool
     private var pending: [AnalyticsEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var consumerTask: Task<Void, Never>?
@@ -121,6 +137,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.flushInterval = flushInterval
         self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
         self.distinctID = anonymousID
+        self.telemetryEventsEnabled = consent.isTelemetryEnabled
         (self.stream, self.continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         Task { await self.startConsuming() }
     }
@@ -128,24 +145,39 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     // MARK: AnalyticsEmitting (non-blocking surface)
 
     public nonisolated func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
+        if event == Self.firstLaunchEventName {
+            continuation.yield(.firstLaunch(properties: properties, timestamp: now()))
+            return
+        }
         guard consent.isTelemetryEnabled else { return }
         continuation.yield(.event(name: event, properties: properties, timestamp: now()))
     }
 
+    /// Updates the current user identity and sends an identify call when telemetry consent allows it.
     public nonisolated func identify(
         userId: String?,
         alias: String?,
         properties: [String: AnalyticsValue]
     ) {
-        guard consent.isTelemetryEnabled else { return }
-        continuation.yield(.identify(userID: userId, alias: alias, properties: properties))
+        continuation.yield(.identify(
+            userID: userId,
+            alias: alias,
+            properties: properties,
+            networkAllowed: consent.isTelemetryEnabled
+        ))
     }
 
+    /// Replaces the properties merged onto every subsequent analytics event.
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
-        guard consent.isTelemetryEnabled else { return }
         continuation.yield(.superProperties(properties))
     }
 
+    /// Updates whether subsequent telemetry events may be sent to the analytics backend.
+    public nonisolated func setTelemetryConsentEnabled(_ isEnabled: Bool) {
+        continuation.yield(.consentChanged(isEnabled: isEnabled))
+    }
+
+    /// Waits until all analytics work submitted before this call has been processed.
     public func flush() async {
         let id = UUID()
         await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
@@ -168,6 +200,9 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         for await item in stream {
             switch item {
             case let .event(name, properties, timestamp):
+                guard telemetryEventsEnabled, consent.isTelemetryEnabled else {
+                    break
+                }
                 appendEvent(name: name, properties: properties, timestamp: timestamp)
                 startCadenceIfNeeded()
                 // Suppress the per-event drain while an outage is open: otherwise a
@@ -178,11 +213,41 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 if pending.count >= flushBatchSize && !uploadOutageOpen {
                     await drain()
                 }
-            case let .identify(userID, alias, properties):
-                await applyIdentify(userID: userID, alias: alias, properties: properties)
+            case let .firstLaunch(properties, timestamp):
+                if telemetryEventsEnabled, consent.isTelemetryEnabled {
+                    appendEvent(
+                        name: Self.firstLaunchEventName,
+                        properties: properties,
+                        timestamp: timestamp
+                    )
+                    startCadenceIfNeeded()
+                    if pending.count >= flushBatchSize && !uploadOutageOpen {
+                        await drain()
+                    }
+                } else {
+                    rememberDeferredFirstLaunch(properties: properties, timestamp: timestamp)
+                }
+            case let .identify(userID, alias, properties, networkAllowed):
+                await applyIdentify(
+                    userID: userID,
+                    alias: alias,
+                    properties: properties,
+                    networkAllowed: networkAllowed
+                )
             case let .superProperties(properties):
                 for (key, value) in properties { superProperties[key] = value }
+            case let .consentChanged(isEnabled):
+                telemetryEventsEnabled = isEnabled
+                if !isEnabled {
+                    pending.removeAll()
+                    uploadOutageOpen = false
+                } else {
+                    await replayAuthenticatedIdentifyIfNeeded()
+                    enqueueDeferredFirstLaunchIfAllowed()
+                    await drain()
+                }
             case let .barrier(id):
+                enqueueDeferredFirstLaunchIfAllowed()
                 await drain()
                 barriers.removeValue(forKey: id)?.resume()
             }
@@ -190,17 +255,23 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     }
 
     private func appendEvent(name: String, properties: [String: AnalyticsValue], timestamp: Date) {
+        appendPendingEvent(makeEvent(name: name, properties: properties, timestamp: timestamp))
+    }
+
+    private func makeEvent(name: String, properties: [String: AnalyticsValue], timestamp: Date) -> AnalyticsEvent {
         var merged = superProperties
         for (key, value) in properties { merged[key] = value }
-        pending.append(
-            AnalyticsEvent(
-                name: name,
-                properties: merged,
-                distinctID: distinctID,
-                anonymousID: anonymousID == distinctID ? nil : anonymousID,
-                timestamp: timestamp
-            )
+        return AnalyticsEvent(
+            name: name,
+            properties: merged,
+            distinctID: distinctID,
+            anonymousID: anonymousID == distinctID ? nil : anonymousID,
+            timestamp: timestamp
         )
+    }
+
+    private func appendPendingEvent(_ event: AnalyticsEvent) {
+        pending.append(event)
         // Bound the backlog so a sustained upload outage (`.retry` keeps the
         // buffer intact) cannot grow memory without limit. Drop the oldest events
         // first: the freshest signal is the most useful, and dropping here is
@@ -210,10 +281,34 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         }
     }
 
+    private func rememberDeferredFirstLaunch(
+        properties: [String: AnalyticsValue],
+        timestamp: Date
+    ) {
+        guard deferredFirstLaunchEvent == nil else { return }
+        deferredFirstLaunchEvent = makeEvent(
+            name: Self.firstLaunchEventName,
+            properties: properties,
+            timestamp: timestamp
+        )
+    }
+
+    private func enqueueDeferredFirstLaunchIfAllowed() {
+        guard telemetryEventsEnabled,
+              consent.isTelemetryEnabled,
+              let event = deferredFirstLaunchEvent else {
+            return
+        }
+        deferredFirstLaunchEvent = nil
+        appendPendingEvent(event)
+        startCadenceIfNeeded()
+    }
+
     private func applyIdentify(
         userID: String?,
         alias: String?,
-        properties: [String: AnalyticsValue]
+        properties: [String: AnalyticsValue],
+        networkAllowed: Bool
     ) async {
         distinctID = userID ?? anonymousID
         if let userID {
@@ -221,17 +316,44 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         } else {
             superProperties.removeValue(forKey: "user_id")
         }
+        let request = AnalyticsIdentifyRequest(userID: userID, alias: alias, properties: properties)
+        if userID != nil {
+            lastAuthenticatedIdentify = request
+            authenticatedIdentifyReplayPending = true
+        } else {
+            lastAuthenticatedIdentify = nil
+            authenticatedIdentifyReplayPending = false
+        }
+        guard networkAllowed, consent.isTelemetryEnabled else { return }
+        let result = await sendIdentify(request)
+        if userID != nil {
+            authenticatedIdentifyReplayPending = result == .retry
+        }
+    }
+
+    private func replayAuthenticatedIdentifyIfNeeded() async {
+        guard authenticatedIdentifyReplayPending,
+              consent.isTelemetryEnabled,
+              let request = lastAuthenticatedIdentify else {
+            return
+        }
+        let result = await sendIdentify(request)
+        authenticatedIdentifyReplayPending = result == .retry
+    }
+
+    private func sendIdentify(_ request: AnalyticsIdentifyRequest) async -> AnalyticsUploadResult {
         var personProps: [String: any Sendable] = [:]
-        for (key, value) in properties { personProps[key] = value.jsonObject }
-        let aliasID = alias ?? (anonymousID == userID ? nil : anonymousID)
+        for (key, value) in request.properties { personProps[key] = value.jsonObject }
+        let aliasID = request.alias ?? (anonymousID == request.userID ? nil : anonymousID)
         let result = await uploader.identify(
-            userID: userID,
+            userID: request.userID,
             anonymousID: aliasID,
             properties: personProps
         )
         if result == .retry {
             analyticsLog.debug("identify deferred (transient)")
         }
+        return result
     }
 
     private func startCadenceIfNeeded() {
@@ -261,8 +383,10 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         // its barrier, so an opt-out followed by a background flush also drops.
         guard consent.isTelemetryEnabled else {
             pending.removeAll()
+            uploadOutageOpen = false
             return
         }
+        await replayAuthenticatedIdentifyIfNeeded()
         while !pending.isEmpty {
             let batch = pending
             let result = await uploader.upload(batch)

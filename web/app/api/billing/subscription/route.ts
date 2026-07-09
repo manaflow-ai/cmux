@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeSubscriptions } from "../../../../db/schema";
+import {
+  AccountDeletionMutationBlockedError,
+  isStackAccountDeletionBlocked,
+  withAccountDeletionUserMutationLock,
+} from "../../../../services/account/deletion";
 import { localizedVaultPath, vaultSignInHref } from "../../../lib/vault-auth";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { locales, routing } from "../../../../i18n/routing";
@@ -58,25 +63,35 @@ export async function POST(request: NextRequest) {
       );
     }
     stackUserId = user.id;
+    if (await isStackAccountDeletionBlocked(user)) {
+      return billingRedirect(request, "error");
+    }
 
     if (!isStripeBillingConfigured()) {
       throw new Error("Billing subscription management is not configured");
     }
 
-    const subscription = scope === "team"
-      ? await activeStripeSubscriptionForStackTeam(await verifiedBillingTeamId(user, formData))
-      : await activeStripeSubscriptionForStackUser(user.id);
-    if (!subscription) {
-      return billingRedirect(request, "nosub");
-    }
+    const result = await withAccountDeletionUserMutationLock(cloudDb(), user.id, async (lockedDb) => {
+      const subscription = scope === "team"
+        ? await activeStripeSubscriptionForStackTeam(
+            await verifiedBillingTeamId(user, formData),
+            lockedDb,
+          )
+        : await activeStripeSubscriptionForStackUser(user.id, lockedDb);
+      if (!subscription) return "nosub" as const;
 
-    const updated = await stripe().subscriptions.update(subscription.id, {
-      cancel_at_period_end: action === "cancel",
+      const updated = await stripe().subscriptions.update(subscription.id, {
+        cancel_at_period_end: action === "cancel",
+      });
+      await updateSubscriptionSnapshot(lockedDb, subscription.id, updated);
+      return action === "cancel" ? "cancelled" : "resumed";
     });
-    await updateSubscriptionSnapshot(subscription.id, updated);
 
-    return billingRedirect(request, action === "cancel" ? "cancelled" : "resumed");
+    return billingRedirect(request, result);
   } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return billingRedirect(request, "error");
+    }
     captureBillingError(error, {
       route: "/api/billing/subscription",
       stackUserId,
@@ -86,6 +101,8 @@ export async function POST(request: NextRequest) {
     return billingRedirect(request, "error");
   }
 }
+
+type BillingDb = ReturnType<typeof cloudDb>;
 
 async function currentStackUser() {
   const stackServerApp = getStackServerApp();
@@ -120,8 +137,8 @@ async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise
   return team.id;
 }
 
-async function activeStripeSubscriptionForStackUser(stackUserId: string) {
-  const rows = await cloudDb()
+async function activeStripeSubscriptionForStackUser(stackUserId: string, db: BillingDb) {
+  const rows = await db
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
     .where(
@@ -137,8 +154,8 @@ async function activeStripeSubscriptionForStackUser(stackUserId: string) {
   return rows[0] ?? null;
 }
 
-async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
-  const rows = await cloudDb()
+async function activeStripeSubscriptionForStackTeam(stackTeamId: string, db: BillingDb) {
+  const rows = await db
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
     .where(
@@ -155,10 +172,11 @@ async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
 }
 
 async function updateSubscriptionSnapshot(
+  db: BillingDb,
   subscriptionId: string,
   subscription: { cancel_at_period_end?: boolean },
 ) {
-  await cloudDb()
+  await db
     .update(stripeSubscriptions)
     .set({
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),

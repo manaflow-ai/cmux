@@ -120,6 +120,7 @@ describe("billing portal route", () => {
     stripeSubscriptionRows = [];
     stackProductsActive = false;
     signedInUser.selectedTeam = null;
+    signedInUser.clientReadOnlyMetadata = {};
     signedInUser.listTeams.mockClear();
     getUser.mockClear();
     signedInUser.listProducts.mockClear();
@@ -169,6 +170,20 @@ describe("billing portal route", () => {
       customer: "cus_anonymous",
       return_url: "https://cmux.test/pricing",
     });
+  });
+
+  test("blocks portal sessions while account deletion is in progress", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxAccountDeletionInProgress: true };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+    expect(createPortalSession).not.toHaveBeenCalled();
   });
 
   test("opens the Team customer portal when scope is team", async () => {

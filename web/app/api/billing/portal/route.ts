@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import { isStackAccountDeletionBlocked } from "../../../../services/account/deletion";
 import { captureBillingError } from "../../../../services/errors";
 import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import {
@@ -27,6 +28,9 @@ export async function GET(request: NextRequest) {
     const user = await currentStackUser();
     if (!user) {
       return NextResponse.redirect(new URL("/pricing", request.url), 302);
+    }
+    if (await isStackAccountDeletionBlocked(user)) {
+      return pricingRedirect(request, "error");
     }
     stackUserId = user.id;
 

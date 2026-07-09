@@ -1,0 +1,416 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+const accountDeletionModule = await import("../services/account/deletion");
+const realIsStackAccountDeletionInProgress = accountDeletionModule.isStackAccountDeletionInProgress;
+const realMarkStackUserDeletionInProgress = accountDeletionModule.markStackUserDeletionInProgress;
+const calls: string[] = [];
+const scheduledCallbacks: Array<() => Promise<void>> = [];
+let stackUserMetadata: unknown = {};
+let enqueueStatus: "pending" | "in_progress" | "completed" | "failed" = "pending";
+let enqueueError: Error | null = null;
+let markStackError: Error | null = null;
+let getUserError: Error | null = null;
+let getUserMissing = false;
+let preflightError: Error | null = null;
+let accountDeletionCanStartError: Error | null = null;
+type NativeTokenStore = { accessToken: string; refreshToken: string };
+type AccountDeletionRouteTeamScope = {
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly {
+    readonly stackTeamId: string;
+    readonly stackUserId: string;
+  }[];
+};
+let accountDeletionTeamScope: AccountDeletionRouteTeamScope = {
+  ownedTeamIds: [],
+  retainedTeamBillingOwners: [],
+};
+const markStackUserDeletionInProgress = mock(async (user) => {
+  calls.push("mark-deleting");
+  if (markStackError) throw markStackError;
+  await realMarkStackUserDeletionInProgress(
+    user as Parameters<typeof realMarkStackUserDeletionInProgress>[0],
+  );
+});
+const enqueueAccountDeletion = mock(async (_input?: unknown) => {
+  calls.push("enqueue");
+  if (enqueueError) throw enqueueError;
+  return { userIdHash: "hash-user-1", status: enqueueStatus };
+});
+const processAccountDeletionForUser = mock(async (_input?: unknown) => {
+  const input = _input as { userId: string };
+  calls.push(`process:${input.userId}`);
+  return "processed" as const;
+});
+const preflightDeletionDependencies = mock(() => {
+  calls.push("preflight");
+  if (preflightError) throw preflightError;
+});
+const accountDeletionTeamScopeForUser = mock(async () => accountDeletionTeamScope);
+const assertAccountDeletionCanStart = mock(async () => {
+  if (accountDeletionCanStartError) throw accountDeletionCanStartError;
+});
+const deleteUser = mock(async () => {});
+const getUser = mock(async (_options?: unknown) => {
+  if (getUserError) throw getUserError;
+  if (getUserMissing) return null;
+  return stackUser();
+});
+
+const route = await import("../app/api/account/deletion/route");
+
+function stackUser() {
+  return {
+    id: "user-1",
+    get clientReadOnlyMetadata() {
+      return stackUserMetadata;
+    },
+    update: async ({ clientReadOnlyMetadata }: { clientReadOnlyMetadata: Record<string, unknown> }) => {
+      stackUserMetadata = clientReadOnlyMetadata;
+    },
+    delete: async () => {
+      calls.push("delete");
+      await deleteUser();
+    },
+  };
+}
+
+function deleteAccount(request: Request): Promise<Response> {
+  return route.deleteAccountWithDependencies(request, {
+    isStackConfigured: () => true,
+    getUser: async (tokenStore) =>
+      (await getUser({ tokenStore })) as ReturnType<typeof stackUser> | null,
+    markStackUserDeletionInProgress,
+    enqueueAccountDeletion: async (input) =>
+      await enqueueAccountDeletion(input) as Awaited<ReturnType<typeof accountDeletionModule.enqueueAccountDeletion>>,
+    processAccountDeletionForUser: async (input) =>
+      await processAccountDeletionForUser(input) as "processed" | "skipped",
+    accountDeletionTeamScopeForUser,
+    assertAccountDeletionCanStart,
+    preflightDeletionDependencies,
+    scheduleAfterResponse: (callback) => {
+      calls.push("schedule");
+      scheduledCallbacks.push(callback);
+    },
+  });
+}
+
+beforeEach(() => {
+  calls.length = 0;
+  scheduledCallbacks.length = 0;
+  stackUserMetadata = {};
+  enqueueStatus = "pending";
+  enqueueError = null;
+  markStackError = null;
+  getUserError = null;
+  getUserMissing = false;
+  preflightError = null;
+  accountDeletionCanStartError = null;
+  accountDeletionTeamScope = {
+    ownedTeamIds: [],
+    retainedTeamBillingOwners: [],
+  };
+  markStackUserDeletionInProgress.mockClear();
+  enqueueAccountDeletion.mockClear();
+  processAccountDeletionForUser.mockClear();
+  accountDeletionTeamScopeForUser.mockClear();
+  assertAccountDeletionCanStart.mockClear();
+  preflightDeletionDependencies.mockClear();
+  deleteUser.mockClear();
+  getUser.mockClear();
+});
+
+describe("account deletion route", () => {
+  test("rejects requests without native Stack tokens", async () => {
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", { method: "DELETE" }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  test("marks deletion in progress, enqueues cleanup, and returns before background deletion", async () => {
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true, status: "pending" });
+    expect(getUser).toHaveBeenCalledWith({
+      tokenStore: { accessToken: "access-1", refreshToken: "refresh-1" },
+    });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: [],
+      retainedTeamBillingOwners: [],
+    });
+    expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(calls).toEqual(["preflight", "enqueue", "mark-deleting", "schedule"]);
+    expect(scheduledCallbacks).toHaveLength(1);
+
+    await scheduledCallbacks[0]();
+
+    expect(processAccountDeletionForUser).toHaveBeenCalledWith({ userId: "user-1" });
+    expect(calls).toEqual([
+      "preflight",
+      "enqueue",
+      "mark-deleting",
+      "schedule",
+      "process:user-1",
+    ]);
+  });
+
+  test("returns completed deletion without scheduling duplicate cleanup", async () => {
+    enqueueStatus = "completed";
+
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, status: "completed" });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: [],
+      retainedTeamBillingOwners: [],
+    });
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+  });
+
+  test("enqueues the Stack team scope that passed deletion preflight", async () => {
+    accountDeletionTeamScope = {
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    };
+
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(assertAccountDeletionCanStart).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    });
+  });
+
+  test("does not mark Stack deletion metadata when enqueue fails", async () => {
+    enqueueError = new Error("database unavailable");
+
+    await expect(deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    )).rejects.toThrow("database unavailable");
+
+    expect(calls).toEqual(["preflight", "enqueue"]);
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(false);
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  test("returns accepted and schedules cleanup when Stack metadata marking fails after enqueue", async () => {
+    markStackError = new Error("Stack metadata unavailable");
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await deleteAccount(
+        new Request("https://cmux.test/api/account/deletion", {
+          method: "DELETE",
+          headers: {
+            authorization: "Bearer access-1",
+            "x-stack-refresh-token": "refresh-1",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(202);
+      expect(await response.json()).toEqual({ ok: true, status: "pending" });
+      expect(calls).toEqual(["preflight", "enqueue", "mark-deleting", "schedule"]);
+      expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(false);
+      expect(scheduledCallbacks).toHaveLength(1);
+      expect(consoleError).toHaveBeenCalledWith(
+        "[account-deletion] Stack metadata mark failed after enqueue",
+        expect.objectContaining({ userIdHash: "hash-user-1", error: markStackError }),
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    await scheduledCallbacks[0]();
+
+    expect(processAccountDeletionForUser).toHaveBeenCalledWith({ userId: "user-1" });
+  });
+
+  test("rejects stale native tokens without deleting anything", async () => {
+    getUserMissing = true;
+
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer stale-access",
+          "x-stack-refresh-token": "stale-refresh",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  test("does not enqueue deletion when dependency preflight fails", async () => {
+    preflightError = new Error("PostHog account deletion is not configured");
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await deleteAccount(
+        new Request("https://cmux.test/api/account/deletion", {
+          method: "DELETE",
+          headers: {
+            authorization: "Bearer access-1",
+            "x-stack-refresh-token": "refresh-1",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "deletion_unavailable" });
+      expect(calls).toEqual(["preflight"]);
+      expect(consoleError).toHaveBeenCalledWith(
+        "[account-deletion] dependency preflight failed",
+        { error: preflightError },
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+  });
+
+  test("does not enqueue deletion when local account data cannot be safely deleted", async () => {
+    accountDeletionCanStartError = new Error("Stripe account deletion is not configured");
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await deleteAccount(
+        new Request("https://cmux.test/api/account/deletion", {
+          method: "DELETE",
+          headers: {
+            authorization: "Bearer access-1",
+            "x-stack-refresh-token": "refresh-1",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "deletion_unavailable" });
+      expect(assertAccountDeletionCanStart).toHaveBeenCalledWith({
+        userId: "user-1",
+        ownedTeamIds: [],
+        retainedTeamBillingOwners: [],
+      });
+      expect(consoleError).toHaveBeenCalledWith(
+        "[account-deletion] dependency preflight failed",
+        { error: accountDeletionCanStartError },
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+  });
+
+  test("returns sanitized failure when Stack user lookup throws", async () => {
+    const stackError = new Error("Stack API unavailable");
+    getUserError = stackError;
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await deleteAccount(
+        new Request("https://cmux.test/api/account/deletion", {
+          method: "DELETE",
+          headers: {
+            authorization: "Bearer access-1",
+            "x-stack-refresh-token": "refresh-1",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "deletion_unavailable" });
+      expect(consoleError).toHaveBeenCalledWith(
+        "[account-deletion] Stack user lookup failed",
+        { error: stackError },
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+});

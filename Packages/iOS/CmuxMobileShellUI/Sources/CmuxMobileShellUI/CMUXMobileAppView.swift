@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileShell
 import SwiftUI
@@ -18,6 +19,8 @@ public struct CMUXMobileAppView: View {
     @State private var browserStore: BrowserSurfaceStore
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
+    private let telemetryConsentStore: MobileTelemetryConsentStore
+    private let accountDeletionClient: MobileAccountDeletionClient?
     #endif
 
     #if os(iOS)
@@ -26,17 +29,23 @@ public struct CMUXMobileAppView: View {
     ///   - store: The shell store backing the workspace UI.
     ///   - browserStore: The phone-local browser surface store injected into the
     ///     environment for workspace detail browser panes.
-    ///   - onboardingStore: The first-run onboarding "seen" flag store. Defaults
-    ///     to a `.standard`-backed store marked already-seen, so SwiftUI previews
-    ///     and ad-hoc construction never present onboarding.
+    ///   - onboardingStore: The first-run onboarding "seen" flag store.
+    ///   - telemetryConsentStore: The product analytics consent store shared
+    ///     with the app's analytics emitter.
+    ///   - accountDeletionClient: Authenticated client for the Settings account
+    ///     deletion flow. `nil` in previews.
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
-        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true)
+        onboardingStore: MobileOnboardingStore,
+        telemetryConsentStore: MobileTelemetryConsentStore,
+        accountDeletionClient: MobileAccountDeletionClient? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         self.onboardingStore = onboardingStore
+        self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = accountDeletionClient
     }
     #else
     public init(
@@ -50,7 +59,12 @@ public struct CMUXMobileAppView: View {
 
     public var body: some View {
         #if os(iOS)
-        CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
+        CMUXMobileRootView(
+            store: store,
+            onboardingStore: onboardingStore,
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: accountDeletionClient
+        )
             .environment(browserStore)
         #else
         CMUXMobileRootView(store: store)

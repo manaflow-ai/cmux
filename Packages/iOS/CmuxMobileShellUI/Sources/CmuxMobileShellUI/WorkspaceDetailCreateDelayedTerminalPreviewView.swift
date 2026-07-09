@@ -1,6 +1,8 @@
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
+import Foundation
 import SwiftUI
 
 #if os(iOS) && DEBUG
@@ -31,12 +33,17 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
     )
     @State private var browserStore = BrowserSurfaceStore()
     @State private var delayedTerminalTask: Task<Void, Never>?
+    private let telemetryConsentStore = MobileTelemetryConsentStore(
+        defaults: UserDefaults(suiteName: "WorkspaceDetailCreateDelayedTerminalPreviewView.telemetry")!
+    )
 
     var body: some View {
         WorkspaceShellView(
             store: store,
             signOut: {},
-            showAddDevice: nil
+            showAddDevice: nil,
+            telemetryConsentStore: telemetryConsentStore,
+            accountDeletionClient: nil
         )
         .environment(browserStore)
         .task {

@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -20,6 +21,8 @@ struct CMUXMobileRootView: View {
     /// The persisted first-run onboarding "seen" flag store. The one-time
     /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
+    private let telemetryConsentStore: MobileTelemetryConsentStore
+    private let accountDeletionClient: MobileAccountDeletionClient?
     /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
     /// onboarding (which calls `markSeen()` in the button action) re-renders the
     /// root and falls through to the pairing flow. Seeded synchronously from the
@@ -43,9 +46,16 @@ struct CMUXMobileRootView: View {
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
-    init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
+    init(
+        store: CMUXMobileShellStore,
+        onboardingStore: MobileOnboardingStore,
+        telemetryConsentStore: MobileTelemetryConsentStore,
+        accountDeletionClient: MobileAccountDeletionClient?
+    ) {
         self.store = store
         self.onboardingStore = onboardingStore
+        self.telemetryConsentStore = telemetryConsentStore
+        self.accountDeletionClient = accountDeletionClient
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else
@@ -213,6 +223,8 @@ struct CMUXMobileRootView: View {
                 store: store,
                 signOut: signOut,
                 showAddDevice: showAddDevice,
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {
@@ -228,7 +240,9 @@ struct CMUXMobileRootView: View {
                 showAddDevice: showAddDevice,
                 signOut: signOut,
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
-                store: store
+                store: store,
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
             )
         } else {
             // Connected, OR we have saved Macs and are auto-connecting in the
@@ -237,7 +251,13 @@ struct CMUXMobileRootView: View {
             // whatever workspaces have aggregated (foreground + live secondary
             // subscriptions); the foreground connection is established without any
             // tap. Opening a workspace attaches its Mac on demand.
-            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
+            WorkspaceShellView(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                telemetryConsentStore: telemetryConsentStore,
+                accountDeletionClient: accountDeletionClient
+            )
         }
     }
 

@@ -1,21 +1,58 @@
 import { and, eq, gt, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
-import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schema";
+import { accountDeletionTombstones, vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schema";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
+} from "../account/deletionLock";
 import { logVaultQuotaError } from "./logging";
 
 type VaultDb = ReturnType<typeof cloudDb>;
 const VAULT_QUOTA_LOCK_NAMESPACE = 9;
 
+export type VaultUserQuotaLockOptions = {
+  readonly allowAccountDeletion?: boolean;
+};
+
+export class VaultWritesDisabledError extends Error {
+  constructor() {
+    super("Vault writes are disabled while account deletion is in progress.");
+    this.name = "VaultWritesDisabledError";
+  }
+}
+
 export async function withVaultUserQuotaLock<T>(
   db: VaultDb,
   userId: string,
   run: (db: VaultDb) => Promise<T>,
+  options: VaultUserQuotaLockOptions = {},
 ): Promise<T> {
   return await db.transaction(async (tx) => {
     await tx.execute(sql`set local lock_timeout = '5s'`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${VAULT_QUOTA_LOCK_NAMESPACE}))`);
-    return await run(tx as unknown as VaultDb);
+    const lockedDb = tx as unknown as VaultDb;
+    if (!options.allowAccountDeletion) {
+      await assertVaultWritesAllowed(lockedDb, userId);
+    }
+    return await run(lockedDb);
   });
+}
+
+async function assertVaultWritesAllowed(db: VaultDb, userId: string): Promise<void> {
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+  const userIdHash = accountDeletionUserHash(userId);
+  const [deletion] = await db
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  if (deletion?.userIdHash === userIdHash && isBlockingAccountDeletionStatus(deletion.status)) {
+    throw new VaultWritesDisabledError();
+  }
 }
 
 /**

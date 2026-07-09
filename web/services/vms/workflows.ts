@@ -19,6 +19,7 @@ import {
 } from "./billingGateway";
 import {
   VmBillingError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
@@ -31,7 +32,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { maxActiveVmsForPlan } from "./entitlements";
-import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderIdentityNotFoundError, isProviderNotFoundError, isProviderSnapshotNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
@@ -251,7 +252,7 @@ export function createVm(input: {
             provider: input.provider,
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause) },
-          }),
+          }).pipe(Effect.asVoid),
         ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
       ),
     );
@@ -436,7 +437,7 @@ function finishBaseCreate(
             provider: input.provider,
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
-          }),
+          }).pipe(Effect.asVoid),
         ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
       ),
     );
@@ -499,7 +500,7 @@ function finishBaseCreate(
         generation: create.generation.generation,
         retainedProviderVmId: create.previousVm?.providerVmId ?? null,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
 
     return baseVmEntryFromRows(
       create.base,
@@ -546,7 +547,7 @@ function reopenBaseIfProviderDeleted(
               baseName: input.baseName ?? "base",
               generation: create.generation.generation,
             },
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -569,25 +570,91 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
+    const reservationId = yield* repo.reserveSnapshotUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      provider: vm.provider,
+      imageId: vm.imageId,
+      named: !!input.name,
+      name: input.name ?? null,
+    });
+    if (!reservationId) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmProviderOperationError({
         provider: vm.provider,
         operation: "snapshot",
         cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
-      })));
-    yield* repo.recordUsageEvent({
+      }))).pipe(
+        Effect.catchAll((error) =>
+          repo.deleteSnapshotUsageEvent({ eventId: reservationId, userId: vm.userId }).pipe(
+            Effect.zipRight(Effect.fail(error)),
+          )
+        ),
+      );
+    const recorded = yield* repo.completeSnapshotUsageEvent({
+      eventId: reservationId,
       userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.snapshot.created",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
-    });
+      snapshotId: snapshot.id,
+      named: !!input.name,
+      name: input.name ?? null,
+    }).pipe(
+      Effect.catchAll((error) =>
+        deleteProviderSnapshot(providers, vm.provider, snapshot.id).pipe(
+          Effect.zipRight(
+            repo.deleteSnapshotUsageEvent({ eventId: reservationId, userId: vm.userId }).pipe(
+              Effect.catchAll(() => Effect.void),
+            ),
+          ),
+          Effect.zipRight(Effect.fail(error)),
+        )
+      ),
+    );
+    if (!recorded) {
+      yield* deleteProviderSnapshot(providers, vm.provider, snapshot.id);
+      yield* repo.deleteSnapshotUsageEvent({ eventId: reservationId, userId: vm.userId }).pipe(
+        Effect.catchAll(() => Effect.void),
+      );
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     return snapshot;
   });
+}
+
+export function deleteVmSnapshot(input: {
+  readonly provider: ProviderId;
+  readonly snapshotId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    yield* deleteProviderSnapshot(providers, input.provider, input.snapshotId);
+  });
+}
+
+function deleteProviderSnapshot(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  snapshotId: string,
+): Effect.Effect<void, VmProviderOperationError> {
+  const deleteSnapshot = providers.deleteSnapshot;
+  if (!deleteSnapshot) {
+    return Effect.fail(new VmProviderOperationError({
+      provider,
+      operation: `deleteSnapshot(${snapshotId})`,
+      cause: new Error("Cloud VM snapshot deletion is not supported by this provider gateway"),
+    }));
+  }
+  return deleteSnapshot(provider, snapshotId).pipe(
+    Effect.catchAll((err) => {
+      if (isProviderSnapshotNotFoundError(err.cause)) return Effect.void;
+      return Effect.fail(err);
+    }),
+  );
 }
 
 export function restoreVm(input: {
@@ -723,7 +790,7 @@ export function forkVm(input: {
               provider: source.provider,
               imageId: source.imageId,
               metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
-            }),
+            }).pipe(Effect.asVoid),
           ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
         ),
       );
@@ -782,7 +849,7 @@ export function forkVm(input: {
           forkProviderVmId: fork.providerVmId,
           idempotencyKeySet: !!input.idempotencyKey,
         },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
       return { snapshot: null, fork };
     }
 
@@ -818,7 +885,7 @@ export function forkVm(input: {
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
     return { snapshot, fork };
   });
 }
@@ -914,7 +981,7 @@ function reconcileObservedProviderStatus(
         provider: vm.provider,
         imageId: vm.imageId,
         metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
       return "destroyed" as const;
     }
     return "updated" as const;
@@ -998,17 +1065,17 @@ function resumeUntilRunning(
   });
 }
 
-function reservePausedResumeIfTeam(
+function reservePausedResume(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<boolean, VmWorkflowError> {
-  if (!vm.billingTeamId) return Effect.succeed(false);
   return Effect.gen(function* () {
     const reserved = yield* repo.reservePausedResume({
       id: vm.id,
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
+      provider: vm.provider,
       providerVmId,
       maxActiveVms: maxActiveVmsForPlan(vm.billingPlanId),
     });
@@ -1056,15 +1123,14 @@ function recordResumeUsageEvent(
     provider: vm.provider,
     imageId: vm.imageId,
     metadata: { source: resumeSource },
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
 }
 
 // Active-limit note: the control-plane-owned paused-row resume path is
-// limit-gated for billing teams by reservePausedResume before the provider
-// resume starts. Freestyle can still resume a VM outside the control plane
-// (for example through its SSH gateway); those already-running observations
-// are reconciled durably here, and beginCreate re-counts provider-running VMs
-// before allocating another active slot.
+// limit-gated by account scope before the provider resume starts. Freestyle can
+// still resume a VM outside the control plane (for example through its SSH
+// gateway); those already-running observations are reconciled durably here, and
+// beginCreate re-counts provider-running VMs before allocating another slot.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -1142,7 +1208,7 @@ function preflightResumeIfSuspended(
     }
     if (status !== "paused") return false;
 
-    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+    const reserved = yield* reservePausedResume(repo, vm, providerVmId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -1193,7 +1259,7 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+        const reserved = yield* reservePausedResume(repo, vm, providerVmId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),
@@ -1268,7 +1334,40 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+  });
+}
+
+export function destroyAccountOwnedVm(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* repo.findAccountOwnedVm(input);
+    if (!vm || !vm.providerVmId) {
+      return;
+    }
+
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    yield* providers.destroy(vm.provider, vm.providerVmId).pipe(
+      Effect.catchAll((err) => {
+        if (isProviderNotFoundError(err.cause)) return Effect.void;
+        return Effect.fail(err);
+      }),
+    );
+    yield* repo.markDestroyed(vm.id);
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.destroyed",
+      provider: vm.provider,
+      imageId: vm.imageId,
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
   });
 }
 
@@ -1310,6 +1409,21 @@ export function revokeExpiredIdentityLeases(input: {
   });
 }
 
+export function revokeVmIdentityLease(input: {
+  readonly provider: ProviderId;
+  readonly identityHandle: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    yield* revokeSSHIdentityForCleanup(providers, input.provider, input.identityHandle).pipe(
+      Effect.catchAll((err) => {
+        if (isProviderIdentityNotFoundError(err.cause)) return Effect.void;
+        return Effect.fail(err);
+      }),
+    );
+  });
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -1329,19 +1443,54 @@ export function execVm(input: {
       input.providerVmId,
       "exec",
     );
-    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
-      timeoutMs: input.timeoutMs,
-    });
-    yield* repo.recordUsageEvent({
+    const commandLength = input.command.length;
+    const execUsageEventId = yield* repo.reserveExecUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
       vmId: vm.id,
-      eventType: "vm.exec",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.catchAll(() => Effect.void));
+      commandLength,
+    });
+    if (!execUsageEventId) {
+      return yield* Effect.fail(new VmCreateDisabledError({
+        provider: vm.provider,
+        reason: "Account deletion is in progress.",
+      }));
+    }
+    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
+      timeoutMs: input.timeoutMs,
+    }).pipe(
+      Effect.tapError(() =>
+        repo.deleteExecUsageEvent({
+          eventId: execUsageEventId,
+          userId: input.userId,
+        }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+    const completed = yield* repo.completeExecUsageEvent({
+      eventId: execUsageEventId,
+      userId: input.userId,
+      commandLength,
+      exitCode: result.exitCode,
+    }).pipe(
+      Effect.catchAll(() =>
+        repo.deleteExecUsageEvent({
+          eventId: execUsageEventId,
+          userId: input.userId,
+        }).pipe(
+          Effect.catchAll(() => Effect.void),
+          Effect.as(false),
+        )
+      ),
+    );
+    if (!completed) {
+      yield* repo.deleteExecUsageEvent({
+        eventId: execUsageEventId,
+        userId: input.userId,
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
     return result satisfies ExecResult;
   });
 }
@@ -1428,7 +1577,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         ),
       ),
     );
-    yield* repo.recordUsageEvent({
+    const recordedUsage = yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -1442,7 +1591,11 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll(() => Effect.succeed(true)));
+    if (!recordedUsage) {
+      yield* revokeEndpointIdentity(vm.provider, endpoint);
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     const session = endpoint.transport === "websocket"
       ? yield* repo.upsertVmSession({
         vmId: vm.id,
@@ -1456,7 +1609,13 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
           daemonAvailable: !!endpoint.daemon,
           attachmentId: endpoint.attachmentId,
         },
-      })
+      }).pipe(
+        Effect.catchAll((err) =>
+          revokeEndpointIdentity(vm.provider, endpoint).pipe(
+            Effect.andThen(Effect.fail(err)),
+          ),
+        ),
+      )
       : undefined;
     return { endpoint, session };
   });
@@ -1489,7 +1648,7 @@ export function openSshEndpoint(input: {
         ),
       ),
     );
-    yield* repo.recordUsageEvent({
+    const recordedUsage = yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -1498,7 +1657,11 @@ export function openSshEndpoint(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll(() => Effect.succeed(true)));
+    if (!recordedUsage) {
+      yield* revokeEndpointIdentity(vm.provider, endpoint);
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     return endpoint;
   });
 }
@@ -1648,7 +1811,7 @@ function recordCreditEvent(
       customerType: reservation.customerType,
       customerIdSet: !!reservation.customerId,
     },
-  });
+  }).pipe(Effect.asVoid);
 }
 
 function reserveCreateCredit(
@@ -1686,7 +1849,7 @@ function reserveCreateCredit(
               imageVersion: input.imageVersion ?? null,
               message: errorMessage(err),
             },
-          }).pipe(Effect.catchAll(() => Effect.void))
+          }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void))
         ),
       );
 
@@ -1725,7 +1888,7 @@ function reserveCreateCredit(
                   ? String((err as { _tag?: unknown })._tag)
                   : null,
               },
-            }),
+            }).pipe(Effect.asVoid),
           ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
         ),
       );
@@ -1824,7 +1987,7 @@ function recordCreateFailureEvent(
     provider: input.provider,
     imageId: input.image,
     metadata: { operation, message },
-  });
+  }).pipe(Effect.asVoid);
 }
 
 function creditUsageEvent(
@@ -1911,7 +2074,7 @@ function recordGrantEvent(
       customerType: grant.customerType,
       customerIdSet: !!grant.customerId,
     },
-  });
+  }).pipe(Effect.asVoid);
 }
 
 function refundCredit(

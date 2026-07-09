@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stackServerApp } from "../../../lib/stack";
+import { isStackAccountDeletionBlocked } from "../../../../services/account/deletion";
 import {
   hasActiveProSubscription,
   resolveProPlanStatus,
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest) {
   const user = await stackServerApp.getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
     return NextResponse.redirect(new URL("/pricing", request.url));
+  }
+  if (await isStackAccountDeletionBlocked(user)) {
+    return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
   }
 
   const app = stackServerApp;

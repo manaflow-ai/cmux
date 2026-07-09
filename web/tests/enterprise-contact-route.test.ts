@@ -1,4 +1,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { installVercelFirewallMock } from "./vercel-firewall-mock";
+
+process.env.RESEND_API_KEY = "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL = "feedback@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "test-feedback-rate-limit";
+process.env.SLACK_ENTERPRISE_WEBHOOK_URL = "https://slack.test/enterprise";
 
 const originalFetch = globalThis.fetch;
 
@@ -7,6 +13,17 @@ const resendCtor = mock((apiKey: unknown) => apiKey);
 const fetchMock = mock(async () => new Response("ok", { status: 200 }));
 
 globalThis.fetch = fetchMock as unknown as typeof fetch;
+installVercelFirewallMock();
+
+mock.module("@/app/env", () => ({
+  env: {
+    RESEND_API_KEY: "test-resend-key",
+    CMUX_FEEDBACK_FROM_EMAIL: "feedback@example.com",
+    CMUX_FEEDBACK_RATE_LIMIT_ID: "test-feedback-rate-limit",
+    CMUX_PUSH_RATE_LIMIT_ID: "cmux-push-test",
+    SLACK_ENTERPRISE_WEBHOOK_URL: "https://slack.test/enterprise",
+  },
+}));
 
 function dnsError(code: string): NodeJS.ErrnoException {
   const err = new Error(code) as NodeJS.ErrnoException;

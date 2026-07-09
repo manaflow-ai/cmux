@@ -10,8 +10,9 @@ import { cloudDb } from "../../../../db/client";
 import { deviceTokens } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
-import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
+import { recordPushSendInTransactionOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
+import { AccountDeletionMutationBlockedError, withAccountDeletionUserMutationLock } from "../../../../services/account/deletion";
 import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
@@ -78,42 +79,63 @@ async function sendPush(request: Request): Promise<Response> {
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
 
   const db = cloudDb();
-  const tokens = await db
-    .select({
-      deviceToken: deviceTokens.deviceToken,
-      bundleId: deviceTokens.bundleId,
-      environment: deviceTokens.environment,
-    })
-    .from(deviceTokens)
-    .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios")))
-    .limit(MAX_DEVICE_TOKENS_PER_USER);
-
-  if (tokens.length === 0) {
-    return jsonResponse(summarizeApnsSendResults([]));
-  }
-
-  const config = apnsConfig();
-  if (!config) {
-    return jsonResponse({ error: "push_service_not_configured" }, 503);
-  }
 
   try {
-    await recordPushSendOrThrow(db, user.id, tokens.length);
+    const result = await withAccountDeletionUserMutationLock(db, user.id, async (tx) => {
+      const tokens = await tx
+        .select({
+          deviceToken: deviceTokens.deviceToken,
+          bundleId: deviceTokens.bundleId,
+          environment: deviceTokens.environment,
+        })
+        .from(deviceTokens)
+        .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios")))
+        .limit(MAX_DEVICE_TOKENS_PER_USER);
+
+      if (tokens.length === 0) {
+        return { kind: "sent" as const, results: [] };
+      }
+
+      const config = apnsConfig();
+      if (!config) {
+        return { kind: "unconfigured" as const };
+      }
+
+      await recordPushSendInTransactionOrThrow(tx, user.id, tokens.length);
+      const results = await sendApnsNotification(config, tokens, payload.value);
+      return { kind: "sent" as const, results };
+    });
+
+    if (result.kind === "unconfigured") {
+      return jsonResponse({ error: "push_service_not_configured" }, 503);
+    }
+    await pruneDeadDeviceTokens(db, user.id, result.results.filter((r) => r.prune).map((r) => r.deviceToken));
+    return jsonResponse(summarizeApnsSendResults(result.results));
   } catch (error) {
     if (error instanceof PushRateLimitExceededError) {
       return rateLimitResponse(error);
     }
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+    }
     throw error;
   }
+}
 
-  const results = await sendApnsNotification(config, tokens, payload.value);
-
-  const dead = results.filter((r) => r.prune).map((r) => r.deviceToken);
-  if (dead.length > 0) {
-    await db
-      .delete(deviceTokens)
-      .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, dead)));
+async function pruneDeadDeviceTokens(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  deadTokens: readonly string[],
+): Promise<void> {
+  if (deadTokens.length === 0) return;
+  try {
+    await withAccountDeletionUserMutationLock(db, userId, async (tx) => {
+      await tx
+        .delete(deviceTokens)
+        .where(and(eq(deviceTokens.userId, userId), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, deadTokens)));
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) return;
+    throw error;
   }
-
-  return jsonResponse(summarizeApnsSendResults(results));
 }

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// The opt-out gate the emitter consults before every capture and identify.
@@ -11,8 +12,9 @@ public import Foundation
 public protocol AnalyticsConsentProviding: Sendable {
     /// Whether anonymous product telemetry may currently be sent.
     ///
-    /// When `false`, the emitter drops every event and identify call and sends
-    /// nothing over the network.
+    /// When `false`, the emitter drops every event and sends no identify calls over
+    /// the network. Local identity state still advances so attribution is current if
+    /// the user opts back in later.
     var isTelemetryEnabled: Bool { get }
 }
 
@@ -42,26 +44,24 @@ public struct AnalyticsConsentProvider: AnalyticsConsentProviding {
 ///
 /// The iOS app cannot import the macOS-only `CmuxSettings` package, so this reads
 /// the same backing key that `CmuxSettings.catalog.app.sendAnonymousTelemetry`
-/// writes (`"sendAnonymousTelemetry"`), with the same default of `true`. The
+    /// writes (`"sendAnonymousTelemetry"`), with the same default of `false`. The
 /// value is read on every capture so toggling the Settings switch takes effect
 /// immediately without rewiring.
 public struct UserDefaultsAnalyticsConsentProvider: AnalyticsConsentProviding {
     /// The `UserDefaults` key shared with the settings catalog's
     /// `app.sendAnonymousTelemetry` entry.
-    public static let telemetryKey = "sendAnonymousTelemetry"
+    public static let telemetryKey = MobileTelemetryConsentStore.defaultsKey
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let store: MobileTelemetryConsentStore
 
     /// Creates a consent provider over the given defaults.
     /// - Parameter defaults: The defaults store holding the opt-out flag. Inject
     ///   a suite-scoped store in tests; the app uses `.standard`.
     public init(defaults: UserDefaults) {
-        self.defaults = defaults
+        self.store = MobileTelemetryConsentStore(defaults: defaults)
     }
 
     public var isTelemetryEnabled: Bool {
-        // Absent key defaults to opted-in (true), matching the catalog default.
-        defaults.object(forKey: Self.telemetryKey) as? Bool ?? true
+        store.isEnabled
     }
 }

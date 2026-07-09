@@ -8,6 +8,7 @@ import {
 } from "./entitlements";
 import {
   isVmBillingError,
+  isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
   vmWorkflowErrorCause,
@@ -256,6 +257,20 @@ export function vmRequiresProResponse(): Response {
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  if (isVmCreateDisabledError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_create_disabled",
+      status: 409,
+      message: "Cloud VM creation is disabled for this account.",
+      action: "Finish account deletion or sign in with another account before creating a Cloud VM.",
+      reason: workflowError.reason,
+      phase: "create",
+      retryable: false,
+      displayTitle: "Cloud VM creation unavailable",
+      displayMessage: "This account cannot create Cloud VMs while account deletion is in progress.",
+    });
+  }
+
   if (isVmProviderOperationError(workflowError)) {
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);

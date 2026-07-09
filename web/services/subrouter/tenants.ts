@@ -55,6 +55,7 @@ export async function getOrCreateTenantForTeam(
   options: {
     readonly client?: SubrouterClient;
     readonly env?: SubrouterRuntimeEnv;
+    readonly onCreated?: (tenant: SubrouterTenantAccess) => void;
     readonly tenantKeySecret?: string;
   } = {},
 ): Promise<SubrouterTenantAccess> {
@@ -110,10 +111,12 @@ export async function getOrCreateTenantForTeam(
       throw err;
     }
 
-    return {
+    const access = {
       tenantId: tenant.id,
       tenantKey: tenant.key,
     };
+    options.onCreated?.(access);
+    return access;
   });
 }
 

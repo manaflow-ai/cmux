@@ -1,0 +1,207 @@
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+const originalFetch = globalThis.fetch;
+const originalEnv = {
+  POSTHOG_ENVIRONMENT_ID: process.env.POSTHOG_ENVIRONMENT_ID,
+  POSTHOG_PROJECT_ID: process.env.POSTHOG_PROJECT_ID,
+  POSTHOG_PERSONAL_API_KEY: process.env.POSTHOG_PERSONAL_API_KEY,
+  POSTHOG_DELETION_TIMEOUT_MS: process.env.POSTHOG_DELETION_TIMEOUT_MS,
+};
+
+const {
+  assertPostHogDeletionConfigured,
+  deletePostHogPersonData,
+  isPostHogPersonDataDeletionComplete,
+} = await import("../services/analytics/posthogDeletion");
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  restoreEnv("POSTHOG_ENVIRONMENT_ID", originalEnv.POSTHOG_ENVIRONMENT_ID);
+  restoreEnv("POSTHOG_PROJECT_ID", originalEnv.POSTHOG_PROJECT_ID);
+  restoreEnv("POSTHOG_PERSONAL_API_KEY", originalEnv.POSTHOG_PERSONAL_API_KEY);
+  restoreEnv("POSTHOG_DELETION_TIMEOUT_MS", originalEnv.POSTHOG_DELETION_TIMEOUT_MS);
+});
+
+describe("PostHog account deletion", () => {
+  test("posts bulk person deletion to the environment-scoped API", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    globalThis.fetch = mock(async (...args: unknown[]) => {
+      const [url, init] = args as [string | URL | Request, RequestInit | undefined];
+      requests.push({ url: String(url), init });
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1", "stack-user-1"]))
+      .resolves.toBe("completed");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe("https://us.posthog.com/api/environments/env-123/persons/bulk_delete/");
+    expect(requests[0].init?.method).toBe("POST");
+    expect(requests[0].init?.headers).toEqual({
+      "Authorization": "Bearer phx_personal",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({
+      distinct_ids: ["stack-user-1", "anon-1"],
+      delete_events: true,
+      delete_recordings: true,
+    });
+  });
+
+  test("accepts legacy project id config as the PostHog environment id", () => {
+    delete process.env.POSTHOG_ENVIRONMENT_ID;
+    process.env.POSTHOG_PROJECT_ID = "legacy-project-id";
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+
+    expect(() => assertPostHogDeletionConfigured()).not.toThrow();
+  });
+
+  test("continues when PostHog reports already-deleted person errors", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({
+        deletion_errors: [{ distinct_id: "anon-1", error: "not found" }],
+      }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .resolves.toBe("completed");
+  });
+
+  test("keeps deletion pending when PostHog queues event or recording deletion", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({
+        deletion_errors: [],
+        events_queued_for_deletion: true,
+        recordings_queued_for_deletion: false,
+      }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .resolves.toBe("pending");
+  });
+
+  test("polls PostHog deletion status before completing account deletion", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    const requests: string[] = [];
+    globalThis.fetch = mock(async (...args: unknown[]) => {
+      const [url] = args as [string | URL | Request, RequestInit | undefined];
+      requests.push(String(url));
+      return new Response(JSON.stringify({ count: 1, results: [{ id: "job-1" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(isPostHogPersonDataDeletionComplete()).resolves.toBe(false);
+    expect(requests).toEqual([
+      "https://us.posthog.com/api/environments/env-123/persons/deletion_status/?status=pending&limit=1",
+    ]);
+  });
+
+  test("treats empty PostHog deletion status as complete", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({ count: 0, results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(isPostHogPersonDataDeletionComplete()).resolves.toBe(true);
+  });
+
+  test("fails closed when PostHog reports missing permissions", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({
+        deletion_errors: [{ distinct_id: "anon-1", error: "missing permission" }],
+      }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion failed: 1 deletion error(s)");
+  });
+
+  test("fails closed when PostHog reports non-idempotent per-person deletion errors", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({
+        deletion_errors: [
+          { distinct_id: "anon-1", error: "not found" },
+          { distinct_id: "anon-2", error: "permission denied" },
+        ],
+      }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1", "anon-2"]))
+      .rejects.toThrow("PostHog account deletion failed: 1 deletion error(s)");
+  });
+
+  test("times out stalled PostHog deletion requests", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    process.env.POSTHOG_DELETION_TIMEOUT_MS = "1";
+    globalThis.fetch = mock(async (...args: unknown[]) => {
+      const [, init] = args as [string | URL | Request, RequestInit | undefined];
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        }, { once: true });
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion timed out");
+  });
+
+  test("fails closed when PostHog deletion is not configured", async () => {
+    delete process.env.POSTHOG_ENVIRONMENT_ID;
+    delete process.env.POSTHOG_PROJECT_ID;
+    delete process.env.POSTHOG_PERSONAL_API_KEY;
+    const fetchMock = mock(async () => new Response(null, { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion is not configured");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+function restoreEnv(name: keyof typeof originalEnv, value: string | undefined): void {
+  if (typeof value === "undefined") {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
