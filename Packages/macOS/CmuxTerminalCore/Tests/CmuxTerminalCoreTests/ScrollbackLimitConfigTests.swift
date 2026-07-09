@@ -7,7 +7,6 @@ struct ScrollbackLimitConfigTests {
         let config = GhosttyConfig()
 
         #expect(config.scrollbackLimit == 50_000_000)
-        #expect(config.scrollbackLimit == GhosttyConfig.defaultScrollbackLimit)
     }
 
     @Test func explicitLimitOverridesDefault() {

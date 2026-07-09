@@ -43,9 +43,6 @@ public struct GhosttyConfig {
     public static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
     /// The maximum surface tab-bar font size the parser will clamp to.
     public static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
-    /// The default scrollback limit in bytes, matching Ghostty's compressed-history default.
-    public static let defaultScrollbackLimit = 50_000_000
-
     /// The terminal font family.
     public var fontFamily: String = "Menlo"
     /// The terminal font size, in points.
@@ -59,7 +56,7 @@ public struct GhosttyConfig {
     /// The configured `working-directory`, or `nil` when unset.
     public var workingDirectory: String?
     /// The scrollback limit. Ghostty measures this in bytes, not lines.
-    public var scrollbackLimit: Int = Self.defaultScrollbackLimit
+    public var scrollbackLimit: Int = 50_000_000
     /// The opacity (0...1) applied to unfocused split panes.
     public var unfocusedSplitOpacity: Double = 0.7
     /// The fill color for the unfocused-split overlay, or `nil` to use the
