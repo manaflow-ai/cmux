@@ -70,43 +70,7 @@ enum AgentHibernationTranscriptGuard {
               isSafeSessionIdPathComponent(agent.sessionId) else {
             return nil
         }
-
-        var candidates: [String] = []
-        var seenCandidates: Set<String> = []
-        func appendCandidate(_ path: String) {
-            let standardized = (path as NSString).standardizingPath
-            guard seenCandidates.insert(standardized).inserted,
-                  isRegularFile(atPath: path, fileManager: fileManager) else { return }
-            candidates.append(path)
-        }
-
-        if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
-            appendCandidate(recordedPath)
-        }
-
-        for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
-            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
-            if let workingDirectory = normalized(agent.workingDirectory) {
-                let projectRoot = (projectsRoot as NSString)
-                    .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
-                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) + workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
-                    appendCandidate(candidate)
-                }
-            }
-            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
-            for projectDir in projectDirs.sorted() {
-                let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
-                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) + workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
-                    appendCandidate(candidate)
-                }
-            }
-        }
-
-        return candidates.first { candidate in
-            transcriptHasConversationTurns(atPath: candidate, fileManager: fileManager)
-        } ?? candidates.first { candidate in
-            !transcriptContainsOnlyNonProtectiveMetadata(atPath: candidate, fileManager: fileManager)
-        } ?? candidates.first
+        return resolveClaudeTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager)
     }
 
     static func transcriptHasConversationTurns(
@@ -250,7 +214,7 @@ enum AgentHibernationTranscriptGuard {
         }
     }
 
-    private static func transcriptCandidates(projectRoot: String, sessionId: String) -> [String] {
+    static func transcriptCandidates(projectRoot: String, sessionId: String) -> [String] {
         let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
         let nestedPath = (((projectRoot as NSString).appendingPathComponent(sessionId) as NSString).appendingPathComponent("messages") as NSString).appendingPathComponent("\(sessionId).jsonl")
         return [directPath, nestedPath]
@@ -262,7 +226,7 @@ enum AgentHibernationTranscriptGuard {
 
     // Mirrors regularNonEmptyFileExists in RestorableAgentSession.swift: an empty
     // recorded/derived file must not shadow a populated transcript elsewhere.
-    private static func isRegularFile(atPath path: String, fileManager: FileManager) -> Bool {
+    static func isRegularFile(atPath path: String, fileManager: FileManager) -> Bool {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
               !isDirectory.boolValue,
@@ -279,7 +243,7 @@ enum AgentHibernationTranscriptGuard {
         return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    private static func recordedTranscriptPath(
+    static func recordedTranscriptPath(
         agent: SessionRestorableAgentSnapshot,
         homeDirectory: String,
         fileManager: FileManager
@@ -304,7 +268,7 @@ enum AgentHibernationTranscriptGuard {
         return nil
     }
 
-    private static func claudeConfigRoots(
+    static func claudeConfigRoots(
         for agent: SessionRestorableAgentSnapshot,
         homeDirectory: String,
         fileManager: FileManager
@@ -377,7 +341,7 @@ enum AgentHibernationTranscriptGuard {
         return type == "user" || type == "assistant"
     }
 
-    private static func transcriptContainsOnlyNonProtectiveMetadata(
+    static func transcriptContainsOnlyNonProtectiveMetadata(
         atPath path: String,
         fileManager: FileManager,
         maxScannedLineBytes: Int = Self.maxScannedLineBytes
@@ -485,7 +449,7 @@ enum AgentHibernationTranscriptGuard {
         return 0
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    static func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
     }

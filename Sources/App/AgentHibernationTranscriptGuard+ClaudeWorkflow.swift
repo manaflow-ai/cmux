@@ -1,6 +1,98 @@
 import Foundation
 
 extension AgentHibernationTranscriptGuard {
+    static func resolveClaudeTranscriptPath(
+        agent: SessionRestorableAgentSnapshot,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> String? {
+        var metadataOnlyCandidate: String?
+        var seenCandidates: Set<String> = []
+
+        func appendCandidate(_ path: String, to candidates: inout [String]) {
+            let standardized = (path as NSString).standardizingPath
+            guard seenCandidates.insert(standardized).inserted,
+                  isRegularFile(atPath: path, fileManager: fileManager) else { return }
+            candidates.append(path)
+        }
+
+        func resolve(_ candidates: [String]) -> (path: String?, shouldStop: Bool) {
+            let resolution = transcriptCandidateResolution(candidates, fileManager: fileManager)
+            metadataOnlyCandidate = metadataOnlyCandidate ?? resolution.metadataOnlyPath
+            return (resolution.path, resolution.shouldStop)
+        }
+
+        if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+            var candidates: [String] = []
+            appendCandidate(recordedPath, to: &candidates)
+            let resolution = resolve(candidates)
+            if resolution.shouldStop { return resolution.path }
+        }
+
+        let configRoots = claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager)
+        if let workingDirectory = normalized(agent.workingDirectory) {
+            var candidates: [String] = []
+            for configRoot in configRoots {
+                let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+                let projectRoot = (projectsRoot as NSString)
+                    .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId)
+                    + workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
+                    appendCandidate(candidate, to: &candidates)
+                }
+            }
+            let resolution = resolve(candidates)
+            if resolution.shouldStop { return resolution.path }
+        }
+
+        var directFallbackCandidates: [String] = []
+        for configRoot in configRoots {
+            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
+            for projectDir in projectDirs.sorted() {
+                let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                    appendCandidate(candidate, to: &directFallbackCandidates)
+                }
+            }
+        }
+        let directFallbackResolution = resolve(directFallbackCandidates)
+        if directFallbackResolution.shouldStop { return directFallbackResolution.path }
+
+        var workflowFallbackCandidates: [String] = []
+        for configRoot in configRoots {
+            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
+            for projectDir in projectDirs.sorted() {
+                let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
+                for candidate in workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
+                    appendCandidate(candidate, to: &workflowFallbackCandidates)
+                }
+            }
+        }
+        let workflowFallbackResolution = resolve(workflowFallbackCandidates)
+        if workflowFallbackResolution.shouldStop { return workflowFallbackResolution.path }
+        return metadataOnlyCandidate
+    }
+
+    private static func transcriptCandidateResolution(
+        _ candidates: [String],
+        fileManager: FileManager
+    ) -> (path: String?, metadataOnlyPath: String?, shouldStop: Bool) {
+        var metadataOnlyPath: String?
+        for candidate in candidates {
+            if transcriptHasConversationTurns(atPath: candidate, fileManager: fileManager) {
+                return (candidate, metadataOnlyPath, true)
+            }
+            if transcriptContainsOnlyNonProtectiveMetadata(atPath: candidate, fileManager: fileManager) {
+                metadataOnlyPath = metadataOnlyPath ?? candidate
+                continue
+            }
+            return (nil, metadataOnlyPath, true)
+        }
+        return (nil, metadataOnlyPath, false)
+    }
+
     static func workflowTranscriptCandidates(
         projectRoot: String,
         sessionId: String,
