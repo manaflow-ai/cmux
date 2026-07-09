@@ -409,9 +409,9 @@ export async function deleteCmuxAccountData(
   const scope = accountDeletionScope(input);
   const anonymizedUserId = deletedAccountId(input.userId);
   await claimProviderlessAccountVms(scope, runtime);
+  await revokeAccountVmIdentityLeases(scope, runtime);
   await destroyProviderBackedAccountVms(scope, runtime);
   await deleteAccountVmSnapshots(scope, runtime);
-  await revokeAccountVmIdentityLeases(scope, runtime);
   await deletePersonalSubrouterTenants(scope, runtime);
   await withVaultUserQuotaLock(
     runtime.cloudDb(),

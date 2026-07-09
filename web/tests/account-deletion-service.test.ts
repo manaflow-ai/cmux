@@ -412,6 +412,28 @@ describe("account deletion cleanup", () => {
     expect(calls.indexOf("transaction")).toBeLessThan(calls.indexOf("delete-cloud-vm-leases"));
   });
 
+  test("revokes active VM identity leases before destroying provider-backed VMs", async () => {
+    identityLeaseRows = [{
+      id: "00000000-0000-4000-8000-000000000304",
+      provider: "freestyle",
+      providerIdentityHandle: "identity-before-destroy",
+    }];
+    providerBackedVmBatches = [
+      [providerBackedVm("provider-vm-with-many-leases")],
+      [],
+    ];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("revoke-identity:freestyle:identity-before-destroy");
+    expect(calls).toContain("destroy:user-1:provider-vm-with-many-leases");
+    expect(calls.indexOf("mark-identity-leases-revoked")).toBeLessThan(
+      calls.indexOf("destroy:user-1:provider-vm-with-many-leases"),
+    );
+  });
+
   test("marks blank VM identity lease handles without retrying forever", async () => {
     identityLeaseRows = [{
       id: "00000000-0000-4000-8000-000000000303",
