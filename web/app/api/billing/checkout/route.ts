@@ -1,8 +1,9 @@
+import type { StackServerApp } from "@stackframe/stack";
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
-import { stackServerApp } from "../../../lib/stack";
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import { isAppStoreDistributionMode } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import {
@@ -23,11 +24,23 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type CheckoutStackServerApp = StackServerApp<true>;
+
 // One-click upgrade entrypoint. Signed-out visitors become anonymous Stack
 // users first, then go straight to the hosted purchase page. Stack keeps the
 // product grant attached to that anonymous user until the buyer completes
 // account setup with an email.
 export async function GET(request: NextRequest) {
+  if (
+    isAppStoreDistributionMode({
+      cmux_distribution: request.nextUrl.searchParams.get("cmux_distribution"),
+      cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
+    })
+  ) {
+    return NextResponse.redirect(appStorePricingRedirect(request));
+  }
+
+  const stackServerApp = await checkoutStackServerApp();
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
@@ -38,19 +51,22 @@ export async function GET(request: NextRequest) {
   }
 
   if (plan === "pro" && isStripeBillingConfigured()) {
-    return stripeProCheckout(request);
+    return stripeProCheckout(request, stackServerApp);
   }
   if (plan === "team" && isStripeBillingConfigured()) {
-    return stripeTeamCheckout(request);
+    return stripeTeamCheckout(request, stackServerApp);
   }
 
-  return legacyStackCheckout(request, plan);
+  return legacyStackCheckout(request, stackServerApp, plan);
 }
 
-async function stripeProCheckout(request: NextRequest) {
+async function stripeProCheckout(
+  request: NextRequest,
+  stackServerApp: CheckoutStackServerApp,
+) {
   const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
+    (await stackServerApp.getUser({ or: "return-null" })) ??
+    (await stackServerApp.getUser({ or: "anonymous" }));
 
   const status = await resolveProPlanStatus(user);
   if (status.isPro) {
@@ -102,10 +118,13 @@ async function stripeProCheckout(request: NextRequest) {
   }
 }
 
-async function stripeTeamCheckout(request: NextRequest) {
+async function stripeTeamCheckout(
+  request: NextRequest,
+  stackServerApp: CheckoutStackServerApp,
+) {
   const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
+    (await stackServerApp.getUser({ or: "return-null" })) ??
+    (await stackServerApp.getUser({ or: "anonymous" }));
   const team = await checkoutTeamCustomer(user);
   const teamId = team.id;
   if (!teamId) {
@@ -162,11 +181,12 @@ async function stripeTeamCheckout(request: NextRequest) {
 
 async function legacyStackCheckout(
   request: NextRequest,
+  stackServerApp: CheckoutStackServerApp,
   plan: "pro" | "team",
 ) {
   const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
+    (await stackServerApp.getUser({ or: "return-null" })) ??
+    (await stackServerApp.getUser({ or: "anonymous" }));
 
   if (plan === "pro" && (await hasActiveProSubscription(user))) {
     await syncProPlanMetadata(user, true);
@@ -302,6 +322,26 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
 
 function checkoutInterval(raw: string | null): ProBillingInterval {
   return raw === "year" ? "year" : "month";
+}
+
+async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {
+  const { getStackServerApp, isStackConfigured } = await import("../../../lib/stack");
+  if (!isStackConfigured()) return null;
+  return getStackServerApp();
+}
+
+function appStorePricingRedirect(request: NextRequest): URL {
+  const redirectURL = new URL("/app-pricing", request.url);
+  redirectURL.searchParams.set("cmux_app", "1");
+  redirectURL.searchParams.set("cmux_distribution", "appstore");
+  redirectURL.searchParams.set("billing", "unavailable");
+
+  for (const key of ["cmux_scheme", "appearance", "background"]) {
+    const value = request.nextUrl.searchParams.get(key);
+    if (value) redirectURL.searchParams.set(key, value);
+  }
+
+  return redirectURL;
 }
 
 function isAlreadyGrantedError(error: unknown): boolean {

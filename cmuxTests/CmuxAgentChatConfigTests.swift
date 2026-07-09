@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -7,7 +8,18 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct CmuxAgentChatConfigTests {
+@Suite(.serialized)
+struct CmuxAgentChatConfigTests {
+
+    @MainActor
+    private func withAgentChatUIFlag<T>(_ enabled: Bool, _ body: () throws -> T) throws -> T {
+        let flags = CmuxFeatureFlags.shared
+        let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "agent-chat-ui-enabled-release" })
+        let previous = flags.overrideValue(for: definition)
+        flags.setOverride(enabled, for: definition)
+        defer { flags.setOverride(previous, for: definition) }
+        return try body()
+    }
 
     @MainActor
     private func withBrowserDisabled(_ body: () throws -> Void) rethrows {
@@ -185,9 +197,96 @@ import Testing
         }
     }
 
+    @Test func agentChatThemePayloadUsesResolvedGhosttyConfigFields() throws {
+        var config = GhosttyConfig()
+        config.backgroundColor = try #require(NSColor(hex: "#102030"))
+        config.foregroundColor = try #require(NSColor(hex: "#D0E0F0"))
+        config.cursorColor = try #require(NSColor(hex: "#AA5500"))
+        config.selectionBackground = try #require(NSColor(hex: "#334455"))
+        config.fontFamily = " JetBrains Mono "
+        config.fontSize = 13.5
+        config.backgroundOpacity = 0.72
+        config.backgroundBlur = .radius(18)
+        let palette = [
+            "#000001", "#000002", "#000003", "#000004",
+            "#000005", "#000006", "#000007", "#000008",
+            "#000009", "#00000A", "#00000B", "#00000C",
+            "#00000D", "#00000E", "#00000F", "#000010",
+        ]
+        config.palette = Dictionary(uniqueKeysWithValues: try palette.enumerated().map { index, hex in
+            (index, try #require(NSColor(hex: hex)))
+        })
+
+        let payload = AgentChatThemePayload(config: config)
+
+        #expect(payload.background == "#102030")
+        #expect(payload.foreground == "#D0E0F0")
+        #expect(payload.palette == palette)
+        #expect(payload.selectionBackground == "#334455")
+        #expect(payload.cursorColor == "#AA5500")
+        #expect(payload.fontFamily == "JetBrains Mono")
+        #expect(payload.fontSize == 13.5)
+        #expect(payload.opacity == 0.72)
+        #expect(payload.blur == 18)
+        #expect(payload.isLight == false)
+        #expect(payload.source == "cmux")
+    }
+
+    @Test func agentChatThemeEndpointIsRootAnchoredLikeHealthURL() throws {
+        let url = try #require(URL(string: "http://127.0.0.1:7739/chat?ignored=1"))
+        #expect(AgentChatThemeSync.themeURL(for: url).absoluteString == "http://127.0.0.1:7739/api/theme")
+    }
+
+    @Test func agentChatThemePayloadEncodesNullNullableFields() throws {
+        var config = GhosttyConfig()
+        config.fontFamily = " "
+        config.fontSize = 0
+
+        let data = try JSONEncoder().encode(AgentChatThemePayload(config: config))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(object["fontFamily"] is NSNull)
+        #expect(object["fontSize"] is NSNull)
+        #expect(object.keys.contains("selectionBackground"))
+        #expect(object.keys.contains("cursorColor"))
+    }
+
     @MainActor
-    @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
-        try withBrowserDisabled {
+    @Test func agentChatUIFeatureFlagDefaultsOff() throws {
+        let defaultsName = "cmux-agent-chat-flag-defaults-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in nil })
+
+        #expect(!flags.isAgentChatUIEnabled)
+    }
+
+    @MainActor
+    @Test func commandPaletteNewAgentChatContributionFollowsFeatureFlag() throws {
+        try withAgentChatUIFlag(false) {
+            #expect(ContentView.commandPaletteNewAgentChatContributions().isEmpty)
+        }
+
+        try withAgentChatUIFlag(true) {
+            let contributions = ContentView.commandPaletteNewAgentChatContributions()
+            #expect(contributions.map(\.commandId) == ["palette.newAgentChat"])
+        }
+    }
+
+    @MainActor
+    @Test func agentChatThemeSyncGateFollowsFeatureFlag() throws {
+        try withAgentChatUIFlag(false) {
+            #expect(!AgentChatThemeSync.isEnabled)
+        }
+
+        try withAgentChatUIFlag(true) {
+            #expect(AgentChatThemeSync.isEnabled)
+        }
+    }
+
+    @MainActor
+    @Test func performNewAgentChatActionRejectsWhenFeatureFlagOff() throws {
+        try withAgentChatUIFlag(false) {
             let didStart = AppDelegate().performNewAgentChatAction(
                 tabManager: TabManager(),
                 agentChat: .default,
@@ -196,6 +295,22 @@ import Testing
             )
 
             #expect(!didStart)
+        }
+    }
+
+    @MainActor
+    @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
+        try withAgentChatUIFlag(true) {
+            try withBrowserDisabled {
+                let didStart = AppDelegate().performNewAgentChatAction(
+                    tabManager: TabManager(),
+                    agentChat: .default,
+                    globalConfigPath: nil,
+                    preferredWindow: nil
+                )
+
+                #expect(!didStart)
+            }
         }
     }
 }

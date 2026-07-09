@@ -1,5 +1,5 @@
 import { Popover } from "@base-ui-components/react/popover";
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
 import { activityIndicatorState, activityTailKey } from "../activity";
@@ -13,29 +13,147 @@ import { activityRowLabel, groupTurns, summarizeTurnActivity, type TurnGroup } f
 export type ToolBlockVariant = "card" | "inline" | "rail" | "oneliner" | "terminal";
 export const TOOL_BLOCK_VARIANT: ToolBlockVariant = "inline";
 
+const DISCLOSURE_OPEN_MS = 180;
 const DISCLOSURE_COLLAPSE_MS = 130;
+
+export function disclosureShouldRender(open: boolean, present: boolean): boolean {
+  return open || present;
+}
+
+export function disclosureHeightKeyframes(open: boolean, from: number, measuredHeight: number, fromOpacity = from > 0 ? 1 : 0): Keyframe[] {
+  const to = open ? measuredHeight : 0;
+  return [
+    { height: `${Math.max(0, from)}px`, opacity: fromOpacity },
+    { height: `${Math.max(0, to)}px`, opacity: open ? 1 : 0 },
+  ];
+}
+
+export function disclosureSnapshotStyle(computedHeight: string, fallbackHeight: number, computedOpacity: string): { height: string; opacity: string } {
+  const parsedHeight = Number.parseFloat(computedHeight);
+  const height = Math.max(0, Number.isFinite(parsedHeight) ? parsedHeight : fallbackHeight);
+  const parsedOpacity = Number.parseFloat(computedOpacity);
+  const opacity = Number.isFinite(parsedOpacity) ? Math.min(1, Math.max(0, parsedOpacity)) : (height > 0 ? 1 : 0);
+  return { height: `${height}px`, opacity: String(opacity) };
+}
+
+function pinCurrentDisclosureAnimationFrame(node: HTMLDivElement, animation: Animation | null) {
+  const computed = getComputedStyle(node);
+  const snapshot = disclosureSnapshotStyle(computed.height, node.getBoundingClientRect().height, computed.opacity);
+  try {
+    animation?.commitStyles();
+  } catch {
+    // Some test/browser environments do not support commitStyles for this effect.
+  }
+  node.style.height = snapshot.height;
+  node.style.opacity = snapshot.opacity;
+}
 
 function DisclosureMotion({ open, className, children }: { open: boolean; className?: string; children: () => ReactNode }) {
   const [present, setPresent] = useState(open);
-  const shouldRender = open || present;
+  const [animating, setAnimating] = useState(false);
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<Animation | null>(null);
+  const mounted = useRef(false);
+  const shouldRender = disclosureShouldRender(open, present);
 
-  useEffect(() => {
-    if (open) {
+  const requestRemeasure = () => {
+    nodeRef.current?.closest(".turn-virtual-row")?.dispatchEvent(new Event("virtual-row-remeasure"));
+  };
+
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    const inner = innerRef.current;
+    if (!node) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!mounted.current) {
+      mounted.current = true;
+      node.style.height = open ? "auto" : "0px";
+      node.style.opacity = open ? "1" : "0";
+      setAnimating(false);
+      return;
+    }
+
+    if (open && !present) {
       setPresent(true);
       return;
     }
-    if (!present) return;
-    const timeout = window.setTimeout(() => setPresent(false), DISCLOSURE_COLLAPSE_MS);
-    return () => window.clearTimeout(timeout);
+    if (!open && !present) {
+      if (animationRef.current) pinCurrentDisclosureAnimationFrame(node, animationRef.current);
+      animationRef.current?.cancel();
+      animationRef.current = null;
+      node.style.height = "0px";
+      node.style.opacity = "0";
+      setAnimating(false);
+      return;
+    }
+    if (!inner) return;
+
+    const computed = getComputedStyle(node);
+    const currentHeight = Number.parseFloat(computed.height) || node.getBoundingClientRect().height || 0;
+    const parsedOpacity = Number.parseFloat(computed.opacity);
+    const currentOpacity = Number.isFinite(parsedOpacity) ? parsedOpacity : (currentHeight > 0 ? 1 : 0);
+    animationRef.current?.cancel();
+    animationRef.current = null;
+
+    if (reduceMotion) {
+      node.style.height = open ? "auto" : "0px";
+      node.style.opacity = open ? "1" : "0";
+      setAnimating(false);
+      if (!open) setPresent(false);
+      requestRemeasure();
+      return;
+    }
+
+    const measuredHeight = inner.scrollHeight;
+    const keyframes = disclosureHeightKeyframes(open, currentHeight, measuredHeight, currentOpacity);
+    const animation = node.animate(keyframes, {
+      duration: open ? DISCLOSURE_OPEN_MS : DISCLOSURE_COLLAPSE_MS,
+      easing: open ? "cubic-bezier(.16, 1, .3, 1)" : "ease-in",
+    });
+    animationRef.current = animation;
+    setAnimating(true);
+    node.style.height = `${currentHeight}px`;
+    node.style.opacity = String(currentOpacity);
+
+    animation.onfinish = () => {
+      if (animationRef.current !== animation) return;
+      animationRef.current = null;
+      if (open) {
+        node.style.height = "auto";
+        node.style.opacity = "1";
+      } else {
+        node.style.height = "0px";
+        node.style.opacity = "0";
+        setPresent(false);
+      }
+      setAnimating(false);
+      requestRemeasure();
+    };
+    animation.oncancel = () => {
+      if (animationRef.current === animation) {
+        animationRef.current = null;
+        setAnimating(false);
+      }
+    };
+    return () => {
+      if (animationRef.current === animation) {
+        pinCurrentDisclosureAnimationFrame(node, animation);
+        animation.cancel();
+      }
+    };
   }, [open, present]);
 
   return (
     <div
+      ref={nodeRef}
       className={"disclosure-motion" + (className ? ` ${className}` : "")}
       data-open={open ? "true" : "false"}
+      data-disclosure-animating={animating ? "true" : undefined}
       aria-hidden={shouldRender ? undefined : true}
     >
-      <div className="disclosure-motion-inner">{shouldRender ? children() : null}</div>
+      <div ref={innerRef} className="disclosure-motion-inner">{shouldRender ? children() : null}</div>
     </div>
   );
 }

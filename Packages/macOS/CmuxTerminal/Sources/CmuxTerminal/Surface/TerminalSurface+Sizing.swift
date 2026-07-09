@@ -254,17 +254,38 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
-        // Remote tmux display surfaces: keep the remote tmux client sized to
-        // the rendered grid, and report only real cell-grid changes while the
-        // surface is on screen.
-        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
-            let grid = ghostty_surface_size(surface)
-            let cols = Int(grid.columns)
-            let rows = Int(grid.rows)
-            if cols > 1, rows > 1,
-               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
-                lastReportedManualGrid = (cols, rows)
-                report(cols, rows)
+        // Remote tmux display surfaces: report every APPLIED resize —
+        // including same-grid re-applies, since a resize that lands on new
+        // pixels without changing cols×rows still refines the measured
+        // padding constants (surface_px − cols·cell_px). Window attachment is
+        // deliberately the ONLY visibility gate: surfaces on unselected tabs
+        // must still report, because a hidden mirror's one-time size claim
+        // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
+        // surfaces' first applied resize — the LISTENER owns the policy of
+        // what a hidden report may do.
+        if manualIO, let report = onManualSizeApplied {
+            if let attachedView, attachedView.window != nil {
+                manualSizeReportPendingWindowAttach = false
+                let applied = ghostty_surface_size(surface)
+                let cols = Int(applied.columns)
+                let rows = Int(applied.rows)
+                if cols > 1, rows > 1 {
+                    report(TerminalSurfaceRawSizingSample(
+                        columns: cols, rows: rows,
+                        cellWidthPx: Int(applied.cell_width_px),
+                        cellHeightPx: Int(applied.cell_height_px),
+                        surfaceWidthPx: Int(applied.width_px),
+                        surfaceHeightPx: Int(applied.height_px),
+                        viewBoundsPt: attachedView.bounds.size,
+                        backingScale: attachedView.window?.backingScaleFactor
+                    ))
+                }
+            } else {
+                // Off-window apply (portal churn during attach, hidden tab
+                // setup): remember that a report is owed. If the grid is
+                // already final when the view enters a window, no further
+                // apply will fire — the attach flush is the only delivery.
+                manualSizeReportPendingWindowAttach = true
             }
         }
 
@@ -283,6 +304,55 @@ extension TerminalSurface {
         return CGSize(
             width: Double(size.cell_width_px) / scale,
             height: Double(size.cell_height_px) / scale
+        )
+    }
+
+    /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
+    /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
+    /// points and its window's backing scale. Callers separate view layout,
+    /// scale, padding, and cell quantization themselves — pre-mixed units are
+    /// how sizing bugs hide (call sites have treated the raw pixel cell size
+    /// as points in one place and as pixels in another).
+    @MainActor
+    public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
+        let size = ghostty_surface_size(surface)
+        return TerminalSurfaceRawSizingSample(
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            cellWidthPx: Int(size.cell_width_px),
+            cellHeightPx: Int(size.cell_height_px),
+            surfaceWidthPx: Int(size.width_px),
+            surfaceHeightPx: Int(size.height_px),
+            viewBoundsPt: attachedView?.bounds.size,
+            backingScale: attachedView?.window?.backingScaleFactor
+        )
+    }
+
+    /// Delivers the manual-size report that was skipped because the view was
+    /// outside any window when the size applied (see
+    /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
+    /// a no-op unless a report is actually owed and deliverable.
+    @MainActor
+    public func flushPendingManualSizeReportIfAttached() {
+        guard manualSizeReportPendingWindowAttach,
+              let report = onManualSizeApplied,
+              attachedView?.window != nil,
+              let sample = rawSizingSample(),
+              sample.columns > 1, sample.rows > 1
+        else { return }
+        manualSizeReportPendingWindowAttach = false
+        report(sample)
+    }
+
+    /// Which of ``renderedGridCells()``'s nil conditions currently hold —
+    /// lets sizing diagnostics name the mechanism (view detached from its
+    /// window vs surface not live vs no real grid) instead of a bare nil.
+    @MainActor
+    public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
+        (
+            viewInWindow: attachedView?.window != nil,
+            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
 
