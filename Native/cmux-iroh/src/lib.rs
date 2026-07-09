@@ -888,6 +888,156 @@ fn connection_type_impl(connection: &ConnectionInner) -> c_int {
     }
 }
 
+/// Returns the current RTT in milliseconds for the selected iroh path, or the
+/// best open path when no selected path has an RTT yet. Returns -1.0 when
+/// unknown.
+///
+/// # Safety
+///
+/// - `connection`, when non-null, must be a live pointer returned by
+///   `cmux_iroh_endpoint_accept`/`cmux_iroh_endpoint_connect` that has not
+///   been closed.
+/// - Error out-params as on `cmux_iroh_endpoint_bind`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_connection_rtt_ms(
+    connection: *const CmuxIrohConnection,
+    err_kind: *mut i32,
+    err_buf: *mut c_char,
+    err_cap: usize,
+) -> f64 {
+    clear_error(err_kind, err_buf, err_cap);
+    match lookup_connection(connection) {
+        Ok(connection) => connection_rtt_ms_impl(&connection),
+        Err(error) => {
+            report_error(err_kind, err_buf, err_cap, &error);
+            -1.0
+        }
+    }
+}
+
+fn connection_rtt_ms_impl(connection: &ConnectionInner) -> f64 {
+    let paths = connection.connection.paths();
+    let mut fallback = None;
+
+    for path in paths.iter() {
+        let rtt = connection.connection.rtt(path.id());
+        if path.is_selected() {
+            if let Some(rtt) = rtt {
+                return rtt.as_secs_f64() * 1_000.0;
+            }
+        } else if fallback.is_none() {
+            fallback = rtt;
+        }
+    }
+
+    fallback
+        .map(|rtt| rtt.as_secs_f64() * 1_000.0)
+        .unwrap_or(-1.0)
+}
+
+/// Returns aggregate UDP bytes sent/received for a live iroh connection.
+///
+/// # Safety
+///
+/// - `connection`, when non-null, must be a live pointer returned by
+///   `cmux_iroh_endpoint_accept`/`cmux_iroh_endpoint_connect` that has not
+///   been closed.
+/// - `sent` and `recv` must point at writable `u64` storage.
+/// - Error out-params as on `cmux_iroh_endpoint_bind`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_connection_stats_bytes(
+    connection: *const CmuxIrohConnection,
+    sent: *mut u64,
+    recv: *mut u64,
+    err_kind: *mut i32,
+    err_buf: *mut c_char,
+    err_cap: usize,
+) -> c_int {
+    clear_error(err_kind, err_buf, err_cap);
+    if sent.is_null() || recv.is_null() {
+        report_error(
+            err_kind,
+            err_buf,
+            err_cap,
+            &FfiError::new(
+                CmuxIrohErrorKind::InvalidArgument,
+                "stats byte out-params must be non-null",
+            ),
+        );
+        return -1;
+    }
+
+    match lookup_connection(connection) {
+        Ok(connection) => {
+            let stats = connection.connection.stats();
+            // SAFETY: `sent` and `recv` were validated non-null above, and the
+            // caller guarantees both point at writable `u64` storage.
+            unsafe {
+                *sent = stats.udp_tx.bytes;
+                *recv = stats.udp_rx.bytes;
+            }
+            0
+        }
+        Err(error) => {
+            report_error(err_kind, err_buf, err_cap, &error);
+            -1
+        }
+    }
+}
+
+/// Returns the remote peer's EndpointId. Free with `cmux_iroh_string_free`.
+/// Null if the connection handle cannot be resolved.
+///
+/// # Safety
+///
+/// - `connection`, when non-null, must be a live pointer returned by
+///   `cmux_iroh_endpoint_accept`/`cmux_iroh_endpoint_connect` that has not
+///   been closed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_connection_remote_id(
+    connection: *const CmuxIrohConnection,
+) -> *mut c_char {
+    match lookup_connection(connection) {
+        Ok(connection) => string_to_c(connection.connection.remote_id().to_string()),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Returns the relay URL for the currently relayed path, or an empty string
+/// when the selected path is direct. Free with `cmux_iroh_string_free`. Null if
+/// the connection handle cannot be resolved.
+///
+/// # Safety
+///
+/// - `connection`, when non-null, must be a live pointer returned by
+///   `cmux_iroh_endpoint_accept`/`cmux_iroh_endpoint_connect` that has not
+///   been closed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_connection_relay_url(
+    connection: *const CmuxIrohConnection,
+) -> *mut c_char {
+    match lookup_connection(connection) {
+        Ok(connection) => string_to_c(connection_relay_url_impl(&connection)),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+fn connection_relay_url_impl(connection: &ConnectionInner) -> String {
+    let paths = connection.connection.paths();
+    let mut fallback = None;
+
+    for path in paths.iter() {
+        match path.remote_addr() {
+            TransportAddr::Relay(url) if path.is_selected() => return url.to_string(),
+            TransportAddr::Relay(url) if fallback.is_none() => fallback = Some(url.to_string()),
+            _ if path.is_selected() => return String::new(),
+            _ => {}
+        }
+    }
+
+    fallback.unwrap_or_default()
+}
+
 /// Receives up to `cap` bytes. Returns bytes read (>0), 0 on clean end of
 /// stream, or -1 on error.
 ///
@@ -1538,7 +1688,11 @@ mod ffi_seam_tests {
                 ERR_CAP,
             )
         };
-        assert!(!dialer.is_null(), "relay-only dialer bind: {}", err.message());
+        assert!(
+            !dialer.is_null(),
+            "relay-only dialer bind: {}",
+            err.message()
+        );
 
         let listener_ptr = ListenerPtr(listener);
         let accept_thread = std::thread::spawn(move || {
@@ -1653,10 +1807,16 @@ mod ffi_seam_tests {
             cmux_iroh_connection_type(connection, &raw mut err.kind, err.buf.as_mut_ptr(), ERR_CAP)
         };
         assert_eq!(
-            path_type, 1,
+            path_type,
+            1,
             "relay-only dialer (no IP transports) must report the RELAY path, not local network (kind {}, message {:?})",
             err.kind(),
             err.message()
+        );
+        let selected_relay_url = take_string(unsafe { cmux_iroh_connection_relay_url(connection) });
+        assert!(
+            !selected_relay_url.is_empty(),
+            "relay-only dialer must report the selected relay URL"
         );
 
         cmux_iroh_connection_close(connection);
@@ -1858,6 +2018,52 @@ mod ffi_seam_tests {
             "relay-less loopback must report direct path type (kind {}, message {:?})",
             err.kind(),
             err.message()
+        );
+
+        let mut err = ErrOut::new();
+        let rtt_ms = unsafe {
+            cmux_iroh_connection_rtt_ms(
+                connection,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(
+            rtt_ms >= 0.0,
+            "relay-less loopback should report RTT after roundtrip (rtt {rtt_ms}, kind {}, message {:?})",
+            err.kind(),
+            err.message()
+        );
+
+        let mut sent = 0u64;
+        let mut recv = 0u64;
+        let mut err = ErrOut::new();
+        let stats_rc = unsafe {
+            cmux_iroh_connection_stats_bytes(
+                connection,
+                &raw mut sent,
+                &raw mut recv,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(stats_rc, 0, "stats bytes should succeed: {}", err.message());
+        assert!(sent > 0, "stats should report sent bytes");
+        assert!(recv > 0, "stats should report received bytes");
+
+        let remote_id = take_string(unsafe { cmux_iroh_connection_remote_id(connection) });
+        let parsed_remote_id = EndpointId::from_str(&remote_id).expect("remote id parses");
+        let parsed_listener_id =
+            EndpointId::from_str(id_cstr.as_c_str().to_str().expect("listener id utf8"))
+                .expect("listener id parses");
+        assert_eq!(parsed_remote_id, parsed_listener_id);
+
+        let selected_relay_url = take_string(unsafe { cmux_iroh_connection_relay_url(connection) });
+        assert_eq!(
+            selected_relay_url, "",
+            "direct loopback selected path should not report a relay URL"
         );
 
         cmux_iroh_connection_close(connection);

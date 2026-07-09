@@ -5,15 +5,27 @@ import SwiftUI
 struct WorkspaceTitleMenuContent: View {
     let workspace: MobileWorkspacePreview
     let canCloseWorkspace: Bool
+    let presentConnectionInfo: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
 
     var body: some View {
-        if workspace.actionCapabilities.supportsWorkspaceActions
-            || workspace.actionCapabilities.supportsReadStateActions
-            || canCloseWorkspace {
-            Section(workspace.name) {
+        Section(workspace.name) {
+            Button(action: presentConnectionInfo) {
+                Label(
+                    L10n.string(
+                        "mobile.workspace.connectionInfo.title",
+                        defaultValue: "Connection info…"
+                    ),
+                    systemImage: "antenna.radiowaves.left.and.right"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceTitleConnectionInfoMenuItem")
+
+            if workspace.actionCapabilities.supportsWorkspaceActions
+                || workspace.actionCapabilities.supportsReadStateActions
+                || canCloseWorkspace {
                 if workspace.actionCapabilities.supportsWorkspaceActions {
                     Button(action: presentRename) {
                         Label(

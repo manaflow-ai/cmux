@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import OSLog
 internal import CmuxIrohFFI
@@ -96,6 +97,23 @@ extension CmxIrohByteTransport {
         case 3: "mixed"
         default: "unknown"
         }
+    }
+
+    static func diagnosticsPathKind(_ rawValue: Int32) -> CmxConnectionDiagnostics.PathKind {
+        switch rawValue {
+        case 1: .relay
+        case 2: .direct
+        case 3: .mixed
+        default: .unknown
+        }
+    }
+
+    static func relayLabel(for relayURL: String?) -> String? {
+        guard let relayURL, !relayURL.isEmpty else { return nil }
+        guard let host = URL(string: relayURL)?.host(), !host.isEmpty else {
+            return relayURL
+        }
+        return host.split(separator: ".").first.map(String.init) ?? relayURL
     }
 
     /// Calls `body` with `string` as a C string, or nil when `string` is nil.

@@ -213,6 +213,18 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         return await stream.connectionPathKind()
     }
 
+    public func connectionDiagnostics() async -> CmxConnectionDiagnostics? {
+        guard let stream else {
+            return CmxConnectionDiagnostics(
+                transportKind: .iroh,
+                pathKind: .unknown,
+                relayLabel: Self.relayLabel(for: relayURL),
+                remoteEndpointId: endpointID.isEmpty ? nil : endpointID
+            )
+        }
+        return await stream.connectionDiagnostics(relayHint: relayURL)
+    }
+
     public func receive() async throws -> Data? {
         if didClose { return nil }
         guard let stream else {

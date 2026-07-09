@@ -141,6 +141,11 @@ actor MobileCoreRPCSession {
 
     func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
 
+    func connectionDiagnostics() async -> CmxConnectionDiagnostics? {
+        guard let transport else { return nil }
+        return await transport.connectionDiagnostics()
+    }
+
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
         isTearingDown = true

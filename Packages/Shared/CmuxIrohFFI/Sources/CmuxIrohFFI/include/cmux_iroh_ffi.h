@@ -153,6 +153,32 @@ int cmux_iroh_connection_type(
     char *err_buf,
     size_t err_cap);
 
+// Returns the current RTT in milliseconds for the selected path, falling back
+// to another open path with RTT data. Returns -1.0 when unknown.
+double cmux_iroh_connection_rtt_ms(
+    const CmuxIrohConnection *connection,
+    int32_t *err_kind,
+    char *err_buf,
+    size_t err_cap);
+
+// Returns aggregate UDP bytes sent/received on this connection. 0 on success,
+// -1 on error.
+int cmux_iroh_connection_stats_bytes(
+    const CmuxIrohConnection *connection,
+    uint64_t *sent,
+    uint64_t *recv,
+    int32_t *err_kind,
+    char *err_buf,
+    size_t err_cap);
+
+// Returns the remote peer EndpointId as a heap string, or null on error.
+// Free with cmux_iroh_string_free.
+char *cmux_iroh_connection_remote_id(const CmuxIrohConnection *connection);
+
+// Returns the selected relay path URL as a heap string, "" when selected direct,
+// or null on error. Free with cmux_iroh_string_free.
+char *cmux_iroh_connection_relay_url(const CmuxIrohConnection *connection);
+
 // Receives up to cap bytes. Returns bytes read (>0), 0 on clean end of
 // stream, or -1 on error. timeout_ms == 0 blocks indefinitely; a nonzero
 // timeout reports CMUX_IROH_ERROR_TIMEOUT on expiry and loses no data (the

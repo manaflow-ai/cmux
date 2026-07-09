@@ -44,6 +44,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
+    @State var isConnectionInfoPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
@@ -103,6 +104,14 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
+            .sheet(isPresented: $isConnectionInfoPresented) {
+                WorkspaceConnectionInfoView(
+                    workspace: workspace,
+                    diagnosticsProvider: { workspace in
+                        await store.connectionDiagnostics(for: workspace)
+                    }
+                )
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -338,6 +347,7 @@ struct WorkspaceDetailView: View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
             canCloseWorkspace: closeWorkspace != nil,
+            presentConnectionInfo: presentConnectionInfoFromMenu,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
             requestClose: requestCloseWorkspaceFromMenu
@@ -647,6 +657,11 @@ struct WorkspaceDetailView: View {
         // Seed the dialog field with the current name each time it opens.
         renameText = workspace.name
         isRenamePresented = true
+    }
+
+    private func presentConnectionInfoFromMenu() {
+        dismissTerminalKeyboardForChrome()
+        isConnectionInfoPresented = true
     }
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes

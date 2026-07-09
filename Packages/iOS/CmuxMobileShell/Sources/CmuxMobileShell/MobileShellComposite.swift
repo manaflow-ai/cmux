@@ -721,7 +721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// read-only connections to the user's other Macs so every connected Mac's
     /// workspaces can be aggregated. `foregroundMacDeviceID` is the Mac whose
     /// connection drives terminal I/O and the connected UI.
-    private var connections: [String: MacConnection] = [:]
+    var connections: [String: MacConnection] = [:]
     var foregroundMacDeviceID: String? {
         didSet { recomputeDerivedWorkspaceState() }
     }

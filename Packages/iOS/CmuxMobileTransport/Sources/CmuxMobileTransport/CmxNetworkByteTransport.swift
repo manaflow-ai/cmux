@@ -254,6 +254,13 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
     }
 
+    public func connectionDiagnostics() async -> CmxConnectionDiagnostics? {
+        CmxConnectionDiagnostics(
+            transportKind: .network,
+            pathKind: .lan
+        )
+    }
+
     private func startConnect(
         operationID: UUID,
         continuation: CheckedContinuation<Void, any Error>

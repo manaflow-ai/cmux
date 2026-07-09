@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 import Dispatch
 internal import CmuxIrohFFI
@@ -43,6 +44,58 @@ public actor CmxIrohByteStream {
         }
         guard outcome.errorKind == 0 else { return "unknown" }
         return CmxIrohByteTransport.pathKindName(outcome.result)
+    }
+
+    public func connectionDiagnostics(relayHint: String? = nil) async -> CmxConnectionDiagnostics? {
+        guard let connection, !didClose else { return nil }
+        let connectionBox = CmxIrohUnsafeBox(connection)
+        let relayHint = relayHint?.isEmpty == false ? relayHint : nil
+
+        return await runBlocking { () -> CmxConnectionDiagnostics? in
+            let path = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
+                cmux_iroh_connection_type(connectionBox.value, kindPtr, errBuf, cap)
+            }
+            guard path.errorKind == 0 else { return nil }
+
+            let rtt = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
+                cmux_iroh_connection_rtt_ms(connectionBox.value, kindPtr, errBuf, cap)
+            }
+            let rttMs = rtt.errorKind == 0 && rtt.result >= 0 ? rtt.result : nil
+
+            var sent = UInt64(0)
+            var received = UInt64(0)
+            let stats = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
+                cmux_iroh_connection_stats_bytes(
+                    connectionBox.value,
+                    &sent,
+                    &received,
+                    kindPtr,
+                    errBuf,
+                    cap
+                )
+            }
+            let bytesSent = stats.result == 0 ? sent : nil
+            let bytesReceived = stats.result == 0 ? received : nil
+
+            let remoteID = CmxIrohByteTransport.takeString(
+                cmux_iroh_connection_remote_id(connectionBox.value)
+            )
+            let selectedRelayURL = CmxIrohByteTransport.takeString(
+                cmux_iroh_connection_relay_url(connectionBox.value)
+            )
+            let relayLabel = CmxIrohByteTransport.relayLabel(for: selectedRelayURL)
+                ?? CmxIrohByteTransport.relayLabel(for: relayHint)
+
+            return CmxConnectionDiagnostics(
+                transportKind: .iroh,
+                pathKind: CmxIrohByteTransport.diagnosticsPathKind(path.result),
+                rttMs: rttMs,
+                bytesSent: bytesSent,
+                bytesReceived: bytesReceived,
+                relayLabel: relayLabel,
+                remoteEndpointId: remoteID?.isEmpty == false ? remoteID : nil
+            )
+        }
     }
 
     /// Reads the next chunk, or nil at a clean end of stream.
