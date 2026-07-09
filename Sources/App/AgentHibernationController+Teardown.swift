@@ -69,7 +69,8 @@ extension AgentHibernationController {
                 // Forfeit hibernation rather than risk issue #6565 transcript loss.
                 self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
                     fingerprint: confirmationFingerprint,
-                    lastActivityAt: effectiveLastActivityAt
+                    lastActivityAt: effectiveLastActivityAt,
+                    retryAfter: Date().timeIntervalSince1970 + Self.unableToProtectRetrySeconds
                 )
                 return
             }

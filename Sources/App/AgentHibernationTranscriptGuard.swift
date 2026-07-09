@@ -29,6 +29,7 @@ enum AgentHibernationTranscriptGuard {
     static func runPostTeardownRestoreChecks(
         snapshot: TeardownTranscriptSnapshot,
         processIDs: Set<Int>,
+        initialRetryDelaysNanoseconds: [UInt64] = [0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000],
         fileManager: FileManager = .default
     ) async {
         if !processIDs.isEmpty {
@@ -43,11 +44,11 @@ enum AgentHibernationTranscriptGuard {
             }
         }
 
-        // The exit-path rewrite lands within seconds of SIGTERM/pty-close; check
-        // immediately after a short settle so a quick user resume cannot beat the
-        // restore, then fall through to the escalating backstop.
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
-        if restoreIfClobbered(snapshot, fileManager: fileManager) { return }
+        // Check at once, then retry rapidly through the exit-path rewrite window.
+        for delayNanoseconds in initialRetryDelaysNanoseconds {
+            if delayNanoseconds > 0 { try? await Task.sleep(nanoseconds: delayNanoseconds) }
+            if restoreIfClobbered(snapshot, fileManager: fileManager) { return }
+        }
 
         // Backstop for SIGHUP-only teardowns with no tracked pid, and for
         // stragglers past the bounded process-exit window.

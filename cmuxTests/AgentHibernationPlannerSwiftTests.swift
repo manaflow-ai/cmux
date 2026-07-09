@@ -147,4 +147,39 @@ struct AgentHibernationPlannerSwiftTests {
 
         #expect(selected == Set([exitedAgent]))
     }
+
+    @MainActor
+    @Test
+    func unableToProtectMarkerExpiresSoTransientSnapshotFailuresRetry() {
+        let marker = AgentHibernationController.UnableToProtectMarker(
+            fingerprint: "tail:abc",
+            lastActivityAt: 100,
+            retryAfter: 220
+        )
+
+        #expect(AgentHibernationController.unableToProtectMarkerStillApplies(
+            marker,
+            fingerprint: "tail:abc",
+            lastActivityAt: 100,
+            now: 219
+        ))
+        #expect(AgentHibernationController.unableToProtectMarkerStillApplies(
+            marker,
+            fingerprint: "tail:abc",
+            lastActivityAt: 100,
+            now: 220
+        ) == false)
+        #expect(AgentHibernationController.unableToProtectMarkerStillApplies(
+            marker,
+            fingerprint: "tail:changed",
+            lastActivityAt: 100,
+            now: 219
+        ) == false)
+        #expect(AgentHibernationController.unableToProtectMarkerStillApplies(
+            marker,
+            fingerprint: "tail:abc",
+            lastActivityAt: 101,
+            now: 219
+        ) == false)
+    }
 }

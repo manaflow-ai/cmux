@@ -102,7 +102,10 @@ final class AgentHibernationController {
     struct UnableToProtectMarker {
         let fingerprint: String
         let lastActivityAt: TimeInterval
+        let retryAfter: TimeInterval
     }
+
+    static let unableToProtectRetrySeconds: TimeInterval = 120
 
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
@@ -329,8 +332,12 @@ final class AgentHibernationController {
 
         guard let fingerprint = hibernationFingerprint(for: record) else { return }
         if let marker = unableToProtectByPanel[record.key],
-           marker.fingerprint == fingerprint,
-           marker.lastActivityAt == effectiveLastActivityAt {
+           Self.unableToProtectMarkerStillApplies(
+               marker,
+               fingerprint: fingerprint,
+               lastActivityAt: effectiveLastActivityAt,
+               now: now
+           ) {
             return
         }
         unableToProtectByPanel.removeValue(forKey: record.key)
@@ -377,6 +384,17 @@ final class AgentHibernationController {
     func hibernationFingerprint(for record: AgentHibernationRecord) -> String? {
         guard let tail = tailFingerprint(for: record.terminalPanel) else { return nil }
         return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
+    }
+
+    static func unableToProtectMarkerStillApplies(
+        _ marker: UnableToProtectMarker,
+        fingerprint: String,
+        lastActivityAt: TimeInterval,
+        now: TimeInterval
+    ) -> Bool {
+        marker.fingerprint == fingerprint &&
+            marker.lastActivityAt == lastActivityAt &&
+            now < marker.retryAfter
     }
 
     nonisolated static func scrollbackFingerprint(tail: String, processIDs: Set<Int>) -> String {

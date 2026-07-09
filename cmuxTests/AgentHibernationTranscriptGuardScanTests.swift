@@ -86,6 +86,26 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
+    func postTeardownRestoreChecksRunsImmediatePassBeforeBackstop() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"before"}}"# + "\n"
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+
+        await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+            snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+            processIDs: [],
+            initialRetryDelaysNanoseconds: [0]
+        )
+
+        #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
+    }
+
+    @Test
     func snapshotBeforeTeardownFailsClosedForNonEmptyUnclassifiedTranscripts() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
