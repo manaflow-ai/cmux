@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1234,4 +1235,119 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 		return 0, 0, true, err
 	}
 	return int(size.Cols), int(size.Rows), true, nil
+}
+
+func newTestPTYInputSession(t *testing.T, sessionID string, attachmentID string) (*wsPTYHub, *wsPTYSession, *wsPTYAttachment, *os.File, *os.File, chan struct{}) {
+	t.Helper()
+	readFile, writeFile, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create pipe: %v", err)
+	}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, &bytes.Buffer{})
+	sessionKey := persistentPTYSessionKey(sessionID)
+	done := make(chan struct{})
+	attachment := &wsPTYAttachment{
+		sessionKey:  sessionKey,
+		id:          attachmentID,
+		clientToken: "token-1",
+		cols:        80,
+		rows:        24,
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:      func() {},
+		persistent:  true,
+	}
+	session := &wsPTYSession{
+		id:            sessionID,
+		key:           sessionKey,
+		ptyFile:       writeFile,
+		attachments:   map[string]*wsPTYAttachment{attachment.id: attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
+		done:          done,
+	}
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+	return hub, session, attachment, readFile, writeFile, done
+}
+
+func readExactlyFromFile(t *testing.T, file *os.File, count int, timeout time.Duration) []byte {
+	t.Helper()
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	resultCh := make(chan readResult, 1)
+	go func() {
+		buf := make([]byte, count)
+		_, err := io.ReadFull(file, buf)
+		resultCh <- readResult{data: buf, err: err}
+	}()
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("read PTY input: %v", result.err)
+		}
+		return result.data
+	case <-time.After(timeout):
+		t.Fatalf("timed out reading %d PTY bytes", count)
+		return nil
+	}
+}
+
+// Regression test for https://github.com/manaflow-ai/cmux/issues/7708:
+// input accepted by a superseded attachment must reach the PTY, in order,
+// before input from the replacement attachment.
+func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
+	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-reattach-seam", "same")
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+
+	go hub.writeInputLoop(session)
+	session.ptyWriteMu.Lock()
+	if status := hub.writeInputByID(session.id, attachment.id, attachment.clientToken, []byte("OLD")); status != wsPTYInputWriteOK {
+		session.ptyWriteMu.Unlock()
+		t.Fatalf("old write status = %v, want ok", status)
+	}
+
+	attachDone := make(chan *wsPTYAttachment, 1)
+	go func() {
+		newAttachment, _, _, err := hub.prepareAttachment(
+			context.Background(),
+			nil,
+			session.id,
+			attachment.id,
+			80,
+			24,
+			true,
+			"",
+			"new-token",
+			true,
+		)
+		if err != nil {
+			t.Errorf("prepare replacement attachment: %v", err)
+			attachDone <- nil
+			return
+		}
+		attachDone <- newAttachment
+	}()
+
+	session.ptyWriteMu.Unlock()
+	newAttachment := <-attachDone
+	if newAttachment == nil {
+		t.Fatal("replacement attachment was not created")
+	}
+	if status := hub.writeInputByID(session.id, newAttachment.id, newAttachment.clientToken, []byte("NEW")); status != wsPTYInputWriteOK {
+		t.Fatalf("new write status = %v, want ok", status)
+	}
+	if got := readExactlyFromFile(t, readFile, 6, 5*time.Second); string(got) != "OLDNEW" {
+		t.Fatalf("PTY input = %q, want OLDNEW", string(got))
+	}
 }

@@ -61,6 +61,64 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
 }
 
+
+private final class DeferredRecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _writes: [Data] = []
+    private var completions: [((any Error)?) -> Void] = []
+    private var _onEvent: ((RemotePTYBridgeEvent) -> Void)?
+    private var _eventQueue: DispatchQueue?
+
+    var writes: [Data] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _writes
+    }
+
+    func attachBridgePTY(
+        sessionID: String,
+        attachmentID: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+        requireExisting: Bool,
+        queue: DispatchQueue,
+        onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+    ) throws -> RemotePTYBridgeAttachment {
+        lock.lock()
+        _onEvent = onEvent
+        _eventQueue = queue
+        lock.unlock()
+        return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "deferred-token")
+    }
+
+    func writePTY(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        data: Data,
+        completion: @escaping ((any Error)?) -> Void
+    ) {
+        lock.lock()
+        _writes.append(data)
+        completions.append(completion)
+        lock.unlock()
+    }
+
+    func completePendingWrites() {
+        let pending: [((any Error)?) -> Void]
+        lock.lock()
+        pending = completions
+        completions.removeAll(keepingCapacity: true)
+        lock.unlock()
+        for completion in pending {
+            completion(nil)
+        }
+    }
+
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+}
+
 struct TestPTYBridgeStrings: RemotePTYBridgeStrings {
     var missingPersistentPTYCapability: String { "test-missing-capability" }
     var sessionEnded: String { "test-session-ended" }
@@ -119,6 +177,12 @@ private final class BridgeTestClient: @unchecked Sendable {
         return false
     }
 
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
     func cancel() {
         connection.cancel()
     }
@@ -127,7 +191,7 @@ private final class BridgeTestClient: @unchecked Sendable {
 @Suite("RemotePTYBridgeServer")
 struct RemotePTYBridgeServerTests {
     private func makeServer(
-        client: RecordingPTYBridgeRPCClient,
+        client: any RemotePTYBridgeRPCClient,
         onStop: @escaping () -> Void = {}
     ) -> RemotePTYBridgeServer {
         RemotePTYBridgeServer(
@@ -139,6 +203,71 @@ struct RemotePTYBridgeServerTests {
             strings: TestPTYBridgeStrings(),
             onStop: onStop
         )
+    }
+
+    private func patternedInput(byteCount: Int) -> Data {
+        var data = Data()
+        data.reserveCapacity(byteCount)
+        for index in 0..<byteCount {
+            data.append(UInt8(index % 251))
+        }
+        return data
+    }
+
+    private func waitUntil(timeout: TimeInterval = 5.0, _ predicate: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return true }
+            usleep(20_000)
+        }
+        return predicate()
+    }
+
+    // Regression test for https://github.com/manaflow-ai/cmux/issues/7708:
+    // input-window overflow must never close the bridge session or drop
+    // accepted bytes; it must backpressure and eventually deliver every
+    // byte to writePTY in order.
+    @Test("legacy input overflow pauses instead of closing and preserves order")
+    func legacyInputOverflowPausesAndPreservesOrder() throws {
+        let rpc = DeferredRecordingPTYBridgeRPCClient()
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(endpoint.token)\",\"cols\":120,\"rows\":40}\n".utf8))
+        #expect(client.waitForReceived { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"deferred-token\"")
+        })
+
+        let input = patternedInput(byteCount: 5 * 1024 * 1024)
+        client.send(input)
+
+        // Phase 1: with no write completions the input window must fill and
+        // the session must backpressure (pause socket reads) — never close.
+        let windowFillTarget = 3 * 1024 * 1024
+        #expect(waitUntil(timeout: 10.0) {
+            rpc.writes.reduce(0) { $0 + $1.count } >= windowFillTarget || client.isClosed
+        })
+        #expect(!client.isClosed)
+
+        // Phase 2: draining completions must deliver every accepted byte,
+        // in order, with the connection still open.
+        let drainDeadline = Date().addingTimeInterval(15.0)
+        while rpc.writes.reduce(0, { $0 + $1.count }) < input.count,
+              Date() < drainDeadline {
+            rpc.completePendingWrites()
+            usleep(20_000)
+        }
+        rpc.completePendingWrites()
+        // Compare via a Bool: on mismatch Swift Testing would otherwise try
+        // to render a byte-level diff of two multi-megabyte Data values.
+        let delivered = rpc.writes.reduce(Data(), +)
+        #expect(delivered.count == input.count)
+        let deliveredMatchesInput = delivered == input
+        #expect(deliveredMatchesInput)
+        #expect(!client.isClosed)
     }
 
     @Test("start binds a loopback endpoint with a fresh token")
