@@ -55,7 +55,8 @@ struct DockControlDefinitionDecodingTests {
         let control = try decode(#"{"id":"git","title":"Git","command":"lazygit","cwd":".","height":300}"#)
         #expect(control.id == "git")
         #expect(control.title == "Git")
-        #expect(control.kind == .terminal)
+        #expect(control.variant == .command("lazygit"))
+        #expect(control.surfaceKind == .terminal)
         #expect(control.command == "lazygit")
         #expect(control.url == nil)
         #expect(control.cwd == ".")
@@ -66,7 +67,7 @@ struct DockControlDefinitionDecodingTests {
     func terminalTitleFallsBackToId() throws {
         let control = try decode(#"{"id":"logs","command":"tail -f log"}"#)
         #expect(control.title == "logs")
-        #expect(control.kind == .terminal)
+        #expect(control.surfaceKind == .terminal)
     }
 
     @Test("Terminal config missing command throws")
@@ -80,7 +81,7 @@ struct DockControlDefinitionDecodingTests {
     func browserDecodes() throws {
         let control = try decode(#"{"id":"docs","title":"Docs","type":"browser","url":"https://example.com"}"#)
         #expect(control.id == "docs")
-        #expect(control.kind == .browser)
+        #expect(control.surfaceKind == .browser)
         #expect(control.url == "https://example.com")
         #expect(control.command == nil)
     }
@@ -108,7 +109,7 @@ struct DockControlDefinitionDecodingTests {
 
     @Test("Terminal entries re-encode without a type key (stable trust fingerprint)")
     func terminalReencodeOmitsType() throws {
-        let control = DockControlDefinition(id: "git", title: "Git", command: "lazygit", height: 300)
+        let control = DockControlDefinition(id: "git", title: "Git", variant: .command("lazygit"), height: 300)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let encoded = String(data: try encoder.encode(control), encoding: .utf8) ?? ""
@@ -117,33 +118,16 @@ struct DockControlDefinitionDecodingTests {
         #expect(encoded.contains("\"command\":\"lazygit\""))
     }
 
-    @Test("Terminal entries without command fail to encode")
-    func terminalReencodeMissingCommandThrows() {
-        let control = DockControlDefinition(id: "git", title: "Git")
-        #expect(throws: (any Error).self) {
-            _ = try JSONEncoder().encode(control)
-        }
-    }
-
     @Test("Browser entries re-encode with type and url")
     func browserReencodeIncludesTypeAndURL() throws {
         let control = DockControlDefinition(
             id: "docs",
             title: "Docs",
-            kind: .browser,
-            url: "https://example.com"
+            variant: .browser(url: "https://example.com", profile: nil)
         )
         let encoded = String(data: try JSONEncoder().encode(control), encoding: .utf8) ?? ""
         #expect(encoded.contains("\"type\""))
         #expect(encoded.contains("\"url\""))
-    }
-
-    @Test("Browser entries without url fail to encode")
-    func browserReencodeMissingURLThrows() {
-        let control = DockControlDefinition(id: "docs", title: "Docs", kind: .browser)
-        #expect(throws: (any Error).self) {
-            _ = try JSONEncoder().encode(control)
-        }
     }
 
     @Test("Mixed terminal + browser config file decodes")
@@ -158,9 +142,62 @@ struct DockControlDefinitionDecodingTests {
         """#
         let file = try JSONDecoder().decode(DockConfigFile.self, from: Data(json.utf8))
         #expect(file.controls.count == 2)
-        #expect(file.controls[0].kind == .terminal)
-        #expect(file.controls[1].kind == .browser)
+        #expect(file.controls[0].surfaceKind == .terminal)
+        #expect(file.controls[1].surfaceKind == .browser)
         #expect(file.controls[1].url == "https://example.com")
+    }
+
+    @Test("Dock config rejects excessive controls before trust rendering")
+    func configRejectsExcessiveControls() throws {
+        var controls: [[String: String]] = (0..<DockConfigFile.maximumControlCount).map { index in
+            ["id": "control-\(index)", "command": "echo \(index)"]
+        }
+        controls.append(["id": "invalid-extra", "type": "browser"])
+        let data = try JSONSerialization.data(withJSONObject: ["controls": controls])
+
+        do {
+            _ = try JSONDecoder().decode(DockConfigFile.self, from: data)
+            Issue.record("Expected excessive controls to throw before decoding overflow entries")
+        } catch let error as NSError {
+            #expect(error.domain == "cmux.dock")
+            #expect(error.code == 8)
+        }
+    }
+
+    @Test("Dock controls reject excessive environment variables before trust rendering")
+    func controlRejectsExcessiveEnvironmentVariables() throws {
+        var environment: [String: Any] = [:]
+        for index in 0..<DockControlDefinition.maximumEnvironmentVariableCount {
+            environment["KEY_\(index)"] = "value-\(index)"
+        }
+        environment["INVALID_EXTRA"] = 42
+        let data = try JSONSerialization.data(
+            withJSONObject: ["id": "env-heavy", "command": "echo ok", "env": environment]
+        )
+
+        do {
+            _ = try JSONDecoder().decode(DockControlDefinition.self, from: data)
+            Issue.record("Expected excessive env variables to throw before decoding overflow values")
+        } catch let error as NSError {
+            #expect(error.domain == "cmux.dock")
+            #expect(error.code == 9)
+        }
+    }
+
+    @Test("Dock controls reject oversized text fields before trust rendering")
+    func controlRejectsOversizedTextFields() throws {
+        let oversized = String(repeating: "x", count: DockControlDefinition.maximumTextFieldByteCount + 1)
+
+        #expect(throws: (any Error).self) {
+            _ = try decode(#"{"id":"huge-command","command":"\#(oversized)"}"#)
+        }
+
+        let data = try JSONSerialization.data(
+            withJSONObject: ["id": "huge-env", "command": "echo ok", "env": ["BIG": oversized]]
+        )
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(DockControlDefinition.self, from: data)
+        }
     }
 
     @Test("Project config identity follows the resolved dock file, not child cwd")
@@ -264,7 +301,7 @@ struct DockControlDefinitionDecodingTests {
 
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let explicitPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-        let configuredControl = DockControlDefinition(id: "configured", title: "Configured", command: "echo configured")
+        let configuredControl = DockControlDefinition(id: "configured", title: "Configured", variant: .command("echo configured"))
         let lateResolution = DockConfigResolution(
             controls: [configuredControl],
             sourceURL: nil,
@@ -297,7 +334,7 @@ struct DockControlDefinitionDecodingTests {
         store.setActive(isVisible: true, mode: .dock)
 
         let staleResolution = DockConfigResolution(
-            controls: [DockControlDefinition(id: "old", title: "Old", command: "echo old")],
+            controls: [DockControlDefinition(id: "old", title: "Old", variant: .command("echo old"))],
             sourceURL: nil,
             baseDirectory: oldRoot.path,
             isProjectSource: false

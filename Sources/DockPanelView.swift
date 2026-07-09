@@ -204,11 +204,20 @@ private struct DockTrustView: View {
                 .font(.system(size: 13, weight: .semibold))
             Text(String(
                 localized: "dock.trust.message",
-                defaultValue: "This project wants to start commands from its Dock config."
+                defaultValue: "This project wants to add these controls from its Dock config."
             ))
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(request.controlSummaries) { summary in
+                        DockTrustControlSummaryRow(summary: summary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
             Text(request.configPath)
                 .font(.system(size: 10, weight: .regular, design: .monospaced))
                 .foregroundStyle(.secondary)

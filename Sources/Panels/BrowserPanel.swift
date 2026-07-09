@@ -2740,6 +2740,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     @Published private(set) var profileID: UUID
+    private let browserProfileStore: BrowserProfileStore
     @Published private(set) var historyStore: BrowserHistoryStore
 
     /// The underlying web view
@@ -3139,11 +3140,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var profileDisplayName: String {
-        BrowserProfileStore.shared.displayName(for: profileID)
+        browserProfileStore.displayName(for: profileID)
     }
 
     var usesBuiltInDefaultProfile: Bool {
-        profileID == BrowserProfileStore.shared.builtInDefaultProfileID
+        profileID == browserProfileStore.builtInDefaultProfileID
     }
 
     var currentBrowserThemeMode: BrowserThemeMode {
@@ -3319,10 +3320,7 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
-            profileID: profileID,
-            websiteDataStore: websiteDataStore
-        )
+        let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
@@ -3538,11 +3536,14 @@ final class BrowserPanel: Panel, ObservableObject {
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> CmuxWebView {
+        let resolvedWebsiteDataStore = websiteDataStore
+            ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        return makeWebView(websiteDataStore: resolvedWebsiteDataStore)
+    }
+
+    private static func makeWebView(websiteDataStore: WKWebsiteDataStore) -> CmuxWebView {
         let config = WKWebViewConfiguration()
-        configureWebViewConfiguration(
-            config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
-        )
+        configureWebViewConfiguration(config, websiteDataStore: websiteDataStore)
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -3935,6 +3936,7 @@ final class BrowserPanel: Panel, ObservableObject {
     init(
         workspaceId: UUID,
         profileID: UUID? = nil,
+        browserProfileStore: BrowserProfileStore? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
         renderInitialNavigation: Bool = true,
@@ -3952,9 +3954,14 @@ final class BrowserPanel: Panel, ObservableObject {
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
-        let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
+        let resolvedBrowserProfileStore = browserProfileStore ?? BrowserProfileStore.shared
+        self.browserProfileStore = resolvedBrowserProfileStore
+        let requestedProfileID = profileID ?? resolvedBrowserProfileStore.effectiveLastUsedProfileID
+        let resolvedProfileID = resolvedBrowserProfileStore.profileDefinition(id: requestedProfileID) != nil
+            ? requestedProfileID
+            : resolvedBrowserProfileStore.builtInDefaultProfileID
         self.profileID = resolvedProfileID
-        self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
+        self.historyStore = resolvedBrowserProfileStore.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -3965,7 +3972,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+            : resolvedBrowserProfileStore.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
@@ -3989,7 +3996,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
-        BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+        resolvedBrowserProfileStore.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -4554,7 +4561,7 @@ final class BrowserPanel: Panel, ObservableObject {
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            : browserProfileStore.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
         websiteDataStore = targetStore
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
@@ -4572,11 +4579,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
-        let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
+        let resolvedProfileID = browserProfileStore.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
-            : BrowserProfileStore.shared.builtInDefaultProfileID
+            : browserProfileStore.builtInDefaultProfileID
         guard resolvedProfileID != profileID else {
-            BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+            browserProfileStore.noteUsed(resolvedProfileID)
             return false
         }
 
@@ -4613,17 +4620,14 @@ final class BrowserPanel: Panel, ObservableObject {
         if let previousCmuxWebView = previousWebView as? CmuxWebView { previousCmuxWebView.clearBrowserDownloadCallbacks() }
 
         profileID = resolvedProfileID
-        historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
-        BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+        historyStore = browserProfileStore.historyStore(for: resolvedProfileID)
+        browserProfileStore.noteUsed(resolvedProfileID)
 
         if !usesRemoteWorkspaceProxy {
-            websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+            websiteDataStore = browserProfileStore.websiteDataStore(for: resolvedProfileID)
         }
 
-        let replacement = Self.makeWebView(
-            profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
-        )
+        let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
@@ -5129,10 +5133,7 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
-            profileID: profileID,
-            websiteDataStore: websiteDataStore
-        )
+        let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
@@ -6140,10 +6141,7 @@ extension BrowserPanel {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
-            profileID: profileID,
-            websiteDataStore: websiteDataStore
-        )
+        let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         webView = replacement
