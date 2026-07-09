@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
-import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms } from "../db/schema";
+import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms, subrouterTenants } from "../db/schema";
 import {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
@@ -12,7 +12,10 @@ const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
 let providerlessProvisioningRows: Array<{ id: string }> = [];
 let providerlessProvisioningSelectsRemaining = 0;
+let providerlessCloudVmUpdateCount = 0;
 let workflowErrorsByProviderId = new Map<string, unknown>();
+let subrouterTenantRows: Array<{ tenantId: string }> = [];
+let subrouterRevokeError: unknown = null;
 
 type DestroyAccountOwnedVmInput = { userId: string; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -40,7 +43,10 @@ beforeEach(() => {
   providerBackedVmBatches = [];
   providerlessProvisioningRows = [];
   providerlessProvisioningSelectsRemaining = 1;
+  providerlessCloudVmUpdateCount = 0;
   workflowErrorsByProviderId = new Map();
+  subrouterTenantRows = [];
+  subrouterRevokeError = null;
   destroyAccountOwnedVm.mockClear();
   runVmWorkflow.mockClear();
   deleteObject.mockClear();
@@ -158,10 +164,10 @@ describe("account deletion cleanup", () => {
 
     expect(calls.slice(0, 3)).toEqual([
       "select-providerless-provisioning-vms",
+      "expire-stale-providerless-vms",
       "claim-providerless-vms",
-      "select-provider-backed-vms",
     ]);
-    expect(calls.slice(2, 5)).toEqual([
+    expect(calls.slice(3, 6)).toEqual([
       "select-provider-backed-vms",
       "destroy:user-1:provider-vm-1",
       "select-provider-backed-vms",
@@ -194,12 +200,57 @@ describe("account deletion cleanup", () => {
 
     expect(calls.slice(0, 4)).toEqual([
       "select-providerless-provisioning-vms",
+      "expire-stale-providerless-vms",
       "claim-providerless-vms",
+      "select-provider-backed-vms",
+    ]);
+    expect(calls.slice(3, 5)).toEqual([
       "select-provider-backed-vms",
       "destroy-error:user-1:provider-vm-1",
     ]);
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
     expect(calls).toContain("delete-cloud-vm-sessions");
+  });
+
+  test("revokes and deletes the personal Subrouter tenant before local data deletion", async () => {
+    subrouterTenantRows = [{ tenantId: "tenant-user-1" }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("select-subrouter-tenant");
+    expect(calls).toContain("revoke-subrouter-tenant:tenant-user-1");
+    expect(calls).toContain("delete-subrouter-tenant");
+    expect(calls.indexOf("revoke-subrouter-tenant:tenant-user-1")).toBeLessThan(
+      calls.indexOf("delete-subrouter-tenant"),
+    );
+    expect(calls.indexOf("delete-subrouter-tenant")).toBeLessThan(calls.indexOf("transaction"));
+  });
+
+  test("fails closed when personal Subrouter tenant revoke fails", async () => {
+    subrouterTenantRows = [{ tenantId: "tenant-user-1" }];
+    subrouterRevokeError = new Error("subrouter revoke failed");
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("subrouter revoke failed");
+
+    expect(calls).toContain("revoke-subrouter-tenant:tenant-user-1");
+    expect(calls).not.toContain("delete-subrouter-tenant");
+    expect(calls).not.toContain("transaction");
+  });
+
+  test("marks stale providerless provisioning VMs before claiming providerless rows", async () => {
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls.slice(0, 3)).toEqual([
+      "select-providerless-provisioning-vms",
+      "expire-stale-providerless-vms",
+      "claim-providerless-vms",
+    ]);
   });
 
   test("fails closed when provider-backed VM destruction fails", async () => {
@@ -270,27 +321,65 @@ describe("account deletion cleanup", () => {
 
 function fakeDb() {
   return {
-    select: () => {
-      return selectBuilder(() => {
-        if (providerlessProvisioningSelectsRemaining > 0) {
-          providerlessProvisioningSelectsRemaining -= 1;
-          calls.push("select-providerless-provisioning-vms");
-          return providerlessProvisioningRows;
-        }
-        if (providerBackedVmBatches.length > 0) {
-          calls.push("select-provider-backed-vms");
-          return providerBackedVmBatches.shift() ?? [];
-        }
-        return [];
-      });
+    select: () => fakeDbSelectBuilder(),
+    update: (table: unknown) => {
+      if (table === cloudVms) {
+        providerlessCloudVmUpdateCount += 1;
+        return updateBuilder(
+          providerlessCloudVmUpdateCount === 1
+            ? "expire-stale-providerless-vms"
+            : "claim-providerless-vms",
+        );
+      }
+      return updateBuilder();
     },
-    update: () => updateBuilder("claim-providerless-vms"),
-    delete: () => writeBuilder(),
+    delete: (table: unknown) => {
+      if (table === subrouterTenants) return writeBuilder("delete-subrouter-tenant");
+      return writeBuilder();
+    },
     transaction: async (callback: (tx: ReturnType<typeof fakeTransaction>) => Promise<void>) => {
       calls.push("transaction");
       await callback(fakeTransaction());
     },
   };
+}
+
+function fakeDbSelectBuilder() {
+  let table: unknown = null;
+  const rows = () => {
+    if (table === cloudVms) {
+      if (providerlessProvisioningSelectsRemaining > 0) {
+        providerlessProvisioningSelectsRemaining -= 1;
+        calls.push("select-providerless-provisioning-vms");
+        return providerlessProvisioningRows;
+      }
+      if (providerBackedVmBatches.length > 0) {
+        calls.push("select-provider-backed-vms");
+        return providerBackedVmBatches.shift() ?? [];
+      }
+    }
+    if (table === subrouterTenants && subrouterTenantRows.length > 0) {
+      calls.push("select-subrouter-tenant");
+      const selected = subrouterTenantRows;
+      subrouterTenantRows = [];
+      return selected;
+    }
+    return [];
+  };
+  const builder = {
+    from: (fromTable: unknown) => {
+      table = fromTable;
+      return builder;
+    },
+    innerJoin: () => builder,
+    where: () => builder,
+    limit: async () => rows(),
+    then: (
+      resolve: (value: unknown[]) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise.resolve(rows()).then(resolve, reject),
+  };
+  return builder;
 }
 
 function fakeRuntime() {
@@ -299,6 +388,10 @@ function fakeRuntime() {
     deleteObject,
     destroyAccountOwnedVm,
     runVmWorkflow,
+    revokeSubrouterTenant: async (tenantId: string) => {
+      calls.push(`revoke-subrouter-tenant:${tenantId}`);
+      if (subrouterRevokeError) throw subrouterRevokeError;
+    },
   };
 }
 

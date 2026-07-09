@@ -19,6 +19,7 @@ import {
   notificationSendEvents,
   stripeCustomers,
   stripeSubscriptions,
+  subrouterTenants,
   vaultCliAuthRequests,
   vaultSessions,
   vaultSnapshots,
@@ -33,6 +34,10 @@ import { isStripeBillingConfigured, stripe } from "../billing/stripe";
 import { destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
 import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
+import {
+  createSubrouterClientFromEnv,
+  SubrouterClientError,
+} from "../subrouter/client";
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
@@ -53,6 +58,7 @@ type AccountDeletionRuntime = {
     readonly providerVmId: string;
   }) => AccountDeletionWorkflow;
   readonly runVmWorkflow: (workflow: AccountDeletionWorkflow) => Promise<unknown>;
+  readonly revokeSubrouterTenant?: (tenantId: string) => Promise<void>;
 };
 
 const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
@@ -61,6 +67,7 @@ const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   destroyAccountOwnedVm: (input) => destroyAccountOwnedVm(input),
   runVmWorkflow: (workflow) =>
     runVmWorkflow(workflow as ReturnType<typeof destroyAccountOwnedVm>),
+  revokeSubrouterTenant: revokeSubrouterTenantFromEnv,
 };
 
 type StackJson =
@@ -355,6 +362,7 @@ export async function deleteCmuxAccountData(
   const anonymizedUserId = deletedAccountId(input.userId);
   await claimProviderlessAccountVms(input.userId, runtime);
   await destroyProviderBackedAccountVms(input.userId, runtime);
+  await deletePersonalSubrouterTenant(input.userId, runtime);
   await deleteAccountVaultObjects(input.userId, runtime);
 
   await cancelStripeAccountBilling(input.userId, anonymizedUserId, runtime);
@@ -438,11 +446,29 @@ export async function deleteCmuxAccountData(
   });
 }
 
+async function deletePersonalSubrouterTenant(
+  teamId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const [tenant] = await db
+    .select({ tenantId: subrouterTenants.tenantId })
+    .from(subrouterTenants)
+    .where(eq(subrouterTenants.teamId, teamId))
+    .limit(1);
+  if (!tenant) return;
+
+  await (runtime.revokeSubrouterTenant ?? revokeSubrouterTenantFromEnv)(tenant.tenantId);
+  await db.delete(subrouterTenants).where(eq(subrouterTenants.teamId, teamId));
+}
+
 async function claimProviderlessAccountVms(
   userId: string,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
   const db = runtime.cloudDb();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - ACCOUNT_DELETION_JOB_STALE_MS);
   const [inFlightCreate] = await db
     .select({ id: cloudVms.id })
     .from(cloudVms)
@@ -460,8 +486,24 @@ async function claimProviderlessAccountVms(
     .update(cloudVms)
     .set({
       status: "destroyed",
-      destroyedAt: new Date(),
-      updatedAt: new Date(),
+      destroyedAt: now,
+      updatedAt: now,
+      failureCode: "account_deletion_stale_provisioning",
+      failureMessage: "Account deletion cleaned up a stale providerless provisioning VM.",
+    })
+    .where(and(
+      personalCloudVmRows(userId),
+      eq(cloudVms.status, "provisioning"),
+      isNull(cloudVms.providerVmId),
+      lt(cloudVms.updatedAt, staleBefore),
+    ));
+
+  await db
+    .update(cloudVms)
+    .set({
+      status: "destroyed",
+      destroyedAt: now,
+      updatedAt: now,
     })
     .where(and(
       personalCloudVmRows(userId),
@@ -469,6 +511,15 @@ async function claimProviderlessAccountVms(
       ne(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
     ));
+}
+
+async function revokeSubrouterTenantFromEnv(tenantId: string): Promise<void> {
+  try {
+    await createSubrouterClientFromEnv().revokeTenant(tenantId);
+  } catch (error) {
+    if (error instanceof SubrouterClientError && error.status === 404) return;
+    throw error;
+  }
 }
 
 async function destroyProviderBackedAccountVms(
