@@ -1,9 +1,19 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { call } from "@orpc/server";
 
 import { accountMeProcedure } from "../orpc/server/account/me";
 import { generateOpenAPIDocument } from "../orpc/server/openapi";
 import { PRO_PRODUCT_ID } from "../services/billing/pro";
+
+// The two checked-in specs the Swift client and /api/openapi.json ship must
+// stay identical to what the router generates. Resolve relative to this test
+// file so the paths hold regardless of the process cwd.
+const CHECKED_IN_SPECS = [
+  "../openapi/openapi.json",
+  "../../Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/openapi.json",
+] as const;
 
 // Drives the real resolveProPlanStatus (no module mocks, so it can't leak into
 // other test files). The fake user carries no `id`, so the Stripe-subscription
@@ -73,5 +83,19 @@ describe("account.me", () => {
       ?.get;
     expect(operation?.operationId).toBe("account.me");
     expect(doc.servers?.[0]?.url).toBe("/api/v1");
+  });
+
+  test("both checked-in specs are byte-identical to the generated document", async () => {
+    const doc = await generateOpenAPIDocument();
+    // Must match the regeneration procedure exactly (2-space indent + trailing
+    // newline) so a stale commit fails here instead of at Swift decode time.
+    const generated = JSON.stringify(doc, null, 2) + "\n";
+    for (const relative of CHECKED_IN_SPECS) {
+      const path = fileURLToPath(new URL(relative, import.meta.url));
+      const onDisk = await readFile(path, "utf8");
+      // Equality failure names the file via the diff; keep the spec regen
+      // procedure in mind when this trips (see web PR instructions).
+      expect(onDisk).toBe(generated);
+    }
   });
 });
