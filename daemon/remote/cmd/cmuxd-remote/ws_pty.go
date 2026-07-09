@@ -825,14 +825,14 @@ func (h *wsPTYHub) prepareAttachment(
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
 	}
-	// Supersede any existing attachment with this id. Input the old
-	// attachment already had accepted stays queued and reaches the PTY
-	// ahead of anything the replacement enqueues: session.input is FIFO
-	// with writeInputLoop as its only consumer, whole writes enqueue
-	// atomically under inputEnqueueMu, and writeInputChunk deliberately
-	// does not require the chunk's attachment to still be registered.
-	// Never wait on that drain here — a wedged PTY (reader stopped) must
-	// not turn reattach into an indefinite hang.
+	// Supersede any existing attachment with this id. Input that the old
+	// attachment already accepted stays queued and reaches the PTY ahead
+	// of anything the replacement enqueues: session.input is FIFO with
+	// writeInputLoop as its only consumer, whole writes enqueue atomically
+	// under inputEnqueueMu, and writeInputChunk deliberately does not
+	// require the chunk's attachment to still be registered. Never wait on
+	// that drain here — a wedged PTY (reader stopped) must not turn
+	// reattach into an indefinite hang.
 	var superseded *wsPTYAttachment
 	if old := session.attachments[attachmentID]; old != nil {
 		old.cancel()
