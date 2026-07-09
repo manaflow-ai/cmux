@@ -196,9 +196,9 @@ export async function DELETE(request: Request): Promise<Response> {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
       if (accountDeletionTombstoneStarted) {
         try {
-          await markAccountDeletionTombstoneFailed(userId, error);
-        } catch (markFailedError) {
-          logAccountDeleteError("account.delete.post_stack_cleanup_mark_failed", markFailedError);
+          await markAccountDeletionTombstoneCleanupIncomplete(userId, error);
+        } catch (markIncompleteError) {
+          logAccountDeleteError("account.delete.post_stack_cleanup_mark_incomplete", markIncompleteError);
         }
       }
       return jsonResponse({
@@ -263,7 +263,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<bool
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .limit(1);
-    if (existing?.status === "completed") return false;
+    if (existing?.status === "completed" || existing?.status === "cleanup_incomplete") return false;
     if (existing && isBlockingAccountDeletionStatus(existing.status) && !isStaleAccountDeletionTombstone(existing.updatedAt, now)) {
       return false;
     }
@@ -316,6 +316,20 @@ async function markAccountDeletionTombstoneFailed(userId: string, error: unknown
     .set({
       status: "failed",
       updatedAt: new Date(),
+      errorMessage: sanitizedErrorSummary(error),
+    })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
+}
+
+async function markAccountDeletionTombstoneCleanupIncomplete(userId: string, error: unknown): Promise<void> {
+  const now = new Date();
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({
+      userId: null,
+      status: "cleanup_incomplete",
+      updatedAt: now,
+      completedAt: now,
       errorMessage: sanitizedErrorSummary(error),
     })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
@@ -878,14 +892,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
       .where(eq(cloudVmBaseGenerations.createdByUserId, userId));
 
-    await tx.delete(devices).where(and(
-      inArray(devices.teamId, deletionTeamIds),
-      eq(devices.userId, userId),
-    ));
-    await tx
-      .update(devices)
-      .set({ userId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
-      .where(eq(devices.userId, userId));
+    await tx.delete(devices).where(eq(devices.userId, userId));
 
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, userId));
   });

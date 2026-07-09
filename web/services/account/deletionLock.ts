@@ -13,6 +13,7 @@ export function isBlockingAccountDeletionStatus(status: string): boolean {
     status === "pending" ||
     status === "in_progress" ||
     status === "stack_delete_pending" ||
-    status === "stack_delete_in_progress"
+    status === "stack_delete_in_progress" ||
+    status === "cleanup_incomplete"
   );
 }

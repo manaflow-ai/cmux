@@ -561,13 +561,11 @@ describe("account deletion route", () => {
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
-      { table: devices, values: { userId: "deleted-account" } },
       { table: stripeSubscriptions, values: { stackUserId: "deleted-account" } },
       { table: stripeCustomers, values: { stackUserId: "deleted-account" } },
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
-      { table: devices, values: { userId: "deleted-account" } },
     ]);
     for (const update of updatedRows) {
       expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
@@ -1074,18 +1072,14 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("anonymizes shared team devices registered by the deleted user", async () => {
+  test("deletes shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
     expect(deletedTables).toContain(devices);
     const deviceDelete = deletedWhere.find((entry) => entry.table === devices);
-    expect(conditionColumnNames(deviceDelete?.condition)).toContain("team_id");
     expect(conditionColumnNames(deviceDelete?.condition)).toContain("user_id");
-    expect(updatedRows.map(({ table, values }) => ({
-      table,
-      values: stripUpdatedAt(values),
-    }))).toContainEqual({ table: devices, values: { userId: "deleted-account" } });
+    expect(updatedRows.map(({ table }) => table)).not.toContain(devices);
   });
 
   test("deletes vault rows in bounded batches after their objects are removed", async () => {
@@ -1406,6 +1400,9 @@ describe("account deletion route", () => {
     )).toBe(false);
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "failed"
+    )).toBe(false);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "cleanup_incomplete"
     )).toBe(true);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
@@ -1427,6 +1424,9 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "failed"
+    )).toBe(false);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "cleanup_incomplete"
     )).toBe(true);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
