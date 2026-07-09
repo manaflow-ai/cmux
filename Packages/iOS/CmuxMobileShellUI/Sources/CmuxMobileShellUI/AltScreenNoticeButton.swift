@@ -25,6 +25,7 @@ struct AltScreenNoticeButton: View {
         VStack(alignment: .leading, spacing: 10) {
             Label {
                 Text(title)
+                    .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill")
             }
@@ -34,6 +35,7 @@ struct AltScreenNoticeButton: View {
             Text(explanation)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Button(action: dismissFromPopover) {
                 Text(dismissActionTitle)
