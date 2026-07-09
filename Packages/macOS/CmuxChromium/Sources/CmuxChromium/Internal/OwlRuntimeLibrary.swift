@@ -34,6 +34,11 @@ final class OwlRuntimeLibrary {
     typealias DevToolsOpenFn = @convention(c) (OpaquePointer?, UInt32, UnsafeMutablePointer<Bool>?, ErrorOut) -> Int32
     typealias DevToolsCloseFn = @convention(c) (OpaquePointer?, UnsafeMutablePointer<Bool>?, ErrorOut) -> Int32
     typealias CaptureJSONFn = @convention(c) (OpaquePointer?, StringOut, ErrorOut) -> Int32
+    typealias NativeSurfaceIndexFn = @convention(c) (OpaquePointer?, UInt32, UnsafeMutablePointer<Bool>?, ErrorOut) -> Int32
+    typealias NativeSurfaceAckFn = @convention(c) (OpaquePointer?, UnsafeMutablePointer<Bool>?, ErrorOut) -> Int32
+    typealias NativeSurfaceFilesFn = @convention(c) (
+        OpaquePointer?, UnsafePointer<CChar>?, UnsafeMutablePointer<Bool>?, ErrorOut
+    ) -> Int32
     typealias PollEventsFn = @convention(c) (UInt32) -> Void
     typealias FreeBufferFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
@@ -60,6 +65,10 @@ final class OwlRuntimeLibrary {
     let devToolsClose: DevToolsCloseFn
     let devToolsEvaluateJavaScript: JavaScriptFn
     let captureSurfaceJSON: CaptureJSONFn
+    let nativeSurfaceAcceptActivePopupMenuItem: NativeSurfaceIndexFn
+    let nativeSurfaceCancelActivePopup: NativeSurfaceAckFn
+    let nativeSurfaceSelectActiveFilePickerFiles: NativeSurfaceFilesFn
+    let nativeSurfaceCancelActiveFilePicker: NativeSurfaceAckFn
     let pollEvents: PollEventsFn
     let freeBuffer: FreeBufferFn
 
@@ -98,6 +107,18 @@ final class OwlRuntimeLibrary {
         devToolsClose = try symbol("owl_fresh_mojo_devtools_close", as: DevToolsCloseFn.self)
         devToolsEvaluateJavaScript = try symbol("owl_fresh_mojo_devtools_evaluate_javascript", as: JavaScriptFn.self)
         captureSurfaceJSON = try symbol("owl_fresh_mojo_surface_tree_capture_surface_json", as: CaptureJSONFn.self)
+        nativeSurfaceAcceptActivePopupMenuItem = try symbol(
+            "owl_fresh_mojo_native_surface_accept_active_popup_menu_item", as: NativeSurfaceIndexFn.self
+        )
+        nativeSurfaceCancelActivePopup = try symbol(
+            "owl_fresh_mojo_native_surface_cancel_active_popup", as: NativeSurfaceAckFn.self
+        )
+        nativeSurfaceSelectActiveFilePickerFiles = try symbol(
+            "owl_fresh_mojo_native_surface_select_active_file_picker_files_json", as: NativeSurfaceFilesFn.self
+        )
+        nativeSurfaceCancelActiveFilePicker = try symbol(
+            "owl_fresh_mojo_native_surface_cancel_active_file_picker", as: NativeSurfaceAckFn.self
+        )
         pollEvents = try symbol("owl_fresh_mojo_poll_events", as: PollEventsFn.self)
         freeBuffer = try symbol("owl_fresh_mojo_free_buffer", as: FreeBufferFn.self)
     }

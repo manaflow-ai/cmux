@@ -172,6 +172,53 @@ public final class ChromiumSession: Sendable {
         }
     }
 
+    /// Accepts the item at `index` in the currently active native popup (menu or `<select>`).
+    public func acceptPopupMenuItem(at index: UInt32) async throws {
+        try await withSession { library, session in
+            var ok = false
+            var error: UnsafeMutablePointer<CChar>?
+            let status = library.nativeSurfaceAcceptActivePopupMenuItem(session, index, &ok, &error)
+            try library.throwIfFailed(status, error)
+        }
+    }
+
+    /// Dismisses the currently active native popup without selecting an item.
+    public func cancelActivePopup() async throws {
+        try await withSession { library, session in
+            var ok = false
+            var error: UnsafeMutablePointer<CChar>?
+            let status = library.nativeSurfaceCancelActivePopup(session, &ok, &error)
+            try library.throwIfFailed(status, error)
+        }
+    }
+
+    /// Supplies file paths to the currently active native file picker.
+    public func selectFilePickerFiles(_ paths: [String]) async throws {
+        let json = String(decoding: try JSONEncoder().encode(paths), as: UTF8.self)
+        try await withSession { library, session in
+            var ok = false
+            var error: UnsafeMutablePointer<CChar>?
+            let status = json.withCString { library.nativeSurfaceSelectActiveFilePickerFiles(session, $0, &ok, &error) }
+            try library.throwIfFailed(status, error)
+        }
+    }
+
+    /// Dismisses the currently active native file picker without selecting files.
+    public func cancelActiveFilePicker() async throws {
+        try await withSession { library, session in
+            var ok = false
+            var error: UnsafeMutablePointer<CChar>?
+            let status = library.nativeSurfaceCancelActiveFilePicker(session, &ok, &error)
+            try library.throwIfFailed(status, error)
+        }
+    }
+
+    /// Captures the current page as a decoded PNG image.
+    public func captureSurfacePNG() async throws -> ChromiumSurfaceCapture {
+        let json = try await captureSurfaceJSON()
+        return try ChromiumSurfaceCapture(json: json)
+    }
+
     private func withSession<T: Sendable>(
         _ body: @escaping @Sendable (OwlRuntimeLibrary, OpaquePointer) throws -> T
     ) async throws -> T {
