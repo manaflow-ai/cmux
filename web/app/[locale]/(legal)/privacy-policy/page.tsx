@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { routing } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
@@ -22,7 +22,7 @@ export async function generateMetadata({
   params: Promise<PageParams>;
 }): Promise<Metadata> {
   const { locale: rawLocale } = await params;
-  const locale = requirePrivacyPolicyLocale(rawLocale);
+  const locale = privacyPolicyLocaleForMetadata(rawLocale);
   const t = await getTranslations({
     locale,
     namespace: "privacyPolicyPage",
@@ -86,7 +86,14 @@ function requirePrivacyPolicyLocale(locale: string): (typeof privacyPolicyLocale
   if (privacyPolicyLocales.includes(locale as (typeof privacyPolicyLocales)[number])) {
     return locale as (typeof privacyPolicyLocales)[number];
   }
-  notFound();
+  redirect("/privacy-policy");
+}
+
+function privacyPolicyLocaleForMetadata(locale: string): (typeof privacyPolicyLocales)[number] {
+  if (privacyPolicyLocales.includes(locale as (typeof privacyPolicyLocales)[number])) {
+    return locale as (typeof privacyPolicyLocales)[number];
+  }
+  return routing.defaultLocale;
 }
 
 function renderInline(message: string): ReactNode[] {
