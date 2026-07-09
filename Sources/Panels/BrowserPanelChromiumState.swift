@@ -8,6 +8,7 @@ final class BrowserPanelChromiumState {
     let model: ChromiumBrowserModel
     let webView: ChromiumWebView
     var pollTask: Task<Void, Never>?
+    var nativeSurfaceCoordinator: BrowserChromiumNativeSurfaceCoordinator?
 
     init(session: ChromiumSession, model: ChromiumBrowserModel, webView: ChromiumWebView) {
         self.session = session

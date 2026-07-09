@@ -19,6 +19,10 @@ public final class ChromiumWebView: NSView {
     private var lastSentScale: CGFloat = 0
     private var mouseTrackingArea: NSTrackingArea?
 
+    /// Invoked on the main actor whenever the shell reports a new surface tree,
+    /// so the host can present native menus and file pickers.
+    public var onSurfaceTree: (@MainActor (ChromiumSurfaceTree) -> Void)?
+
     /// Creates a view driving `session` and projecting its state into `model`.
     public init(session: ChromiumSession, model: ChromiumBrowserModel) {
         self.session = session
@@ -110,7 +114,11 @@ public final class ChromiumWebView: NSView {
             hostLayer?.removeFromSuperlayer()
             hostLayer = nil
             hostedContextID = nil
-        case .navigationChanged, .surfaceTreeChanged, .log:
+        case .surfaceTreeChanged(let json):
+            if let onSurfaceTree, let tree = try? ChromiumSurfaceTree(json: json) {
+                onSurfaceTree(tree)
+            }
+        case .navigationChanged, .log:
             break
         }
     }

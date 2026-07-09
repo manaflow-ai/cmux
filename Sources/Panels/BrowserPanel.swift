@@ -5877,6 +5877,14 @@ final class BrowserPanel: Panel, ObservableObject {
         applyChromiumModelState(state.model)
         observeChromiumModel(state)
         startChromiumPoll(state)
+        let coordinator = BrowserChromiumNativeSurfaceCoordinator(
+            session: state.session,
+            hostView: state.webView
+        )
+        state.nativeSurfaceCoordinator = coordinator
+        state.webView.onSurfaceTree = { [weak coordinator] tree in
+            coordinator?.handle(tree)
+        }
     }
 
     /// Re-arming `withObservationTracking` loop over the Chromium model. Stops
