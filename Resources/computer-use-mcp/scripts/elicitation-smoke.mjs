@@ -607,6 +607,64 @@ if (raceState.isError || raceFirst.isError || !raceSecond.isError || !raceSecond
   process.exit(1);
 }
 
+const truncatedElementSnapshot = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_click", args: { app: "TestApp", element: 2 } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+  extraEnv: { CMUX_CU_MAX_TREE: "90" },
+});
+console.log(
+  `truncated element snapshot -> state=${truncatedElementSnapshot[0].isError} click=${truncatedElementSnapshot[1].isError}`
+);
+if (
+  truncatedElementSnapshot[0].isError ||
+  truncatedElementSnapshot[0].text.includes("[2]") ||
+  !truncatedElementSnapshot[1].isError ||
+  !truncatedElementSnapshot[1].text.includes("computer_state")
+) {
+  console.error("FAIL: element indices omitted by AX-tree truncation must not remain actionable");
+  process.exit(1);
+}
+
+const aliasedSnapshotConsumption = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_state", args: { app: "com.cmux.testapp" } },
+    { tool: "computer_click", args: { app: "TestApp", element: 1 } },
+    { tool: "computer_click", args: { app: "com.cmux.testapp", element: 1 } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(
+  `aliased snapshot consumption -> state-name=${aliasedSnapshotConsumption[0].isError} state-bundle=${aliasedSnapshotConsumption[1].isError} first=${aliasedSnapshotConsumption[2].isError} second=${aliasedSnapshotConsumption[3].isError}`
+);
+if (
+  aliasedSnapshotConsumption[0].isError ||
+  aliasedSnapshotConsumption[1].isError ||
+  aliasedSnapshotConsumption[2].isError ||
+  !aliasedSnapshotConsumption[3].isError ||
+  !aliasedSnapshotConsumption[3].text.includes("computer_state")
+) {
+  console.error("FAIL: one input must consume every query alias for the same target snapshot");
+  process.exit(1);
+}
+
+const partialControlTarget = await run({
+  withElicitation: true,
+  tool: "computer_state",
+  args: { app: "estAp" },
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(`partial control target -> isError=${partialControlTarget.isError}`);
+if (!partialControlTarget.isError || !partialControlTarget.text.includes("not found")) {
+  console.error("FAIL: app inspection and control must reject partial-name target queries");
+  process.exit(1);
+}
+
 const coordinateBounds = await runCoordinateBoundsSmoke();
 console.log(
   `coordinate bounds -> state=${coordinateBounds.state.isError} click=${coordinateBounds.click.isError} text=${coordinateBounds.click.text}`
