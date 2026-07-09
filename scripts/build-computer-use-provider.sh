@@ -140,3 +140,9 @@ else
   /usr/bin/lipo -create "${BUILT[@]}" -output "$OUTPUT"
 fi
 chmod 0755 "$OUTPUT"
+
+# lipo does not preserve a valid linker signature on the assembled universal
+# executable. Seal the final bytes here; Developer ID release signing replaces
+# this ad-hoc signature later in scripts/sign-cmux-bundle.sh.
+/usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
+/usr/bin/codesign --verify --strict "$OUTPUT"
