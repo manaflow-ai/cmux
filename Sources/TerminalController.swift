@@ -13246,8 +13246,7 @@ class TerminalController {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
                     return
                 }
-                tabManager.closeTab(tab)
-                result = "OK"
+                if tabManager.closeWorkspaceNonInteractively(tab) { result = "OK" }
             }
         }
         return result

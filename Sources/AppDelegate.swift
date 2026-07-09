@@ -5703,7 +5703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
-        window.performClose(nil)
+        window.close()
         return true
     }
 

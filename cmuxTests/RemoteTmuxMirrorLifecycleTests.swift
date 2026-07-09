@@ -187,6 +187,39 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(appDelegate.remoteTmuxController.sessionMirror(host: host, sessionName: "dev") == nil)
     }
 
+    @Test func processExitDrainsFinalPipeBytesBeforeFinishingStream() async throws {
+        let pipe = Pipe()
+        let reader = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-process-output-reader-test",
+            maxPendingChunks: 8,
+            maxPendingBytes: 4096,
+            onOverflow: { Issue.record("process output reader overflowed") }
+        )
+        reader.attach(to: pipe.fileHandleForReading)
+        let capture = Task {
+            var data = Data()
+            for await chunk in reader.stream {
+                data.append(chunk)
+                reader.release(chunk)
+            }
+            return data
+        }
+        defer {
+            reader.close()
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        let terminalError = Data("no server running on /private/tmp/tmux-501/default\n".utf8)
+        try pipe.fileHandleForWriting.write(contentsOf: terminalError)
+        // Model the Process termination callback winning the race against the
+        // DispatchSource readability callback. The writer deliberately remains
+        // open: processDidExit must drain the bytes already in the pipe itself.
+        reader.processDidExit()
+
+        #expect(await capture.value == terminalError)
+    }
+
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }

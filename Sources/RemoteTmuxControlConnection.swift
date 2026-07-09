@@ -83,9 +83,8 @@ final class RemoteTmuxControlConnection {
     private var process: Process?
     private var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
-    private var stderrReader: FileHandle?
-    private var stdoutPipeReader: RemoteTmuxStdoutPipeReader?
-    private var stderrContinuation: AsyncStream<Data>.Continuation?
+    private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
+    private var stderrPipeReader: RemoteTmuxProcessOutputReader?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
     /// failed reconnect attempt is classified, so the decision sees the complete
     /// error rather than racing the async stderr delivery.
@@ -197,6 +196,8 @@ final class RemoteTmuxControlConnection {
     /// floods output. Parser byte budgets remain the control-stream corruption guard.
     private static let maxPendingStdoutBytes = 32 * 1024 * 1024
     private static let maxPendingStdoutChunks = 4096
+    private static let maxPendingStderrBytes = 1024 * 1024
+    private static let maxPendingStderrChunks = 256
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
@@ -388,7 +389,8 @@ final class RemoteTmuxControlConnection {
             }
         )
 
-        let stdoutPipeReader = RemoteTmuxStdoutPipeReader(
+        let stdoutPipeReader = RemoteTmuxProcessOutputReader(
+            label: "com.cmux.remote-tmux.stdout.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStdoutChunks,
             maxPendingBytes: Self.maxPendingStdoutBytes,
             onOverflow: { [weak self] in
@@ -397,26 +399,21 @@ final class RemoteTmuxControlConnection {
         )
         let reader = outPipe.fileHandleForReading
         stdoutPipeReader.attach(to: reader)
-        // Capture stderr via its own AsyncStream so a failed reconnect attempt can be
-        // classified deterministically: `handleStreamEnd` awaits `stderrTask` (which
-        // finishes on stderr EOF) before reading `stderrBuffer`, so the decision can't
-        // race a not-yet-delivered chunk.
-        let (errStream, errContinuation) = AsyncStream<Data>.makeStream()
-        let errReader = errPipe.fileHandleForReading
-        errReader.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                errContinuation.finish()
-            } else {
-                errContinuation.yield(chunk)
+        let stderrPipeReader = RemoteTmuxProcessOutputReader(
+            label: "com.cmux.remote-tmux.stderr.\(UUID().uuidString)",
+            maxPendingChunks: Self.maxPendingStderrChunks,
+            maxPendingBytes: Self.maxPendingStderrBytes,
+            onOverflow: { [weak self] in
+                self?.handleStderrBackpressureOverflow()
             }
-        }
-        // Finish BOTH streams on process exit so the consumers (and any awaiter)
-        // always complete even if a reader's EOF callback is delayed.
+        )
+        stderrPipeReader.attach(to: errPipe.fileHandleForReading)
+        // Process termination and pipe EOF are distinct events. Each reader drains
+        // its descriptor before ending the stream so final `%exit` or stderr bytes
+        // cannot be discarded by a faster termination callback.
         proc.terminationHandler = { _ in
-            stdoutPipeReader.close()
-            errContinuation.finish()
+            stdoutPipeReader.processDidExit()
+            stderrPipeReader.processDidExit()
         }
 
         do {
@@ -426,22 +423,22 @@ final class RemoteTmuxControlConnection {
             // replace this connection instead of reusing a dead one. Close the
             // stdin writer too, so the connection is left in a clean, retry-safe
             // state instead of holding a dead pipe that silently EPIPEs on write.
-            errReader.readabilityHandler = nil
             stdoutPipeReader.close()
-            errContinuation.finish()
+            stderrPipeReader.close()
             stdinWriter.close()
             throw error
         }
         process = proc
         self.stdinWriter = stdinWriter
         stdoutReader = reader
-        stderrReader = errReader
         self.stdoutPipeReader = stdoutPipeReader
-        stderrContinuation = errContinuation
+        self.stderrPipeReader = stderrPipeReader
         stderrTask = Task { [weak self] in
-            for await chunk in errStream {
-                guard let text = String(data: chunk, encoding: .utf8), !text.isEmpty else { continue }
-                self?.appendStderr(text)
+            for await chunk in stderrPipeReader.stream {
+                if let text = String(data: chunk, encoding: .utf8), !text.isEmpty {
+                    self?.appendStderr(text)
+                }
+                stderrPipeReader.release(chunk)
             }
         }
         ingestTask = Task { [weak self] in
@@ -720,13 +717,11 @@ final class RemoteTmuxControlConnection {
         process?.terminationHandler = nil
         // Tear down the readers deterministically rather than waiting for EOF (the
         // consumers are already cancelled).
-        stderrReader?.readabilityHandler = nil
-        stderrReader = nil
         stdoutPipeReader?.close()
         stdoutPipeReader = nil
         stdoutReader = nil
-        stderrContinuation?.finish()
-        stderrContinuation = nil
+        stderrPipeReader?.close()
+        stderrPipeReader = nil
         stdinWriter?.close()
         stdinWriter = nil
         process?.terminate()
@@ -768,6 +763,12 @@ final class RemoteTmuxControlConnection {
         // control-mode byte would exceed the bridge budget. Reconnect instead of
         // dropping bytes and desynchronizing command/result parsing.
         record("stdout-backpressure")
+        beginReconnecting()
+    }
+
+    private func handleStderrBackpressureOverflow() {
+        guard connectionState == .connected || connectionState == .connecting else { return }
+        record("stderr-backpressure")
         beginReconnecting()
     }
 

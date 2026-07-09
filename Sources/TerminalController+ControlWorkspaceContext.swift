@@ -161,7 +161,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
         }
-        tabManager.closeWorkspace(ws)
+        guard tabManager.closeWorkspaceNonInteractively(ws) else { return .notFound }
         return .resolved(windowID: windowId)
     }
 

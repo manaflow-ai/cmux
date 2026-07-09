@@ -111,6 +111,7 @@ struct RemoteTmuxControlMessageDecoding {
         return lowered.contains("can't find session")
             || lowered.contains("can\u{2019}t find session")
             || lowered.contains("no server running")
+            || lowered.contains("no sessions")
             || lowered.contains("no current session")
             || lowered.contains("session not found")
             || lowered.contains("lost server")
