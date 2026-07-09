@@ -884,6 +884,45 @@ describe("recordCheckoutCompletion", () => {
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
+  test("skips ownerless legacy Team subscription webhooks before writing rows", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for ownerless Team subscription");
+    });
+    const getTeam = mock(async () => {
+      throw new Error("should not load Stack team for ownerless Team subscription");
+    });
+    selectResults = [[], []];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser, getTeam } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(getTeam).not.toHaveBeenCalled();
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("skips Team subscription webhooks for tombstoned metadata owners before writing rows", async () => {
     const getUser = mock(async () => {
       throw new Error("should not load Stack user after tombstone blocks Team subscription");

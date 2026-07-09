@@ -297,13 +297,14 @@ export async function applySubscriptionUpdate(
       mappedStackUserId &&
       metadataStackUserId !== mappedStackUserId
     ) return { skipped: true };
-    const stackUserId = mappedStackUserId ?? metadataStackUserId ?? teamScope.stackTeamId;
-    if (stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
+    const stackUserId = mappedStackUserId ?? metadataStackUserId;
+    if (!stackUserId || stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
     const isActive = isActiveStripeSubscriptionStatus(subscription.status);
     const ownerStackUserId = teamSubscriptionOwnerStackUserId(stackUserId, teamScope.stackTeamId);
+    if (!ownerStackUserId) return { skipped: true };
     const lockedResult = await withAccountDeletionUserLock(
       db,
-      ownerStackUserId ?? stackUserId,
+      ownerStackUserId,
       async (tx): Promise<
         | { skipped: true }
         | { scope: "team"; stackTeamId: string; isActive: boolean }
@@ -319,8 +320,8 @@ export async function applySubscriptionUpdate(
           metadataStackUserId !== transactionMappedStackUserId
         ) return { skipped: true };
 
-        const transactionStackUserId = transactionMappedStackUserId ?? metadataStackUserId ?? teamScope.stackTeamId;
-        if (transactionStackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
+        const transactionStackUserId = transactionMappedStackUserId ?? metadataStackUserId;
+        if (!transactionStackUserId || transactionStackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
         const transactionOwnerStackUserId = teamSubscriptionOwnerStackUserId(
           transactionStackUserId,
           teamScope.stackTeamId,
