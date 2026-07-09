@@ -290,6 +290,7 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let source = dir.join("source");
     // The runnable is NOT committed: [build] must create it, so this fixture
     // exercises the build step and the post-build executable verification.
+    fs::create_dir_all(&source).unwrap();
     fs::write(
         source.join("cmux-plugin.toml"),
         r#"
