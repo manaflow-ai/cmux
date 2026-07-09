@@ -16,8 +16,8 @@ use std::sync::mpsc::Receiver;
 
 use ghostty_vt::{RenderState, Terminal};
 use mux_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface,
-    SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId,
+    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
 };
 use serde_json::json;
 
@@ -29,6 +29,12 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
+pub struct SidebarPluginSurface {
+    pub surface_id: Option<SurfaceId>,
+    pub error: Option<String>,
+    pub retry_after_ms: Option<u64>,
+}
+
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
     if let Some((cols, rows)) = size {
@@ -36,6 +42,15 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
         cmd["rows"] = json!(rows);
     }
     cmd
+}
+
+fn sidebar_status_to_surface(status: SidebarPluginStatus) -> SidebarPluginSurface {
+    let surface_id = status.surface;
+    SidebarPluginSurface {
+        surface_id,
+        error: status.error,
+        retry_after_ms: status.retry_after.map(|duration| duration.as_millis() as u64),
+    }
 }
 
 pub(crate) fn resize_action(
@@ -94,6 +109,48 @@ impl Session {
             mux.update_surface_options(|options| {
                 crate::config::apply_browser_to_surface_options(config, options);
             });
+            mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+        }
+    }
+
+    pub fn sidebar_plugin(&self, size: (u16, u16), relaunch: bool) -> SidebarPluginSurface {
+        match self {
+            Session::Local(mux) => {
+                let status = mux.ensure_sidebar_plugin(size.0, size.1, relaunch);
+                sidebar_status_to_surface(status)
+            }
+            Session::Remote(remote) => {
+                let Ok(data) = remote.request(json!({
+                    "cmd": "sidebar-plugin",
+                    "cols": size.0,
+                    "rows": size.1,
+                    "relaunch": relaunch,
+                })) else {
+                    return SidebarPluginSurface {
+                        surface_id: None,
+                        error: Some("sidebar plugin unavailable over attach".to_string()),
+                        retry_after_ms: None,
+                    };
+                };
+                let surface_id = data
+                    .get("surface")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|id| id as SurfaceId);
+                let surface = surface_id.and_then(|id| {
+                    remote
+                        .ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
+                        .map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                });
+                drop(surface);
+                SidebarPluginSurface {
+                    surface_id,
+                    error: data
+                        .get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
+                }
+            }
         }
     }
 
