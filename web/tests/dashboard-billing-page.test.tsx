@@ -51,8 +51,13 @@ mock.module("next-intl/server", () => ({
 // AccountPlanBadge is a client component using the client `useTranslations`.
 // Mock it here (like next-intl/server above) so the render is self-contained;
 // depending on another file's leaked next-intl mock made CI's sorted test
-// order fail while local readdir order passed.
+// order fail while local readdir order passed. Export the full client surface
+// the app imports (NextIntlClientProvider, useLocale, useTranslations) so this
+// mock never shadows an export a later file's module evaluation needs — bun's
+// mock.module is global and persists across files.
 mock.module("next-intl", () => ({
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+  useLocale: () => "en",
   useTranslations: (namespace?: string) => translator(namespace),
 }));
 
