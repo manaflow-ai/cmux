@@ -42,7 +42,7 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    @State private var altScreenNotice = AltScreenNoticeState()
+    private let altScreenNotice = AltScreenNoticeState.shared
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false

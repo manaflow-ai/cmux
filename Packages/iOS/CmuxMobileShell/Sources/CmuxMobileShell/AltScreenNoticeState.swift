@@ -5,7 +5,10 @@ import Observation
 @MainActor
 @Observable
 public final class AltScreenNoticeState {
-    static let dismissedDefaultsKey = "mobile.altScreenNotice.dismissed"
+    /// App-wide instance so every view sees one dismissal source of truth.
+    public static let shared = AltScreenNoticeState()
+
+    private static let dismissedDefaultsKey = "mobile.altScreenNotice.dismissed"
 
     @ObservationIgnored private let defaults: UserDefaults
 
