@@ -162,13 +162,14 @@ struct cmuxApp: App {
         let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
         languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
         StartupBreadcrumbLog.append("app.init.language.applied")
+        let settingsJSONStore = JSONConfigStore(fileURL: configFileURL)
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
                 defaults: .standard,
                 migrating: settingsCatalog.all
             ),
-            jsonStore: JSONConfigStore(fileURL: configFileURL),
+            jsonStore: settingsJSONStore,
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: HostAccountFlow(
@@ -178,6 +179,12 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
+        if #available(macOS 15.4, *) {
+            BrowserWebExtensionSupport.shared.configure(
+                jsonStore: settingsJSONStore,
+                catalog: settingsCatalog
+            )
+        }
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)

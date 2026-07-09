@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import SwiftUI
 import WebKit
 
@@ -29,7 +30,8 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
     @Published private(set) var contexts: [WKWebExtensionContext] = []
     @Published private(set) var loadErrors: [String] = []
 
-    private var didStartLoading = false
+    private var settingsObservationTask: Task<Void, Never>?
+    private var loadedByEntryID: [String: WKWebExtensionContext] = [:]
     private var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var orderedPanelIDs: [UUID] = []
     private(set) var activePanelID: UUID?
@@ -58,24 +60,92 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
 
     // MARK: - Configuration attachment
 
-    /// Attaches the shared extension controller to a browser web view configuration
-    /// and kicks off extension discovery on first use.
+    /// Attaches the shared extension controller to a browser web view configuration.
     func attach(to configuration: WKWebViewConfiguration) {
         configuration.webExtensionController = controller
-        loadInstalledExtensionsIfNeeded()
     }
 
-    private func loadInstalledExtensionsIfNeeded() {
-        guard !didStartLoading else { return }
-        didStartLoading = true
-        Task { await loadInstalledExtensions() }
+    // MARK: - Settings-driven loading
+
+    private static let didSeedDefaultsKey = "browserWebExtensionsDidSeedDefaults"
+
+    /// Starts observing `browser.webExtensions` and keeps loaded extensions in
+    /// sync: newly enabled entries load, disabled/removed entries unload.
+    /// Called once from app startup so extensions begin loading before the
+    /// first browser page navigates.
+    func configure(jsonStore: JSONConfigStore, catalog: SettingCatalog) {
+        guard settingsObservationTask == nil else { return }
+        let key = catalog.browser.webExtensions
+        settingsObservationTask = Task { @MainActor [weak self] in
+            var isFirstValue = true
+            for await entries in jsonStore.values(for: key) {
+                guard let self else { return }
+                if isFirstValue {
+                    isFirstValue = false
+                    if await self.seedDefaultsIfNeeded(current: entries, store: jsonStore, key: key) {
+                        continue // the seeded value arrives as the next stream element
+                    }
+                }
+                await self.apply(entries: entries)
+            }
+        }
     }
 
-    private func loadInstalledExtensions() async {
-        for url in Self.candidateExtensionURLs() {
+    /// Grandfathers the pre-settings behavior exactly once: if the user has
+    /// never configured extensions and the Bitwarden desktop app is installed,
+    /// enable its Safari extension so an existing setup keeps working.
+    private func seedDefaultsIfNeeded(
+        current: [BrowserWebExtensionEntry],
+        store: JSONConfigStore,
+        key: JSONKey<[BrowserWebExtensionEntry]>
+    ) async -> Bool {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.didSeedDefaultsKey) else { return false }
+        defaults.set(true, forKey: Self.didSeedDefaultsKey)
+        guard current.isEmpty,
+              FileManager.default.fileExists(atPath: Self.bitwardenAppexURL.path) else { return false }
+        let seeded = BrowserWebExtensionEntry(
+            id: "com.bitwarden.desktop.safari",
+            kind: .safariAppExtension,
+            path: Self.bitwardenAppexURL.path,
+            enabled: true
+        )
+        do {
+            try await store.set([seeded], for: key)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func apply(entries: [BrowserWebExtensionEntry]) async {
+        var desired: [String: BrowserWebExtensionEntry] = [:]
+        for entry in entries where entry.enabled {
+            desired[entry.id] = entry
+        }
+        for path in Self.environmentExtensionPaths() where desired[path] == nil {
+            desired[path] = BrowserWebExtensionEntry(
+                id: path,
+                kind: path.hasSuffix(".appex") ? .safariAppExtension : .unpackedDirectory,
+                path: path,
+                enabled: true
+            )
+        }
+
+        for (entryID, context) in loadedByEntryID where desired[entryID] == nil {
+            try? controller.unload(context)
+            loadedByEntryID[entryID] = nil
+            contexts.removeAll { $0 === context }
+#if DEBUG
+            cmuxDebugLog("browser.webext.unloaded id=\(entryID)")
+#endif
+        }
+
+        for (entryID, entry) in desired where loadedByEntryID[entryID] == nil {
             do {
+                let url = URL(fileURLWithPath: entry.path)
                 let webExtension: WKWebExtension
-                if url.pathExtension == "appex" {
+                if entry.kind == .safariAppExtension, url.pathExtension == "appex" {
                     if let bundle = Bundle(url: url) {
                         webExtension = try await WKWebExtension(appExtensionBundle: bundle)
                     } else {
@@ -86,23 +156,30 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
                 } else {
                     webExtension = try await WKWebExtension(resourceBaseURL: url)
                 }
-                try load(webExtension)
+                let context = try load(webExtension)
+                loadedByEntryID[entryID] = context
 #if DEBUG
                 cmuxDebugLog(
                     "browser.webext.loaded name=\(webExtension.displayName ?? "?") " +
-                    "version=\(webExtension.displayVersion ?? "?") url=\(url.path)"
+                    "version=\(webExtension.displayVersion ?? "?") url=\(entry.path)"
                 )
 #endif
             } catch {
-                loadErrors.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                loadErrors.append("\(entry.id): \(error.localizedDescription)")
 #if DEBUG
-                cmuxDebugLog("browser.webext.loadFailed url=\(url.path) error=\(error.localizedDescription)")
+                cmuxDebugLog("browser.webext.loadFailed url=\(entry.path) error=\(error.localizedDescription)")
 #endif
             }
         }
     }
 
-    private func load(_ webExtension: WKWebExtension) throws {
+    private static func environmentExtensionPaths() -> [String] {
+        guard let env = ProcessInfo.processInfo.environment["CMUX_BROWSER_EXTENSIONS"] else { return [] }
+        return env.split(separator: ":").map(String.init).filter { !$0.isEmpty }
+    }
+
+    @discardableResult
+    private func load(_ webExtension: WKWebExtension) throws -> WKWebExtensionContext {
         let context = WKWebExtensionContext(for: webExtension)
         // Grant everything the manifest requests up front; interactive permission
         // prompting can come later. Repeat grants are also answered by the
@@ -121,6 +198,7 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
 #if DEBUG
         logDiagnostics(for: context, label: "postLoad")
 #endif
+        return context
     }
 
 #if DEBUG
@@ -147,20 +225,6 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
         }
     }
 #endif
-
-    /// Extension bundles/directories to try loading, in order.
-    private static func candidateExtensionURLs() -> [URL] {
-        var urls: [URL] = []
-        if let env = ProcessInfo.processInfo.environment["CMUX_BROWSER_EXTENSIONS"] {
-            for path in env.split(separator: ":") where !path.isEmpty {
-                urls.append(URL(fileURLWithPath: String(path)))
-            }
-        }
-        if FileManager.default.fileExists(atPath: bitwardenAppexURL.path) {
-            urls.append(bitwardenAppexURL)
-        }
-        return urls
-    }
 
     // MARK: - Tab lifecycle (called from BrowserPanel)
 

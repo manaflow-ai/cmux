@@ -163,11 +163,25 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Lists Safari web extensions installed on this Mac (the same registry
+    /// Safari consults), for the Browser section's extensions list. The host
+    /// applies `browser.webExtensions` changes itself by observing the key.
+    func discoverBrowserWebExtensions() async -> [SettingsDiscoveredBrowserExtension]
+
+    /// Whether the host can load web extensions at all (requires macOS 15.4+).
+    func browserWebExtensionsSupported() -> Bool
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default: nothing discovered, for previews/tests with no live host.
+    func discoverBrowserWebExtensions() async -> [SettingsDiscoveredBrowserExtension] { [] }
+
+    /// Default: unsupported, for previews/tests with no live host.
+    func browserWebExtensionsSupported() -> Bool { false }
 
     func openMobilePairingWindow() {}
 

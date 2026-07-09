@@ -485,8 +485,10 @@ public struct SettingsWindowRoot: View {
 
         BrowserSection(
             defaultsStore: defaultsStore,
+            jsonStore: jsonStore,
             catalog: catalog,
             hostActions: hostActions,
+            errorLog: runtime.errorLog,
             importAnchorID: anchorID(for: .browserImport)
         )
         .id(anchorID(for: .browser))

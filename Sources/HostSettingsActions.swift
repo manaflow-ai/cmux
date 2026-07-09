@@ -18,6 +18,24 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
 
+    func browserWebExtensionsSupported() -> Bool {
+        if #available(macOS 15.4, *) { return true }
+        return false
+    }
+
+    func discoverBrowserWebExtensions() async -> [SettingsDiscoveredBrowserExtension] {
+        guard browserWebExtensionsSupported() else { return [] }
+        let candidates = await BrowserWebExtensionDiscoveryService().discoverInstalledSafariExtensions()
+        return candidates.map { candidate in
+            SettingsDiscoveredBrowserExtension(
+                id: candidate.id,
+                displayName: candidate.displayName,
+                version: candidate.version,
+                path: candidate.path
+            )
+        }
+    }
+
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 

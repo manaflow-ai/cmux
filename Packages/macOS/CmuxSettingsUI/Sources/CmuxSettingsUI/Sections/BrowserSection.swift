@@ -39,15 +39,25 @@ public struct BrowserSection: View {
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
 
+    @State private var webExtensions: JSONValueModel<[BrowserWebExtensionEntry]>
+    @State private var discoveredWebExtensions: [SettingsDiscoveredBrowserExtension] = []
+
     public init(
         defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
         hostActions: SettingsHostActions,
+        errorLog: SettingsErrorLog,
         importAnchorID: String? = nil
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
         self.importAnchorID = importAnchorID
+        _webExtensions = State(initialValue: JSONValueModel(
+            store: jsonStore,
+            key: catalog.browser.webExtensions,
+            errorLog: errorLog
+        ))
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
@@ -73,6 +83,7 @@ public struct BrowserSection: View {
             SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"), section: .browser)
                 .accessibilityIdentifier("SettingsBrowserSection")
             mainCard
+            webExtensionsCard
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
@@ -86,6 +97,10 @@ public struct BrowserSection: View {
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
         }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+    }
+
+    private var webExtensionsCard: some View {
+        BrowserWebExtensionsCard(model: webExtensions, hostActions: hostActions)
     }
 
     @ViewBuilder
