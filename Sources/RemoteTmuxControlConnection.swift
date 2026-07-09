@@ -51,6 +51,25 @@ final class RemoteTmuxControlConnection {
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
+    /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
+    /// (style tokens stripped) — exactly the text a native tmux client draws
+    /// in that pane's header, custom formats included. Seeded by the
+    /// pane-rects fetch and kept LIVE by a per-pane subscription
+    /// (`cmux_hdr_<pane>`), so a program retitling its pane updates the strip
+    /// the moment tmux would redraw its own border. The mirror copies its
+    /// windows' subset on reconcile; the view never reads this directly.
+    var paneHeaderLabels: [Int: String] = [:]
+    /// Whether each window currently has `pane-border-status top` — i.e.
+    /// tmux itself is drawing header rows, which is the ONLY time the strips
+    /// show label text (a stock tmux displays no titles anywhere; cmux adds
+    /// only the active-pane dot on top of that).
+    var windowTitleRowsVisible: [Int: Bool] = [:]
+    /// Layouts awaiting authoritative pane rectangles before publication.
+    var pendingLayouts: [Int: PendingLayout] = [:]
+    /// Window ids in the initial atomic topology publication batch.
+    var initialBatchAwaiting: Set<Int>?
+    /// Verified initial windows staged until the atomic batch is complete.
+    var initialBatchStaged: [Int: RemoteTmuxWindow] = [:]
     /// Last-known foreground classification per pane, kept current by the same
     /// one-shot query + live subscription that drive reflow classification
     /// (`#{alternate_on}` + `#{pane_current_command}`, see
@@ -112,6 +131,15 @@ final class RemoteTmuxControlConnection {
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
     var lastClientSize: (columns: Int, rows: Int)?
+    /// The last size any writer requested per window — per-window dedup
+    /// baseline and the reconnect re-pin table.
+    var lastWindowSizes: [Int: (Int, Int)] = [:]
+    /// The most recent window a size was requested for — the deterministic
+    /// choice when the old-server fallback must replay one size session-wide.
+    var lastSizeRequestWindowId: Int?
+    var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
+    /// Whether the server accepts per-window `refresh-client -C` sizing.
+    var supportsPerWindowSize = true
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?

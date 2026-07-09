@@ -1,21 +1,6 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
-    /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
-    /// (style tokens stripped) — exactly the text a native tmux client draws
-    /// in that pane's header, custom formats included. Seeded by the
-    /// pane-rects fetch and kept LIVE by a per-pane subscription
-    /// (`cmux_hdr_<pane>`), so a program retitling its pane updates the strip
-    /// the moment tmux would redraw its own border. The mirror copies its
-    /// windows' subset on reconcile; the view never reads this directly.
-    var paneHeaderLabels: [Int: String] = [:]
-
-    /// Whether each window currently has `pane-border-status top` — i.e.
-    /// tmux itself is drawing header rows, which is the ONLY time the strips
-    /// show label text (a stock tmux displays no titles anywhere; cmux adds
-    /// only the active-pane dot on top of that).
-    var windowTitleRowsVisible: [Int: Bool] = [:]
-
     /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
     /// the active pane by reversing its index; the dot carries that signal
     /// here).
@@ -47,8 +32,6 @@ extension RemoteTmuxControlConnection {
         var retriesRemaining = 1
     }
 
-    var pendingLayouts: [Int: PendingLayout] = [:]
-
     /// Window ids from a topology population that started with NO published
     /// windows (first attach, reconnect reseed into an empty table), still
     /// awaiting their rects reply. While non-nil, verified windows accumulate
@@ -58,11 +41,6 @@ extension RemoteTmuxControlConnection {
     /// creation order — and with it which tab ends up selected and which
     /// mirrors take their one-time size claim from a hidden, collapsed
     /// container — would be a race between round trips.
-    var initialBatchAwaiting: Set<Int>?
-    var initialBatchStaged: [Int: RemoteTmuxWindow] = [:]
-
-
-
     func applyLayout(
         windowId: Int, layout: String, visibleLayout: String? = nil, zoomed: Bool = false
     ) {

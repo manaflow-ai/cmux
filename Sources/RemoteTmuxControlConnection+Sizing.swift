@@ -1,23 +1,6 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
-    /// The last size any writer requested per window — per-window dedup
-    /// baseline and the reconnect re-pin table.
-    var lastWindowSizes: [Int: (Int, Int)] = [:]
-
-    /// The most recent window a size was requested for — the deterministic
-    /// choice when the old-server fallback must replay ONE size session-wide
-    /// (the latest requester is in practice the visible tab).
-    var lastSizeRequestWindowId: Int?
-
-    var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
-
-    /// Whether the server accepts `refresh-client -C '@id:WxH'`. Flipped to
-    /// false on the first `%error` for that form (older tmux); sizing then
-    /// degrades to the session-wide client size.
-    var supportsPerWindowSize = true
-
-
     /// Sizes the tmux control client to `columns`×`rows` cells (tmux
     /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
     /// cmux grid. Without this a freshly attached session stays at ssh's default
