@@ -22,6 +22,7 @@ import {
   type VmRepositoryShape,
 } from "../services/vms/repository";
 import {
+  VmCreateDisabledError,
   VmCreateCreditsInsufficientError,
   VmCreateFailedError,
   VmCreateInProgressError,
@@ -375,6 +376,48 @@ describe("VM Effect workflows", () => {
 
     expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
     expect(sweepCalls).toBe(0);
+  });
+
+  test("exec fails before provider command when account deletion blocks mutations", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000117",
+      userId: "user-workflow-exec-deleting",
+      providerVmId: "provider-vm-exec-deleting",
+      provider: "freestyle",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      usageEvents,
+      assertAccountMutationAllowed: () =>
+        Effect.fail(new VmCreateDisabledError({
+          provider: "freestyle",
+          reason: "Account deletion is in progress.",
+        })),
+    });
+    let execCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.sync(() => {
+          execCalls += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-deleting",
+        providerVmId: "provider-vm-exec-deleting",
+        command: "touch should-not-run",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmCreateDisabledError);
+    expect(execCalls).toBe(0);
+    expect(usageEvents).toEqual([]);
   });
 
   test("destroyVm fails closed when active identity cleanup fails", async () => {
@@ -1816,6 +1859,7 @@ describe("VM Effect workflows", () => {
       upsertVmSession: () => Effect.fail(new Error("unused") as never),
       activeIdentityLeases: () => Effect.succeed([]),
       markLeasesRevoked: () => Effect.void,
+      assertAccountMutationAllowed: () => Effect.void,
       recordUsageEvent: () => Effect.succeed(true),
       recordUsageEvents: () => {
         usageEventAttempts += 1;
@@ -4625,6 +4669,7 @@ function testWorkflowRepo(input: {
   readonly observedStatuses?: ObservedStatusUpdate[];
   readonly recordUsageEventResult?: boolean;
   readonly recordLease?: VmRepositoryShape["recordLease"];
+  readonly assertAccountMutationAllowed?: VmRepositoryShape["assertAccountMutationAllowed"];
   readonly upsertVmSession?: VmRepositoryShape["upsertVmSession"];
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
@@ -4722,6 +4767,10 @@ function testWorkflowRepo(input: {
       Effect.sync(() => {
         input.revokedLeaseIds?.push(...leaseIds);
       }),
+    assertAccountMutationAllowed: (accountInput) =>
+      input.assertAccountMutationAllowed
+        ? input.assertAccountMutationAllowed(accountInput)
+        : Effect.void,
     recordUsageEvent: (event) =>
       Effect.sync(() => {
         const inserted = input.recordUsageEventResult ?? true;

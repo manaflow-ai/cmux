@@ -216,6 +216,10 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<CloudVmSessionRow, VmDatabaseError>;
   readonly activeIdentityLeases: (vmId: string, limit?: number) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly assertAccountMutationAllowed: (input: {
+    readonly userId: string;
+    readonly provider?: ProviderId;
+  }) => Effect.Effect<void, VmCreateDisabledError | VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -1568,6 +1572,23 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             .where(eq(cloudVmLeases.id, id)),
         ),
       );
+    }),
+
+  assertAccountMutationAllowed: (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const db = cloudDb();
+        await db.transaction(async (tx) => {
+          if (!await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
+          throw new VmCreateDisabledError({
+            provider: input.provider,
+            reason: "Account deletion is in progress.",
+          });
+        });
+      },
+      catch: (cause) => isVmCreateDisabledError(cause)
+        ? cause
+        : new VmDatabaseError({ operation: "assertAccountMutationAllowed", cause }),
     }),
 
   recordUsageEvent: (input) =>

@@ -1412,6 +1412,10 @@ export function execVm(input: {
       input.providerVmId,
       "exec",
     );
+    yield* repo.assertAccountMutationAllowed({
+      userId: input.userId,
+      provider: vm.provider,
+    });
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
     });
