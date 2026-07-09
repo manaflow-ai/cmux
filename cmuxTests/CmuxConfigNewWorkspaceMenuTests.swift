@@ -58,6 +58,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         flags.setOverride(enabled, for: definition)
         defer { flags.setOverride(previous, for: definition) }
         return try body()
+    }
 
     private func contextMenuActionID(_ item: NSMenuItem) -> String? {
         (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.id
