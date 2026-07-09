@@ -16,8 +16,14 @@ struct AltScreenNoticeButton: View {
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
         .popover(isPresented: $isPresentingExplanation) {
-            popoverContent
-                .presentationCompactAdaptation(.popover)
+            ViewThatFits(in: .vertical) {
+                popoverContent
+
+                ScrollView {
+                    popoverContent
+                }
+            }
+            .presentationCompactAdaptation(.sheet)
         }
     }
 
