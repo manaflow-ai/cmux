@@ -1,5 +1,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+process.env.RESEND_API_KEY = "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL = "feedback@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "test-feedback-rate-limit";
+process.env.SLACK_ENTERPRISE_WEBHOOK_URL = "https://slack.test/enterprise";
+
 const originalFetch = globalThis.fetch;
 
 const resendSend = mock(async () => ({ data: { id: "email_1" }, error: null }));
