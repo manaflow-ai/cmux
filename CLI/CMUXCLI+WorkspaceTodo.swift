@@ -14,6 +14,8 @@ extension CMUXCLI {
         client: SocketClient,
         windowOverride: String?
     ) throws -> (params: [String: Any], rest: [String]) {
+        try validateWorkspaceTodoSelectorOption(commandArgs, name: "--workspace")
+        try validateWorkspaceTodoSelectorOption(commandArgs, name: "--window")
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (windowArg, rem1) = parseOption(rem0, name: "--window")
         var params: [String: Any] = [:]
@@ -29,6 +31,38 @@ extension CMUXCLI {
         }
         let rest = rem1.filter { $0 != "--json" }
         return (params, rest)
+    }
+
+    private func validateWorkspaceTodoSelectorOption(_ args: [String], name: String) throws {
+        var pastTerminator = false
+        for (index, arg) in args.enumerated() {
+            if arg == "--" {
+                pastTerminator = true
+                continue
+            }
+            guard !pastTerminator else { continue }
+            if arg.hasPrefix("\(name)=") {
+                let value = String(arg.dropFirst(name.count + 1))
+                try validateWorkspaceTodoSelectorValue(value, name: name)
+                continue
+            }
+            if arg == name {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "\(name) requires a non-empty value")
+                }
+                let value = args[index + 1]
+                guard !value.hasPrefix("--") else {
+                    throw CLIError(message: "\(name) requires a non-empty value")
+                }
+                try validateWorkspaceTodoSelectorValue(value, name: name)
+            }
+        }
+    }
+
+    private func validateWorkspaceTodoSelectorValue(_ value: String, name: String) throws {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: "\(name) requires a non-empty value")
+        }
     }
 
     /// Parses a checklist item selector: a UUID id, or a 1-based index as

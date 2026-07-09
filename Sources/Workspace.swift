@@ -2273,22 +2273,6 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.progress }
         set { sidebarMetadata.progress = newValue }
     }
-    var gitBranch: SidebarGitBranchState? {
-        get { sidebarMetadata.gitBranch }
-        set { sidebarMetadata.gitBranch = newValue }
-    }
-    var panelGitBranches: [UUID: SidebarGitBranchState] {
-        get { sidebarMetadata.panelGitBranches }
-        set { sidebarMetadata.panelGitBranches = newValue }
-    }
-    var pullRequest: SidebarPullRequestState? {
-        get { sidebarMetadata.pullRequest }
-        set { sidebarMetadata.pullRequest = newValue }
-    }
-    var panelPullRequests: [UUID: SidebarPullRequestState] {
-        get { sidebarMetadata.panelPullRequests }
-        set { sidebarMetadata.panelPullRequests = newValue }
-    }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
@@ -9402,6 +9386,9 @@ final class Workspace: Identifiable, ObservableObject {
                 "reason=panelExists elapsedMs=\(debugElapsedMs(since: attachStart))"
             )
 #endif
+            return nil
+        }
+        guard detached.panel.panelType != .workspaceTodo || detached.sourceWorkspaceId == id else {
             return nil
         }
 

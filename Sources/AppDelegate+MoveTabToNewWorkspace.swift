@@ -12,10 +12,15 @@ struct SurfaceNewWorkspaceMoveResult {
 
 @MainActor
 extension AppDelegate {
+    func canTransferSurfaceAcrossWorkspaceBoundary(panel: any Panel) -> Bool {
+        panel.panelType != .workspaceTodo
+    }
+
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
-              sourceWorkspace.panels[panelId] != nil else {
+              let panel = sourceWorkspace.panels[panelId],
+              canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
             return false
         }
         return sourceWorkspace.panels.count > 1
@@ -29,16 +34,25 @@ extension AppDelegate {
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
         guard let located = locateBonsplitSurface(tabId: tabId),
               let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              sourceWorkspace.panels[located.panelId] != nil,
+              let panel = sourceWorkspace.panels[located.panelId],
               let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
               destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
+            return false
+        }
+        if sourceWorkspace.id != targetWorkspaceId,
+           !canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) {
             return false
         }
         return true
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
-        guard let source = locateSurface(surfaceId: panelId) else { return [] }
+        guard let source = locateSurface(surfaceId: panelId),
+              let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
+              let panel = sourceWorkspace.panels[panelId],
+              canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
+            return []
+        }
         return workspaceMoveTargets(
             excludingWorkspaceId: source.workspaceId,
             referenceWindowId: source.windowId
@@ -46,7 +60,12 @@ extension AppDelegate {
     }
 
     func workspaceMoveTargets(forBonsplitTab tabId: UUID) -> [WorkspaceMoveTarget] {
-        guard let located = locateBonsplitSurface(tabId: tabId) else { return [] }
+        guard let located = locateBonsplitSurface(tabId: tabId),
+              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+              let panel = sourceWorkspace.panels[located.panelId],
+              canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
+            return []
+        }
         return workspaceMoveTargets(
             excludingWorkspaceId: located.workspaceId,
             referenceWindowId: located.windowId
@@ -88,7 +107,8 @@ extension AppDelegate {
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
               let sourcePanel = sourceWorkspace.panels[panelId],
-              sourceWorkspace.panels.count > 1 else {
+              sourceWorkspace.panels.count > 1,
+              canTransferSurfaceAcrossWorkspaceBoundary(panel: sourcePanel) else {
             return nil
         }
 

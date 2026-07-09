@@ -7,6 +7,29 @@ import Foundation
 /// override, and the shared checklist mutation entry points used by the
 /// socket verbs, the CLI, and the sidebar UI.
 extension Workspace {
+    // MARK: - Git/PR metadata accessors (status-signal write funnels)
+
+    /// Sidebar git/PR cache accessors live here because their setters are the
+    /// write funnels for status-signal inputs: each write reconciles an
+    /// expired manual override so a stale pin cannot revive when inference
+    /// later returns to its recorded lane.
+    var gitBranch: SidebarGitBranchState? {
+        get { sidebarMetadata.gitBranch }
+        set { sidebarMetadata.gitBranch = newValue; reconcileExpiredTaskStatusOverride() }
+    }
+    var panelGitBranches: [UUID: SidebarGitBranchState] {
+        get { sidebarMetadata.panelGitBranches }
+        set { sidebarMetadata.panelGitBranches = newValue; reconcileExpiredTaskStatusOverride() }
+    }
+    var pullRequest: SidebarPullRequestState? {
+        get { sidebarMetadata.pullRequest }
+        set { sidebarMetadata.pullRequest = newValue; reconcileExpiredTaskStatusOverride() }
+    }
+    var panelPullRequests: [UUID: SidebarPullRequestState] {
+        get { sidebarMetadata.panelPullRequests }
+        set { sidebarMetadata.panelPullRequests = newValue; reconcileExpiredTaskStatusOverride() }
+    }
+
     // MARK: - Status signals
 
     /// Samples the live signals that drive task-status inference: agent

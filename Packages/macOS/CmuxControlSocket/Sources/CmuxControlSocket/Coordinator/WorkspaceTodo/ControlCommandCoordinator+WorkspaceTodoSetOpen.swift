@@ -1,4 +1,5 @@
 internal import Foundation
+internal import CmuxWorkspaces
 
 /// Workspace-todo set/open verbs extracted from the primary workspace-todo coordinator file, which sits at its file-length budget.
 extension ControlCommandCoordinator {
@@ -15,6 +16,9 @@ extension ControlCommandCoordinator {
     ) -> WorkspaceTodoSetItemsParse {
         guard case .array(let rawItems)? = params["items"] else {
             return .invalid(.err(code: "invalid_params", message: "Missing or invalid items", data: nil))
+        }
+        guard rawItems.count <= WorkspaceChecklistItem.maxChecklistItems else {
+            return .invalid(workspaceTodoSetTooManyItemsError(count: rawItems.count))
         }
         var items: [ControlWorkspaceTodoSetItemParam] = []
         items.reserveCapacity(rawItems.count)
@@ -88,11 +92,7 @@ extension ControlCommandCoordinator {
                 data: .object(["index": .int(Int64(index))])
             )
         case .tooManyItems(let count):
-            return .err(
-                code: "invalid_params",
-                message: "items exceeds the checklist cap of 50",
-                data: .object(["count": .int(Int64(count))])
-            )
+            return workspaceTodoSetTooManyItemsError(count: count)
         case .invalidState(let raw):
             return .err(
                 code: "invalid_params",
@@ -108,6 +108,14 @@ extension ControlCommandCoordinator {
         case .resolved(let windowID, let checklist):
             return .ok(workspaceTodoListPayload(windowID: windowID, checklist: checklist))
         }
+    }
+
+    private func workspaceTodoSetTooManyItemsError(count: Int) -> ControlCallResult {
+        .err(
+            code: "invalid_params",
+            message: "items exceeds the checklist cap of \(WorkspaceChecklistItem.maxChecklistItems)",
+            data: .object(["count": .int(Int64(count))])
+        )
     }
 
     /// `workspace.todo.open` — open (or focus) the workspace's todo pane.

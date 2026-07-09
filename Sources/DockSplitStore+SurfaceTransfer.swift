@@ -208,6 +208,7 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else { return nil }
+        guard detached.panel.panelType != .workspaceTodo else { return nil }
         let panel = detached.panel
 
         if let terminal = panel as? TerminalPanel {
