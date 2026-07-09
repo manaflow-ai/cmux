@@ -30,7 +30,8 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         webView.isInspectable = true
 
         var frame = configuration.frame
-        if frame.isNull || frame.isEmpty || frame.width < 50 || frame.height < 50 {
+        let usesFallbackFrame = frame.isNull || frame.isEmpty || frame.width < 50 || frame.height < 50
+        if usesFallbackFrame {
             frame = CGRect(origin: .zero, size: Self.defaultSize)
         }
         window = NSWindow(
@@ -39,16 +40,22 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
             backing: .buffered,
             defer: false
         )
+        // Standalone closable window: the stable identifier opts it into the
+        // shared close-shortcut routing (cmuxWindowShouldOwnCloseShortcut).
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.webExtensionPopout")
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.contentView = webView
-        if configuration.frame.isNull || configuration.frame.isEmpty {
+        if usesFallbackFrame {
             window.center()
         }
 
         super.init()
         window.delegate = self
-        window.title = context.webExtension.displayName ?? "Extension"
+        window.title = context.webExtension.displayName ?? String(
+            localized: "browser.webExtension.action.help",
+            defaultValue: "Extension"
+        )
 
         if let url = configuration.tabURLs.first {
             webView.load(URLRequest(url: url))
