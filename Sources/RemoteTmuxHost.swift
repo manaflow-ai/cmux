@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -7,7 +8,28 @@ import Foundation
 /// every operation against the host (discovery commands, the `tmux -CC`
 /// control client, and one-shot mutations) over a single SSH ControlMaster
 /// socket derived from the destination, so authentication happens once.
+/// The ssh binary every remote-tmux spawn uses. DEBUG builds honor
+/// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
+/// shim that strips the ssh framing and execs the remote command locally —
+/// the full mirror stack then runs hermetically (no sshd, no network).
 struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
+    /// The ssh executable used when the caller doesn't inject one (the
+    /// connection and transport inits both take `sshExecutablePath`).
+    ///
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` because the
+    /// sizing UI tests exercise the REAL app process, and a launch
+    /// environment variable is the only injection channel that crosses the
+    /// XCUITest process boundary — the same seam `CMUX_SOCKET_PATH` uses.
+    static func defaultSSHExecutablePath() -> String {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_REMOTE_TMUX_SSH_FOR_TESTING"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
+        return "/usr/bin/ssh"
+    }
+
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
 
@@ -181,7 +203,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   `tmux -CC` control client; interactive prompts are handled only by
     ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
-        var args = [
+        // Every ssh-tmux invocation supplies its own remote command (`true`,
+        // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
+        // host-configured RemoteCommand is in effect (issue #7246).
+        var args = SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlSocketPath)",
             "-o", "ControlPersist=\(controlPersistSeconds)",
@@ -250,7 +276,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   end-of-options guard precedes the destination so a dash-prefixed
     ///   destination can never be parsed as an ssh option.
     func interactiveAuthInvocation(
-        sshExecutablePath: String = "/usr/bin/ssh",
+        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
         controlPersistSeconds: Int = 180
     ) -> [String] {
         [sshExecutablePath]
@@ -277,6 +303,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             .joined(separator: " ")
     }
 
+    /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
+    static let tmuxNotFoundSentinel = "cmux-remote-tmux: tmux not found"
+
     // Keep this one physical line: the remote login shell parses it before /bin/sh -c runs.
     private static let tmuxResolverShellScript =
         "cmux_tmux=\"\"; " +
@@ -285,7 +314,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "if [ -x \"$cmux_dir/tmux\" ]; then cmux_tmux=\"$cmux_dir/tmux\"; break; fi; done; " +
         "if [ -z \"$cmux_tmux\" ] && [ -x /usr/libexec/path_helper ]; then eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
         "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; fi; fi; fi; " +
-        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; exec tmux \"$@\""
+        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; " +
+        "printf '%s\\n' '\(tmuxNotFoundSentinel)' >&2; exit 127"
 
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not

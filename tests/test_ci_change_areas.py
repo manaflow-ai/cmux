@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -52,6 +53,17 @@ def test_changelog_runs_web_validation() -> None:
 
 def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
+
+
+def test_mux_only_skips_macos() -> None:
+    # cmux-mux is a standalone Rust project with its own `mux` workflow; its
+    # changes must not require the macOS app-host tests.
+    assert_areas(
+        ["mux/crates/mux-core/src/browser.rs", "mux/README.md", "mux/docs/protocol.md"],
+        macos=False,
+        web=False,
+        go=False,
+    )
 
 
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
@@ -174,6 +186,77 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
                 body.append(body_line)
             return "\n".join(body)
     raise AssertionError(f"{job_name} job not found")
+
+
+def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
+    job_marker = f"  {job_name}:"
+    step_marker = f"      - name: {step_name}"
+    in_job = False
+    for index, line in enumerate(lines):
+        if line == job_marker:
+            in_job = True
+            continue
+        if in_job and line.startswith("  ") and not line.startswith("    ") and line.strip():
+            break
+        if in_job and line == step_marker:
+            for run_index in range(index + 1, len(lines)):
+                if lines[run_index] == "        run: |":
+                    body: list[str] = []
+                    for body_line in lines[run_index + 1 :]:
+                        if body_line.startswith("          "):
+                            body.append(body_line[10:])
+                            continue
+                        if not body_line.strip():
+                            body.append("")
+                            continue
+                        break
+                    return "\n".join(body)
+            break
+    raise AssertionError(f"{step_name} run block not found in {job_name}")
+
+
+def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
+    env = {**os.environ, "PREFLIGHT_NEEDS": json.dumps(needs)}
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def linux_preflight_needs(
+    *,
+    outputs: dict[str, str] | None = None,
+    results: dict[str, str] | None = None,
+) -> dict[str, object]:
+    route_outputs = {
+        "macos": "true",
+        "web": "true",
+        "go": "true",
+        "agent_session_web": "true",
+    }
+    if outputs:
+        route_outputs.update(outputs)
+    job_results = {
+        "changes": "success",
+        "workflow-guard-tests": "success",
+        "remote-daemon-tests": "success",
+        "web-typecheck": "success",
+        "react-apps-check": "success",
+        "web-db-migrations": "success",
+        "agent-session-web-resources": "success",
+    }
+    if results:
+        job_results.update(results)
+    return {
+        name: {"result": result, "outputs": route_outputs if name == "changes" else {}}
+        for name, result in job_results.items()
+    }
 
 
 def run_detect_step_for_paths(
@@ -393,12 +476,11 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "web-typecheck",
         "react-apps-check",
         "web-db-migrations",
+        "linux-preflight",
         "app-host-unit-tests",
         "tests",
         "tests-build-and-lag",
-        "release-ghostty-cli-helper",
         "release-build",
-        "ui-regressions",
     ]:
         assert f"      - {job_name}" in block
 
@@ -411,10 +493,127 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
 
     assert "name: tests" in block
     assert "      - changes" in block
+    assert "      - linux-preflight" in block
     assert "      - app-host-unit-tests" in block
     assert "if: ${{ always() }}" in block
+    assert 'preflight["result"] != "success"' in block
     assert 'macos == "true" and tests["result"] != "success"' in block
     assert 'tests["result"] not in {"success", "skipped"}' in block
+
+
+def test_macos_jobs_wait_for_linux_preflight() -> None:
+    # The staged macOS jobs must gate on their direct needs explicitly.
+    # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit
+    # success() gate, which GitHub evaluates over the transitive needs chain:
+    # routed linux jobs that legitimately skip (web/go/agent-session paths)
+    # then mark every macOS job skipped even though linux-preflight succeeded.
+    for job_name in [
+        "app-host-unit-tests",
+        "swift-package-tests",
+        "tests-build-and-lag",
+        "release-build",
+    ]:
+        block = workflow_job_block(job_name)
+        assert "      - changes" in block
+        assert "      - linux-preflight" in block
+        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" not in block
+        expected_needs = ["changes", "linux-preflight"]
+        if job_name == "release-build":
+            expected_needs.append("swift-package-tests")
+        expected_if = (
+            "if: ${{ !cancelled() && "
+            + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
+            + " && needs.changes.outputs.macos == 'true' }}"
+        )
+        assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
+
+
+def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
+    block = workflow_job_block("linux-preflight")
+
+    assert "name: linux-preflight" in block
+    assert "      - changes" in block
+    assert "      - workflow-guard-tests" in block
+    assert "      - remote-daemon-tests" in block
+    assert "      - web-typecheck" in block
+    assert "      - react-apps-check" in block
+    assert "      - web-db-migrations" in block
+    assert "      - agent-session-web-resources" in block
+    assert "if: ${{ always() }}" in block
+    assert 'required = ("changes", "workflow-guard-tests")' in block
+    assert 'allowed_routed = {' in block
+    assert 'routed_outputs = {' in block
+    assert 'bad[name] = f"{result} (route {route}=true)"' in block
+
+
+def test_linux_preflight_fails_when_routed_job_skips() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(results={"remote-daemon-tests": "skipped"})
+    )
+
+    assert result.returncode != 0
+    assert "remote-daemon-tests: skipped (route go=true)" in result.stderr
+
+
+def test_linux_preflight_allows_unrouted_job_skip() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(
+            outputs={"go": "false"},
+            results={"remote-daemon-tests": "skipped"},
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "remote-daemon-tests: skipped" in result.stdout
+
+
+def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
+    for job_name in [
+        "app-host-unit-tests",
+        "swift-package-tests",
+        "tests-build-and-lag",
+    ]:
+        block = workflow_job_block(job_name)
+        assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in block
+        assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
+
+    release_block = workflow_job_block("release-build")
+    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block
+    assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
+
+
+def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    runtime_block = workflow_job_block("tests-build-and-lag")
+    package_block = workflow_job_block("swift-package-tests")
+    release_block = workflow_job_block("release-build")
+
+    assert "\n  ui-regressions:" not in workflow
+    assert "\n  release-ghostty-cli-helper:" not in workflow
+    assert "build-for-testing" in runtime_block
+    assert "Run display UI regressions" in runtime_block
+    assert "scripts/ci/run-display-ui-regressions.sh" in runtime_block
+    assert runtime_block.index("Run display UI regressions") < runtime_block.index("Create virtual display")
+    assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
+    assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
+    assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
+    assert "timeout-minutes: 40" in package_block
+    assert "CMUX_CI_HELPER_XCODE_APP" in package_block
+    assert "/Applications/Xcode_16.4.app" not in package_block
+    assert "Select helper Xcode" in package_block
+    assert "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15" in package_block
+    assert "Build universal Ghostty CLI helper" in package_block
+    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" in package_block
+    assert '[[ "$HELPER_SDK_VERSION" == 15.* ]]' in package_block
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in package_block
+    assert package_block.index("Select helper Xcode") < package_block.index("Build universal Ghostty CLI helper")
+    assert package_block.index("Build universal Ghostty CLI helper") < package_block.index("Select Xcode")
+    assert package_block.index("Upload universal Ghostty CLI helper") < package_block.index("Select Xcode")
+    assert "      - swift-package-tests" in release_block
+    assert "Download universal Ghostty CLI helper" in release_block
+    assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
+    assert "Install universal Ghostty CLI helper" in release_block
+    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" not in release_block
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:

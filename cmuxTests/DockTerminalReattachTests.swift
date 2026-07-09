@@ -14,6 +14,7 @@ import Testing
 private final class DockTransferTestPanel: Panel {
     let objectWillChange = ObservableObjectPublisher()
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType
     var displayTitle: String
     let displayIcon: String?
@@ -63,6 +64,7 @@ extension DockSocketLifecycleTests {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryIsTrustedRemoteReport: false,
             directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: cachedTitle,

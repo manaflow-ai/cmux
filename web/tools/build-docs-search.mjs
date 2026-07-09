@@ -8,7 +8,7 @@ import {
   navItems,
   navItemsForLocale,
 } from "../app/[locale]/components/docs-nav-items";
-import { changelogMedia } from "../app/[locale]/docs/changelog/changelog-media";
+import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -250,7 +250,7 @@ function deepMerge(base, override) {
 
 function docsPageSourcePath(href) {
   const docsPath = href.replace(/^\//, "");
-  return path.join(projectRoot, "app", "[locale]", docsPath, "page.tsx");
+  return path.join(projectRoot, "app", "[locale]", "(landing)", docsPath, "page.tsx");
 }
 
 async function docsContentByHref() {

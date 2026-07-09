@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -28,13 +29,17 @@ import (
 )
 
 type wsPTYServerConfig struct {
-	ListenAddr       string
-	PTYAuthLeaseFile string
-	RPCAuthLeaseFile string
-	Shell            string
-	PTYHub           *wsPTYHub
-	ScrollbackLimit  int
-	SessionIdleTTL   time.Duration
+	ListenAddr          string
+	PTYAuthLeaseFile    string
+	RPCAuthLeaseFile    string
+	AdminTokenSHA256    string
+	AdminEd25519PubKey  string
+	CLIBridgeSocketPath string
+	CLIBridge           *cloudCLIBridge
+	Shell               string
+	PTYHub              *wsPTYHub
+	ScrollbackLimit     int
+	SessionIdleTTL      time.Duration
 }
 
 type wsLease struct {
@@ -43,6 +48,18 @@ type wsLease struct {
 	ExpiresAtUnix int64  `json:"expires_at_unix"`
 	SessionID     string `json:"session_id,omitempty"`
 	SingleUse     bool   `json:"single_use"`
+}
+
+type wsLeaseInstallRequest struct {
+	PTYLease  *wsLease            `json:"pty_lease,omitempty"`
+	RPCLease  *wsLease            `json:"rpc_lease,omitempty"`
+	RPCClient *wsRPCClientPayload `json:"rpc_client,omitempty"`
+}
+
+type wsRPCClientPayload struct {
+	Token         string `json:"token"`
+	SessionID     string `json:"sessionId"`
+	ExpiresAtUnix int64  `json:"expiresAtUnix"`
 }
 
 type wsAuthFrame struct {
@@ -217,6 +234,14 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
 	}
 	defer cfg.PTYHub.closeAll()
+	if strings.TrimSpace(cfg.RPCAuthLeaseFile) != "" {
+		if cfg.CLIBridge == nil {
+			cfg.CLIBridge = newCloudCLIBridge()
+		}
+		if err := cfg.CLIBridge.start(ctx, cfg.CLIBridgeSocketPath, stderr); err != nil {
+			return fmt.Errorf("cloud CLI bridge: %w", err)
+		}
+	}
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -264,7 +289,123 @@ func newWebSocketPTYHandler(cfg wsPTYServerConfig, stderr io.Writer) http.Handle
 	mux.HandleFunc("/rpc", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocketRPC(w, r, cfg)
 	})
+	mux.HandleFunc("/admin/leases", func(w http.ResponseWriter, r *http.Request) {
+		handleWebSocketLeaseInstall(w, r, cfg)
+	})
 	return mux
+}
+
+func handleWebSocketLeaseInstall(w http.ResponseWriter, r *http.Request, cfg wsPTYServerConfig) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	expectedHash, err := hex.DecodeString(strings.TrimSpace(cfg.AdminTokenSHA256))
+	publicKey, publicKeyErr := decodeAdminEd25519PublicKey(cfg.AdminEd25519PubKey)
+	if (err != nil || len(expectedHash) != sha256.Size) && publicKeyErr != nil {
+		http.Error(w, "lease install disabled", http.StatusNotFound)
+		return
+	}
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusBadRequest)
+		return
+	}
+	if !verifyAdminLeaseInstallAuth(r, body, expectedHash, publicKey) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var request wsLeaseInstallRequest
+	if err := json.Unmarshal(body, &request); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if request.PTYLease == nil && request.RPCLease == nil {
+		http.Error(w, "missing lease", http.StatusBadRequest)
+		return
+	}
+	if request.PTYLease != nil {
+		if err := writeLeaseFile(cfg.PTYAuthLeaseFile, request.PTYLease); err != nil {
+			http.Error(w, "write pty lease failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	if request.RPCLease != nil {
+		if strings.TrimSpace(cfg.RPCAuthLeaseFile) == "" {
+			http.Error(w, "rpc lease disabled", http.StatusBadRequest)
+			return
+		}
+		if err := writeLeaseFile(cfg.RPCAuthLeaseFile, request.RPCLease); err != nil {
+			http.Error(w, "write rpc lease failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	if request.RPCClient != nil {
+		if err := writeJSONFile("/tmp/cmux/attach-rpc-client.json", request.RPCClient); err != nil {
+			http.Error(w, "write rpc client failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("content-type", "application/json")
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func decodeAdminEd25519PublicKey(raw string) (ed25519.PublicKey, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, errors.New("missing ed25519 public key")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(trimmed)
+	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(trimmed)
+	}
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid ed25519 public key")
+	}
+	return ed25519.PublicKey(decoded), nil
+}
+
+func verifyAdminLeaseInstallAuth(r *http.Request, body []byte, expectedHash []byte, publicKey ed25519.PublicKey) bool {
+	const bearerPrefix = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if len(expectedHash) == sha256.Size && strings.HasPrefix(auth, bearerPrefix) {
+		actualHash := sha256.Sum256([]byte(strings.TrimPrefix(auth, bearerPrefix)))
+		if subtle.ConstantTimeCompare(expectedHash, actualHash[:]) == 1 {
+			return true
+		}
+	}
+	if len(publicKey) == ed25519.PublicKeySize {
+		signatureRaw := strings.TrimSpace(r.Header.Get("X-Cmux-Admin-Signature-Ed25519"))
+		signature, err := base64.StdEncoding.DecodeString(signatureRaw)
+		if err != nil {
+			signature, err = base64.RawStdEncoding.DecodeString(signatureRaw)
+		}
+		if err == nil && len(signature) == ed25519.SignatureSize && ed25519.Verify(publicKey, body, signature) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeLeaseFile(path string, lease *wsLease) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("lease path is empty")
+	}
+	return writeJSONFile(path, lease)
+}
+
+func writeJSONFile(path string, value any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
 }
 
 func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerConfig, stderr io.Writer) {
@@ -462,12 +603,18 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		sessions:      map[string]*sessionState{},
 		ptyHub:        cfg.PTYHub,
 		ownsPTYHub:    false,
+		cliBridge:     cfg.CLIBridge,
 		frameWriter: &wsRPCFrameWriter{
 			conn:    conn,
 			writeMu: writeMu,
 			ctx:     r.Context(),
 		},
 	}
+	unregisterCLI := func() {}
+	if cfg.CLIBridge != nil {
+		unregisterCLI = cfg.CLIBridge.register(server)
+	}
+	defer unregisterCLI()
 	defer server.closeAll()
 
 	for {

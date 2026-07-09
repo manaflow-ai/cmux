@@ -1,0 +1,53 @@
+# cmux-mux
+
+`cmux-mux` is the Rust TUI multiplexer in this repository. It keeps a tmux-style tree of workspaces, screens, split panes, and tabs, uses Ghostty's VT engine for PTY state, and exposes the same state over a JSON-lines control socket for attach clients and other frontends.
+
+## Documentation
+
+- [Docs index](docs/README.md)
+- [Getting started](docs/getting-started.md)
+- [Concepts](docs/concepts.md)
+- [Keyboard](docs/keyboard.md)
+- [Mouse](docs/mouse.md)
+- [Configuration](docs/configuration.md)
+- [Control socket protocol](docs/protocol.md)
+- [Browser panes](docs/browser-panes.md)
+
+## Build
+
+Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule initialized. The `ghostty-vt-sys` crate builds `libghostty-vt.a` from the submodule with zig before compiling the Rust crates.
+
+```bash
+cd mux
+cargo build -p mux-tui
+```
+
+## Run
+
+```bash
+cd mux
+cargo run -p mux-tui
+cargo run -p mux-tui -- --session agents
+cargo run -p mux-tui -- --headless --session agents
+cargo run -p mux-tui -- attach --session agents
+```
+
+The default session is `main`. Default sockets live at `$TMPDIR/cmux-mux-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+
+Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_MUX_TERM` can override the process default in the surface layer.
+
+## Development
+
+```bash
+cd mux
+cargo test
+```
+
+The smoke scripts expect a built `cmux-mux` binary unless `CMUX_MUX_BIN` is set.
+
+```bash
+cd mux
+cargo build -p mux-tui
+python3 scripts/smoke-tui.py
+python3 scripts/smoke-attach.py
+```

@@ -17,9 +17,11 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
-    private let updater: SPUUpdater
-    private let driver: UpdateDriver
-    private let log: any UpdateLogging
+    private let updater: any UpdaterHandle
+    // `driver` and `log` are internal (not private) so `UpdateController+InstallAttempt.swift`
+    // can reach them; they stay module-internal.
+    let driver: UpdateDriver
+    let log: any UpdateLogging
     private let clock: any UpdateClock
     private let defaults: UserDefaults
     private let fileManager: FileManager
@@ -36,12 +38,17 @@ public final class UpdateController {
 
     // Reaction state (replaces the Combine subscriptions).
     /// Sequences "re-resolve to the latest, then install" so the install path never installs the
-    /// version that was captured when the prompt was first surfaced (issue #6366).
-    private var attemptCoordinator = AttemptUpdateCoordinator()
+    /// version that was captured when the prompt was first surfaced (issue #6366). Internal for
+    /// `UpdateController+InstallAttempt.swift`.
+    var attemptCoordinator = AttemptUpdateCoordinator()
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
     private var recheckTask: Task<Void, Never>?
+    /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
+    /// flow never reaches downloading/installing (or another visible outcome). See
+    /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
+    let installWatchdog: InstallWatchdog
 
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
@@ -70,13 +77,44 @@ public final class UpdateController {
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
     ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
-    public init(log: any UpdateLogging,
-                clock: any UpdateClock = SystemUpdateClock(),
-                settings: UpdateSettings = UpdateSettings(),
-                hostBundle: Bundle = .main,
-                defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default,
-                isDevLikeBundle: Bool? = nil) {
+    public convenience init(log: any UpdateLogging,
+                            clock: any UpdateClock = SystemUpdateClock(),
+                            settings: UpdateSettings = UpdateSettings(),
+                            hostBundle: Bundle = .main,
+                            defaults: UserDefaults = .standard,
+                            fileManager: FileManager = .default,
+                            isDevLikeBundle: Bool? = nil) {
+        self.init(log: log,
+                  clock: clock,
+                  settings: settings,
+                  hostBundle: hostBundle,
+                  defaults: defaults,
+                  fileManager: fileManager,
+                  isDevLikeBundle: isDevLikeBundle,
+                  updaterFactory: { driver, hostBundle in
+                      SPUUpdater(
+                          hostBundle: hostBundle,
+                          applicationBundle: hostBundle,
+                          userDriver: driver,
+                          delegate: driver
+                      )
+                  })
+    }
+
+    /// The designated initializer, with the updater seam exposed.
+    ///
+    /// - Parameter updaterFactory: Builds the ``UpdaterHandle`` from the freshly created driver
+    ///   and host bundle. Production (the convenience init above) always builds a real
+    ///   `SPUUpdater`; pipeline tests inject a fake so the reaction loop can be replayed
+    ///   deterministically.
+    init(log: any UpdateLogging,
+         clock: any UpdateClock = SystemUpdateClock(),
+         settings: UpdateSettings = UpdateSettings(),
+         hostBundle: Bundle = .main,
+         defaults: UserDefaults = .standard,
+         fileManager: FileManager = .default,
+         isDevLikeBundle: Bool? = nil,
+         updaterFactory: (UpdateDriver, Bundle) -> any UpdaterHandle) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
@@ -97,15 +135,11 @@ public final class UpdateController {
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
+        self.installWatchdog = InstallWatchdog(clock: clock, timeout: installWatchdogTimeout)
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
-        self.updater = SPUUpdater(
-            hostBundle: hostBundle,
-            applicationBundle: hostBundle,
-            userDriver: driver,
-            delegate: driver
-        )
+        self.updater = updaterFactory(driver, hostBundle)
         startStateReactions()
     }
 
@@ -115,6 +149,7 @@ public final class UpdateController {
         backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
         recheckTask?.cancel()
+        // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
     // MARK: - Reaction stream
@@ -122,50 +157,55 @@ public final class UpdateController {
     private func startStateReactions() {
         let changes = model.stateChanges()
         stateReactionTask = Task { @MainActor [weak self] in
-            self?.handleStateChange()
+            if let self {
+                self.handleStateChange(self.model.state, overrideState: self.model.overrideState)
+            }
             for await _ in changes {
                 guard let self else { return }
-                self.handleStateChange()
+                // Drain every recorded transition in order rather than re-reading the latest
+                // state: two transitions landing before this task runs would otherwise conflate,
+                // and a control-flow consumer (the attempt coordinator) could miss the
+                // `.checking` restart signal entirely — the same ambiguity family as the
+                // double-idle install loop.
+                for change in self.model.drainPendingChanges() {
+                    self.handleStateChange(change.state, overrideState: change.overrideState)
+                }
             }
         }
     }
 
-    /// Runs the three state reactions for the current model state. Invoked once on start and on
-    /// every ``UpdateStateModel/stateChanges()`` emission (the merge of the old `$state.sink`,
-    /// the attempt sink, and the `CombineLatest` dismiss observer).
-    private func handleStateChange() {
-        let state = model.state
-        let overrideState = model.overrideState
+    /// Runs the three state reactions for one observed transition. Invoked once on start with
+    /// the current model values and then for every drained ``UpdateStateChange``
+    /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
+    /// observer).
+    private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
 
         if attemptCoordinator.isMonitoring {
-            performAttemptAction(attemptCoordinator.handleStateChange(state))
+            let action = attemptCoordinator.handleStateChange(state)
+            // The watchdog guards one specific install attempt. If that attempt just ended
+            // without handing an install to Sparkle (the user cancelled the fresh check, or it
+            // terminated in notFound/error), disarm now so the leftover deadline can't fire a
+            // spurious "Update Didn't Start" over a later, unrelated check. A `.confirmInstall`
+            // hand-off keeps the deadline armed until a resolved state below disarms it.
+            if installWatchdog.isArmed,
+               installWatchdog.attemptEndedWithoutInstall(
+                   action: action,
+                   isCoordinatorMonitoring: attemptCoordinator.isMonitoring
+               ) {
+                installWatchdog.disarm()
+            }
+            performAttemptAction(action)
+        }
+        // Disarm the install watchdog the moment the flow progresses the install or shows a clear
+        // outcome, so a healthy install (or a real error / "no updates") never trips it.
+        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state) {
+            installWatchdog.disarm()
         }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
-    // MARK: - Attempt update
-
-    /// Re-check for updates and auto-confirm the install of whatever the fresh check resolves.
-    ///
-    /// This is the single user-facing "install the update" entry point. It deliberately runs a
-    /// fresh check instead of installing the update that was captured when the prompt was first
-    /// surfaced, so a newer release published in the meantime is installed directly rather than
-    /// prompting the user again right after relaunch (issue #6366).
-    public func attemptUpdate() {
-        performAttemptAction(attemptCoordinator.requestInstallLatest(currentState: model.state))
-    }
-
-    private func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
-        switch action {
-        case .none:
-            break
-        case .startFreshCheck:
-            checkForUpdates()
-        case .confirmInstall:
-            log.append("attemptUpdate installing freshly resolved update")
-            model.state.confirm()
-        }
-    }
+    // The attempt-update entry point, its coordinator actions, and the install-watchdog trip
+    // handling live in `UpdateController+InstallAttempt.swift`.
 
     // MARK: - "No updates" auto-dismiss
 
@@ -249,7 +289,7 @@ public final class UpdateController {
             performCheckForUpdates()
             return
         }
-        if model.state.isIdle {
+        if model.state.isIdle, !attemptCoordinator.isMonitoring {
             model.setState(.checking(.init(cancel: {})))
         }
         waitForReadinessThenCheck()
@@ -270,18 +310,26 @@ public final class UpdateController {
                 if Task.isCancelled { return }
             }
             self.log.append("checkForUpdatesWhenReady timed out")
+            if self.attemptCoordinator.isMonitoring {
+                self.log.append("updater readiness timed out during install attempt")
+                self.attemptCoordinator.cancel()
+                self.installWatchdog.disarm()
+                self.setUpdaterNotReadyError(retry: { [weak self] in self?.attemptUpdate() })
+                return
+            }
             if case .checking = self.model.state {
-                self.model.setState(.error(.init(
-                    error: NSError(
-                        domain: "cmux.update",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
-                    ),
-                    retry: { [weak self] in self?.checkForUpdates() },
-                    dismiss: { [weak self] in self?.model.setState(.idle) }
-                )))
+                self.setUpdaterNotReadyError(retry: { [weak self] in self?.checkForUpdates() })
             }
         }
+    }
+
+    private func setUpdaterNotReadyError(retry: @escaping () -> Void) {
+        let error = NSError(
+            domain: UpdateStateModel.updateErrorDomain,
+            code: UpdateStateModel.updaterNotReadyCode,
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
+        )
+        model.setState(.error(.init(error: error, retry: retry, dismiss: { [weak self] in self?.model.setState(.idle) })))
     }
 
     private func cancelReadinessRetry() {

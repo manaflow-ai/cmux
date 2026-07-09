@@ -356,6 +356,18 @@ describe("agent page variants", () => {
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
 
+  test("uses the current origin for llms compare links", () => {
+    const llms = buildLlmsText("https://preview.example");
+
+    expect(llms).toContain(
+      "[cmux vs Herdr](https://preview.example/compare/cmux-vs-herdr)",
+    );
+    expect(llms).toContain(
+      "[How to run multiple Claude Code agents in parallel](https://preview.example/compare/multiple-claude-code-agents-parallel)",
+    );
+    expect(llms).not.toContain("https://cmux.com/compare/");
+  });
+
   test("limits en-ja docs variants to translated locales", () => {
     expect(resolveAgentPageVariant("/docs/vault.md")).not.toBeNull();
     expect(resolveAgentPageVariant("/ja/docs/vault.md")).not.toBeNull();

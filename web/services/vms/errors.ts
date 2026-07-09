@@ -16,12 +16,17 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
+  readonly snapshotId: string;
+}> {}
+
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
   readonly idempotencyKey: string;
 }> {}
 
 export class VmCreateFailedError extends Data.TaggedError("VmCreateFailedError")<{
   readonly idempotencyKey: string;
+  readonly code: string | null;
   readonly message: string;
 }> {}
 
@@ -58,6 +63,7 @@ export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
   | VmNotFoundError
+  | VmSnapshotNotFoundError
   | VmCreateInProgressError
   | VmCreateFailedError
   | VmCreateDisabledError
@@ -68,6 +74,10 @@ export type VmWorkflowError =
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
+}
+
+export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
+  return (err as { _tag?: string } | null)?._tag === "VmSnapshotNotFoundError";
 }
 
 export function isVmCreateInProgressError(err: unknown): err is VmCreateInProgressError {

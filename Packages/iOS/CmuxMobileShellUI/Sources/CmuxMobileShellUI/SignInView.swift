@@ -10,6 +10,7 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
+
 struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
@@ -17,8 +18,7 @@ struct SignInView: View {
     @State private var code = ""
     @State private var showCodeEntry = false
     @State private var error: String?
-    @State private var isAppleSigningIn = false
-    @State private var isGoogleSigningIn = false
+    @State private var signingInProviders: Set<OAuthSignInProvider> = []
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
     private let errorPresentation = SignInErrorPresentation()
@@ -75,46 +75,11 @@ struct SignInView: View {
                 brandHeader
                 SignInAuthRestoreStatusView()
 
-                Button {
-                    Task {
-                        await signInWithApple()
+                VStack(spacing: 12) {
+                    ForEach(OAuthSignInProvider.allCases, id: \.self) { provider in
+                        oauthButton(for: provider)
                     }
-                } label: {
-                    Group {
-                        Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
-                            .fontWeight(.semibold)
-                            .mobileButtonLoading(isAppleSigningIn)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.capsule)
                 }
-                .disabled(isAuthInProgress)
-                .mobileGlassButton()
-                .accessibilityIdentifier("signin.apple")
-
-                Button {
-                    Task {
-                        await signInWithGoogle()
-                    }
-                } label: {
-                    Group {
-                        HStack(spacing: 6) {
-                            Image("GoogleLogo")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 16, height: 16)
-                                .accessibilityHidden(true)
-                            Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
-                                .fontWeight(.semibold)
-                        }
-                        .mobileButtonLoading(isGoogleSigningIn)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.capsule)
-                }
-                .disabled(isAuthInProgress)
-                .mobileGlassButton()
-                .accessibilityIdentifier("signin.google")
 
                 DividerLabel(text: L10n.string("mobile.signIn.emailDivider", defaultValue: "or continue with email"))
 
@@ -240,18 +205,33 @@ struct SignInView: View {
 
     // While this is true the card dims (opacity 0.6) and inputs disable. There
     // is intentionally no in-app "cancel sign-in" affordance: during the only
-    // long phase (the Apple/Google system sheet, generous on purpose for
+    // long phase (the Apple/Google/GitHub system sheet, generous on purpose for
     // password + 2FA) the system sheet sits above this view and carries its own
     // Cancel, and every coordinator phase is raced against a deadline
     // (AuthTimeouts), so a wedged flow always ends in a localized, retryable
     // AuthError and re-enables the card for retry. Do not reintroduce a manual
     // cancel button here; it was occluded during the system sheet anyway.
     private var isInteractiveAuthInProgress: Bool {
-        authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
+        authManager.isLoading || !signingInProviders.isEmpty
     }
 
     private var isAuthInProgress: Bool {
         isInteractiveAuthInProgress || authManager.isRestoringSession
+    }
+
+    private func oauthButton(for provider: OAuthSignInProvider) -> some View {
+        Button {
+            Task {
+                await signIn(with: provider)
+            }
+        } label: {
+            provider.label(isLoading: signingInProviders.contains(provider))
+                .frame(maxWidth: .infinity)
+                .contentShape(.capsule)
+        }
+        .disabled(isAuthInProgress)
+        .mobileGlassButton()
+        .accessibilityIdentifier(provider.accessibilityIdentifier)
     }
 
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
@@ -298,49 +278,25 @@ struct SignInView: View {
         }
     }
 
-    private func signInWithApple() async {
+    private func signIn(with provider: OAuthSignInProvider) async {
         error = nil
-        isAppleSigningIn = true
-        defer { isAppleSigningIn = false }
-        analytics.capture("ios_sign_in_started", ["method": .string("apple")])
+        signingInProviders.insert(provider)
+        defer { signingInProviders.remove(provider) }
+        analytics.capture("ios_sign_in_started", ["method": .string(provider.analyticsMethod)])
         do {
-            try await authManager.signInWithApple()
+            try await provider.signIn(using: authManager)
         } catch {
             if case AuthError.cancelled = error {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
+                analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
+                analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
-                "method": .string("apple"),
-                "failure_reason": .string(signInFailureReason(error)),
-            ])
-        }
-    }
-
-    private func signInWithGoogle() async {
-        error = nil
-        isGoogleSigningIn = true
-        defer { isGoogleSigningIn = false }
-        analytics.capture("ios_sign_in_started", ["method": .string("google")])
-        do {
-            try await authManager.signInWithGoogle()
-        } catch {
-            if case AuthError.cancelled = error {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
-                return
-            }
-            if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
-                return
-            }
-            self.error = detailedErrorMessage(error)
-            analytics.capture("ios_sign_in_failed", [
-                "method": .string("google"),
+                "method": .string(provider.analyticsMethod),
                 "failure_reason": .string(signInFailureReason(error)),
             ])
         }

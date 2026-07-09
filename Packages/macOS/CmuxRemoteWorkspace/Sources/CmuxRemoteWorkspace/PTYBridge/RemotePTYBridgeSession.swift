@@ -32,7 +32,7 @@ extension RemotePTYBridgeServer {
         private let token: String
         private let queue: DispatchQueue
         private let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
-        private let strings: any RemotePTYBridgeStrings
+        let strings: any RemotePTYBridgeStrings
         private let clock: any RemoteProxyRetryClock
         private let onClose: () -> Void
 
@@ -224,7 +224,7 @@ extension RemotePTYBridgeServer {
                     close(detach: true)
                 }
             } catch {
-                closeWithBridgeError(userFacingBridgeErrorMessage(error))
+                closeWithBridgeError(userFacingBridgeErrorMessage(error), code: Self.bridgeErrorCode(for: error))
             }
         }
 
@@ -403,11 +403,12 @@ extension RemotePTYBridgeServer {
             sendBufferedOutput(line, detachOnOverflow: false)
         }
 
-        private func closeWithBridgeError(_ message: String) {
+        private func closeWithBridgeError(_ message: String, code: String?) {
             guard !isClosed else { return }
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             let detail = trimmed.isEmpty ? "remote PTY attach failed" : trimmed
-            let payload: [String: Any] = ["type": "error", "message": detail]
+            var payload: [String: Any] = ["type": "error", "message": detail]
+            if let code { payload["code"] = code }
             guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
                 close(detach: false)
                 return
@@ -500,39 +501,6 @@ extension RemotePTYBridgeServer {
             guard pid > 0 else { return false }
             if Darwin.kill(pid, 0) == 0 { return true }
             return errno == EPERM
-        }
-
-        /// Maps a daemon attach failure onto the app-resolved user-facing
-        /// string; the matching rules (substring markers, in this order) are
-        /// wire-pinned legacy behavior.
-        func userFacingBridgeErrorMessage(_ error: any Error) -> String {
-            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lowered = message.lowercased()
-            if lowered.contains("missing required capability") ||
-                lowered.contains("pty.session") ||
-                lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) || lowered.contains(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability) {
-                return strings.missingPersistentPTYCapability
-            }
-            if lowered.contains("pty_session_not_found") ||
-                (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
-                (lowered.contains("persistent pty session") && lowered.contains("not running")) {
-                return strings.sessionEnded
-            }
-            if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
-                return strings.inputBackedUp
-            }
-            if lowered.contains("timed out") || lowered.contains("timeout") {
-                return strings.daemonTimeout
-            }
-            // Surface the daemon's PTY-allocation diagnostic (it names the failing
-            // device and the devpts/ptmxmode cause) instead of collapsing it into a
-            // generic message. Key off the daemon's stable marker only, so an
-            // unrelated error that merely mentions a device path is not leaked.
-            // See https://github.com/manaflow-ai/cmux/issues/5185.
-            if lowered.contains("could not allocate a remote pty") {
-                return strings.allocationDiagnostic(message)
-            }
-            return strings.attachFailed
         }
     }
 }

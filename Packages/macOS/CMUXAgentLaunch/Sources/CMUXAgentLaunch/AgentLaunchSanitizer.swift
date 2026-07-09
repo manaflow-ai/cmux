@@ -28,12 +28,25 @@ public enum AgentLaunchSanitizer {
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
         var preservePositionals: Bool = false
+        /// Keeps scanning for top-level option tokens after prompt positionals; only Claude supports this replay boundary.
+        var scansOptionsPastPositionals: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
+    /// Returns launch arguments with non-restorable agent resume/session artifacts removed.
+    ///
+    /// - Parameters:
+    ///   - arguments: Captured argv, including the executable as element zero.
+    ///   - launcher: The cmux launcher token associated with the argv, if any.
+    ///   - fallbackKind: Agent kind to use when `launcher` does not select a wrapper.
+    ///   - stripCmuxHookArguments: Remove cmux-owned hook injection even when the captured
+    ///     executable is an absolute path. This keeps save-layout replay commands below
+    ///     pty canonical-line limits without treating hook argv as executable identity proof.
+    /// - Returns: Sanitized argv, or nil when the launch form is not restorable.
     public static func sanitizedLaunchArguments(
         _ arguments: [String],
         launcher: String,
-        fallbackKind: String
+        fallbackKind: String,
+        stripCmuxHookArguments: Bool = false
     ) -> [String]? {
         guard let executable = arguments.first, !executable.isEmpty else { return nil }
         var tail = Array(arguments.dropFirst())
@@ -64,9 +77,19 @@ public enum AgentLaunchSanitizer {
         }
 
         switch fallbackKind {
-        case "codex":
-            guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
+        case "claude":
+            guard let preserved = ClaudeLaunchArgumentsPreserver().preservedArguments(
+                args: tail,
+                stripCmuxHookSettings: stripCmuxHookArguments || executable == "claude"
+            ) else { return nil }
             return [executable] + preserved
+        case "codex":
+            guard let preserved = preservedCodexLaunchArguments(
+                args: tail,
+                stripCmuxHooks: stripCmuxHookArguments || executable == "codex"
+            ) else { return nil }
+            let replayExecutable = codexReplayExecutable(capturedExecutable: executable, launchTail: tail)
+            return [replayExecutable] + preserved
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
@@ -77,67 +100,13 @@ public enum AgentLaunchSanitizer {
     }
 
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
-        func preserveCodexFork(_ preservePromptTags: Bool) -> [String]? {
-            func dropForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
-                var result: [String] = []
-                var index = 0
-                var skippedSession = false
-
-                while index < args.count {
-                    let arg = args[index]
-                    if arg == "--" { break }
-                    if index == forkCommand.forkIndex { index += 1; continue }
-                    if index == forkCommand.sessionIndex { skippedSession = true; index += 1; continue }
-                    if !arg.hasPrefix("-") || arg == "-" {
-                        if skippedSession && preservePromptTags { result.append(arg) }
-                        index += 1
-                        continue
-                    }
-
-                    let width = optionWidth(args, index: index, policy: codexPolicy)
-                    let end = min(args.count, index + width)
-                    if codexPolicy.variadicOptions.contains(arg),
-                       forkCommand.forkIndex > index,
-                       forkCommand.forkIndex < end {
-                        if forkCommand.forkIndex > index + 1 {
-                            result.append(contentsOf: args[index..<forkCommand.forkIndex])
-                        }
-                        index = forkCommand.forkIndex
-                        continue
-                    }
-                    if codexPolicy.variadicOptions.contains(arg),
-                       forkCommand.sessionIndex > index,
-                       forkCommand.sessionIndex < end {
-                        if forkCommand.sessionIndex > index + 1 {
-                            result.append(contentsOf: args[index..<forkCommand.sessionIndex])
-                        }
-                        index = forkCommand.sessionIndex
-                        continue
-                    }
-                    result.append(contentsOf: args[index..<end])
-                    index += width
-                }
-
-                return result
-            }
-
-            var tail = args; var preservePositionals = false
-            if let forkCommand = codexForkCommand(in: tail) {
-                tail = dropForkPositionals(tail, forkCommand: forkCommand); preservePositionals = preservePromptTags
-            }
-            var policy = codexPolicy; policy.preservePositionals = preservePositionals
-            if preservePositionals {
-                policy.nonRestorableCommands = []
-            }
-            return preserveOptions(tail, policy: policy)
-        }
         switch kind {
         case "claude":
-            return preserveOptions(args, policy: claudePolicy)
+            return ClaudeLaunchArgumentsPreserver().preservedArguments(args: args)
         case "codex":
-            return preserveOptions(args, policy: codexPolicy)
-        case "codex-fork-replay": return preserveCodexFork(true)
-        case "codex-fork-restore": return preserveCodexFork(false)
+            return preservedCodexLaunchArguments(args: args)
+        case "codex-fork-replay": return preservedCodexForkArguments(args: args, preservePromptTags: true)
+        case "codex-fork-restore": return preservedCodexForkArguments(args: args, preservePromptTags: false)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
@@ -295,158 +264,6 @@ public enum AgentLaunchSanitizer {
         return result
     }
 
-    private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
-        if let forkCommand = codexForkCommand(in: args) {
-            return CodexForkLaunchCapture(args: args, forkIndex: forkCommand.forkIndex, sessionIndex: forkCommand.sessionIndex, preserveOptions: preserveOptions)
-                .arguments()
-        }
-        return preservedArguments(kind: "codex", args: args)
-    }
-
-    private struct CodexForkCommand {
-        let forkIndex: Int
-        let sessionIndex: Int
-    }
-
-    private static func codexForkCommand(in args: [String]) -> CodexForkCommand? {
-        var index = 0
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                return nil
-            }
-            if !isOptionToken(arg) || arg == "-" {
-                guard arg == "fork",
-                      let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
-                    return nil
-                }
-                return CodexForkCommand(forkIndex: index, sessionIndex: sessionIndex)
-            }
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            if codexPolicy.variadicOptions.contains(arg) {
-                let end = min(args.count, index + width)
-                if index + 2 < end {
-                    for candidateIndex in (index + 2)..<end where args[candidateIndex] == "fork" {
-                        if let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex) {
-                            return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
-                        }
-                    }
-                }
-            }
-            index += width
-        }
-        return nil
-    }
-
-    private static func codexForkCommandSessionIndex(_ args: [String], forkIndex: Int) -> Int? {
-        var index = forkIndex + 1
-        while index < args.count {
-            let argument = args[index]
-            if argument == "--" {
-                return nil
-            }
-            if !argument.hasPrefix("-") || argument == "-" {
-                return looksLikeCodexSessionIdentifier(argument) ? index : nil
-            }
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            if codexPolicy.variadicOptions.contains(argument) {
-                let end = min(args.count, index + width)
-                if index + 2 < end {
-                    for candidateIndex in (index + 2)..<end {
-                        if looksLikeCodexSessionIdentifier(args[candidateIndex]) {
-                            return candidateIndex
-                        }
-                    }
-                }
-            }
-            index += width
-        }
-        return nil
-    }
-
-    private static func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 20 else { return false }
-        if trimmed.hasPrefix("019") {
-            return true
-        }
-        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
-        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
-    }
-
-    private static func preserveOptions(_ args: [String], policy: Policy) -> [String]? {
-        var result: [String] = []
-        var index = 0
-        var consumedFirstPositional = false
-        var skippingResumePositionals = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-
-            if !arg.hasPrefix("-") || arg == "-" {
-                if policy.preservePositionals { result.append(arg); index += 1; continue }
-                if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
-                    index += 1
-                    continue
-                }
-                if skippingResumePositionals {
-                    skippingResumePositionals = false
-                    index += 1
-                    continue
-                }
-                if policy.nonRestorableCommands.contains(arg) {
-                    return nil
-                }
-                if policy.preserveFirstPositional, !consumedFirstPositional {
-                    result.append(arg)
-                    consumedFirstPositional = true
-                    index += 1
-                    continue
-                }
-                break
-            }
-
-            if shouldDropOption(arg, droppedOptions: policy.rejectOptions) {
-                return nil
-            }
-
-            if policy.droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                index += 1
-                continue
-            }
-
-            let runtimeOnlyWidth = runtimeOnlyOptionWidth(arg)
-            let width = runtimeOnlyWidth ?? optionWidth(args, index: index, policy: policy)
-            if runtimeOnlyWidth != nil || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
-                index += width
-                continue
-            }
-
-            if policy.skipClaudeHookSettings,
-               let replacement = claudeHookSettingsReplacement(args, index: index) {
-                result.append(contentsOf: replacement)
-                index += width
-                continue
-            }
-            guard let consumedPromptBoundary = consumePromptBoundaryOption(arg, args: args, index: &index, width: width, policy: policy, result: &result) else { return nil }
-            if consumedPromptBoundary { continue }
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func shouldDropOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
-        if droppedOptions.contains(arg) { return true }
-        guard let equals = arg.firstIndex(of: "=") else { return false }
-        return droppedOptions.contains(String(arg[..<equals]))
-    }
-
     private static func normalizedWorkingDirectory(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -462,7 +279,7 @@ public enum AgentLaunchSanitizer {
         return true
     }
 
-    private static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {
+    static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {
         if let width = runtimeOnlyOptionWidths[arg] {
             return width
         }
@@ -470,49 +287,7 @@ public enum AgentLaunchSanitizer {
         return runtimeOnlyOptionWidths[String(arg[..<equals])].map { _ in 1 }
     }
 
-    private static func optionWidth(
-        _ args: [String],
-        index: Int,
-        policy: Policy,
-        stopVariadicAtPositionals: Set<String> = []
-    ) -> Int {
-        let arg = args[index]
-        if arg.contains("=") {
-            return 1
-        }
-        if policy.optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count else { return 1 }
-            let value = args[index + 1]
-            if let choices = policy.optionalValueChoices[arg] { return choices.contains(value) ? 2 : 1 }
-            let following = index + 2 < args.count ? args[index + 2] : nil
-            if policy.greedyOptionalValueOptions.contains(arg),
-               looksLikeGreedyOptionalValue(value) { return 2 }
-            guard looksLikeOptionalValue(value, following: following) else { return 1 }
-            return 2
-        }
-        guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
-        if policy.variadicOptions.contains(arg) {
-            var end = index + 1
-            while end < args.count,
-                  !args[end].hasPrefix("-"),
-                  !stopVariadicAtPositionals.contains(args[end]) {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
-        guard !value.isEmpty,
-              !value.hasPrefix("-"),
-              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            return false
-        }
-        return following == nil || value.contains(",") || (following?.hasPrefix("-") == true)
-    }
-
-    private static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
+    static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
             let value = String(arg.dropFirst("--settings=".count))

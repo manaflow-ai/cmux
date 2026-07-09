@@ -1,4 +1,10 @@
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
+import {
+  billingPlanIdFromMetadata,
+  billingTeamFromUnknown,
+  resolveBillingTeam,
+  type BillingTeamLike,
+} from "../billing/teamResolution";
 
 export type AuthedUser = {
   id: string;
@@ -15,6 +21,7 @@ export type AuthedUser = {
 
 export type AuthedTeam = {
   id: string;
+  displayName: string | null;
   billingPlanId: string | null;
 };
 
@@ -66,22 +73,25 @@ async function authedUserFromStackUser(
   user: StackUserLike,
   options: { readonly requestedTeamId?: string | null },
 ): Promise<AuthedUser> {
-  const selectedTeam = teamLike(user.selectedTeam);
+  const selectedTeam = billingTeamFromUnknown(user.selectedTeam);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
   // When the selected team is enough, entitlements resolve from it before any
   // multi-team guard needs a full team list.
   const needsListedTeams = !selectedTeam || (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
   const listedTeams = needsListedTeams && typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamLike).filter((team): team is TeamLike => !!team)
+    ? (await user.listTeams()).map(billingTeamFromUnknown).filter((team): team is BillingTeamLike => !!team)
     : [];
   const teamIds = uniqueStrings([
     selectedTeam?.id,
     ...listedTeams.map((team) => team.id),
   ]);
   const teams = uniqueTeams([selectedTeam, ...listedTeams]);
-  const billingTeam = selectedTeam ?? (teams.length === 1 ? teams[0] : null);
-  const userBillingPlanId = planIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
-  const billingPlanId = planIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const billingTeam = await resolveBillingTeam({
+    selectedTeam,
+    listTeams: async () => listedTeams,
+  });
+  const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
 
   return {
     id: user.id,
@@ -92,7 +102,8 @@ async function authedUserFromStackUser(
     selectedTeamId: selectedTeam?.id ?? null,
     teams: teams.map((team) => ({
       id: team.id,
-      billingPlanId: planIdFromMetadata(team.clientReadOnlyMetadata),
+      displayName: team.displayName,
+      billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     })),
     teamIds,
     userBillingPlanId,
@@ -109,34 +120,12 @@ type StackUserLike = {
   readonly listTeams?: () => Promise<readonly unknown[]>;
 };
 
-type TeamLike = {
-  readonly id: string;
-  readonly clientReadOnlyMetadata?: unknown;
-};
-
-function teamLike(value: unknown): TeamLike | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  if (typeof id !== "string" || !id) return null;
-  return {
-    id,
-    clientReadOnlyMetadata: (value as { clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
-  };
-}
-
-function planIdFromMetadata(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== "object") return null;
-  const value = (metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown }).cmuxVmPlan ??
-    (metadata as { cmuxPlan?: unknown }).cmuxPlan;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
 }
 
-function uniqueTeams(values: readonly (TeamLike | null | undefined)[]): readonly TeamLike[] {
-  const teams: TeamLike[] = [];
+function uniqueTeams(values: readonly (BillingTeamLike | null | undefined)[]): readonly BillingTeamLike[] {
+  const teams: BillingTeamLike[] = [];
   const seen = new Set<string>();
   for (const team of values) {
     if (!team || seen.has(team.id)) continue;

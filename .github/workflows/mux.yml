@@ -1,0 +1,233 @@
+name: mux
+
+on:
+  pull_request:
+    paths:
+      - "mux/**"
+      - "ghostty"
+      - ".github/workflows/mux.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mux/**"
+      - "ghostty"
+      - ".github/workflows/mux.yml"
+
+concurrency:
+  group: mux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  valgrind-leak-check:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build test binaries
+        working-directory: mux
+        env:
+          # Force libghostty-vt's zig build onto a baseline CPU target so its
+          # SIMD codegen stays within what valgrind's instruction emulation
+          # supports (see crates/ghostty-vt-sys/build.rs).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+        run: |
+          mkdir -p target
+          cargo test --workspace --locked --no-run --message-format=json > target/cargo-test-binaries.jsonl
+          python3 <<'PY'
+          import json
+          import sys
+
+          seen = set()
+          with open("target/cargo-test-binaries.jsonl", "r", encoding="utf-8") as messages:
+              with open("target/valgrind-test-binaries.txt", "w", encoding="utf-8") as output:
+                  for line in messages:
+                      try:
+                          message = json.loads(line)
+                      except json.JSONDecodeError:
+                          continue
+                      if not message.get("profile", {}).get("test"):
+                          continue
+                      executable = message.get("executable")
+                      if not executable or executable in seen:
+                          continue
+                      seen.add(executable)
+                      print(executable, file=output)
+
+          if not seen:
+              raise SystemExit("cargo did not report any test binaries")
+          print(f"Collected {len(seen)} test binaries", file=sys.stderr)
+          PY
+
+      - name: Run test binaries under valgrind
+        working-directory: mux
+        run: |
+          while IFS= read -r bin; do
+            [ -n "$bin" ] || continue
+            echo "Running valgrind for $bin"
+            if ! valgrind \
+              --error-exitcode=1 \
+              --leak-check=full \
+              --show-leak-kinds=definite \
+              --errors-for-leak-kinds=definite \
+              --track-origins=yes \
+              -- "$bin"; then
+              echo "Valgrind failed for $bin" >&2
+              exit 1
+            fi
+          done < target/valgrind-test-binaries.txt
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os == 'macos' && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || 'ubuntu-latest' }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos, linux]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: cargo fmt
+        working-directory: mux
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: mux
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        working-directory: mux
+        run: cargo test --workspace --locked
+
+      - name: TUI smoke test (scripted pty)
+        working-directory: mux
+        run: |
+          cargo build -p mux-tui
+          python3 scripts/smoke-tui.py
+
+      - name: Detach/reattach smoke test
+        working-directory: mux
+        run: python3 scripts/smoke-attach.py
+
+  bindings-e2e:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Java version
+        run: |
+          echo "JAVA_HOME_17_X64=$JAVA_HOME_17_X64"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          export PATH="$JAVA_HOME_17_X64/bin:$PATH"
+          java -version
+          javac -version
+
+      - name: Build mux server
+        working-directory: mux
+        run: cargo build -p mux-tui
+
+      - name: Python conformance fixtures
+        run: python3 mux/bindings/conformance/runner.py
+
+      - name: Binding e2e
+        run: bash mux/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
+
+  windows-experimental:
+    name: windows experimental (x86_64-gnu)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Install Rust GNU target
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
+
+      - name: Build libghostty-vt for Windows GNU
+        shell: bash
+        working-directory: ghostty
+        run: |
+          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
+          zig ar t "$RUNNER_TEMP/ghostty-vt-win-gnu/lib/ghostty-vt-static.lib" | head
+
+      - name: cargo build mux-tui for Windows GNU
+        working-directory: mux
+        run: cargo build -p mux-tui --target x86_64-pc-windows-gnu --locked

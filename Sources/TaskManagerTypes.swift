@@ -582,7 +582,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         CmuxTaskManagerCodingAgentDefinition(
             id: "omp",
             displayName: "OMP",
-            assetName: nil,
+            assetName: "AgentIcons/Pi",
             launchKinds: ["omp"],
             directBasenames: ["omp"],
             argumentNeedles: ["@oh-my-pi/pi-coding-agent"]

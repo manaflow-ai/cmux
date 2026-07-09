@@ -5,8 +5,8 @@
 # since the previous beta instead of a hand-maintained changelog top entry.
 #
 #   internal (default): terse, dev-facing bullets, keeps the PR number.
-#   external:           a cleaned DRAFT (no PR numbers, no conventional prefix)
-#                       for human curation before a founders cut.
+#   external:           cleaned user-facing bullets (no PR numbers, no
+#                       conventional prefix), suitable for the external beta lane.
 #
 # Output is the bullet list only (no "### Internal" heading), suitable to pass to
 # `set-testflight-notes.sh --notes "$(...)"`. An empty or unreachable range emits
@@ -95,8 +95,8 @@ while IFS= read -r subject; do
   fi
 
   if [[ "$AUDIENCE" == "external" ]]; then
-    # Clean for founders: strip "(#N)" / "#N", and a leading conventional prefix
-    # like "ios:" / "fix(mobile):". Keep it a DRAFT; a human curates wording.
+    # Clean for founders/external beta: strip "(#N)" / "#N", and a leading
+    # conventional prefix like "ios:" / "fix(mobile):".
     clean="$(printf '%s' "$subject" \
       | sed -E 's/ *\(#[0-9]+\)//g; s/ +#[0-9]+//g' \
       | sed -E 's/^[a-z]+(\([^)]*\))?(!)?: *//')"
