@@ -17,6 +17,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in startCount += 1 },
             purgeCache: {},
             crash: { crashCount += 1 }
@@ -164,6 +165,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux"],
             environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in Issue.record("must not start") },
             purgeCache: { counter.purges += 1 },
             crash: {}

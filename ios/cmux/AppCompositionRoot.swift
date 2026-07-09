@@ -35,6 +35,10 @@ final class AppCompositionRoot {
     /// observing port, injected down so pairing and disconnected surfaces can
     /// explain a Tailscale-off phone.
     let tailscaleStatusMonitor: TailscaleStatusMonitorAdapter
+    /// Owns the crash reporter's consent-revocation observation for the life
+    /// of the process (closes Sentry + purges its stores if telemetry is
+    /// turned off mid-session).
+    let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
 
     #if DEBUG
     /// The structured diagnostic log, built once here and injected into the
@@ -54,7 +58,10 @@ final class AppCompositionRoot {
         self.auth = auth
         self.reachability = reachability
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
-        MobileCrashReporter.startIfEnabled(consent: telemetryConsent)
+        MobileCrashReporter.startIfEnabled(
+            consent: telemetryConsent,
+            revocationWatcher: crashRevocationWatcher
+        )
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,

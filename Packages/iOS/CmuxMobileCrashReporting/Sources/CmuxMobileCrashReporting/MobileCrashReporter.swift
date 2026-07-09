@@ -30,7 +30,7 @@ public struct MobileCrashReporter {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
-        revocationWatcher: RevocationWatcher = .shared,
+        revocationWatcher: RevocationWatcher,
         start: (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
         purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
@@ -73,7 +73,7 @@ public struct MobileCrashReporter {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
-        revocationWatcher: RevocationWatcher = .shared,
+        revocationWatcher: RevocationWatcher,
         start: (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
         purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
@@ -113,7 +113,11 @@ public struct MobileCrashReporter {
                 // Purge BEFORE close: close() flushes pending envelopes to the
                 // network, so persisted opted-out data must be gone first. The
                 // second purge removes anything close() persisted while
-                // draining its in-memory queue.
+                // draining its in-memory queue. Events close() flushes are
+                // dropped by the consent beforeSend gate; the only residual is
+                // an envelope already serialized into the in-memory transport
+                // queue at the instant of revocation, which the public SDK API
+                // cannot cancel.
                 purgeCache()
                 close()
                 purgeCache()
@@ -176,12 +180,8 @@ public struct MobileCrashReporter {
     /// changes are observed via `UserDefaults.didChangeNotification`, the same
     /// backing store the consent provider reads.
     public final class RevocationWatcher: @unchecked Sendable {
-        // lint:allow singleton — process-lifetime default for the production
-        // observer registration; tests inject fresh instances.
-        public static let shared = RevocationWatcher()
-
-        /// Tests inject fresh instances so parallel suites cannot stomp each
-        /// other's registration on the shared watcher.
+        /// Owned by the app composition root (one per process); tests create
+        /// fresh instances so parallel suites cannot stomp each other.
         public init() {}
 
         // lint:allow lock — sanctioned carve-out: guards a token swap across
