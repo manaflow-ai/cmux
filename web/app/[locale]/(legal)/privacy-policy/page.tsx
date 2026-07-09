@@ -83,10 +83,15 @@ function renderBlock(block: PrivacyPolicyBlock, index: number): ReactNode {
 }
 
 function requirePrivacyPolicyLocale(locale: string): (typeof privacyPolicyLocales)[number] {
-  if (privacyPolicyLocales.includes(locale as (typeof privacyPolicyLocales)[number])) {
-    return locale as (typeof privacyPolicyLocales)[number];
-  }
-  redirect("/privacy-policy");
+  const redirectPath = privacyPolicyRedirectPath(locale);
+  if (redirectPath) redirect(redirectPath);
+  return locale as (typeof privacyPolicyLocales)[number];
+}
+
+export function privacyPolicyRedirectPath(locale: string): string | null {
+  return privacyPolicyLocales.includes(locale as (typeof privacyPolicyLocales)[number])
+    ? null
+    : "/privacy-policy";
 }
 
 function privacyPolicyLocaleForMetadata(locale: string): (typeof privacyPolicyLocales)[number] {
