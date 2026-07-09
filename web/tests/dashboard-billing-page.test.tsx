@@ -48,6 +48,14 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+// AccountPlanBadge is a client component using the client `useTranslations`.
+// Mock it here (like next-intl/server above) so the render is self-contained;
+// depending on another file's leaked next-intl mock made CI's sorted test
+// order fail while local readdir order passed.
+mock.module("next-intl", () => ({
+  useTranslations: (namespace?: string) => translator(namespace),
+}));
+
 mock.module("@/i18n/navigation", () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
@@ -238,10 +246,10 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
     params: Promise.resolve({ locale: "en" }),
     searchParams: Promise.resolve(searchParams),
   });
+  // DashboardQueryProvider supplies the QueryClient that AccountPlanBadge's
+  // useQuery needs; next-intl is mocked above so useTranslations resolves.
   return renderToStaticMarkup(
-    <DashboardQueryProvider>
-      {element}
-    </DashboardQueryProvider>,
+    <DashboardQueryProvider>{element}</DashboardQueryProvider>,
   );
 }
 

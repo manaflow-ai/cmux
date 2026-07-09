@@ -3,10 +3,6 @@ import HTTPTypes
 import OpenAPIRuntime
 import OpenAPIURLSession
 
-public enum CmuxAPIClientBootstrap {
-    public static let apiServerPath = "/api/v1"
-}
-
 public struct CmuxAccountPlan: Sendable, Hashable {
     public var userID: String
     /// Empty when the Stack user has no primary email.
@@ -36,6 +32,10 @@ public enum CmuxAPIError: Error, Sendable, Equatable {
 }
 
 public struct CmuxAPIClient: Sendable {
+    /// Base path the API is mounted at; matches the OpenAPI `servers[0].url`.
+    /// Append to an origin to build the `serverURL` this client expects.
+    public static let apiServerPath = "/api/v1"
+
     private let client: Client
 
     public init(
