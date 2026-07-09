@@ -1,0 +1,175 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite
+struct CmuxTopProcessSnapshotStoreTests {
+    @Test
+    func concurrentEquivalentRequestsShareOneCapture() async {
+        let capturer = ControlledProcessSnapshotCapturer()
+        let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            }
+        )
+
+        let first = Task {
+            await store.snapshot(requirements: .basic, maximumAge: 0)
+        }
+        await capturer.waitForCallCount(1)
+        let second = Task {
+            await store.snapshot(requirements: .basic, maximumAge: 0)
+        }
+        await capturer.releaseNext()
+
+        let firstSnapshot = await first.value
+        let secondSnapshot = await second.value
+        #expect(firstSnapshot === secondSnapshot)
+        #expect(await capturer.callCount() == 1)
+        #expect(await capturer.maximumConcurrentCaptures() == 1)
+    }
+
+    @Test
+    func strongerRequestWaitsForAndThenUpgradesWeakerCapture() async {
+        let capturer = ControlledProcessSnapshotCapturer()
+        let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            }
+        )
+
+        let basic = Task {
+            await store.snapshot(requirements: .basic, maximumAge: 0)
+        }
+        await capturer.waitForCallCount(1)
+        let detailed = Task {
+            await store.snapshot(requirements: [.processDetails, .cmuxScope], maximumAge: 0)
+        }
+
+        await capturer.releaseNext()
+        _ = await basic.value
+        await capturer.waitForCallCount(2)
+        await capturer.releaseNext()
+        let detailedSnapshot = await detailed.value
+
+        #expect(detailedSnapshot.hasCMUXScope)
+        #expect(await capturer.capturedRequirements() == [
+            .basic,
+            [.processDetails, .cmuxScope]
+        ])
+        #expect(await capturer.maximumConcurrentCaptures() == 1)
+    }
+
+    @Test
+    func cacheRespectsFreshnessAndCapabilityRequirements() async {
+        let capturer = ControlledProcessSnapshotCapturer(autoRelease: true)
+        let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            }
+        )
+
+        let first = await store.snapshot(requirements: .basic, maximumAge: 3)
+        await clock.advance(by: 2)
+        let cached = await store.snapshot(requirements: .basic, maximumAge: 3)
+        let upgraded = await store.snapshot(requirements: .processDetails, maximumAge: 3)
+        await clock.advance(by: 4)
+        let refreshed = await store.snapshot(requirements: .basic, maximumAge: 3)
+
+        #expect(first === cached)
+        #expect(upgraded !== cached)
+        #expect(refreshed !== upgraded)
+        #expect(await capturer.callCount() == 3)
+    }
+}
+
+private actor ControlledProcessSnapshotCapturer {
+    private let autoRelease: Bool
+    private var requirements: [CmuxTopProcessSnapshotRequirements] = []
+    private var activeCaptures = 0
+    private var maximumActiveCaptures = 0
+    private var releases: [CheckedContinuation<Void, Never>] = []
+    private var callCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(autoRelease: Bool = false) {
+        self.autoRelease = autoRelease
+    }
+
+    func capture(requirements: CmuxTopProcessSnapshotRequirements) async -> CmuxTopProcessSnapshot {
+        self.requirements.append(requirements)
+        activeCaptures += 1
+        maximumActiveCaptures = max(maximumActiveCaptures, activeCaptures)
+        resumeSatisfiedCallCountWaiters()
+        if !autoRelease {
+            await withCheckedContinuation { continuation in
+                releases.append(continuation)
+            }
+        }
+        activeCaptures -= 1
+        return CmuxTopProcessSnapshot(
+            processes: [],
+            sampledAt: Date(timeIntervalSince1970: TimeInterval(self.requirements.count)),
+            includesProcessDetails: requirements.contains(.processDetails),
+            includesCMUXScope: requirements.contains(.cmuxScope)
+        )
+    }
+
+    func waitForCallCount(_ count: Int) async {
+        guard requirements.count < count else { return }
+        await withCheckedContinuation { continuation in
+            callCountWaiters.append((count, continuation))
+        }
+    }
+
+    func releaseNext() {
+        guard !releases.isEmpty else { return }
+        releases.removeFirst().resume()
+    }
+
+    func callCount() -> Int {
+        requirements.count
+    }
+
+    func capturedRequirements() -> [CmuxTopProcessSnapshotRequirements] {
+        requirements
+    }
+
+    func maximumConcurrentCaptures() -> Int {
+        maximumActiveCaptures
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        let satisfied = callCountWaiters.filter { requirements.count >= $0.count }
+        callCountWaiters.removeAll { requirements.count >= $0.count }
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
+    }
+}
+
+private actor ProcessSnapshotTestClock {
+    private var now: Date
+
+    init(now: Date) {
+        self.now = now
+    }
+
+    func read() -> Date {
+        now
+    }
+
+    func advance(by interval: TimeInterval) {
+        now = now.addingTimeInterval(interval)
+    }
+}
