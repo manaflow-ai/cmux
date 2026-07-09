@@ -69,7 +69,7 @@ extension NotesTreeStore {
             // persist into; materialize it lazily the first time this
             // workspace actually runs an agent (one small folder — not the
             // per-session flood the old auto-materialization caused).
-            if !observed.isEmpty || !observation.anonymousAgents.isEmpty {
+            if !observed.isEmpty {
                 _ = try? self.ensureRoot(folder: nil)
             }
             guard self.hasWorkspace,
@@ -135,17 +135,7 @@ extension NotesTreeStore {
             // panes a cold first pass missed.
             let lateObservation = await provider?() ?? NotesTreeObservation()
             let lateObserved = lateObservation.sessions
-            // Hookless agents (bare launches that bypassed the wrapper):
-            // bind each agent-on-a-pane-TTY to the workspace cwd's session
-            // files, but only when the match is unambiguous — see
-            // NotesTreeAnonymousResolution.
-            let anonymous = observation.anonymousAgents + lateObservation.anonymousAgents
-            let resolvedAnonymous = NotesTreeAnonymousResolution.resolve(
-                anonymous: anonymous,
-                liveSessions: liveSnapshot,
-                workspaceCwd: workspaceCwd
-            )
-            let allObserved = observed + lateObserved + resolvedAnonymous
+            let allObserved = observed + lateObserved
             if !allObserved.isEmpty, observed.isEmpty {
                 _ = try? self.ensureRoot(folder: nil)
             }
@@ -178,7 +168,6 @@ extension NotesTreeStore {
             #if DEBUG
             cmuxDebugLog(
                 "notes.refresh observed=\(observed.count) late=\(lateObserved.count) "
-                + "anon=\(anonymous.count) anonResolved=\(resolvedAnonymous.count) "
                 + "folders=\(folders.count) live=\(liveSnapshot.count) changed=\(changed) "
                 + "terminals=\(lateObservation.terminals.count) "
                 + "records=\(NotesTreeStorage.readWorkspaceSessions(inRoot: root).count)"

@@ -1,5 +1,20 @@
 import AppKit
 import Foundation
+import Observation
+
+@MainActor
+@Observable
+final class MarkdownNoteSaveState {
+    private(set) var hasFailure = false
+
+    func recordFailure() {
+        hasFailure = true
+    }
+
+    func clearFailure() {
+        hasFailure = false
+    }
+}
 
 extension MarkdownPanel {
     func observeNoteRelocations() {
@@ -213,11 +228,26 @@ extension MarkdownPanel {
     /// flat slug-indexed project notes plus Notes-tree files.
     var behavesAsNote: Bool { isProjectNote || isWorkspaceNotesFile }
 
+    var mandatoryCloseConfirmationPrompt: (title: String, message: String)? {
+        guard behavesAsNote, noteSaveState.hasFailure else { return nil }
+        return (
+            title: String(
+                localized: "dialog.closeUnsavedNote.title",
+                defaultValue: "Close without saving?"
+            ),
+            message: String(
+                localized: "dialog.closeUnsavedNote.message",
+                defaultValue: "This note couldn’t be saved. Closing it will discard your unsaved changes."
+            )
+        )
+    }
+
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
         textContent = nextContent
         content = nextContent
         isDirty = nextContent != originalTextContent
+        if !isDirty { noteSaveState.clearFailure() }
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         scheduleAutoSaveIfNeeded()
     }
@@ -249,6 +279,7 @@ extension MarkdownPanel {
             textContent = currentContent
             content = currentContent
             isDirty = false
+            noteSaveState.clearFailure()
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return nil
         }
@@ -295,6 +326,7 @@ extension MarkdownPanel {
             case .saved:
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
+                self.noteSaveState.clearFailure()
                 self.isFileUnavailable = false
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
                 // Edits made while this save was in flight leave isDirty == true.
@@ -310,6 +342,7 @@ extension MarkdownPanel {
                     }
                 }
             case .failed(let fileExists):
+                self.noteSaveState.recordFailure()
                 self.isFileUnavailable = !fileExists
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }

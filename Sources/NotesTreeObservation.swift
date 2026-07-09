@@ -4,6 +4,5 @@ import Foundation
 /// workspace's panes for one refresh pass.
 struct NotesTreeObservation: Equatable, Sendable {
     var sessions: [NotesTreeObservedSession] = []
-    var anonymousAgents: [NotesTreeAnonymousAgentObservation] = []
     var terminals: [NotesTreeObservedTerminal] = []
 }

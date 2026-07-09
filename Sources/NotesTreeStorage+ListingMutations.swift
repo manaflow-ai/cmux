@@ -26,8 +26,10 @@ extension NotesTreeStorage {
             options: [.skipsSubdirectoryDescendants]
         ) else { return [] }
         var entries: [NotesTreeEntry] = []
+        var inspectedCount = 0
         for case let url as URL in enumerator {
-            if entries.count >= limit || Task.isCancelled { break }
+            if inspectedCount >= limit || Task.isCancelled { break }
+            inspectedCount += 1
             let name = url.lastPathComponent
             if name.hasPrefix(".") || name == workspaceMarkerName || name == sessionMarkerName { continue }
             // Never traverse symlinks: a project-controlled link under

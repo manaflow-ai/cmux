@@ -5452,7 +5452,11 @@ struct CMUXCLI {
                 ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             var workspaceId: String?
             if let workspaceRaw {
-                workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+                workspaceId = try normalizeWorkspaceHandle(
+                    workspaceRaw,
+                    client: client,
+                    windowHandle: windowId
+                )
                 if let workspaceId { params["workspace_id"] = workspaceId }
             }
             // Only inherit the caller's ambient surface when no explicit

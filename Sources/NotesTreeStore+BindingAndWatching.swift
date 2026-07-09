@@ -21,24 +21,24 @@ extension NotesTreeStore {
             clear()
             return
         }
-        let newRoot = NotesTreeStorage.resolveWorkspaceRoot(
-            projectRoot: projectRoot, cwd: cwd, anchorId: anchorId
-        )
         let unchanged = hasWorkspace
             && self.projectRoot == projectRoot
             && self.cwd == cwd
             && self.workspaceAnchorId == anchorId
-            && resolvedRootPath == newRoot
-        self.projectRoot = projectRoot
         self.workspaceTitle = title
+        self.observedSessionsProvider = observedSessions
+        self.headerDisplayPath = (cwd as NSString).abbreviatingWithTildeInPath
+        guard !unchanged else { return }
+
+        let newRoot = NotesTreeStorage.resolveWorkspaceRoot(
+            projectRoot: projectRoot, cwd: cwd, anchorId: anchorId
+        )
+        self.projectRoot = projectRoot
         self.cwd = cwd
         self.workspaceAnchorId = anchorId
-        self.observedSessionsProvider = observedSessions
         self.resolvedRootPath = newRoot
         self.notesDirPath = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
         self.hasWorkspace = true
-        self.headerDisplayPath = (cwd as NSString).abbreviatingWithTildeInPath
-        guard !unchanged else { return }
         // A different workspace means the previous scan (if any) is stale:
         // cancel it and lift the throttle so the new workspace scans immediately.
         markerRefreshTask?.cancel()

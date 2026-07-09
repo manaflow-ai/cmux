@@ -117,8 +117,8 @@ extension Workspace {
         }
         // TTY pass: ground truth for what is REALLY running in this
         // workspace's panes, regardless of which run's UUIDs the hook records
-        // carry — and the only signal at all for bare launches that bypassed
-        // the hook wrapper (user PATH/alias shadowing).
+        // carry. A hook-backed session id is still required; process names and
+        // transcript mtimes are not reliable agent identity.
         let ttyByPanel = surfaceTTYNames
         guard !ttyByPanel.isEmpty else {
             return NotesTreeObservation(sessions: observed, terminals: terminals)
@@ -129,7 +129,6 @@ extension Workspace {
         }
         let ttys = Array(panelByTTY.keys)
         let paneProcesses = await NotesTreePaneProcessLookup.paneProcessesAsync(ttys: ttys)
-        var matchedPanePids = Set<Int>()
         let liveEntries = entries.filter { !$0.entry.processIDs.isEmpty }
         let pidToTTY = Dictionary(
             paneProcesses.map { ($0.pid, $0.tty) }, uniquingKeysWith: { first, _ in first }
@@ -138,38 +137,17 @@ extension Workspace {
             guard let pid = entry.processIDs.first(where: { pidToTTY[$0] != nil }),
                   let tty = pidToTTY[pid],
                   let ownerId = panelByTTY[tty] else { continue }
-            matchedPanePids.formUnion(entry.processIDs)
             let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
             add(entry.snapshot, panelId: panelId)
-        }
-        // Hookless agents: an agent-named process on a pane TTY with no hook
-        // record anywhere. Report name + start time; the store resolves the
-        // session from the cwd's session files.
-        var anonymous: [NotesTreeAnonymousAgentObservation] = []
-        let builtInAgentIds = Set(SessionAgent.builtInCases.map(\.rawValue))
-        for process in paneProcesses where !matchedPanePids.contains(process.pid) {
-            let commandAgent = process.command.lowercased()
-            // Built-in executable names only: SessionAgent(rawValue:) accepts
-            // arbitrary registered ids, which would match every shell on the
-            // TTY.
-            guard builtInAgentIds.contains(commandAgent) else { continue }
-            guard let ownerId = panelByTTY[process.tty],
-                  currentTerminalPanelIds.contains(ownerId) else { continue }
-            anonymous.append(NotesTreeAnonymousAgentObservation(
-                agent: commandAgent,
-                startedAt: process.startedAt,
-                surfaceAnchorId: noteAnchorIdsByPanelId[ownerId],
-                terminalPanelId: ownerId.uuidString
-            ))
         }
         #if DEBUG
         cmuxDebugLog(
             "notes.observe ws=\(id.uuidString.prefix(8)) restored=\(restoredAgentSnapshotsByPanelId.count) "
             + "entries=\(entries.count) ttyPanels=\(panelByTTY.count) ttyProcs=\(paneProcesses.count) "
-            + "observed=\(observed.count) anon=\(anonymous.count)"
+            + "observed=\(observed.count)"
         )
         #endif
-        return NotesTreeObservation(sessions: observed, anonymousAgents: anonymous, terminals: terminals)
+        return NotesTreeObservation(sessions: observed, terminals: terminals)
     }
 
 }

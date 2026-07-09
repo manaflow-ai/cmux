@@ -45,6 +45,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether TextEdit mode is saving to disk.
     @Published var isSaving: Bool = false
 
+    /// Child observation state for note autosave failures. Keeping this out of
+    /// the legacy ObservableObject avoids adding another broad @Published
+    /// invalidation to every Markdown panel update.
+    let noteSaveState = MarkdownNoteSaveState()
+
     /// The current view mode for this markdown panel. New panels default to preview.
     @Published var displayMode: MarkdownPanelDisplayMode = .preview
 
@@ -363,6 +368,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             textContent = ""
             originalTextContent = ""
             isDirty = false
+            noteSaveState.clearFailure()
             isFileUnavailable = true
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         }
@@ -377,6 +383,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             originalTextContent = newContent
             textEncoding = encoding
             isDirty = textContent != newContent
+            if !isDirty { noteSaveState.clearFailure() }
             isFileUnavailable = false
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return
@@ -387,6 +394,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         originalTextContent = newContent
         textEncoding = encoding
         isDirty = false
+        noteSaveState.clearFailure()
         isFileUnavailable = false
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }

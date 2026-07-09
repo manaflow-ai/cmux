@@ -6,24 +6,31 @@ private struct DockPaneCloseConfirmationPrompt: Sendable {
     let title: String
     let message: String
 
-    init(titles: [String]) {
+    init(titles: [String], includesUnsavedNoteFailure: Bool = false) {
         let count = titles.count
         let titleLines = titles.map { "• \($0)" }.joined(separator: "\n")
         title = String(localized: "dialog.closePane.title", defaultValue: "Close pane?")
+        let baseMessage: String
 
         if count == 1 {
             let format = String(
                 localized: "dialog.closePane.message.one",
                 defaultValue: "This will close 1 tab in this pane:\n%@"
             )
-            message = String(format: format, locale: .current, titleLines)
+            baseMessage = String(format: format, locale: .current, titleLines)
         } else {
             let format = String(
                 localized: "dialog.closePane.message.other",
                 defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
             )
-            message = String(format: format, locale: .current, Int64(count), titleLines)
+            baseMessage = String(format: format, locale: .current, Int64(count), titleLines)
         }
+        message = baseMessage + (includesUnsavedNoteFailure
+            ? "\n\n" + String(
+                localized: "dialog.closeUnsavedNotes.message",
+                defaultValue: "One or more notes couldn’t be saved. Closing will discard their unsaved changes."
+            )
+            : "")
     }
 }
 
@@ -36,10 +43,10 @@ extension DockSplitStore {
         let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
         let closeSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
         guard let panel = panel(for: tab.id) else { return true }
-        guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-            requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-            source: closeSource
-        ) else {
+        guard panel.mandatoryCloseConfirmationPrompt != nil
+            || CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                requiresConfirmation: dockPanelNeedsConfirmClose(panel), source: closeSource
+            ) else {
             return true
         }
         guard !pendingCloseConfirmDockTabIds.contains(tab.id) else { return false }
@@ -71,14 +78,18 @@ extension DockSplitStore {
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         var paneTitles: [String] = []
         var confirmableTabIds = Set<TabID>()
+        var includesUnsavedNoteFailure = false
         for tab in controller.tabs(inPane: pane) {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
             guard !forceCloseDockTabIds.contains(tab.id), let panel else { continue }
-            if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-                source: .shortcut
-            ) {
+            if panel.mandatoryCloseConfirmationPrompt != nil {
+                includesUnsavedNoteFailure = true
+            }
+            if panel.mandatoryCloseConfirmationPrompt != nil
+                || CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                    requiresConfirmation: dockPanelNeedsConfirmClose(panel), source: .shortcut
+                ) {
                 confirmableTabIds.insert(tab.id)
             }
         }
@@ -90,7 +101,10 @@ extension DockSplitStore {
         if confirmationManager?.isCloseConfirmationInFlight == true { return false }
 
         pendingCloseConfirmDockTabIds.formUnion(confirmableTabIds)
-        let prompt = DockPaneCloseConfirmationPrompt(titles: paneTitles)
+        let prompt = DockPaneCloseConfirmationPrompt(
+            titles: paneTitles,
+            includesUnsavedNoteFailure: includesUnsavedNoteFailure
+        )
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.pendingCloseConfirmDockTabIds.subtract(confirmableTabIds) }
@@ -142,11 +156,20 @@ extension DockSplitStore {
         return false
     }
 
+    func requiresUnconditionalCloseConfirmation() -> Bool {
+        bonsplitController.allTabIds.contains { tabId in
+            panel(for: tabId)?.mandatoryCloseConfirmationPrompt != nil
+        }
+    }
+
     private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {
-        let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
+        let title = panel.mandatoryCloseConfirmationPrompt?.title
+            ?? String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let message: String
-        if !panelName.isEmpty {
+        if let mandatoryPrompt = panel.mandatoryCloseConfirmationPrompt {
+            message = mandatoryPrompt.message
+        } else if !panelName.isEmpty {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")

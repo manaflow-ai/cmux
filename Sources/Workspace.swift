@@ -11642,7 +11642,8 @@ extension Workspace: BonsplitDelegate {
     ///   automatic-rename a beat later, which otherwise reads like the dialog is
     ///   naming a different tab.
     private func confirmClosePanel(for tabId: TabID, nameOverride: String? = nil) async -> Bool {
-        let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
+        let mandatoryPrompt = panelIdFromSurfaceId(tabId).flatMap { panelMandatoryCloseConfirmationPrompt(panelId: $0) }
+        let title = mandatoryPrompt?.title ?? String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName: String? = {
             if let nameOverride, !nameOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return nameOverride
@@ -11661,7 +11662,9 @@ extension Workspace: BonsplitDelegate {
         }()
 
         let message: String
-        if let panelName {
+        if let mandatoryPrompt {
+            message = mandatoryPrompt.message
+        } else if let panelName {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
@@ -12268,9 +12271,9 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+        let mandatoryPrompt = panelMandatoryCloseConfirmationPrompt(panelId: panelId)
+        if mandatoryPrompt != nil || CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId), source: confirmationSource
         ) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
@@ -12645,10 +12648,10 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
-                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-                   source: .shortcut
-               ) {
+               panelMandatoryCloseConfirmationPrompt(panelId: panelId) != nil
+                || CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId), source: .shortcut
+                ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
                 return false

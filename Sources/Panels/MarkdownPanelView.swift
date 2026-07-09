@@ -46,7 +46,7 @@ struct MarkdownPanelView: View {
 
     var body: some View {
         Group {
-            if panel.isFileUnavailable {
+            if panel.isFileUnavailable, !panel.noteSaveState.hasFailure {
                 fileUnavailableView
             } else {
                 markdownContentView
@@ -71,8 +71,34 @@ struct MarkdownPanelView: View {
 
             Divider()
 
+            if panel.noteSaveState.hasFailure {
+                noteSaveFailureBanner
+                Divider()
+            }
+
             markdownBody
         }
+    }
+
+    private var noteSaveFailureBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(String(
+                localized: "markdown.noteSave.failure",
+                defaultValue: "Couldn’t save this note. Your changes are still here."
+            ))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button(String(localized: "markdown.noteSave.retry", defaultValue: "Retry")) {
+                panel.saveTextContent()
+            }
+            .disabled(panel.isSaving)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .background(Color.orange.opacity(0.08))
     }
 
     @ViewBuilder
