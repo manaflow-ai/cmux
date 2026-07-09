@@ -72,6 +72,7 @@ const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
 const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
+const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 
 type ExistingVmAccessInput = {
@@ -1310,30 +1311,46 @@ export function revokeExpiredIdentityLeases(input: {
   });
 }
 
-export function revokeUserIdentityLeasesForAccountDeletion(userId: string) {
+export function revokeUserIdentityLeasesForAccountDeletion(
+  userId: string,
+  input: { readonly limit?: number } = {},
+) {
+  const limit = boundedAccountDeletionIdentityRevokeLimit(input.limit);
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const leases = yield* repo.accountDeletionIdentityLeases(userId);
-    const revokedIds: string[] = [];
-    for (const lease of leases) {
-      const identityHandle = lease.providerIdentityHandle;
-      if (!identityHandle) continue;
-      const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
-        Effect.as(true),
-        Effect.catchAll((err) => {
-          if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
-          return repo.markLeasesRevoked(revokedIds).pipe(
-            Effect.catchAll(() => Effect.void),
-            Effect.andThen(Effect.fail(err)),
-          );
-        }),
-      );
-      if (revoked) revokedIds.push(lease.id);
+    let revokedCount = 0;
+    for (;;) {
+      const leases = yield* repo.accountDeletionIdentityLeases({ userId, limit });
+      if (leases.length === 0) return revokedCount;
+
+      const revokedIds: string[] = [];
+      for (const lease of leases) {
+        const identityHandle = lease.providerIdentityHandle;
+        if (!identityHandle) continue;
+        const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
+          Effect.as(true),
+          Effect.catchAll((err) => {
+            if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
+            return repo.markLeasesRevoked(revokedIds).pipe(
+              Effect.catchAll(() => Effect.void),
+              Effect.andThen(Effect.fail(err)),
+            );
+          }),
+        );
+        if (revoked) revokedIds.push(lease.id);
+      }
+
+      yield* repo.markLeasesRevoked(revokedIds);
+      revokedCount += revokedIds.length;
+      if (leases.length < limit) return revokedCount;
     }
-    yield* repo.markLeasesRevoked(revokedIds);
-    return revokedIds.length;
   });
+}
+
+function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH;
+  return Math.max(1, Math.min(Math.floor(limit), ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH));
 }
 
 export function execVm(input: {

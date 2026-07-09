@@ -474,6 +474,55 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  test("revokes account-deletion SSH identities in bounded batches", async () => {
+    const requestedLimits: number[] = [];
+    const leaseBatches = [
+      [
+        testIdentityLease("lease-account-delete-1", "identity-account-delete-1"),
+        testIdentityLease("lease-account-delete-2", "identity-account-delete-2"),
+      ],
+      [
+        testIdentityLease("lease-account-delete-3", "identity-account-delete-3"),
+      ],
+    ];
+    const revokedLeaseBatches: string[][] = [];
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: (input) =>
+        Effect.sync(() => {
+          requestedLimits.push(input.limit);
+          return leaseBatches.shift() ?? [];
+        }),
+      revokedLeaseBatches,
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) =>
+        Effect.sync(() => {
+          revokedIdentities.push(identityHandle);
+        }),
+    };
+
+    const revokedCount = await Effect.runPromise(
+      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete", { limit: 2 }).pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revokedCount).toBe(3);
+    expect(requestedLimits).toEqual([2, 2]);
+    expect(revokedIdentities).toEqual([
+      "identity-account-delete-1",
+      "identity-account-delete-2",
+      "identity-account-delete-3",
+    ]);
+    expect(revokedLeaseBatches).toEqual([
+      ["lease-account-delete-1", "lease-account-delete-2"],
+      ["lease-account-delete-3"],
+    ]);
+  });
+
   test("keeps account-deletion SSH identity cleanup retryable when provider revocation fails", async () => {
     const revokedLeaseIds: string[] = [];
     const repo = testWorkflowRepo({
@@ -4330,6 +4379,7 @@ function testWorkflowRepo(input: {
   readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
   readonly accountDeletionIdentityLeases?: VmRepositoryShape["accountDeletionIdentityLeases"];
   readonly revokedLeaseIds?: string[];
+  readonly revokedLeaseBatches?: string[][];
   readonly leaseRevocationRetries?: LeaseRevocationRetry[];
   readonly observedStatuses?: ObservedStatusUpdate[];
   readonly markProviderObservedStatus?: (
@@ -4414,6 +4464,7 @@ function testWorkflowRepo(input: {
       ),
     markLeasesRevoked: (leaseIds) =>
       Effect.sync(() => {
+        input.revokedLeaseBatches?.push([...leaseIds]);
         input.revokedLeaseIds?.push(...leaseIds);
       }),
     recordUsageEvent: (event) =>

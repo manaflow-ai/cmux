@@ -72,7 +72,7 @@ export async function DELETE(request: Request): Promise<Response> {
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(userId, {
-      afterExternalMutation: () => {
+      beforeExternalRequest: () => {
         restoreBillingEntitlementsOnFailure = false;
         destructiveCleanupStarted = true;
       },
@@ -288,7 +288,7 @@ async function finishPostStackAccountCleanup(userId: string): Promise<void> {
 
 async function resolveUserBillingForAccountDeletion(
   userId: string,
-  options: { readonly afterExternalMutation?: () => void } = {},
+  options: { readonly beforeExternalRequest?: () => void } = {},
 ): Promise<void> {
   const db = cloudDb();
   const activeSubscriptions = await db
@@ -315,14 +315,12 @@ async function resolveUserBillingForAccountDeletion(
 
   const client = stripe();
   for (const subscription of activeSubscriptions) {
-    if (await cancelStripeSubscriptionForAccountDeletion(client, subscription.id)) {
-      options.afterExternalMutation?.();
-    }
+    options.beforeExternalRequest?.();
+    await cancelStripeSubscriptionForAccountDeletion(client, subscription.id);
   }
   for (const customer of customers) {
-    if (await deleteStripeCustomerForAccountDeletion(client, customer.id)) {
-      options.afterExternalMutation?.();
-    }
+    options.beforeExternalRequest?.();
+    await deleteStripeCustomerForAccountDeletion(client, customer.id);
   }
 }
 
@@ -358,12 +356,11 @@ function stackMetadataRecord(metadata: unknown): Record<string, unknown> {
 async function cancelStripeSubscriptionForAccountDeletion(
   client: ReturnType<typeof stripe>,
   subscriptionId: string,
-): Promise<boolean> {
+): Promise<void> {
   try {
     await client.subscriptions.cancel(subscriptionId);
-    return true;
   } catch (error) {
-    if (isStripeAlreadyInDeletionTargetState(error, [/already been canceled/i])) return true;
+    if (isStripeAlreadyInDeletionTargetState(error, [/already been canceled/i])) return;
     throw error;
   }
 }
@@ -371,12 +368,11 @@ async function cancelStripeSubscriptionForAccountDeletion(
 async function deleteStripeCustomerForAccountDeletion(
   client: ReturnType<typeof stripe>,
   customerId: string,
-): Promise<boolean> {
+): Promise<void> {
   try {
     await client.customers.del(customerId);
-    return true;
   } catch (error) {
-    if (isStripeAlreadyInDeletionTargetState(error, [/already deleted/i])) return true;
+    if (isStripeAlreadyInDeletionTargetState(error, [/already deleted/i])) return;
     throw error;
   }
 }

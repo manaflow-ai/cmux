@@ -173,7 +173,10 @@ export type VmRepositoryShape = {
     readonly now: Date;
     readonly limit: number;
   }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
-  readonly accountDeletionIdentityLeases: (userId: string) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
+  readonly accountDeletionIdentityLeases: (input: {
+    readonly userId: string;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
   readonly markLeaseRevocationRetry?: (input: {
     readonly id: string;
     readonly retryAfter: Date;
@@ -1259,7 +1262,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .limit(input.limit);
     }),
 
-  accountDeletionIdentityLeases: (userId) =>
+  accountDeletionIdentityLeases: (input) =>
     dbEffect("accountDeletionIdentityLeases", async () => {
       const db = cloudDb();
       return await db
@@ -1282,11 +1285,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .from(cloudVmLeases)
         .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
         .where(and(
-          eq(cloudVmLeases.userId, userId),
+          eq(cloudVmLeases.userId, input.userId),
           isNotNull(cloudVmLeases.providerIdentityHandle),
           isNull(cloudVmLeases.revokedAt),
         ))
-        .orderBy(asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id));
+        .orderBy(asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id))
+        .limit(input.limit);
     }),
 
   markLeaseRevocationRetry: (input) =>

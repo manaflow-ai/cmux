@@ -681,6 +681,31 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps deletion retryable when a Stripe cancellation attempt is ambiguous", async () => {
+    selectResults = [
+      [{ id: "sub_user_active" }],
+      [],
+    ];
+    stripeCancelError = new Error("request timed out after reaching Stripe");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("keeps deletion retryable when any VM was destroyed before a teardown error", async () => {
     destroyVmFailureProviderIds = new Set(["personal-vm-1"]);
 
