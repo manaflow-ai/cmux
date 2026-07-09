@@ -65,6 +65,9 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         popouts.append(popout)
         controller.didOpenWindow(popout)
         controller.didOpenTab(popout.tab)
+        if popout.isKeyWindow {
+            controller.didFocusWindow(popout)
+        }
         completionHandler(popout, nil)
     }
 

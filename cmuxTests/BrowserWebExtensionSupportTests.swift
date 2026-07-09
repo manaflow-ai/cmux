@@ -368,12 +368,12 @@ struct BrowserWebExtensionSupportTests {
             hasAccessToPrivateData: true
         )
 
-        store.save(firstState, for: "com.example.first")
-        store.save(secondState, for: "com.example.second")
+        store.save(firstState, for: "com.example.first", standardizedPath: "/Extensions/First")
+        store.save(secondState, for: "com.example.second", standardizedPath: "/Extensions/Second")
 
-        #expect(store.state(for: "com.example.first") == firstState)
-        #expect(store.state(for: "com.example.second") == secondState)
-        #expect(store.state(for: "missing") == nil)
+        #expect(store.state(for: "com.example.first", standardizedPath: "/Extensions/First") == firstState)
+        #expect(store.state(for: "com.example.second", standardizedPath: "/Extensions/Second") == secondState)
+        #expect(store.state(for: "missing", standardizedPath: "/Extensions/Missing") == nil)
     }
 
     @Test
@@ -425,12 +425,12 @@ struct BrowserWebExtensionSupportTests {
             hasAccessToPrivateData: false
         )
 
-        store.save(firstState, for: "com.example.first")
-        store.save(secondState, for: "com.example.second")
-        store.removeState(for: "com.example.first")
+        store.save(firstState, for: "com.example.first", standardizedPath: "/Extensions/First")
+        store.save(secondState, for: "com.example.second", standardizedPath: "/Extensions/Second")
+        store.removeState(for: "com.example.first", standardizedPath: "/Extensions/First")
 
-        #expect(store.state(for: "com.example.first") == nil)
-        #expect(store.state(for: "com.example.second") == secondState)
+        #expect(store.state(for: "com.example.first", standardizedPath: "/Extensions/First") == nil)
+        #expect(store.state(for: "com.example.second", standardizedPath: "/Extensions/Second") == secondState)
     }
 
     @Test

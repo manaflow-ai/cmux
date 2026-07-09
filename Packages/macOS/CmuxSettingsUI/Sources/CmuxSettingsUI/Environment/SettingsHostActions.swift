@@ -179,6 +179,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Whether the host can load web extensions at all (requires macOS 15.4+).
     func browserWebExtensionsSupported() -> Bool
+
+    /// A live map of configured extension IDs to host-side load failures.
+    func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]>
 }
 
 public extension SettingsHostActions {
@@ -197,6 +200,13 @@ public extension SettingsHostActions {
     /// Default: unsupported, for previews/tests with no live host.
     func browserWebExtensionsSupported() -> Bool { false }
 
+    /// Default: no host-side extension failures.
+    func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]> {
+        AsyncStream { continuation in
+            continuation.yield([:])
+            continuation.finish()
+        }
+    }
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

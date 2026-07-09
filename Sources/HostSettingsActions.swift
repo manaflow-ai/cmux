@@ -37,6 +37,15 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]> {
+        guard #available(macOS 15.4, *),
+              let support = AppDelegate.shared?.tabManager?.browserWebExtensionHost
+                as? BrowserWebExtensionSupport else {
+            return AsyncStream { $0.finish() }
+        }
+        return support.loadErrorUpdates()
+    }
+
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 
