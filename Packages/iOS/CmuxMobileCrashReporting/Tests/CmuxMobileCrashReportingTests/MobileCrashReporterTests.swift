@@ -1,3 +1,4 @@
+import Sentry
 import Testing
 
 import CmuxMobileAnalytics
@@ -54,6 +55,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableNetworkBreadcrumbs == false)
         #expect(options.enableAutoBreadcrumbTracking == false)
         #expect(options.tracePropagationTargets.isEmpty)
+        #expect(options.enableAutoSessionTracking == false)
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
         #expect(options.enableMetricKitRawPayload == false)
@@ -136,5 +138,27 @@ private struct FixedConsent: AnalyticsConsentProviding {
         )
 
         #expect(startCount == 1)
+    }
+
+    @Test func beforeSendDropsEventsWhenConsentRevokedMidSession() throws {
+        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
+            var enabled = true
+            var isTelemetryEnabled: Bool { enabled }
+        }
+        let consent = ToggleConsent()
+        var captured: Options?
+
+        MobileCrashReporter.startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            start: { captured = $0 },
+            crash: {}
+        )
+
+        let beforeSend = try #require(captured?.beforeSend)
+        #expect(beforeSend(Event()) != nil)
+        consent.enabled = false
+        #expect(beforeSend(Event()) == nil)
     }
 }

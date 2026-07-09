@@ -75,7 +75,15 @@ public struct MobileCrashReporter {
         // shared Sentry project.
         guard !Self.isTestRun(environment: environment) else { return }
 
-        start(makeOptions())
+        let options = makeOptions()
+        // Consent is re-read per event, mirroring the analytics emitter's
+        // per-capture gate: flipping sendAnonymousTelemetry off mid-session
+        // drops every subsequent envelope (crash, hang, MetricKit) without
+        // requiring a relaunch.
+        options.beforeSend = { event in
+            consent.isTelemetryEnabled ? event : nil
+        }
+        start(options)
 
         #if DEBUG
         if arguments.contains(Self.debugCrashArgument) {
@@ -116,6 +124,9 @@ public struct MobileCrashReporter {
         options.enableNetworkBreadcrumbs = false
         options.enableAutoBreadcrumbTracking = false
         options.tracePropagationTargets = []
+        // Sessions are release-health telemetry, outside the crash-only scope,
+        // and the one envelope type the consent beforeSend gate cannot drop.
+        options.enableAutoSessionTracking = false
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         // Normalized MetricKit diagnostics only. Raw MXDiagnosticPayload
         // attachments bypass sendDefaultPii and any future event scrubber, so
