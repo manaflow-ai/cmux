@@ -144,7 +144,7 @@ case "$LANE" in
     : "${BETA_BUNDLE_ID:=dev.cmux.app.beta}"
     ;;
   appstore|prod)
-    BETA_BUNDLE_ID="${IOS_PROD_BUNDLE_ID:-com.cmux.app}"
+    BETA_BUNDLE_ID="com.cmux.app"
     LANE_DISPLAY_NAME="cmux"
     [[ "$TAG" == "beta" ]] && TAG="appstore"
     ;;

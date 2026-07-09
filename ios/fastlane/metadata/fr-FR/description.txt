@@ -5,7 +5,7 @@ cmux est le terminal conçu pour les agents de code : onglets verticaux, anneaux
 - Terminal en direct : diffusez les espaces de travail et terminaux cmux de votre Mac sur votre téléphone
 - Notifications d'agents : une notification dès qu'un agent pose une question ou termine un travail
 - Répondez en déplacement : envoyez des saisies, lancez des commandes et changez d'espace de travail depuis votre téléphone
-- Dictée vocale : dicter dans la zone de message
+- Dictée vocale : dictez dans la zone de message
 - Association sécurisée : connectez-vous à votre propre Mac via le réseau local ou un relais
 
 Gratuit et open source. Nécessite un Mac exécutant cmux (gratuit sur cmux.com).

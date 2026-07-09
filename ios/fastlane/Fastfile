@@ -77,7 +77,7 @@ def asc_api_key
   issuer_id = ENV["ASC_API_ISSUER_ID"] || ENV["ASC_ISSUER_ID"]
   key_path = ENV["ASC_API_KEY_PATH"] || ENV["ASC_PRIVATE_KEY_PATH"]
 
-  if key_id.nil? || issuer_id.nil?
+  if key_id.nil? || issuer_id.nil? || key_path.nil?
     plist = File.expand_path("../Config/AppStoreConnect.local.plist", __dir__)
     if File.exist?(plist)
       require "plist"

@@ -121,8 +121,12 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = false
-        // Keyboard down: show the full terminal with the recorded session.
-        view.debugSetKeyboardHeightForLayoutPreview(0)
+        // Keyboard down by default, but keep the existing keyboard viewport
+        // fixture when a UI test explicitly sets it.
+        let fakeKeyboardHeight = ProcessInfo.processInfo.environment["CMUX_UITEST_FAKE_KEYBOARD_HEIGHT"]
+            .flatMap(Double.init)
+            .map(CGFloat.init) ?? 0
+        view.debugSetKeyboardHeightForLayoutPreview(max(0, fakeKeyboardHeight))
         return view
     }
 
