@@ -3545,6 +3545,9 @@
       "faqA4": "Так. cmux безкоштовний і з відкритим кодом для macOS."
     }
   },
+  "pricing": {
+    "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",
