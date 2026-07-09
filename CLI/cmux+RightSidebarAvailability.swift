@@ -87,7 +87,7 @@ extension CMUXCLI {
         guard betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) else {
             return ""
         }
-        return String(localized: "cli.note.globalUsage", defaultValue: """
+        let usage = String(localized: "cli.note.globalUsage", defaultValue: """
           note new [--slug <name>] [--attach <none|workspace|surface|terminal>] [--title <text>] [--direction <dir>] [--focus <true|false>]
           note open <slug> [--attach <none|workspace|surface|terminal>] [--direction <dir>] [--focus <true|false>]
           note list [--json]                                                     (list notes in the project)
@@ -98,6 +98,7 @@ extension CMUXCLI {
           note append <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
           note rm <slug>                                                         (delete a note file)
           """)
+        return "\n\(usage)\n"
     }
 
     // Presentation flags are global, but command option values can also look like flags.
