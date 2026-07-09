@@ -403,14 +403,18 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: {},
       update: updateTeam,
     };
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
     selectResults = [[{ stackUserId: "owner_123" }], []];
 
     const result = await recordCheckoutCompletion(teamCheckoutInput() as never, {
       db: fakeDb() as never,
       stackApp: {
-        getUser: async () => {
-          throw new Error("should not load Stack user for Team checkout");
-        },
+        getUser: async () => owner,
         getTeam: async () => team,
       } as never,
     });
@@ -444,12 +448,73 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("blocks Team checkout completion when the recorded owner is deleting", async () => {
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "owner_123" }]];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team when owner row blocks");
+          },
+        } as never,
+      }),
+    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("blocks Team checkout completion when the singleton team owner is deleting", async () => {
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: {},
+      listUsers: mock(async () => Object.assign([{ id: "owner_123" }], { nextCursor: null })),
+      update: mock(async () => undefined),
+    };
+    selectResults = [[], []];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => team,
+        } as never,
+      }),
+    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+
+    expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
   test("clears Team metadata when a Team subscription lapses", async () => {
     const updateTeam = mock(async () => undefined);
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
       update: updateTeam,
+    };
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
     };
     selectResults = [[{ stackUserId: "owner_123" }], []];
 
@@ -473,9 +538,7 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         stackApp: {
-          getUser: async () => {
-            throw new Error("should not load Stack user for Team subscription");
-          },
+          getUser: async () => owner,
           getTeam: async () => team,
         } as never,
       },
@@ -545,6 +608,48 @@ describe("recordCheckoutCompletion", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  test("skips Team subscription updates when the recorded owner is deleting", async () => {
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "owner_123" }]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 3,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team when owner row blocks");
+          },
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
   test("does not fail the webhook when TestFlight removal fails", async () => {
     const captureAscError = mock(() => undefined);
     const user = {
@@ -611,6 +716,12 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "team" },
       update: mock(async () => undefined),
     };
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
     selectResults = [[{ stackUserId: "owner_123" }], []];
 
     const result = await applySubscriptionUpdate(
@@ -633,9 +744,7 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         stackApp: {
-          getUser: async () => {
-            throw new Error("should not load Stack user for Team subscription");
-          },
+          getUser: async () => owner,
           getTeam: async () => team,
         } as never,
         testflight: {

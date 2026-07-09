@@ -60,9 +60,14 @@ type StackBillingUserLookup = {
 type StackBillingTeam = {
   readonly id: string;
   readonly clientReadOnlyMetadata?: unknown;
+  listUsers?(options?: { cursor?: string | null; limit?: number }): Promise<StackBillingTeamUserPage>;
   update(options: {
     clientReadOnlyMetadata: ProMetadataJson;
   }): Promise<unknown>;
+};
+
+type StackBillingTeamUserPage = readonly unknown[] & {
+  readonly nextCursor?: string | null;
 };
 
 type StackBillingApp = {
@@ -174,11 +179,14 @@ export async function applySubscriptionUpdate(
 
   const teamScope = teamScopeFromSubscription(subscription);
   if (teamScope) {
-    const stackUserId =
-      (await stackUserIdForTeamStripeCustomer(db, {
-        stackTeamId: teamScope.stackTeamId,
-        customerId,
-      })) ?? teamScope.stackTeamId;
+    const guard = await teamBillingDeletionGuard({
+      db,
+      stackTeamId: teamScope.stackTeamId,
+      customerId,
+      stackApp: dependencies.stackApp,
+    });
+    if (guard.blocked) return { skipped: true };
+    const stackUserId = guard.stackUserId ?? teamScope.stackTeamId;
     await upsertTeamStripeCustomer(db, {
       customerId,
       stackUserId,
@@ -303,11 +311,16 @@ async function recordTeamCheckoutCompletion(input: {
   dependencies: BillingPurchaseDependencies;
 }): Promise<{ scope: "team"; stackTeamId: string; subscriptionId: string }> {
   const db = input.dependencies.db ?? cloudDb();
-  const stackUserId =
-    (await stackUserIdForTeamStripeCustomer(db, {
-      stackTeamId: input.stackTeamId,
-      customerId: input.customerId,
-    })) ?? input.stackTeamId;
+  const guard = await teamBillingDeletionGuard({
+    db,
+    stackTeamId: input.stackTeamId,
+    customerId: input.customerId,
+    stackApp: input.dependencies.stackApp,
+  });
+  if (guard.blocked) {
+    throw new AccountDeletionBillingBlockedError(guard.stackUserId ?? input.stackTeamId);
+  }
+  const stackUserId = guard.stackUserId ?? input.stackTeamId;
   await upsertTeamStripeCustomer(db, {
     customerId: input.customerId,
     stackUserId,
@@ -328,6 +341,69 @@ async function recordTeamCheckoutCompletion(input: {
     stackTeamId: input.stackTeamId,
     subscriptionId: input.subscription.id,
   };
+}
+
+async function teamBillingDeletionGuard(input: {
+  db: BillingDb;
+  stackTeamId: string;
+  customerId: string;
+  stackApp: StackBillingApp | null | undefined;
+}): Promise<{ blocked: boolean; stackUserId: string | null }> {
+  const existingStackUserId = await stackUserIdForTeamStripeCustomer(input.db, {
+    stackTeamId: input.stackTeamId,
+    customerId: input.customerId,
+  });
+  if (existingStackUserId) {
+    return {
+      blocked: await isBillingStackUserDeletionBlocked(existingStackUserId, input),
+      stackUserId: existingStackUserId,
+    };
+  }
+
+  const team = await loadStackTeam(input.stackTeamId, input.stackApp);
+  const singletonUserId = await singletonStackTeamUserId(team);
+  if (!singletonUserId) return { blocked: false, stackUserId: null };
+  return {
+    blocked: await isBillingStackUserDeletionBlocked(singletonUserId, input),
+    stackUserId: singletonUserId,
+  };
+}
+
+async function isBillingStackUserDeletionBlocked(
+  stackUserId: string,
+  input: { db: BillingDb; stackApp: StackBillingApp | null | undefined },
+): Promise<boolean> {
+  const user = await loadStackUser(stackUserId, input.stackApp);
+  return await isStackAccountDeletionBlocked(user, { cloudDb: () => input.db });
+}
+
+async function singletonStackTeamUserId(team: StackBillingTeam): Promise<string | null> {
+  if (typeof team.listUsers !== "function") return null;
+
+  const userIds: string[] = [];
+  let cursor: string | null | undefined = null;
+  do {
+    const page = await team.listUsers({ cursor, limit: 2 });
+    for (const user of page) {
+      const id = billingTeamUserId(user);
+      if (!id) continue;
+      userIds.push(id);
+      if (userIds.length > 1) return null;
+    }
+    cursor = page.nextCursor ?? null;
+  } while (cursor);
+
+  return userIds[0] ?? null;
+}
+
+function billingTeamUserId(value: unknown): string | null {
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    (value as { id: string }).id
+    ? (value as { id: string }).id
+    : null;
 }
 
 async function upsertStripeCustomer(
