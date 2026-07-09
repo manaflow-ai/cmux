@@ -9,8 +9,8 @@ import Foundation
 /// single-element list when the user chooses an explicit app language, and
 /// records that write in a companion key so returning to
 /// ``AppLanguage/system`` removes only an override cmux still owns. Launch
-/// reconciliation repairs missing cmux overrides for explicit selections but
-/// never deletes externally-managed `AppleLanguages` values.
+/// reconciliation repairs missing or stale cmux overrides for explicit
+/// selections but never deletes externally-managed `AppleLanguages` values.
 ///
 /// Isolation: a stateless `Sendable` struct, not an actor — its operations run
 /// synchronously at startup, from Settings, or from the settings importer, the
@@ -54,9 +54,9 @@ public struct LanguageSettingsStore: Sendable {
         }
     }
 
-    /// Repairs or adopts cmux-owned explicit overrides at launch, and clears
-    /// stale cmux-owned overrides for ``AppLanguage/system`` without removing
-    /// externally-managed `AppleLanguages` values.
+    /// Repairs, adopts, or refreshes cmux-owned explicit overrides at launch,
+    /// and clears stale cmux-owned overrides for ``AppLanguage/system`` without
+    /// removing externally-managed `AppleLanguages` values.
     public func reconcileLanguageOverrideAtLaunch() {
         let language = storedLanguage
         guard language != .system else {
@@ -66,9 +66,14 @@ public struct LanguageSettingsStore: Sendable {
 
         let expectedOverride = [language.rawValue]
         if let currentAppleLanguages {
-            guard currentAppleLanguages == expectedOverride else { return }
-            if defaults.string(forKey: appliedOverrideKey) == nil {
-                defaults.set(language.rawValue, forKey: appliedOverrideKey)
+            if currentAppleLanguages == expectedOverride {
+                if defaults.string(forKey: appliedOverrideKey) == nil {
+                    defaults.set(language.rawValue, forKey: appliedOverrideKey)
+                }
+            } else if let appliedOverride = defaults.string(forKey: appliedOverrideKey), currentAppleLanguages == [appliedOverride] {
+                applyLanguageOverride(language)
+            } else {
+                return
             }
         } else {
             applyLanguageOverride(language)
