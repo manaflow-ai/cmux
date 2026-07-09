@@ -98,7 +98,20 @@ struct LanguageSettingsOverrideTests {
         #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] == nil)
     }
 
-    @Test func reconcileDoesNothingForSystemSelection() {
+    @Test func reconcileRemovesCmuxOwnedOverrideWhenStoredIsSystem() {
+        let (suiteName, defaults) = makeLanguageScratchDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)
+
+        defaults.set(["zh-Hant"], forKey: "AppleLanguages")
+        defaults.set("zh-Hant", forKey: "appLanguageAppliedOverride")
+        store.reconcileLanguageOverrideAtLaunch()
+
+        #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] == nil)
+        #expect(defaults.persistentDomain(forName: suiteName)?["appLanguageAppliedOverride"] == nil)
+    }
+
+    @Test func reconcilePreservesForeignOverrideForSystemSelection() {
         let (suiteName, defaults) = makeLanguageScratchDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = makeLanguageSettingsStore(defaults: defaults, suiteName: suiteName)

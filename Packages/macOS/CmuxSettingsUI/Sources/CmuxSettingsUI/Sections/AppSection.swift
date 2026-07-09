@@ -169,7 +169,7 @@ public struct AppSection: View {
                     : nil,
                 controlWidth: Self.columnWidth
             ) {
-                Picker("", selection: Binding(get: { language.current }, set: { newLanguage in language.set(newLanguage) { LanguageSettingsStore(defaults: .standard).applyLanguageOverride(newLanguage) } })) {
+                Picker("", selection: Binding(get: { language.current }, set: { newLanguage in language.set(newLanguage) { hostActions.applyLanguageOverride(newLanguage) } })) {
                     ForEach(Self.legacyLanguageCases, id: \.self) { lang in
                         Text(languageDisplayName(lang)).tag(lang)
                     }

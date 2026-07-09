@@ -54,11 +54,15 @@ public struct LanguageSettingsStore: Sendable {
         }
     }
 
-    /// Repairs or adopts cmux-owned explicit overrides at launch without
-    /// removing or replacing externally-managed `AppleLanguages` values.
+    /// Repairs or adopts cmux-owned explicit overrides at launch, and clears
+    /// stale cmux-owned overrides for ``AppLanguage/system`` without removing
+    /// externally-managed `AppleLanguages` values.
     public func reconcileLanguageOverrideAtLaunch() {
         let language = storedLanguage
-        guard language != .system else { return }
+        guard language != .system else {
+            applyLanguageOverride(.system)
+            return
+        }
 
         let expectedOverride = [language.rawValue]
         if let currentAppleLanguages {

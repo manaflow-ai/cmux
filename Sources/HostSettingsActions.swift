@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxWorkspaces
+import CmuxSettings
 import CmuxSettingsUI
 import CmuxFoundation
 import Foundation
@@ -86,7 +87,12 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func resetAllSettingsSideEffects() {
+        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+    }
+
+    func applyLanguageOverride(_ language: AppLanguage) {
+        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }
 
     func openConfigInExternalEditor() {
