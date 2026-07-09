@@ -121,18 +121,25 @@ extension AgentHibernationController {
     }
 
     func sharedPostSnapshotValidationIndexTask() -> Task<RestorableAgentSessionIndex, Never> {
-        if let task = postSnapshotValidationIndexTask { return task }
+        if postSnapshotValidationIndexAcceptingRequests,
+           let task = postSnapshotValidationIndexTask { return task }
         let requestID = UUID()
+        postSnapshotValidationIndexRequestID = requestID
+        postSnapshotValidationIndexAcceptingRequests = true
         let task = Task.detached(priority: .utility) {
+            await MainActor.run {
+                guard AgentHibernationController.shared.postSnapshotValidationIndexRequestID == requestID else { return }
+                AgentHibernationController.shared.postSnapshotValidationIndexAcceptingRequests = false
+            }
             await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
         }
-        postSnapshotValidationIndexRequestID = requestID
         postSnapshotValidationIndexTask = task
         Task { @MainActor in
             _ = await task.value
             guard self.postSnapshotValidationIndexRequestID == requestID else { return }
             self.postSnapshotValidationIndexRequestID = nil
             self.postSnapshotValidationIndexTask = nil
+            self.postSnapshotValidationIndexAcceptingRequests = false
         }
         return task
     }

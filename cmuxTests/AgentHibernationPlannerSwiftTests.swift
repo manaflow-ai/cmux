@@ -195,5 +195,6 @@ struct AgentHibernationPlannerSwiftTests {
         controller.cancelPostTeardownRestoreTasks()
         controller.postSnapshotValidationIndexRequestID = nil
         controller.postSnapshotValidationIndexTask = nil
+        controller.postSnapshotValidationIndexAcceptingRequests = false
     }
 }
