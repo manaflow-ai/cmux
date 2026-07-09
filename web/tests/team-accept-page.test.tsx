@@ -3,6 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
 
+// Spread the real modules into every mock: bun's mock.module replaces the
+// module process-wide for the whole run, so dropping exports (e.g. useRouter
+// from i18n/navigation) breaks later-sorted test files.
+const nextNavigationModule = await import("next/navigation");
+const stackModule = await import("../app/lib/stack");
+const nextIntlServerModule = await import("next-intl/server");
+const i18nNavigationModule = await import("../i18n/navigation");
+
 let currentUser: {
   acceptTeamInvitation?: ReturnType<typeof mock>;
   listTeamInvitations?: ReturnType<typeof mock>;
@@ -14,16 +22,19 @@ const redirect = mock((target: unknown) => {
   throw new Error(`NEXT_REDIRECT:${target}`);
 });
 
-mock.module("next/navigation", () => ({ redirect }));
+mock.module("next/navigation", () => ({ ...nextNavigationModule, redirect }));
 mock.module("../app/lib/stack", () => ({
+  ...stackModule,
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
 }));
 mock.module("next-intl/server", () => ({
+  ...nextIntlServerModule,
   getTranslations: async (input?: string | { namespace?: string }) =>
     translator(typeof input === "string" ? input : input?.namespace),
 }));
 mock.module("../i18n/navigation", () => ({
+  ...i18nNavigationModule,
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>{children}</a>
   ),
