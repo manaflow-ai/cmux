@@ -107,6 +107,89 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(nonMirrorPane.isFocused)
     }
 
+    @Test func currentSurfaceProjectsTheActiveInnerPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let routing = harness.routing()
+        let activeTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.last)
+        let activePaneID = try #require(harness.mirror.syntheticPaneID(forPane: activeTmuxPaneID))
+        let activeSurfaceID = try #require(harness.mirror.panel(forPane: activeTmuxPaneID)?.id)
+
+        let current = try #require(TerminalController.shared.controlSurfaceCurrent(routing: routing))
+        #expect(current.paneID == activePaneID.id)
+        #expect(current.surfaceID == activeSurfaceID)
+        #expect(current.surfaceTypeRawValue == PanelType.terminal.rawValue)
+    }
+
+    @Test func explicitOuterPaneCannotCrossIntoProjectedMirrorPane() throws {
+        let harness = try Harness(addPeerSurface: true)
+        defer { harness.tearDown() }
+
+        let peerSurfaceID = try #require(harness.peerSurfaceID)
+        let outerPaneID = try #require(harness.workspace.paneId(forPanelId: harness.outerPanelID))
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: harness.workspace.id,
+            surfaceID: nil,
+            paneID: outerPaneID.id
+        )
+
+        let paneSurfaces = try #require(TerminalController.shared.controlPaneSurfaces(
+            routing: routing,
+            paneID: outerPaneID.id
+        ))
+        #expect(paneSurfaces.surfaces.compactMap(\.surfaceID) == [peerSurfaceID])
+        #expect(paneSurfaces.surfaces.allSatisfy { !$0.isSelected })
+
+        let send = TerminalController.shared.controlSurfaceSendText(
+            routing: routing,
+            surfaceID: nil,
+            hasSurfaceIDParam: false,
+            text: "must not reach a synthetic pane"
+        )
+        #expect(send == .noFocusedSurface)
+    }
+
+    @Test func unresolvedMirrorFocusFailsClosedWithoutHidingPanes() throws {
+        let harness = try Harness(activeTmuxPaneID: nil)
+        defer { harness.tearDown() }
+
+        let routing = harness.routing()
+        let expectedPaneIDs = harness.mirror.paneIDsInOrder.compactMap {
+            harness.mirror.syntheticPaneID(forPane: $0)?.id
+        }
+        let paneList = try #require(TerminalController.shared.controlPaneList(routing: routing))
+        #expect(paneList.panes.map(\.paneID) == expectedPaneIDs)
+        #expect(paneList.panes.allSatisfy { !$0.isFocused })
+
+        let defaultSend = TerminalController.shared.controlSurfaceSendText(
+            routing: routing,
+            surfaceID: nil,
+            hasSurfaceIDParam: false,
+            text: "must wait for authoritative focus"
+        )
+        #expect(defaultSend == .noFocusedSurface)
+        #expect(TerminalController.shared.controlPaneSurfaces(routing: routing, paneID: nil) == nil)
+
+        let current = try #require(TerminalController.shared.controlSurfaceCurrent(routing: routing))
+        #expect(current.paneID == nil)
+        #expect(current.surfaceID == nil)
+        #expect(current.surfaceTypeRawValue == nil)
+    }
+
+    @Test func invalidExplicitPaneDoesNotFallBackToFocusedPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        #expect(TerminalController.shared.controlPaneSurfaces(
+            routing: harness.routing(),
+            paneID: UUID()
+        ) == nil)
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
@@ -114,9 +197,14 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         let workspace: Workspace
         let outerPanelID: UUID
         let nonMirrorPanelID: UUID?
+        let peerSurfaceID: UUID?
         let mirror: RemoteTmuxWindowMirror
 
-        init(focusAwayFromMirror: Bool = false) throws {
+        init(
+            focusAwayFromMirror: Bool = false,
+            addPeerSurface: Bool = false,
+            activeTmuxPaneID: Int? = 22
+        ) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
@@ -130,6 +218,15 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                 )?.id)
             } else {
                 nonMirrorPanelID = nil
+            }
+            if addPeerSurface {
+                let paneID = try #require(workspace.paneId(forPanelId: outerPanelID))
+                peerSurfaceID = try #require(workspace.newTerminalSurface(
+                    inPane: paneID,
+                    focus: false
+                )?.id)
+            } else {
+                peerSurfaceID = nil
             }
 
             let connection = RemoteTmuxControlConnection(
@@ -155,9 +252,22 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                     workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
                 }
             )
-            mirror.noteRemoteActivePane(22)
+            if let activeTmuxPaneID {
+                mirror.noteRemoteActivePane(activeTmuxPaneID)
+            }
             workspace.isRemoteTmuxMirror = true
             workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: outerPanelID)
+        }
+
+        func routing(paneID: UUID? = nil) -> ControlRoutingSelectors {
+            ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: workspace.id,
+                surfaceID: nil,
+                paneID: paneID
+            )
         }
 
         func tearDown() {
