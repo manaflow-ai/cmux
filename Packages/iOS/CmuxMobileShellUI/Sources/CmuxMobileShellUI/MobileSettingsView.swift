@@ -180,6 +180,14 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                    Toggle(isOn: $displaySettings.showAltScreenNotice) {
+                        Text(L10n.string(
+                            "mobile.settings.altScreenNotice",
+                            defaultValue: "Full-Screen Sizing Notice"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {
