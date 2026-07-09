@@ -27,6 +27,7 @@ const signedInUser = {
   listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
   selectedTeam: null as null | typeof teamCustomer,
+  createTeam: mock(async () => teamCustomer),
 };
 const anonymousUser = {
   id: "user-anonymous",
@@ -49,6 +50,8 @@ const deletedStripeCustomers: string[] = [];
 const deletedStripeCustomerRows: string[] = [];
 let stripeCustomerRows: { id: string }[] = [];
 let accountDeletionRows: Array<{ userIdHash: string; status: string }> = [];
+let createAccountDeletionTombstoneOnLock = false;
+let accountDeletionLockCount = 0;
 const createStripeSession = mock(async (params: unknown) => {
   createdStripeSessions.push(params);
   return { id: "cs_test", url: "https://checkout.stripe.com/c/session" };
@@ -99,7 +102,16 @@ mock.module("../db/client", () => ({
           }),
           transaction: async <T>(callback: (tx: unknown) => Promise<T>) =>
             await callback({
-              execute: async () => [],
+              execute: async () => {
+                accountDeletionLockCount += 1;
+                if (createAccountDeletionTombstoneOnLock) {
+                  accountDeletionRows = [{
+                    userIdHash: accountDeletionUserHash("user-signed-in"),
+                    status: "pending",
+                  }];
+                }
+                return [];
+              },
               select: () => ({
                 from: (table: unknown) => ({
                   where: () => ({
@@ -164,6 +176,7 @@ describe("billing checkout route", () => {
     signedInUser.createCheckoutUrl.mockClear();
     signedInUser.listProducts.mockClear();
     signedInUser.update.mockClear();
+    signedInUser.createTeam.mockClear();
     teamCustomer.createCheckoutUrl.mockClear();
     teamCustomer.listUsers.mockClear();
     anonymousUser.createCheckoutUrl.mockClear();
@@ -172,6 +185,7 @@ describe("billing checkout route", () => {
     signedInUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/signed-in");
     signedInUser.listProducts.mockResolvedValue(emptyProductsPage());
     signedInUser.update.mockResolvedValue(undefined);
+    signedInUser.createTeam.mockResolvedValue(teamCustomer);
     teamCustomer.createCheckoutUrl.mockResolvedValue("https://checkout.test/team");
     teamCustomer.listUsers.mockResolvedValue([{ id: "member-1" }, { id: "member-2" }]);
     anonymousUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/anonymous");
@@ -190,6 +204,8 @@ describe("billing checkout route", () => {
     deletedStripeCustomerRows.length = 0;
     stripeCustomerRows = [];
     accountDeletionRows = [];
+    createAccountDeletionTombstoneOnLock = false;
+    accountDeletionLockCount = 0;
     createStripeSession.mockClear();
     createStripeCustomer.mockClear();
     expireStripeSession.mockClear();
@@ -463,6 +479,23 @@ describe("billing checkout route", () => {
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled",
     });
+  });
+
+  test("blocks Team checkout before creating a Stack team when deletion starts at team resolution", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+    createAccountDeletionTombstoneOnLock = true;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+    expect(accountDeletionLockCount).toBe(1);
+    expect(signedInUser.createTeam).not.toHaveBeenCalled();
+    expect(createStripeCustomer).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("deletes a new Team customer when account deletion starts during checkout", async () => {

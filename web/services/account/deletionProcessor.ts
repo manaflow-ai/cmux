@@ -224,12 +224,7 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
     const page = await user.listTeams({ cursor, limit });
     teams.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
-    if (!nextCursor) {
-      if (page.length >= limit && page.nextCursor === undefined) {
-        throw new AccountDeletionTeamScopeUnavailableError("Stack account deletion team pagination is incomplete.");
-      }
-      break;
-    }
+    if (!nextCursor) break;
     if (seenCursors.has(nextCursor)) {
       throw new AccountDeletionTeamScopeUnavailableError("Stack account deletion team pagination looped.");
     }
@@ -252,12 +247,7 @@ async function accountDeletionTeamMembers(team: StackAccountDeletionTeam): Promi
     const page = await team.listUsers({ cursor, limit });
     members.push(...Array.from(page));
     const nextCursor = normalizedStackCursor(page.nextCursor);
-    if (!nextCursor) {
-      if (page.length >= limit && page.nextCursor === undefined) {
-        throw new AccountDeletionTeamScopeUnavailableError(`Stack team ${team.id} member pagination is incomplete.`);
-      }
-      break;
-    }
+    if (!nextCursor) break;
     if (seenCursors.has(nextCursor)) {
       throw new AccountDeletionTeamScopeUnavailableError(`Stack team ${team.id} member pagination looped.`);
     }

@@ -189,33 +189,28 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("keeps incomplete Stack team pagination retryable before cleanup", async () => {
+  test("accepts a full final Stack team page without a cursor", async () => {
     const teams = Array.from({ length: 100 }, (_, index) =>
-      stackTeam(`team-${index}`, ["user-1", `member-${index}`])
+      stackTeam(`team-${String(index).padStart(3, "0")}`, ["user-1"])
     );
 
-    await expect(
-      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
-        loadStackUser: async (userId) => {
-          calls.push(`load-stack:${userId}`);
-          return {
-            id: userId,
-            clientReadOnlyMetadata: {},
-            listTeams: async () => stackTeamPage(teams),
-            update: async () => {},
-            delete: async () => {
-              calls.push(`stack-delete:${userId}`);
-            },
-          };
-        },
-      })),
-    ).rejects.toThrow("Stack account deletion team pagination is incomplete.");
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          listTeams: async () => stackTeamPage(teams),
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
 
-    expect(calls).toEqual([
-      "claim:user-1",
-      "load-stack:user-1",
-      "retry-pending:user-1:Stack account deletion team pagination is incomplete.",
-    ]);
+    expect(result).toBe("processed");
+    expect(calls.some((call) => call.startsWith("cleanup:user-1:owned=team-000"))).toBe(true);
   });
 
   test("pages through Stack team members before selecting owned-team cleanup scope", async () => {
@@ -252,6 +247,38 @@ describe("account deletion processor", () => {
     expect(requestedCursors).toEqual([undefined, "members-page-2"]);
     expect(requestedLimits).toEqual([100, 100]);
     expect(calls).toContain("cleanup:user-1:owned=team-personal-member-page-2");
+  });
+
+  test("accepts a full final Stack team-member page without a cursor", async () => {
+    const members = [
+      { id: "user-1" },
+      ...Array.from({ length: 99 }, (_, index) => ({
+        id: `user-${String(index + 2).padStart(3, "0")}`,
+      })),
+    ];
+    const sharedTeam = {
+      id: "team-full-final-page",
+      displayName: "team-full-final-page",
+      listUsers: async () => Object.assign([...members], { nextCursor: undefined }),
+    };
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          listTeams: async () => [sharedTeam],
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toContain("cleanup:user-1:retained=team-full-final-page->user-002");
   });
 
   test("keeps cleanup-started failures blocking so the durable job can retry", async () => {

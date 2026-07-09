@@ -141,11 +141,6 @@ async function stripeTeamCheckout(
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
   if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
-  const team = await checkoutTeamCustomer(user);
-  const teamId = team.id;
-  if (!teamId) {
-    throw new Error("Stack team checkout customer is missing an id");
-  }
 
   const scheme = validatedNativeCallbackScheme(
     request.nextUrl.searchParams.get("cmux_scheme"),
@@ -155,14 +150,20 @@ async function stripeTeamCheckout(
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
-  const metadata = {
-    stackTeamId: teamId,
-    stackUserId: user.id,
-    plan: "team",
-    app: "cmux",
-  };
 
+  let teamId: string | undefined;
   try {
+    const team = await checkoutTeamCustomerForActiveAccount(user);
+    teamId = team.id;
+    if (!teamId) {
+      throw new Error("Stack team checkout customer is missing an id");
+    }
+    const metadata = {
+      stackTeamId: teamId,
+      stackUserId: user.id,
+      plan: "team",
+      app: "cmux",
+    };
     const stripeClient = stripe();
     await assertCheckoutMutationAllowed(user.id);
     const customer = await stripeCustomerForTeam(team, user.id, stripeClient);
@@ -233,7 +234,13 @@ async function legacyStackCheckout(
   ).toString();
   let checkoutUrl: string;
   const productId = plan === "pro" ? PRO_PRODUCT_ID : TEAM_PRODUCT_ID;
-  const customer = plan === "pro" ? user : await checkoutTeamCustomer(user);
+  let customer: CheckoutTeamUser | CheckoutTeamCustomer;
+  try {
+    customer = plan === "pro" ? user : await checkoutTeamCustomerForActiveAccount(user);
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) return accountDeletionBillingRedirect(request);
+    throw error;
+  }
   try {
     checkoutUrl = await customer.createCheckoutUrl({
       productId,
@@ -282,7 +289,17 @@ type CheckoutTeamUser = {
   readonly selectedTeam?: CheckoutTeamCustomer | null;
   listTeams?(): Promise<CheckoutTeamCustomer[]>;
   createTeam?(data: { displayName: string }): Promise<CheckoutTeamCustomer>;
+  createCheckoutUrl(options: {
+    productId: string;
+    returnUrl?: string;
+  }): Promise<string>;
 };
+
+async function checkoutTeamCustomerForActiveAccount(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
+  return await withAccountDeletionUserMutationLock(cloudDb(), user.id, async () =>
+    await checkoutTeamCustomer(user)
+  );
+}
 
 async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
   if (user.selectedTeam) return user.selectedTeam;
