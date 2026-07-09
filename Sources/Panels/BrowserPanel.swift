@@ -2979,9 +2979,13 @@ final class BrowserPortalAnchorView: NSView {
         case attached
         case detached
     }
-    private var activePortalHostLease: PortalHostLease?
-    private var pendingDistinctPortalHostReplacementPaneId: UUID?
-    private var lockedPortalHost: PortalHostLock?
+    // Portal-host bookkeeping is rewritten on every WebViewRepresentable
+    // update pass (claimPortalHost re-leases even for the same host), so it
+    // must stay untracked or the representable re-dirties the view graph in a
+    // 100%-CPU loop. Same contract as TerminalSurface's portal vars.
+    @ObservationIgnored private var activePortalHostLease: PortalHostLease?
+    @ObservationIgnored private var pendingDistinctPortalHostReplacementPaneId: UUID?
+    @ObservationIgnored private var lockedPortalHost: PortalHostLock?
     @ObservationIgnored private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
