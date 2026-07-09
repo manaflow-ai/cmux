@@ -8,6 +8,17 @@ final class NoteTitleNativeTextField: NSTextField {
     /// steal the responder right back and the click appears to do nothing).
     var onBeginEditingClick: (() -> Void)?
 
+    /// Editing may only start from a real click on the title. Without this,
+    /// AppKit's automatic first-responder assignment (key-view loop, focus
+    /// restoration after pane churn, a failed body-focus on note open) lands
+    /// in the always-editable field and leaves a blinking insertion caret in
+    /// the header.
+    private var allowsFocusFromClick = false
+
+    override var acceptsFirstResponder: Bool {
+        allowsFocusFromClick && super.acceptsFirstResponder
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -37,9 +48,15 @@ final class NoteTitleNativeTextField: NSTextField {
 
     override func mouseDown(with event: NSEvent) {
         onBeginEditingClick?()
+        allowsFocusFromClick = true
         if window?.firstResponder !== currentEditor() {
             window?.makeFirstResponder(self)
         }
         super.mouseDown(with: event)
+    }
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        allowsFocusFromClick = false
     }
 }
