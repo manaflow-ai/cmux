@@ -36,7 +36,13 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var settingsLoadGeneration = 0
     @ObservationIgnored
+    var settingsStore: JSONConfigStore?
+    @ObservationIgnored
+    var settingsKey: JSONKey<[BrowserWebExtensionEntry]>?
+    @ObservationIgnored
     var browserAvailabilityObserverToken: NSObjectProtocol?
+    @ObservationIgnored
+    var windowFocusObserverToken: NSObjectProtocol?
     @ObservationIgnored
     var loadedByEntryID: [String: BrowserWebExtensionLoadedRecord] = [:]
     @ObservationIgnored
@@ -53,6 +59,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     var orderedPanelIDs: [UUID] = []
     @ObservationIgnored
     private(set) var activePanelID: UUID?
+    @ObservationIgnored
+    private var activePanelIDsByWindow: [ObjectIdentifier: UUID] = [:]
     @ObservationIgnored
     private(set) lazy var windowAdapter = BrowserWebExtensionWindowAdapter(support: self)
     @ObservationIgnored
@@ -75,12 +83,26 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         controller = WKWebExtensionController(configuration: configuration)
         super.init()
         controller.delegate = self
+        windowFocusObserverToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
+                self?.noteWindowBecameKey(window)
+            }
+        }
     }
 
     deinit {
         settingsObservationTask?.cancel()
         if let browserAvailabilityObserverToken {
             NotificationCenter.default.removeObserver(browserAvailabilityObserverToken)
+        }
+        if let windowFocusObserverToken {
+            NotificationCenter.default.removeObserver(windowFocusObserverToken)
         }
         // Permission-state observer tokens need no explicit removal here: the
         // block-based NotificationCenter tokens auto-unregister when they
@@ -114,6 +136,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     /// Called once from app startup so extensions begin loading before the
     /// first browser page navigates.
     func configure(jsonStore: JSONConfigStore, catalog: SettingCatalog) {
+        settingsStore = jsonStore
+        settingsKey = catalog.browser.webExtensions
         guard browserAvailabilityObserverToken == nil else { return }
         let key = catalog.browser.webExtensions
         browserAvailabilityObserverToken = NotificationCenter.default.addObserver(
@@ -174,12 +198,14 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         actionSnapshotInvalidationsByPanelID[panel.id] = BrowserWebExtensionActionSnapshotInvalidation()
         orderedPanelIDs.append(panel.id)
         if activePanelID == nil { activePanelID = panel.id }
+        rememberActivePanel(panel.id)
         controller.didOpenTab(adapter)
     }
 
     func unregister(panelID: UUID) {
         guard let adapter = tabAdapters.removeValue(forKey: panelID) else { return }
         orderedPanelIDs.removeAll { $0 == panelID }
+        activePanelIDsByWindow = activePanelIDsByWindow.filter { $0.value != panelID }
         actionSnapshotInvalidationsByPanelID.removeValue(forKey: panelID)
         controller.didCloseTab(adapter, windowIsClosing: false)
         if activePanelID == panelID {
@@ -194,7 +220,9 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     }
 
     func noteActivated(panelID: UUID) {
-        guard tabAdapters[panelID] != nil, activePanelID != panelID else { return }
+        guard tabAdapters[panelID] != nil else { return }
+        rememberActivePanel(panelID)
+        guard activePanelID != panelID else { return }
         let previousPanelID = activePanelID
         let previous = previousPanelID.flatMap { tabAdapters[$0] }
         activePanelID = panelID
@@ -203,6 +231,33 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         }
         refreshActionSnapshots(for: previousPanelID)
         refreshActionSnapshots(for: panelID)
+    }
+
+    func noteWindowBecameKey(_ window: NSWindow) {
+        guard let panelID = activePanelID(in: window) else { return }
+        noteActivated(panelID: panelID)
+        controller.didFocusWindow(windowAdapter)
+    }
+
+    private func rememberActivePanel(_ panelID: UUID) {
+        guard let window = tabAdapters[panelID]?.panel?.webView.window else { return }
+        activePanelIDsByWindow[ObjectIdentifier(window)] = panelID
+    }
+
+    private func activePanelID(in window: NSWindow) -> UUID? {
+        let windowID = ObjectIdentifier(window)
+        if let rememberedPanelID = activePanelIDsByWindow[windowID],
+           tabAdapters[rememberedPanelID]?.panel?.webView.window === window {
+            return rememberedPanelID
+        }
+        guard let fallbackPanelID = orderedPanelIDs.reversed().first(where: {
+            tabAdapters[$0]?.panel?.webView.window === window
+        }) else {
+            activePanelIDsByWindow.removeValue(forKey: windowID)
+            return nil
+        }
+        activePanelIDsByWindow[windowID] = fallbackPanelID
+        return fallbackPanelID
     }
 
     func noteTabMetadataChanged(panelID: UUID) {

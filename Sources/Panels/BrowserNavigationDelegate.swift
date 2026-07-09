@@ -355,8 +355,8 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
-           navigationAction.targetFrame?.isMainFrame != false,
-           shouldRouteWebExtensionNavigationInCurrentTab?(url) == true {
+           shouldRouteWebExtensionNavigationInCurrentTab?(url) == true,
+           shouldRouteWebExtensionNavigationAsCurrentTab(navigationAction, shouldOpenInNewTab: shouldOpenInNewTab) {
             clearAttemptedRequest(discardPendingBypasses: true)
             requestNavigation?(navigationAction.request, .currentTab)
             decisionHandler(.cancel); return

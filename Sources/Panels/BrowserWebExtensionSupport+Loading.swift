@@ -27,8 +27,24 @@ extension BrowserWebExtensionSupport {
             }
         )
 
+        var failedUnloadEntries: [BrowserWebExtensionEntry] = []
         for entry in plan.unloadEntries {
-            unload(entryID: entry.id, preservePermissionState: entry.preservePermissionState)
+            if let failedEntry = unload(
+                entryID: entry.id,
+                preservePermissionState: entry.preservePermissionState
+            ) {
+                failedUnloadEntries.append(failedEntry)
+            }
+        }
+
+        if !failedUnloadEntries.isEmpty {
+            guard canApplyWebExtensionLoad(generation: generation) else { return }
+            await rollbackSettingsAfterFailedUnloads(
+                failedEntries: failedUnloadEntries,
+                planner: planner
+            )
+            rebuildActionSnapshots()
+            return
         }
 
         guard canApplyWebExtensionLoad(generation: generation) else { return }
@@ -112,8 +128,12 @@ extension BrowserWebExtensionSupport {
         )
     }
 
-    private func unload(entryID: String, preservePermissionState: Bool = true) {
-        guard let record = loadedByEntryID[entryID] else { return }
+    @discardableResult
+    private func unload(
+        entryID: String,
+        preservePermissionState: Bool = true
+    ) -> BrowserWebExtensionEntry? {
+        guard let record = loadedByEntryID[entryID] else { return nil }
         if preservePermissionState {
             persistPermissionState(entryID: entryID, context: record.context)
         }
@@ -124,7 +144,7 @@ extension BrowserWebExtensionSupport {
 #if DEBUG
             cmuxDebugLog("browser.webext.unloadFailed id=\(entryID) error=\(error.localizedDescription)")
 #endif
-            return
+            return record.entry
         }
 
         removePermissionStateObservers(entryID: entryID)
@@ -143,6 +163,7 @@ extension BrowserWebExtensionSupport {
 #if DEBUG
         cmuxDebugLog("browser.webext.unloaded id=\(entryID)")
 #endif
+        return nil
     }
 
     func unloadAllWebExtensions() {
@@ -161,7 +182,7 @@ extension BrowserWebExtensionSupport {
             let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
             let context = try load(webExtension, entryID: entry.id, standardizedPath: standardizedPath)
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
-                entryID: entry.id,
+                entry: entry,
                 standardizedPath: standardizedPath,
                 context: context
             )
@@ -181,6 +202,29 @@ extension BrowserWebExtensionSupport {
             recordLoadError(error.localizedDescription, entryID: entry.id)
 #if DEBUG
             cmuxDebugLog("browser.webext.loadFailed url=\(entry.path) error=\(error.localizedDescription)")
+#endif
+        }
+    }
+
+    private func rollbackSettingsAfterFailedUnloads(
+        failedEntries: [BrowserWebExtensionEntry],
+        planner: BrowserWebExtensionReconciliationPlanner
+    ) async {
+        guard let settingsStore, let settingsKey else { return }
+        let settingsEntries = await settingsStore.value(for: settingsKey)
+        let restoredEntries = planner.rollbackEntriesAfterFailedUnloads(
+            settingsEntries: settingsEntries,
+            failedEntries: failedEntries
+        )
+        guard restoredEntries != settingsEntries else { return }
+        do {
+            try await settingsStore.set(restoredEntries, for: settingsKey)
+        } catch {
+            for entry in failedEntries {
+                recordLoadError(error.localizedDescription, entryID: entry.id)
+            }
+#if DEBUG
+            cmuxDebugLog("browser.webext.rollbackSettingsFailed error=\(error.localizedDescription)")
 #endif
         }
     }

@@ -60,6 +60,33 @@ struct BrowserWebExtensionReconciliationPlanner {
         )
     }
 
+    func rollbackEntriesAfterFailedUnloads(
+        settingsEntries: [BrowserWebExtensionEntry],
+        failedEntries: [BrowserWebExtensionEntry]
+    ) -> [BrowserWebExtensionEntry] {
+        var restoredEntries = settingsEntries
+
+        for failedEntry in failedEntries {
+            var restoredEntry = failedEntry
+            restoredEntry.enabled = true
+            let failedResourceRoot = Self.standardizedResourceRootPath(for: restoredEntry)
+
+            for index in restoredEntries.indices
+                where restoredEntries[index].id != restoredEntry.id
+                    && Self.standardizedResourceRootPath(for: restoredEntries[index]) == failedResourceRoot {
+                restoredEntries[index].enabled = false
+            }
+
+            if let existingIndex = restoredEntries.firstIndex(where: { $0.id == restoredEntry.id }) {
+                restoredEntries[existingIndex] = restoredEntry
+            } else {
+                restoredEntries.append(restoredEntry)
+            }
+        }
+
+        return restoredEntries
+    }
+
     static func standardizedPath(_ path: String) -> String {
         BrowserWebExtensionEntry.standardizedPath(path)
     }
