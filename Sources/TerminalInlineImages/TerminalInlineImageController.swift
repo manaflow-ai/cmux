@@ -145,9 +145,11 @@ final class TerminalInlineImageController {
         }
         let rowOffset = Int(clamping: hostedView.surfaceView.scrollbar?.offset ?? 0)
         if gridJSON == lastScannedGridJSON, rowOffset == lastScannedRowOffset {
-            // The visible grid did not change; only retry thumbnails that are
-            // still missing (e.g. the file appeared on disk after its path
-            // was printed).
+            // The visible grid did not change, so skip the decode + scan. Still
+            // re-render from current metrics (cell size can change without
+            // changing grid bytes) and retry thumbnails that are still missing
+            // (e.g. the file appeared on disk after its path was printed).
+            render()
             requestMissingThumbnails(for: annotations)
             return
         }
