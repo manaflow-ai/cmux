@@ -1211,7 +1211,7 @@ class GhosttyApp {
         #endif
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            ghosttyUsesHostLayerBackground(config),
+            Self.usesHostLayerBackground(for: config),
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
         // Let cmux own the window-level backdrop except when custom shader intent
