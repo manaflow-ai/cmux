@@ -125,9 +125,15 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
                 let lineData = pending.subdata(in: 0..<newline.lowerBound)
                 pending.removeSubrange(0...newline.lowerBound)
                 guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                record(line)
-                let response = response(for: line) + "\n"
-                _ = response.withCString { pointer in
+                let response: String
+                if line.hasPrefix("auth ") {
+                    response = "OK: Authenticated"
+                } else {
+                    record(line)
+                    response = self.response(for: line)
+                }
+                let responseLine = response + "\n"
+                _ = responseLine.withCString { pointer in
                     Darwin.write(clientFD, pointer, strlen(pointer))
                 }
             }
