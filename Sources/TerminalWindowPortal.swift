@@ -1265,11 +1265,8 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
-        // During live resize, AppKit can deliver frame churn where outer portal geometry
-        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
-        // in-place surface refresh when reconciliation actually changed terminal geometry.
         for entry in entriesByHostedId.values {
-            guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
+            guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
                 hostedView.refreshSurfaceNow(reason: reason)
             }
@@ -1591,8 +1588,11 @@ final class WindowTerminalPortal: NSObject {
             }
             CATransaction.commit()
             if geometryChanged {
-                hostedView.reconcileGeometryNow()
-                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                _ = hostedView.reconcileGeometryNow()
+                // Hidden surfaces keep geometry bookkeeping and redraw on reveal.
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
+                    hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                }
             }
         }
 

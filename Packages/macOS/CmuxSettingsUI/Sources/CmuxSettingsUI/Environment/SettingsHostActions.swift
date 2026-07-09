@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -171,6 +172,10 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Whether the host can load web extensions at all (requires macOS 15.4+).
     func browserWebExtensionsSupported() -> Bool
+
+    /// Applies the host-side OS `AppleLanguages` override for a changed app
+    /// language selection.
+    func applyLanguageOverride(_ language: AppLanguage)
 }
 
 public extension SettingsHostActions {
@@ -182,6 +187,9 @@ public extension SettingsHostActions {
 
     /// Default: unsupported, for previews/tests with no live host.
     func browserWebExtensionsSupported() -> Bool { false }
+
+    /// Default no-op for package previews and tests without app-language ownership.
+    func applyLanguageOverride(_ language: AppLanguage) {}
 
     func openMobilePairingWindow() {}
 

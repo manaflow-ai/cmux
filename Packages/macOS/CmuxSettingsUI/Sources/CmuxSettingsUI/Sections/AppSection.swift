@@ -64,6 +64,8 @@ public struct AppSection: View {
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
     @State private var languageAtAppear: AppLanguage?
+    // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
+    @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
 
     public init(
@@ -164,12 +166,10 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.language"),
                 String(localized: "settings.app.language", defaultValue: "Language"),
-                subtitle: languageAtAppear != nil && language.current != languageAtAppear
-                    ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply")
-                    : nil,
+                subtitle: languageOverrideTouched || (languageAtAppear != nil && language.current != languageAtAppear) ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply") : nil,
                 controlWidth: Self.columnWidth
             ) {
-                Picker("", selection: Binding(get: { language.current }, set: { language.set($0) })) {
+                Picker("", selection: Binding(get: { language.current }, set: { newLanguage in if newLanguage != language.current { languageOverrideTouched = true }; language.set(newLanguage) { hostActions.applyLanguageOverride(newLanguage) } })) {
                     ForEach(Self.legacyLanguageCases, id: \.self) { lang in
                         Text(languageDisplayName(lang)).tag(lang)
                     }
