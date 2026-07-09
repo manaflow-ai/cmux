@@ -198,19 +198,38 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
 struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
     var port: Int
     var pid: Int
+    var launchId: String?
 
-    func session(token: String) -> AgentChatOwnedServerSession? {
+    func session(token: String, launchId expectedLaunchId: String) -> AgentChatOwnedServerSession? {
+        guard launchId == expectedLaunchId else { return nil }
         guard (1...65_535).contains(port), pid > 0 else { return nil }
         return AgentChatOwnedServerSession(port: port, pid: pid, token: token)
     }
 
-    static func parse(_ data: Data, token: String) throws -> AgentChatOwnedServerSession? {
-        try JSONDecoder().decode(Self.self, from: data).session(token: token)
+    static func parse(
+        _ data: Data,
+        token: String,
+        launchId: String
+    ) throws -> AgentChatOwnedServerSession? {
+        try JSONDecoder().decode(Self.self, from: data).session(token: token, launchId: launchId)
     }
 }
 
-enum AgentChatSidecarStateFileStore {
-    static func stateFileURL() -> URL? {
+// FileManager is thread-safe for independent file operations; the wrapper is
+// captured by detached utility tasks so the store can keep injected I/O.
+final class AgentChatSidecarFileSystem: @unchecked Sendable {
+    let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+}
+
+struct AgentChatSidecarStateFileStore: Sendable {
+    var stateFileURL: URL
+    var fileSystem: AgentChatSidecarFileSystem
+
+    static func live() -> AgentChatSidecarStateFileStore? {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -218,20 +237,29 @@ enum AgentChatSidecarStateFileStore {
             return nil
         }
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
-        return appSupport
+        return AgentChatSidecarStateFileStore(
+            stateFileURL: appSupport
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
             .appendingPathComponent("agent-chat", isDirectory: true)
-            .appendingPathComponent("state.json")
+                .appendingPathComponent("state.json"),
+            fileSystem: AgentChatSidecarFileSystem()
+        )
     }
 
-    static func prepareStateFileURL() async -> URL? {
+    func prepareStateFileURL(launchDate: Date) async -> URL? {
+        let stateFileURL = stateFileURL
+        let fileSystem = fileSystem
         await Task.detached(priority: .utility) {
-            guard let stateFileURL = Self.stateFileURL() else { return nil }
             let directoryURL = stateFileURL.deletingLastPathComponent()
-            let fileManager = FileManager.default
+            let fileManager = fileSystem.fileManager
             do {
                 try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-                try Self.sweepStaleStateFiles(in: directoryURL, keeping: stateFileURL)
+                try Self.sweepStaleStateFiles(
+                    in: directoryURL,
+                    keeping: stateFileURL,
+                    olderThan: launchDate,
+                    fileManager: fileManager
+                )
                 try? fileManager.removeItem(at: stateFileURL)
                 _ = fileManager.createFile(atPath: stateFileURL.path, contents: nil)
                 return stateFileURL
@@ -241,24 +269,35 @@ enum AgentChatSidecarStateFileStore {
         }.value
     }
 
-    static func removeStateFile() async {
+    func removeStateFile() async {
+        let stateFileURL = stateFileURL
+        let fileSystem = fileSystem
         await Task.detached(priority: .utility) {
-            guard let stateFileURL = Self.stateFileURL() else { return }
-            try? FileManager.default.removeItem(at: stateFileURL)
+            try? fileSystem.fileManager.removeItem(at: stateFileURL)
         }.value
     }
 
-    static func waitForSession(
-        stateFileURL: URL,
-        token: String
+    func waitForSession(
+        token: String,
+        launchId: String,
+        launchDate: Date
     ) async -> AgentChatOwnedServerSession? {
+        let stateFileURL = stateFileURL
+        let fileSystem = fileSystem
         await Task.detached(priority: .utility) {
+            let fileManager = fileSystem.fileManager
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(10))
             while !Task.isCancelled, clock.now < deadline {
                 if let data = try? Data(contentsOf: stateFileURL),
-                   let session = try? AgentChatSidecarStateFile.parse(data, token: token) {
-                    return session
+                   let stateFile = try? JSONDecoder().decode(AgentChatSidecarStateFile.self, from: data) {
+                    if let session = stateFile.session(token: token, launchId: launchId) {
+                        return session
+                    }
+                    let values = try? stateFileURL.resourceValues(forKeys: [.contentModificationDateKey])
+                    if (values?.contentModificationDate ?? .distantPast) < launchDate {
+                        try? fileManager.removeItem(at: stateFileURL)
+                    }
                 }
                 do {
                     // Bounded, cancellable polling for the sidecar readiness state file.
@@ -273,10 +312,10 @@ enum AgentChatSidecarStateFileStore {
 
     private static func sweepStaleStateFiles(
         in directoryURL: URL,
-        keeping currentStateFileURL: URL
+        keeping currentStateFileURL: URL,
+        olderThan cutoff: Date,
+        fileManager: FileManager
     ) throws {
-        let fileManager = FileManager.default
-        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
         let stateFiles = try fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.contentModificationDateKey],

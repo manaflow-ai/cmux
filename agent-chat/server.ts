@@ -89,7 +89,11 @@ async function writeStateFilePath(path: string, port: number) {
   const dir = dirname(path);
   await mkdir(dir, { recursive: true });
   const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
-  await writeFile(tmp, JSON.stringify({ port, pid: process.pid, protocolVersion: 1 }) + "\n", "utf8");
+  // launchId lets the app match the file to ITS launch: with a stable state
+  // path, a stale file from a previous sidecar (different token) must never
+  // satisfy a new launch's discovery.
+  const launchId = process.env.CMUX_AGENT_CHAT_LAUNCH_ID ?? null;
+  await writeFile(tmp, JSON.stringify({ port, pid: process.pid, protocolVersion: 1, launchId }) + "\n", "utf8");
   await rename(tmp, path);
 }
 

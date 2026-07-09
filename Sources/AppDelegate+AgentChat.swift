@@ -7,6 +7,7 @@ nonisolated struct AgentChatActionInFlightGate {
     private struct State {
         var isRunning = false
         var ownedServerSession: AgentChatOwnedServerSession?
+        var sidecarStateFileStore = AgentChatSidecarStateFileStore.live()
     }
 
     private nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
@@ -41,6 +42,12 @@ nonisolated struct AgentChatActionInFlightGate {
         lock.withLock { state in
             if let candidate, state.ownedServerSession != candidate { return }
             state.ownedServerSession = nil
+        }
+    }
+
+    static func sidecarStateFileStore() -> AgentChatSidecarStateFileStore? {
+        lock.withLock { state in
+            state.sidecarStateFileStore
         }
     }
 }
@@ -292,11 +299,16 @@ extension AppDelegate {
                 return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
             }
             AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
-            await AgentChatSidecarStateFileStore.removeStateFile()
+            await AgentChatActionInFlightGate.sidecarStateFileStore()?.removeStateFile()
         }
 
         guard let token = Self.generateAgentChatToken(),
-              let stateFileURL = await AgentChatSidecarStateFileStore.prepareStateFileURL() else {
+              let launchId = Self.generateAgentChatLaunchID(),
+              let stateFileStore = AgentChatActionInFlightGate.sidecarStateFileStore() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        let launchDate = Date()
+        guard let stateFileURL = await stateFileStore.prepareStateFileURL(launchDate: launchDate) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
@@ -315,14 +327,16 @@ extension AppDelegate {
                 "CMUX_AGENT_CHAT_TOKEN": token,
                 "CMUX_AGENT_CHAT_PORT": "0",
                 "CMUX_AGENT_CHAT_STATE_FILE": stateFileURL.path,
+                "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
             ]
         ) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
-        guard let session = await AgentChatSidecarStateFileStore.waitForSession(
-            stateFileURL: stateFileURL,
-            token: token
+        guard let session = await stateFileStore.waitForSession(
+            token: token,
+            launchId: launchId,
+            launchDate: launchDate
         ) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
@@ -456,6 +470,10 @@ extension AppDelegate {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    nonisolated private static func generateAgentChatLaunchID() -> String? {
+        UUID().uuidString
     }
 
 }

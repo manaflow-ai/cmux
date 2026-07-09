@@ -214,10 +214,14 @@ struct CmuxAgentChatConfigTests {
 
     @Test func agentChatStateFileParsesValidPortAndPID() throws {
         let data = try #require("""
-        {"port":43123,"pid":9876}
+        {"port":43123,"pid":9876,"launchId":"launch-1"}
         """.data(using: .utf8))
 
-        let session = try #require(try AgentChatSidecarStateFile.parse(data, token: "token_123"))
+        let session = try #require(try AgentChatSidecarStateFile.parse(
+            data,
+            token: "token_123",
+            launchId: "launch-1"
+        ))
 
         #expect(session.port == 43123)
         #expect(session.pid == 9876)
@@ -227,14 +231,26 @@ struct CmuxAgentChatConfigTests {
 
     @Test func agentChatStateFileRejectsInvalidPortOrPID() throws {
         let badPort = try #require("""
-        {"port":0,"pid":9876}
+        {"port":0,"pid":9876,"launchId":"launch-1"}
         """.data(using: .utf8))
         let badPID = try #require("""
-        {"port":43123,"pid":0}
+        {"port":43123,"pid":0,"launchId":"launch-1"}
         """.data(using: .utf8))
 
-        #expect(try AgentChatSidecarStateFile.parse(badPort, token: "token") == nil)
-        #expect(try AgentChatSidecarStateFile.parse(badPID, token: "token") == nil)
+        #expect(try AgentChatSidecarStateFile.parse(badPort, token: "token", launchId: "launch-1") == nil)
+        #expect(try AgentChatSidecarStateFile.parse(badPID, token: "token", launchId: "launch-1") == nil)
+    }
+
+    @Test func agentChatStateFileRequiresMatchingLaunchID() throws {
+        let missing = try #require("""
+        {"port":43123,"pid":9876}
+        """.data(using: .utf8))
+        let mismatched = try #require("""
+        {"port":43123,"pid":9876,"launchId":"old-launch"}
+        """.data(using: .utf8))
+
+        #expect(try AgentChatSidecarStateFile.parse(missing, token: "token", launchId: "new-launch") == nil)
+        #expect(try AgentChatSidecarStateFile.parse(mismatched, token: "token", launchId: "new-launch") == nil)
     }
 
     @Test func agentChatOwnedServerBuildsTokenedURLs() {
