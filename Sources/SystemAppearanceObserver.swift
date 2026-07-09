@@ -44,7 +44,11 @@ final class SystemAppearanceObserver {
     private var observation: EffectiveAppearanceObservation?
     private var lastResolvedPrefersDark: Bool?
 
-    init(environment: Environment = .live()) {
+    init() {
+        environment = .live()
+    }
+
+    init(environment: Environment) {
         self.environment = environment
     }
 
