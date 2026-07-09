@@ -32,6 +32,18 @@ impl From<anyhow::Error> for ManagerError {
     }
 }
 
+impl From<std::io::Error> for ManagerError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Failure(error.into())
+    }
+}
+
+impl From<serde_json::Error> for ManagerError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Failure(error.into())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct PluginManifest {
     plugin: ManifestPlugin,
