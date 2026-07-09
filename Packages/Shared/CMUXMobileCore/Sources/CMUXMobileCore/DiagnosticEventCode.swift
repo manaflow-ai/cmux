@@ -96,4 +96,67 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// the keyboard toggle no longer dismisses the composer (the composer
     /// survives a keyboard-down), so this records the tap for trace completeness.
     case composerKeyboardToggleWhilePresented = 24
+
+    /// A render drop episode crossed the stall threshold. `a` = gate raw value;
+    /// `b` = dropped frames; `ms` = stall duration.
+    case renderStallDetected = 25
+    /// A detected render stall recovered. `a` = gate raw value; `b` = recovery
+    /// cause raw value; `ms` = stall duration.
+    case renderStallRecovered = 26
+    /// A render-grid frame was dropped at a gate. `a` = gate raw value.
+    case renderGridDropped = 27
+    /// A terminal replay was requested. `a` = trigger raw value.
+    case replayRequested = 28
+    /// A terminal replay response was accepted. `ms` = request latency.
+    case replayAcked = 29
+    /// A terminal replay failed or made no progress. `a` = replay failure
+    /// reason raw value; `b` = retry count; `ms` = request latency when known.
+    case replayFailed = 30
+    /// Terminal replay retries were exhausted. `a` = trigger raw value;
+    /// `b` = attempts.
+    case replayRetryExhausted = 31
+    /// A terminal replay barrier was armed. `a` = trigger raw value.
+    case replayBarrierArmed = 32
+    /// A terminal replay barrier cleared. `a` = barrier reason raw value;
+    /// `ms` = barrier duration when known.
+    case replayBarrierCleared = 33
+    /// A terminal replay barrier was preserved after exhaustion. `a` = barrier
+    /// reason raw value.
+    case replayBarrierPreserved = 34
+    /// A render-grid baseline wait started. The row carries the surface only
+    /// and is sampled with ``renderGridDropped``.
+    case baselineWaitStarted = 35
+    /// A viewport report was superseded by a newer report. The row carries the
+    /// surface only.
+    case viewportReportSuperseded = 36
+    /// A viewport report was cancelled before completion. `a` = viewport
+    /// outcome raw value; `b` = count when known.
+    case viewportReportCancelled = 37
+    /// A stale viewport echo was rejected. `a` = viewport outcome raw value;
+    /// `b` = count when known.
+    case viewportEchoStale = 38
+    /// A preserved viewport replay barrier was rearmed after retry exhaustion.
+    /// `a` = viewport outcome raw value; `b` = count when known.
+    case viewportBarrierRearmExhausted = 39
+    /// A render-grid liveness probe completed. `a` = result raw value; `ms` =
+    /// silent duration.
+    case livenessProbe = 40
+    /// Terminal output resync was triggered. `a` = resync trigger raw value;
+    /// `b` = 1 if the event stream restarted, else 0; `c` = surface count.
+    case resyncTriggered = 41
+    /// A user-visible recovery action captured the current terminal gate state.
+    /// `a` = active gate bitmask; `b` = replay retry count; `c` = manual action
+    /// raw value; `ms` = seconds since the last applied frame, clamped.
+    case manualRecoverySnapshot = 42
+    /// The raw terminal input send buffer reached a new high-water mark. `a` =
+    /// pending bytes.
+    case inputSendBufferHighWater = 43
+    /// Raw terminal input drained. `ms` = enqueue-to-send latency.
+    case inputDrainLatency = 44
+    /// A viewport-owned replay barrier was preserved after retry exhaustion.
+    /// `a` = viewport outcome raw value; `b` = count when known.
+    case viewportBarrierLeakedPreserved = 45
+    /// Raw terminal input was dropped. `a` = input drop reason raw value; `b` =
+    /// pending bytes when known.
+    case inputDropped = 46
 }

@@ -17,6 +17,12 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
             )
+            terminalSyncDiagnostics.replayRetryExhausted(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                trigger: .pendingInput,
+                attempts: retryCount,
+                followups: terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
+            )
             return false
         }
         terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
@@ -31,9 +37,15 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted_after_drop source=\(source) surface=\(surfaceID)"
             )
+            terminalSyncDiagnostics.replayRetryExhausted(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                trigger: .droppedRenderGrid,
+                attempts: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0,
+                followups: terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
+            )
             return
         }
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, trigger: .droppedRenderGrid)
     }
 
     /// Consume one replay-failure attempt after a replay response made no

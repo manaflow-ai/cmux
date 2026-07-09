@@ -406,7 +406,7 @@ import Testing
 
     // Idle past the silence threshold: no events at all, host healthy.
     clock.advance(by: 10)
-    store.debugRunRenderGridLivenessCheckForTesting()
+    store.runRenderGridLivenessCheckForTesting()
 
     // A teardown would restart the listener, which re-resolves capabilities
     // (mobile.host.status request number 2) and re-replays the mounted sink.
@@ -420,7 +420,7 @@ import Testing
 
     // The probe outcome must reset the silence window: an immediate second
     // evaluation stays quiet too.
-    store.debugRunRenderGridLivenessCheckForTesting()
+    store.runRenderGridLivenessCheckForTesting()
     let restartedAfterRecheck = try await pollUntil(attempts: 30) {
         await router.count(of: "mobile.host.status") >= 2
     }
@@ -475,7 +475,7 @@ import Testing
     let workspaceListsBeforeRepair = await router.count(of: "mobile.workspace.list")
         + router.count(of: "workspace.list")
     clock.advance(by: 10)
-    store.debugRunRenderGridLivenessCheckForTesting()
+    store.runRenderGridLivenessCheckForTesting()
 
     let replayed = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
     #expect(
@@ -529,7 +529,7 @@ import Testing
     // request had already left the phone.
     await router.holdSubscribeRequest(number: 2)
     clock.advance(by: 10)
-    store.debugRunRenderGridLivenessCheckForTesting()
+    store.runRenderGridLivenessCheckForTesting()
 
     // Recovery restarts the listener, which re-resolves capabilities: a
     // second mobile.host.status request is the teardown-and-restart proof.

@@ -467,7 +467,7 @@ import Testing
     ])
     let replayCountBeforeRepair = await router.count(of: "mobile.terminal.replay")
     clock.advance(by: 10)
-    store.debugRunRenderGridLivenessCheckForTesting()
+    store.runRenderGridLivenessCheckForTesting()
 
     let replayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeRepair

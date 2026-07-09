@@ -122,13 +122,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // width's wrapping. No-op when closed or when the height is unchanged.
         context.coordinator.remeasureComposerForLayoutChange()
     }
-
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         (uiView as? GhosttySurfaceView)?.prepareForDismantle()
         coordinator.tearDownComposer()
         coordinator.detach()
     }
-
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -157,7 +155,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
         private var composerMountGeneration = 0
-
         init(surfaceID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
             self.store = store
@@ -200,7 +197,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             reportID: report.id
                         )
                     }
-                }
+                },
+                onReportSuperseded: { [weak store, surfaceID] in store?.terminalViewportReportSuperseded(surfaceID: surfaceID) },
+                onReportCancelled: { [weak store, surfaceID] in store?.terminalViewportReportCancelled(surfaceID: surfaceID) },
+                onStaleEcho: { [weak store, surfaceID] in store?.terminalViewportEchoStale(surfaceID: surfaceID) }
             )
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
