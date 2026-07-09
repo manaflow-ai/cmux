@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -8,12 +8,12 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression tests for remote-tmux mirror detach behavior. They use cached,
-/// unstarted control connections so no ssh/tmux ever attaches anywhere. The
-/// last-mirror teardown does fire-and-forget the production `ssh -O exit` at
-/// cmux's own (nonexistent here) ControlPath socket — a local-only no-op that
-/// exits immediately; a test seam to suppress it is exactly the production
-/// test-scaffolding cmux policy forbids.
+/// Regression tests for remote-tmux mirror lifecycle and focus-neutral topology
+/// mutations. Detach coverage uses cached, unstarted control connections so no
+/// ssh/tmux ever attaches anywhere. The last-mirror teardown does fire-and-forget
+/// the production `ssh -O exit` at cmux's own (nonexistent here) ControlPath
+/// socket — a local-only no-op that exits immediately; a test seam to suppress
+/// it is exactly the production test-scaffolding cmux policy forbids.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorLifecycleTests {
@@ -100,7 +100,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == selectedBefore)
     }
 
-    @Test func hiddenMirrorWindowStaysHiddenAndNonKeyAcrossBackgroundClose() throws {
+    @Test func hiddenMirrorWindowStaysHiddenAndNonKeyAcrossBackgroundClose() async throws {
         _ = NSApplication.shared
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
@@ -135,8 +135,18 @@ struct RemoteTmuxMirrorLifecycleTests {
         ))
         workspace.bonsplitController.selectTab(selectedBefore)
         window.orderOut(nil)
+        await confirmation("hidden mirror window became key", expectedCount: 0) { becameKey in
+            let keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: nil
+            ) { _ in
+                becameKey()
+            }
+            defer { NotificationCenter.default.removeObserver(keyObserver) }
 
-        #expect(workspace.closePanel(closingPanel.id, force: true))
+            #expect(workspace.removeRemoteTmuxDisplayPane(closingPanel.id))
+        }
 
         #expect(workspace.bonsplitController.focusedPaneId == pane)
         #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == selectedBefore)

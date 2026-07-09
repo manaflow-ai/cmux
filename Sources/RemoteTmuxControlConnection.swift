@@ -78,6 +78,7 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?
     private var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -361,8 +362,9 @@ final class RemoteTmuxControlConnection {
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
-        // caller of spawnProcess can't strand a close decision.
+        // caller of spawnProcess can't strand command decisions.
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         attachBlockDrained = false
         stderrBuffer = ""
         enterReceived = false
@@ -465,6 +467,18 @@ final class RemoteTmuxControlConnection {
     @discardableResult
     func send(_ command: String) -> Bool {
         sendInternal(command, kind: .other)
+    }
+
+    /// Sends `new-window -P -F '#{window_id}'` and returns its stable window id.
+    @discardableResult
+    func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
+        let token = UUID()
+        newWindowCompletions[token] = completion
+        guard sendInternal(command, kind: .newWindow(token)) else {
+            newWindowCompletions.removeValue(forKey: token)?(nil)
+            return false
+        }
+        return true
     }
 
     /// The last size any writer requested per window — per-window dedup
@@ -694,6 +708,7 @@ final class RemoteTmuxControlConnection {
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         reconnectTask?.cancel()
         reconnectTask = nil
         cancelSizingFollowUps()
@@ -825,6 +840,7 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
         teardownProcessHandles()
