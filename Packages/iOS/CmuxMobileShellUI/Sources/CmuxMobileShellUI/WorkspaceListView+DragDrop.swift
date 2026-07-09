@@ -4,7 +4,7 @@ import SwiftUI
 
 extension WorkspaceListView {
     var hasPendingWorkspaceMove: Bool {
-        isWorkspaceMovePending
+        pendingWorkspaceMoveCount > 0
     }
 
     var enablesWorkspaceReorder: Bool {
@@ -79,10 +79,15 @@ extension WorkspaceListView {
               case .workspace(let workspace, _) = items[sourceIndex] else {
             return
         }
-        isWorkspaceMovePending = true
-        Task { @MainActor in
+        pendingWorkspaceMoveCount += 1
+        let previousMove = pendingWorkspaceMoveTask
+        pendingWorkspaceMoveTask = Task { @MainActor in
+            // Chain on the prior send: the intent was computed against the
+            // prior move's predicted order, so the host must apply them in
+            // the same order or the snapshot diverges and drops optimism.
+            await previousMove?.value
             let accepted = await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
-            isWorkspaceMovePending = false
+            pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
             }
@@ -121,10 +126,13 @@ extension WorkspaceListView {
         optimisticGroupedBaseWorkspaces = sourceWorkspaces
         optimisticGroupedWorkspaces = movedWorkspaces
         optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
-        isWorkspaceMovePending = true
-        Task { @MainActor in
+        pendingWorkspaceMoveCount += 1
+        let previousMove = pendingWorkspaceMoveTask
+        pendingWorkspaceMoveTask = Task { @MainActor in
+            // Same ordering contract as moveFlatRows.
+            await previousMove?.value
             let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
-            isWorkspaceMovePending = false
+            pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
             }

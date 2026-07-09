@@ -124,7 +124,13 @@ struct WorkspaceListView: View {
     @State var optimisticGroupedItems: [MobileWorkspaceListItem]?
     @State var optimisticGroupedWorkspaces: [MobileWorkspacePreview]?
     @State var optimisticGroupedBaseWorkspaces: [MobileWorkspacePreview]?
-    @State var isWorkspaceMovePending = false
+    /// In-flight move RPC count plus the tail of the send chain. Moves stay
+    /// enabled while pending (disabling mid-gesture cancels the reorder
+    /// interaction), so rapid drags can pipeline; sends are chained so the Mac
+    /// applies them in UI order and the authoritative snapshot converges on
+    /// the predicted optimistic order instead of racing it.
+    @State var pendingWorkspaceMoveCount = 0
+    @State var pendingWorkspaceMoveTask: Task<Void, Never>?
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
