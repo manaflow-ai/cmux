@@ -78,7 +78,11 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         if let browserAvailabilityObserverToken {
             NotificationCenter.default.removeObserver(browserAvailabilityObserverToken)
         }
-        removeAllPermissionStateObservers()
+        // Permission-state observer tokens need no explicit removal here: the
+        // block-based NotificationCenter tokens auto-unregister when they
+        // deallocate, which happens as the dictionaries holding them release
+        // with self. (Calling the @MainActor removal helper from nonisolated
+        // deinit does not compile.)
     }
 
     // MARK: - Configuration attachment
