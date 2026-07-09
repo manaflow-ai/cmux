@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Localized wire messages handed to ``CMUXSidebarExtensionHostXPC`` by the app
 /// composition root.

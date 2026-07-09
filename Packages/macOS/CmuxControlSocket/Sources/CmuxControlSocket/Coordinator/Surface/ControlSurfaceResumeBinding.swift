@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// A read-only snapshot of a surface's resume binding, as the app target exposes
 /// it to ``ControlCommandCoordinator`` for the `resume_binding` payload value.

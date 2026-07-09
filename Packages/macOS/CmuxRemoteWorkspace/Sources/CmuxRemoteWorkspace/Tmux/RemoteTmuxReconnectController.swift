@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 public import Observation
 
 /// Reconnect-backoff sub-model for one `tmux -CC` control connection.

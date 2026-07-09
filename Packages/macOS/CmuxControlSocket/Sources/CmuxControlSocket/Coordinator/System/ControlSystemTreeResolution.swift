@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The app side's answer to the `system.tree` window walk: the matched window
 /// nodes plus the two found-flags the legacy body tracked for its `not_found`

@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The seam over one remote workspace's persistent-PTY controller, through which
 /// ``ControlRemotePTYWorker`` drives the five synchronous PTY operations

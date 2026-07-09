@@ -137,6 +137,6 @@ extension ControlCommandCoordinator {
     /// `browserContext`. (Named distinctly to avoid colliding with that
     /// file-private accessor in the same type.)
     private var browserContextForUnsupported: (any ControlBrowserContext)? {
-        context as? any ControlBrowserContext
+        context
     }
 }

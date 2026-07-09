@@ -1,5 +1,5 @@
-public import AppKit
-public import Foundation
+internal import AppKit
+internal import Foundation
 public import Observation
 import CmuxFoundation
 

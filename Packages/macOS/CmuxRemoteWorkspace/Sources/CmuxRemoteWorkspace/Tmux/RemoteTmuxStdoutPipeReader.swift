@@ -13,7 +13,7 @@ final class RemoteTmuxStdoutPipeReader: @unchecked Sendable {
     private let maxReadChunkBytes: Int
     private let onOverflow: @MainActor @Sendable () -> Void
     private var handle: FileHandle?
-    private var source: DispatchSourceRead?
+    private var source: (any DispatchSourceRead)?
     private var pendingBytes = 0
     private var closed = false
 

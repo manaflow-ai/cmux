@@ -51,7 +51,7 @@ extension ControlCommandCoordinator {
 
     /// The window-domain slice of the seam (a typed view of ``context``).
     var windowContext: (any ControlWindowContext)? {
-        context as? any ControlWindowContext
+        context
     }
 
     /// The v1 `list_windows` body: renders one flat line per main window, in

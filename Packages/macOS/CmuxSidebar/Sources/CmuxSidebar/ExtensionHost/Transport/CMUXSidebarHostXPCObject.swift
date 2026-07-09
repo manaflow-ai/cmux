@@ -1,5 +1,5 @@
-public import Foundation
-@_spi(CmuxHostTransport) public import CmuxExtensionKit
+internal import Foundation
+@_spi(CmuxHostTransport) internal import CmuxExtensionKit
 
 /// `NSXPCConnection` exported object that answers an extension's snapshot and
 /// action requests on the host side.

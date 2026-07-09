@@ -50,7 +50,7 @@ public final class RightSidebarFocusHostRouter {
         if let host = rightSidebarHost, responder === host {
             return true
         }
-        if responder is FeedKeyboardFocusResponder {
+        if responder is any FeedKeyboardFocusResponder {
             return true
         }
         if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
@@ -120,7 +120,7 @@ public final class RightSidebarFocusHostRouter {
         if fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return .find
         }
-        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
+        if feedHost?.ownsKeyboardFocus(responder) == true || responder is any FeedKeyboardFocusResponder {
             return .feed
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {

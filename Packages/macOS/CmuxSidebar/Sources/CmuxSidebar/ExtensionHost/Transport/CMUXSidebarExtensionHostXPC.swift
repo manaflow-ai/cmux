@@ -18,7 +18,7 @@ public final class CMUXSidebarExtensionHostXPC {
     private static let manifestRequestTimeoutNanoseconds: UInt64 = 5_000_000_000
 
     private var connection: NSXPCConnection?
-    private var extensionProxy: CMUXSidebarExtensionXPC?
+    private var extensionProxy: (any CMUXSidebarExtensionXPC)?
     private var exportedObject: CMUXSidebarHostXPCObject?
     private var snapshotProvider: (@MainActor @Sendable () -> CmuxSidebarSnapshot)?
     private var actionHandler: (@MainActor @Sendable (CmuxSidebarAction) -> CmuxSidebarActionResult)?
@@ -84,9 +84,9 @@ public final class CMUXSidebarExtensionHostXPC {
             },
             staleConnection: strings.staleConnection
         )
-        connection.exportedInterface = NSXPCInterface(with: CMUXSidebarHostXPC.self)
+        connection.exportedInterface = NSXPCInterface(with: (any CMUXSidebarHostXPC).self)
         connection.exportedObject = exportedObject
-        connection.remoteObjectInterface = NSXPCInterface(with: CMUXSidebarExtensionXPC.self)
+        connection.remoteObjectInterface = NSXPCInterface(with: (any CMUXSidebarExtensionXPC).self)
         connection.invalidationHandler = { [weak self, generation] in
             Task { @MainActor in
                 self?.clearConnection(ifCurrentGeneration: generation)
@@ -107,7 +107,7 @@ public final class CMUXSidebarExtensionHostXPC {
         self.onManifestBlocked = onManifestBlocked
         self.allowedScopes = Self.untrustedScopes
         self.allowedActionScopes = Self.untrustedActionScopes
-        self.extensionProxy = connection.remoteObjectProxy as? CMUXSidebarExtensionXPC
+        self.extensionProxy = connection.remoteObjectProxy as? any CMUXSidebarExtensionXPC
         connection.resume()
         requestManifestThenSendInitialSnapshot(generation: generation)
     }

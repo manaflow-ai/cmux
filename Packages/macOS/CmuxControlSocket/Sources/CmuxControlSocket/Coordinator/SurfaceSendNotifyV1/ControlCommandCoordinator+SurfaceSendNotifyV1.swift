@@ -18,17 +18,17 @@ internal import Foundation
 extension ControlCommandCoordinator {
     /// The surface-domain slice of the seam (a typed view of ``context``).
     var surfaceContext: (any ControlSurfaceContext)? {
-        context as? any ControlSurfaceContext
+        context
     }
 
     /// The notification-domain slice of the seam (a typed view of ``context``).
     var notificationContext: (any ControlNotificationContext)? {
-        context as? any ControlNotificationContext
+        context
     }
 
     /// The app-focus-domain slice of the seam (a typed view of ``context``).
     var appFocusContext: (any ControlAppFocusContext)? {
-        context as? any ControlAppFocusContext
+        context
     }
 
     /// Dispatches the v1 surface/send/notify/app-focus/read_screen/help commands

@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Read-only seam the host fills from its live window/tab/workspace state so the
 /// package's ``CommandPaletteSwitcherEntryBuilder`` can build the switcher

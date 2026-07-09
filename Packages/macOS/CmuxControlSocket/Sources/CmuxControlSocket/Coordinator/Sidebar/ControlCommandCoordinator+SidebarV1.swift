@@ -128,7 +128,7 @@ extension ControlCommandCoordinator {
     /// until then it lets the domain build standalone without touching the
     /// integrator-owned umbrella file.
     var sidebarContext: (any ControlSidebarContext)? {
-        context as? any ControlSidebarContext
+        context
     }
 
     // MARK: - Option parsing (ported twins)

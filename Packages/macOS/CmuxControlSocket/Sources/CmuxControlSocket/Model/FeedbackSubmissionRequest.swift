@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The validated parameters of a `feedback.submit` control command.
 ///

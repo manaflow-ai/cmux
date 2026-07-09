@@ -130,7 +130,7 @@ extension ControlCommandCoordinator {
     /// until then it lets the domain build standalone without touching the
     /// integrator-owned umbrella file.
     var debugContext: (any ControlDebugContext)? {
-        context as? any ControlDebugContext
+        context
     }
 
     // MARK: - debug.canvas.command_scroll_hint

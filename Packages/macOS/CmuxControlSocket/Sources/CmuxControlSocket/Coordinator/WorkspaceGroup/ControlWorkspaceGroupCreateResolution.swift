@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of `workspace.group.create`, preserving the legacy body's
 /// app-state failures and the created group it echoes back.

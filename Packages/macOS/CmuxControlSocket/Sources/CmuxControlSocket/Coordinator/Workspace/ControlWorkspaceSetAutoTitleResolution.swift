@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of the `workspace.set_auto_title` apply branch (a non-probe,
 /// enabled, non-failure request that targets a workspace title).

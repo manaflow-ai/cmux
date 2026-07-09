@@ -9,7 +9,7 @@ struct SidebarMultiSelectionModelTests {
         // Mutated and read on MainActor only; NotificationCenter delivers
         // posts synchronously on the posting (main) thread in these tests.
         var notifications: [Notification] = []
-        var tokens: [NSObjectProtocol] = []
+        var tokens: [any NSObjectProtocol] = []
         let center: NotificationCenter
 
         init(center: NotificationCenter, names: [Notification.Name]) {

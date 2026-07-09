@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// One selectable swatch in the workspace-color submenu of a sidebar row's
 /// context menu.

@@ -13,7 +13,7 @@ extension ControlCommandCoordinator {
     /// integrator adds ``ControlSystemContext`` to ``ControlCommandContext``;
     /// the conformer is the same object either way).
     var systemContext: (any ControlSystemContext)? {
-        context as? any ControlSystemContext
+        context
     }
 
     /// Dispatches the system-domain methods this coordinator owns; returns
@@ -172,7 +172,7 @@ extension ControlCommandCoordinator {
         case .invalid(let error):
             return .finished(error)
         case .routed(let routing):
-            let resolution = (seam as? any ControlSystemContext)?.controlSystemTreeWindows(
+            let resolution = seam?.controlSystemTreeWindows(
                 requestedWindowID: routing.requestedWindowID,
                 includeAllWindows: routing.includeAllWindows,
                 focusedWindowID: routing.focusedWindowID,

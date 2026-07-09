@@ -51,6 +51,6 @@ extension ControlCommandCoordinator {
 
     /// The workspace-domain slice of the seam (a typed view of ``context``).
     var workspaceContext: (any ControlWorkspaceContext)? {
-        context as? any ControlWorkspaceContext
+        context
     }
 }

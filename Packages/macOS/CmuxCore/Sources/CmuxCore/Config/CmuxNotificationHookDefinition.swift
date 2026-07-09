@@ -45,7 +45,7 @@ public struct CmuxNotificationHookDefinition: Codable, Sendable, Hashable {
         self.enabled = enabled
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedID = try Self.requiredTrimmedString(forKey: .id, in: container)
         let decodedCommand = try Self.requiredTrimmedString(forKey: .command, in: container)
@@ -64,7 +64,7 @@ public struct CmuxNotificationHookDefinition: Codable, Sendable, Hashable {
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 
-    public func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(command, forKey: .command)

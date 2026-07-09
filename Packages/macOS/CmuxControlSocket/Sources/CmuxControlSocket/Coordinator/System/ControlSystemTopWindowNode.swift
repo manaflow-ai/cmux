@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// One window row of a `system.top` / `system.memory` snapshot (the legacy
 /// `v2TopWindowNode` dictionary, minus the coordinator-minted refs and the

@@ -33,7 +33,7 @@ private final class FakeJoinHost: WorkspaceGroupJoining {
 
     func observeWorkspaceList(
         _ onChange: @escaping @MainActor () -> Void
-    ) -> WorkspaceGroupJoinObservation {
+    ) -> any WorkspaceGroupJoinObservation {
         let token = FakeObservation { [weak self] handle in
             self?.observers.removeValue(forKey: ObjectIdentifier(handle))
         }

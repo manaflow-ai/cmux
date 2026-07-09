@@ -75,7 +75,7 @@ private struct ServerHarness: ~Copyable {
 
     init() throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("scs-\(UUID().uuidString.prefix(8))", isDirectory: true)
+            .appendingPathComponent("scs-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         socketPath = directory.appendingPathComponent("s.sock").path
         recorder = ServerEventRecorder()
@@ -159,7 +159,7 @@ private func connect(to path: String) -> Int32 {
 }
 
 @MainActor
-@Suite("SocketControlServer lifecycle")
+@Suite("SocketControlServer lifecycle", .serialized)
 struct SocketControlServerLifecycleTests {
     @Test func startBindsListensAndReportsHealth() throws {
         let harness = try ServerHarness()

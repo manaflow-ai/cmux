@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of the live terminal drop-overlay animation probe behind the
 /// v1-only `terminal_drop_overlay_probe` command.

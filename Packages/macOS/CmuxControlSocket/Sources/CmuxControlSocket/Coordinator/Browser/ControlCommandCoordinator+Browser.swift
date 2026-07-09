@@ -79,7 +79,7 @@ extension ControlCommandCoordinator {
     /// The browser-domain view of the seam (the v2 counterpart of
     /// `browserPanelContext`).
     private var browserContext: (any ControlBrowserContext)? {
-        context as? any ControlBrowserContext
+        context
     }
 
     /// Rejects any of `keys` that is SUPPLIED (present and non-null) but does

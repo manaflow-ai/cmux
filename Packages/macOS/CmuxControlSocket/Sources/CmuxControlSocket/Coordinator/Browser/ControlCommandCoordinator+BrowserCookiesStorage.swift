@@ -19,8 +19,7 @@ extension ControlCommandCoordinator {
     /// same-file `browserContext`; bound through a local first so the downcast
     /// is not a warning-triggering downcast-of-an-optional).
     private var cookiesStorageContext: (any ControlBrowserContext)? {
-        guard let context else { return nil }
-        return context as? any ControlBrowserContext
+        context
     }
 
     /// Maps a shared panel-resolution failure to the exact legacy `.err` the

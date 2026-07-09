@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of locating the source surface for `surface.move`, preserving the
 /// legacy `v2SurfaceMove` distinction between an unavailable `AppDelegate` and a

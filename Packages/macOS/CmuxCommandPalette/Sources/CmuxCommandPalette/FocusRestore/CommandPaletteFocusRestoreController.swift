@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 public import Observation
 
 /// Owns the lifecycle of restoring keyboard focus after the command palette is

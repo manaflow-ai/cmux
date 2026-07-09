@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The app-bundle-resolved localized terminal-input error strings, shared by
 /// `surface.send_text` and `surface.send_key`.

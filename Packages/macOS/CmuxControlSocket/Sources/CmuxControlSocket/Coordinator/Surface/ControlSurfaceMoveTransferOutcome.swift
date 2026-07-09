@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of the cross-workspace transfer branch of `surface.move`,
 /// preserving the legacy `v2SurfaceMove` detach/attach failure paths.

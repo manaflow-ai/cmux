@@ -44,7 +44,7 @@ public protocol WorkspaceGroupJoining: AnyObject {
     /// lifetime; the coordinator cancels it on dispose.
     func observeWorkspaceList(
         _ onChange: @escaping @MainActor @Sendable () -> Void
-    ) -> WorkspaceGroupJoinObservation
+    ) -> any WorkspaceGroupJoinObservation
 }
 
 /// A cancellable handle for a ``WorkspaceGroupJoining`` workspace-list watch.

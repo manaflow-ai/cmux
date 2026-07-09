@@ -1,5 +1,5 @@
 #if DEBUG
-public import Foundation
+internal import Foundation
 
 /// The JSON payload `render_stats` (the `debug.render_stats` v1/v2 command)
 /// returns for a single terminal panel's renderer/Metal/window state.

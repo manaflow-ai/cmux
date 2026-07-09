@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The app-coupled side effects a ``CommandPalettePresentationCoordinator`` fires
 /// while it drives the per-window palette state machine.

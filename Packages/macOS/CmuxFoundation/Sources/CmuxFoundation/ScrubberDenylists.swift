@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The maintained denylists ``SentryScrubber`` consumes: sensitive dictionary
 /// key markers (ported from sentry-python) and free-text value regexes (ported

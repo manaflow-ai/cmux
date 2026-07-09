@@ -1,5 +1,5 @@
 public import Foundation
-public import CoreGraphics
+internal import CoreGraphics
 
 /// Immutable snapshot describing how a workspace's tmux pane overlay should be
 /// drawn for one render pass: the unread-indicator rects, an optional flash

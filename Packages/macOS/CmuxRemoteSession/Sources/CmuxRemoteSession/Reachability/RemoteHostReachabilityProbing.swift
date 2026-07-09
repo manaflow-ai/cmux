@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Reachability-probe seam for the session coordinator's reconnect policy,
 /// so tests can script outcomes instead of resolving and dialing real

@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The `workspace.set_auto_title` probe snapshot (the legacy `probe == true`
 /// branch's data), resolved app-side so the coordinator can shape the identical

@@ -276,7 +276,10 @@ public struct MarkdownRemoteImageSecurity: Sendable {
             guard inet_ntop(AF_INET6, pointer, &output, socklen_t(output.count)) != nil else {
                 return nil
             }
-            let value = String(cString: output)
+            let value = String(
+                decoding: output.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
+                as: UTF8.self
+            )
             guard let networkAddress = IPv6Address(value) else { return nil }
             return .ipv6(networkAddress)
         }

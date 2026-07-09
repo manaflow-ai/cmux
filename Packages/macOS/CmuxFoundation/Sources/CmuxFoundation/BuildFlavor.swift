@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The release channel a running cmux build belongs to.
 ///

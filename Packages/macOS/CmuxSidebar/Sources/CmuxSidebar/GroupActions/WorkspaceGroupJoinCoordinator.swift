@@ -105,7 +105,7 @@ extension WorkspaceGroupJoinCoordinator {
         private let placement: WorkspaceGroupNewPlacement
         private let referenceWorkspaceId: UUID?
         private var knownIds: Set<UUID>
-        private var observation: WorkspaceGroupJoinObservation?
+        private var observation: (any WorkspaceGroupJoinObservation)?
 
         init(
             owner: WorkspaceGroupJoinCoordinator,

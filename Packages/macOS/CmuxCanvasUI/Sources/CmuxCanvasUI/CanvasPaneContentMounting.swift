@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The seam through which the host app mounts panel content into a canvas
 /// pane. The package never sees panel types: the host's descriptor closure

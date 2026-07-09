@@ -1,5 +1,5 @@
 #if DEBUG
-public import Foundation
+internal import Foundation
 
 extension String {
     /// Decodes backslash escape sequences in a line-based socket command

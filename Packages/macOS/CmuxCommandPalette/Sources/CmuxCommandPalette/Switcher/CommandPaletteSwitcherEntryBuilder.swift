@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Builds the command-palette switcher entries and the palette's
 /// change-detection fingerprints from a host-provided snapshot.

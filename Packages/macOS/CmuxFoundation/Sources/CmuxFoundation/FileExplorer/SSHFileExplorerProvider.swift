@@ -17,7 +17,7 @@ public final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sen
     public let connection: SSHFileExplorerConnection
     /// Human-readable target shown in the file explorer (e.g. `host:port`).
     public let displayTarget: String
-    private let transport: SSHFileExplorerTransport
+    private let transport: any SSHFileExplorerTransport
     private let stateLock = NSLock()
     private var state: State
 
@@ -53,7 +53,7 @@ public final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sen
         displayTarget: String? = nil,
         homePath: String,
         isAvailable: Bool,
-        transport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
+        transport: any SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
     ) {
         self.connection = SSHFileExplorerConnection(
             destination: destination,
@@ -75,7 +75,7 @@ public final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sen
         displayTarget: String,
         homePath: String,
         isAvailable: Bool,
-        transport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
+        transport: any SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
     ) {
         self.connection = connection
         self.displayTarget = displayTarget

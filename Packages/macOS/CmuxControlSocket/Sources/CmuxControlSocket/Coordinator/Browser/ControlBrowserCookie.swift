@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// One cookie in a `browser.cookies.*` payload, the typed twin of the legacy
 /// `TerminalController.v2BrowserCookieDict(_:)` output.
