@@ -134,12 +134,6 @@ extension AgentHibernationController {
         tasks.forEach { $0.task.cancel() }
     }
 
-    func cancelPostTeardownRestoreTasks(excluding currentKeys: Set<AgentHibernationPanelKey>) {
-        for key in Array(postTeardownRestoreTasksByPanel.keys) where !currentKeys.contains(key) {
-            cancelPostTeardownRestoreTask(key)
-        }
-    }
-
     func clearPostTeardownRestoreTask(_ key: AgentHibernationPanelKey, requestID: UUID) {
         guard postTeardownRestoreTasksByPanel[key]?.requestID == requestID else { return }
         postTeardownRestoreTasksByPanel.removeValue(forKey: key)

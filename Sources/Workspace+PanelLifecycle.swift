@@ -424,7 +424,7 @@ extension Workspace {
         let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
-        AgentHibernationController.shared.cancelPostTeardownRestoreTask(workspaceId: id, panelId: panelId); panelSubscriptions.removeValue(forKey: panelId)?.cancel()
+        panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
         discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)

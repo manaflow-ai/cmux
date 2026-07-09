@@ -482,7 +482,6 @@ final class AgentHibernationController {
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
-        cancelPostTeardownRestoreTasks(excluding: currentKeys)
         teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
