@@ -6,6 +6,8 @@ public import Foundation
 /// ``RemoteDaemonPTYEvent`` to ``RemotePTYBridgeEvent`` case-for-case,
 /// exactly like the legacy `WorkspaceRemotePTYBridgeRPCClient` extension.
 extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
+    /// Whether the connected daemon advertised the optional
+    /// ``RemoteDaemonCapability/ptyInputSeqAck`` capability in its hello.
     public var supportsInputSeqAck: Bool {
         stateQueue.sync {
             advertisedCapabilities.contains(Self.optionalPTYInputSeqAckCapability)

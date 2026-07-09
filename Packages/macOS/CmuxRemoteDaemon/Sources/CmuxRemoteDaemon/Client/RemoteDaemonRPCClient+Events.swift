@@ -268,7 +268,7 @@ extension RemoteDaemonRPCClient {
 
         case "pty.input_ack":
             subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
-            event = .inputAck(seq: Self.uint64Value(payload["seq"]))
+            event = .inputAck(seq: rpcEventUInt64Value(payload["seq"]))
 
         case "pty.exit":
             subscription = ptySubscriptions.removeValue(forKey: key)
@@ -291,19 +291,6 @@ extension RemoteDaemonRPCClient {
             subscription.handler(event)
         }
         return true
-    }
-
-    private static func uint64Value(_ value: Any?) -> UInt64 {
-        switch value {
-        case let number as UInt64:
-            return number
-        case let number as Int:
-            return number > 0 ? UInt64(number) : 0
-        case let number as NSNumber:
-            return number.uint64Value
-        default:
-            return 0
-        }
     }
 
     func sendCLIResponse(requestID: String, data: Data?, error: String?) {
@@ -394,5 +381,18 @@ extension RemoteDaemonRPCClient {
             attachmentID.trimmingCharacters(in: .whitespacesAndNewlines),
             token,
         ].joined(separator: "\u{1f}")
+    }
+}
+
+private func rpcEventUInt64Value(_ value: Any?) -> UInt64 {
+    switch value {
+    case let number as UInt64:
+        return number
+    case let number as Int:
+        return number > 0 ? UInt64(number) : 0
+    case let number as NSNumber:
+        return number.uint64Value
+    default:
+        return 0
     }
 }

@@ -46,6 +46,7 @@ public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String)
 }
 
+/// Default for conformers predating sequenced input.
 public extension RemotePTYBridgeRPCClient {
     /// Legacy clients do not opt into sequenced PTY input.
     var supportsInputSeqAck: Bool { false }
