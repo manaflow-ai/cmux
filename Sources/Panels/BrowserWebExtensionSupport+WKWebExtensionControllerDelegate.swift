@@ -57,20 +57,28 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         cmuxDebugLog("browser.webext.openTab url=\(configuration.url?.absoluteString.prefix(80) ?? "nil")")
 #endif
         if let url = configuration.url,
-           let scheme = url.scheme?.lowercased(),
-           scheme != "https" && scheme != "http" {
+           !canOpenInRegularBrowserTab(url),
+           controller.extensionContext(for: url) == nil {
             completionHandler(nil, openTabsUnsupportedError())
             return
         }
 
-        guard let adapter = openBrowserTab(url: configuration.url, shouldActivate: configuration.shouldBeActive) else {
+        guard let adapter = openBrowserTab(
+            url: configuration.url,
+            shouldActivate: configuration.shouldBeActive,
+            webViewConfiguration: configuration.url.flatMap { controller.extensionContext(for: $0)?.webViewConfiguration }
+        ) else {
             completionHandler(nil, openTabsUnsupportedError())
             return
         }
         completionHandler(adapter, nil)
     }
 
-    private func openBrowserTab(url: URL?, shouldActivate: Bool) -> BrowserWebExtensionTabAdapter? {
+    private func openBrowserTab(
+        url: URL?,
+        shouldActivate: Bool,
+        webViewConfiguration: WKWebViewConfiguration?
+    ) -> BrowserWebExtensionTabAdapter? {
         guard let sourcePanel = activeTabAdapter?.panel,
               let workspace = AppDelegate.shared?.workspaceContainingPanel(
                   panelId: sourcePanel.id,
@@ -81,7 +89,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
                   inPane: paneId,
                   url: url,
                   focus: shouldActivate,
-                  preferredProfileID: sourcePanel.profileID
+                  preferredProfileID: sourcePanel.profileID,
+                  webViewConfiguration: webViewConfiguration
               ) else {
             return nil
         }
@@ -89,6 +98,11 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             noteActivated(panelID: panel.id)
         }
         return tabAdapter(for: panel.id)
+    }
+
+    private func canOpenInRegularBrowserTab(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return true }
+        return scheme == "http" || scheme == "https" || scheme == "about"
     }
 
     private func openTabsUnsupportedError() -> NSError {
@@ -100,6 +114,14 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
                 defaultValue: "Opening extension tabs is not supported yet."
             )]
         )
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        didUpdate action: WKWebExtension.Action,
+        forExtensionContext context: WKWebExtensionContext
+    ) {
+        refreshActionSnapshot(for: context)
     }
 
     func webExtensionController(

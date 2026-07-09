@@ -5,6 +5,9 @@ struct BrowserWebExtensionActionSnapshot: Identifiable {
     let id: String
     let displayName: String
     let icon: NSImage?
+    let isEnabled: Bool
+    let badgeText: String
+    let hasUnreadBadgeText: Bool
 
     var accessibilityIdentifier: String {
         let safeID = id.map { character in
