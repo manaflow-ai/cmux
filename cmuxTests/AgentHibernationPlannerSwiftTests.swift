@@ -73,6 +73,39 @@ struct AgentHibernationPlannerSwiftTests {
         #expect(controller.activityByPanel[panelKey] == 123)
     }
 
+    @MainActor
+    @Test
+    func teardownRecordRejectsPanelMovedToAnotherWorkspace() throws {
+        let source = Workspace()
+        let panelId = try #require(source.focusedPanelId)
+        let panel = try #require(source.panels[panelId] as? TerminalPanel)
+        let record = AgentHibernationRecord(
+            key: AgentHibernationPanelKey(workspaceId: source.id, panelId: panelId),
+            workspace: source,
+            terminalPanel: panel,
+            agent: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "codex-moved-before-teardown",
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: false,
+            processIDs: []
+        )
+        #expect(record.isStillOwnedByOriginalWorkspace)
+
+        let detached = try #require(source.detachSurface(panelId: panelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        #expect(destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false) == panelId)
+
+        #expect(record.isStillOwnedByOriginalWorkspace == false)
+    }
+
     @Test
     func liveScopedProcessCreatesPressureButIsNotSelected() {
         let workspaceId = UUID()

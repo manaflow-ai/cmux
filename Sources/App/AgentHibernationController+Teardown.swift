@@ -1,5 +1,12 @@
 import Foundation
 
+extension AgentHibernationRecord {
+    var isStillOwnedByOriginalWorkspace: Bool {
+        guard let currentPanel = workspace.panels[key.panelId] as? TerminalPanel else { return false }
+        return currentPanel === terminalPanel && terminalPanel.workspaceId == key.workspaceId
+    }
+}
+
 extension AgentHibernationController {
     /// Runs the transcript snapshot off the main actor, then resumes teardown on the
     /// main actor only if the pane still qualifies. The snapshot MUST complete before
@@ -24,6 +31,7 @@ extension AgentHibernationController {
             // Live-process state is not re-scanned here: a full index reload costs
             // 350ms-1.8s; new agents bump lifecycle/input hooks checked below.
             guard AgentHibernationTrackingGate.isEnabled(),
+                  record.isStillOwnedByOriginalWorkspace,
                   !record.terminalPanel.isAgentHibernated,
                   record.terminalPanel.surface.hasLiveSurface,
                   AppDelegate.shared?.agentHibernationPanelIsProtected(
