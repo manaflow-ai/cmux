@@ -3,13 +3,16 @@ import Foundation
 import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String) -> Void)?
-    var didCancelProvisionalNavigation: ((WKWebView) -> Void)?
+    var didFailNavigation: ((WKWebView, String, WKNavigation?) -> Void)?
+    var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -18,12 +21,13 @@ import WebKit
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
+    var currentRestoreAttemptID: (() -> UUID?)?
+    var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
-    /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
-    /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
+    /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
@@ -35,6 +39,7 @@ import WebKit
     private var activeSSLTrustBypassErrorPageFailedURL: String?
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
+    private var pendingMainFrameDownloadRestoreAttemptID: UUID?
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -111,7 +116,7 @@ import WebKit
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
-        didFailNavigation?(webView, failedURL)
+        didFailNavigation?(webView, failedURL, navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -120,7 +125,7 @@ import WebKit
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-            didCancelProvisionalNavigation?(webView)
+            didCancelProvisionalNavigation?(webView, navigation)
             return
         }
 
@@ -128,14 +133,14 @@ import WebKit
         // navigation response is converted into a download via .download policy.
         // This is expected and should not show an error page.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            didCancelProvisionalNavigation?(webView)
+            didCancelProvisionalNavigation?(webView, navigation)
             return
         }
 
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        didFailNavigation?(webView, failedURL)
+        didFailNavigation?(webView, failedURL, navigation)
         loadErrorPage(
             in: webView,
             failedURL: failedURL,
@@ -268,6 +273,9 @@ import WebKit
         )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
+        if navigationAction.targetFrame?.isMainFrame == true {
+            pendingMainFrameDownloadRestoreAttemptID = currentRestoreAttemptID?()
+        }
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -288,6 +296,7 @@ import WebKit
         if let url = navigationAction.request.url,
            shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
 #if DEBUG
             cmuxDebugLog(
@@ -295,6 +304,7 @@ import WebKit
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
+            if opened { reportTerminalCancellation() }
             decisionHandler(opened ? .cancel : .allow)
             return
         }
@@ -319,11 +329,10 @@ import WebKit
             return
         }
 
-        // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
-        // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -331,7 +340,8 @@ import WebKit
                 loadFallbackRequest: { [requestNavigation] request in
                     requestNavigation?(request, .currentTab)
                 },
-                presentAlert: presentAlert
+                presentAlert: presentAlert,
+                onTerminalExternalNavigation: reportTerminalCancellation
             )
             decisionHandler(.cancel)
             return
@@ -367,14 +377,13 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
+            reportTerminalCancellation()
             decisionHandler(.cancel)
             return
         }
 
-        // target=_blank link navigations should open in a new tab.
-        // Scripted popups (navigationType == .other) are handled in
-        // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
         if navigationAction.targetFrame == nil,
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
@@ -386,7 +395,9 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
+            reportTerminalCancellation()
             decisionHandler(.cancel)
             return
         }
@@ -502,9 +513,6 @@ import WebKit
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
 
-        // Only classify HTTP(S) responses as downloads. Subframes are eligible
-        // only for explicit attachment/force-download MIME decisions; the
-        // resolver keeps cannot-show MIME fallback scoped to main-frame loads.
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
@@ -603,18 +611,25 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        let restoreAttemptID = isMainFrame ? pendingMainFrameDownloadRestoreAttemptID : nil
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
+        didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
+        if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        let restoreAttemptID = navigationResponse.isForMainFrame ? pendingMainFrameDownloadRestoreAttemptID : nil
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
+        didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
+        if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
 }

@@ -180,7 +180,7 @@
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 624	Sources/SettingsNavigation.swift
 623	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-620	Sources/Panels/BrowserNavigationDelegate.swift
+633	Sources/Panels/BrowserNavigationDelegate.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
 608	cmuxUITests/FeedSidebarUITests.swift
 607	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
