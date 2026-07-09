@@ -273,6 +273,9 @@ struct RemoteTmuxMirrorTargetingTests {
         ))
         workspace.isRemoteTmuxMirror = true
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+        let selectedTabBefore = workspace.bonsplitController.selectedTab(inPane: paneId)?.id
+        let focusedPaneBefore = workspace.bonsplitController.focusedPaneId
+        let focusedPanelBefore = workspace.focusedPanelId
         var requestedPanelOrder: [UUID]?
         workspace.remoteTmuxWindowOrderSync = { panelOrder in
             requestedPanelOrder = panelOrder
@@ -288,6 +291,9 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(!reordered)
         #expect(requestedPanelOrder?.first == secondPanel.id)
         #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
+        #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == selectedTabBefore)
+        #expect(workspace.bonsplitController.focusedPaneId == focusedPaneBefore)
+        #expect(workspace.focusedPanelId == focusedPanelBefore)
     }
 
     @Test func mirrorWindowReorderUsesDetachedSwaps() {

@@ -189,6 +189,20 @@ import Testing
         #expect(connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
     }
 
+    @Test(arguments: [true, false])
+    func unusableWindowReorderRecoveryForcesReconnect(isError: Bool) {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishSinglePaneWindow(connection)
+        #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
+        reply(connection, lines: ["can't find window: @2"], isError: true)
+        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+
+        reply(connection, lines: [isError ? "recovery rejected" : "garbled topology"], isError: isError)
+
+        #expect(connection.connectionState == .reconnecting)
+    }
+
     @Test func rectsErrorRetriesOnceThenKeepsLastVerifiedTree() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }

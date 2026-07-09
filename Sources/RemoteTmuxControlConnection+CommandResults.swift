@@ -37,6 +37,10 @@ extension RemoteTmuxControlConnection {
             if case let .windowReorder(isLast) = kind {
                 completeWindowReorderCommand(isLast: isLast, failed: true)
             }
+            if case let .listWindows(requestGeneration) = kind,
+               windowReorderRecoveryGeneration == requestGeneration {
+                restartAfterWindowReorderRecoveryFailure()
+            }
             // Errors are dropped by design (results correlate positionally), but
             // an invisible %error has already hidden one real bug — an unquoted
             // refresh-client -B that never subscribed — so leave a trace.
@@ -169,6 +173,8 @@ extension RemoteTmuxControlConnection {
                 // the publication point (each window's rects reply): here
                 // `windowsByID` is still empty on a first connect — geometry
                 // publishes only when the rects replies land.
+            } else if completesReorderRecovery {
+                restartAfterWindowReorderRecoveryFailure()
             }
         case let .capturePane(paneId):
             // capture-pane -e -S output is the pane's history + visible rows (with

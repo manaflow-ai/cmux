@@ -94,7 +94,6 @@ final class RemoteTmuxControlConnection {
     var pendingCommands: [CommandKind] = []
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
-    /// Reorders are rejected while a failed generation awaits authoritative recovery.
     var windowReorderRecoveryGeneration: UInt64?
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
@@ -513,10 +512,12 @@ final class RemoteTmuxControlConnection {
         )
     }
 
-    /// Fetches a window's real pane rectangles, active flag, border status, and
-    /// expanded border label. Raw layout geometry is quarantined until this
-    /// reply; the space-bearing label stays last behind a `:` sentinel so an
-    /// empty trailing value survives parsing.
+    func restartAfterWindowReorderRecoveryFailure() {
+        record("window-reorder-recovery-reconnect")
+        beginReconnecting()
+    }
+
+    /// Fetches authoritative pane rectangles before publishing staged geometry.
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
         sendInternal(
@@ -823,9 +824,7 @@ final class RemoteTmuxControlConnection {
 
     // MARK: - Reconnect
 
-    /// Begins reconnecting after a transport loss: tears down the dead spawn, marks
-    /// `.reconnecting` (consumers keep the frozen mirror), and schedules the first
-    /// retry. No-op unless currently connected/connecting.
+    /// Freezes the mirror and reconnects after an unusable control stream.
     private func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         record("reconnecting")

@@ -9264,17 +9264,23 @@ final class Workspace: Identifiable, ObservableObject {
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
-        let mirrorPanelOrder = mirrorPaneId.map { paneId in
-            bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
-        }
+        let mirrorPanelOrder = mirrorPaneId.map { bonsplitController.tabs(inPane: $0).compactMap { panelIdFromSurfaceId($0.id) } }
         if isRemoteTmuxMirror, remoteTmuxWindowOrderSync == nil || mirrorPanelOrder == nil { return false }
+        let selectedTabBefore = mirrorPaneId.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+        let focusedPaneBefore = mirrorPaneId == nil ? nil : bonsplitController.focusedPaneId
+        let wasApplyingRemoteTmuxTabReorder = isApplyingRemoteTmuxTabReorder
+        if mirrorPaneId != nil { isApplyingRemoteTmuxTabReorder = true }
+        defer { isApplyingRemoteTmuxTabReorder = wasApplyingRemoteTmuxTabReorder }
         guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
         if let mirrorPaneId, let mirrorPanelOrder {
             let orderedPanelIds = bonsplitController.tabs(inPane: mirrorPaneId).compactMap { panelIdFromSurfaceId($0.id) }
-            guard remoteTmuxWindowOrderSync?(orderedPanelIds) == true else {
-                _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: mirrorPanelOrder)
-                return false
+            let accepted = remoteTmuxWindowOrderSync?(orderedPanelIds) == true
+            if !accepted { _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: mirrorPanelOrder) }
+            if !accepted || !focus {
+                if let selectedTabBefore { bonsplitController.selectTab(selectedTabBefore) }
+                if let focusedPaneBefore { bonsplitController.focusPane(focusedPaneBefore) }
             }
+            guard accepted else { return false }
         }
         if focus, let paneId = paneId(forPanelId: panelId) {
             applyTabSelection(tabId: tabId, inPane: paneId)
@@ -9285,16 +9291,11 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    /// Reconciles mirror tabs to tmux's window order without changing selection
-    /// or focus. Suppresses activation callbacks while bonsplit is rearranged.
-    /// A concurrent remote reorder during an active drag can move tabs under the
-    /// cursor, but the drop immediately reconciles through the outbound sync path.
+    /// Reconciles mirror tabs to tmux order without changing selection or focus.
+    /// A concurrent remote reorder during a drag self-heals through the drop sync.
     @discardableResult
     func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
-        // All mirror tabs must live in a single pane: a global tmux window order
-        // can't be expressed across a user-arranged split. If the requested panels
-        // resolve to more than one pane (or none), skip rather than reorder a
-        // subset of one pane.
+        // A global tmux window order cannot span multiple cmux panes.
         let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
         guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
         let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
@@ -9306,16 +9307,14 @@ final class Workspace: Identifiable, ObservableObject {
         let savedSelectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
         let savedFocusedPaneId = bonsplitController.focusedPaneId
 
+        let wasApplyingRemoteTmuxTabReorder = isApplyingRemoteTmuxTabReorder
         isApplyingRemoteTmuxTabReorder = true
-        defer { isApplyingRemoteTmuxTabReorder = false }
+        defer { isApplyingRemoteTmuxTabReorder = wasApplyingRemoteTmuxTabReorder }
         for (index, panelId) in desired.enumerated() {
             guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
             _ = bonsplitController.reorderTab(tabId, toIndex: index)
         }
-        // Restore bonsplit's internal selection + focus (the loop moved them to the
-        // last-reordered tab). cmux's own focus/selection were never touched (the
-        // delegate handlers short-circuited), so this just realigns bonsplit with
-        // the user's unchanged state — no `applyTabSelection` runs.
+        // The loop selected its last tab; realign bonsplit with unchanged cmux focus.
         if let savedSelectedTabId { bonsplitController.selectTab(savedSelectedTabId) }
         if let savedFocusedPaneId { bonsplitController.focusPane(savedFocusedPaneId) }
 
