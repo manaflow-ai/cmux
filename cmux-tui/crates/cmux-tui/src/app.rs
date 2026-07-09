@@ -36,7 +36,7 @@ use ratatui::backend::CrosstermBackend;
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
-use crate::pty_input::{PtyInputDispatcher, PtyInputEvent, PtyInputKind};
+use crate::pty_input::{PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind};
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
@@ -1042,6 +1042,7 @@ impl App {
                 self.handle_mouse(mouse)
             }
             AppEvent::Input(Event::Paste(text)) => {
+                self.status_message = None;
                 self.reassert_visible_surface_sizes();
                 if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
@@ -1052,10 +1053,18 @@ impl App {
                     Ok(RenderAction::Draw)
                 } else if self.sidebar_focused {
                     self.paste_sidebar(&text);
-                    Ok(RenderAction::None)
+                    Ok(if self.status_message.is_some() {
+                        RenderAction::Draw
+                    } else {
+                        RenderAction::None
+                    })
                 } else {
                     self.paste(&text);
-                    Ok(RenderAction::None)
+                    Ok(if self.status_message.is_some() {
+                        RenderAction::Draw
+                    } else {
+                        RenderAction::None
+                    })
                 }
             }
             AppEvent::Input(Event::FocusGained) => {
@@ -2435,19 +2444,30 @@ impl App {
         kind: PtyInputKind,
     ) -> bool {
         if matches!(&surface, SurfaceHandle::Remote(_, _)) {
-            let accepted =
-                self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind });
-            if !accepted {
+            let result = self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind });
+            self.handle_pty_enqueue_result(result)
+        } else {
+            surface.write_bytes(&bytes);
+            true
+        }
+    }
+
+    fn handle_pty_enqueue_result(&mut self, result: PtyInputEnqueueResult) -> bool {
+        match result {
+            PtyInputEnqueueResult::Accepted => true,
+            PtyInputEnqueueResult::Oversized => {
+                self.status_message =
+                    Some("Input exceeds the 4 MiB remote buffer limit".to_string());
+                false
+            }
+            PtyInputEnqueueResult::Saturated => {
                 // Saturation means ordered input can no longer be represented
                 // safely. Disconnect instead of silently dropping or replaying
                 // a partial stream after recovery.
                 self.pty_input.abort();
                 self.quit = true;
+                false
             }
-            accepted
-        } else {
-            surface.write_bytes(&bytes);
-            true
         }
     }
 
@@ -3433,7 +3453,7 @@ mod tests {
 
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{Config, ScrollbarPosition};
-    use crate::pty_input::PtyInputDispatcher;
+    use crate::pty_input::{PtyInputDispatcher, PtyInputEnqueueResult};
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
 
@@ -3592,6 +3612,19 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
         mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn oversized_remote_input_shows_an_error_without_disconnecting() {
+        let mux = Mux::new("oversized-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        assert!(!app.handle_pty_enqueue_result(PtyInputEnqueueResult::Oversized));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Input exceeds the 4 MiB remote buffer limit")
+        );
+        assert!(!app.quit);
     }
 
     #[test]

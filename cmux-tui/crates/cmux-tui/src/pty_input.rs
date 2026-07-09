@@ -26,6 +26,13 @@ pub enum PtyInputKind {
     Release,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyInputEnqueueResult {
+    Accepted,
+    Oversized,
+    Saturated,
+}
+
 pub struct PtyInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
@@ -63,10 +70,13 @@ impl PtyInputDispatcher {
         Ok(Self { queue, worker: Some(worker) })
     }
 
-    pub fn enqueue(&self, event: PtyInputEvent) -> bool {
+    pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
         let mut state = self.queue.state.lock().unwrap();
         if state.closed {
-            return false;
+            return PtyInputEnqueueResult::Saturated;
+        }
+        if event.bytes.len() > MAX_QUEUED_BYTES {
+            return PtyInputEnqueueResult::Oversized;
         }
         let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
         let accepted = enqueue_bounded(
@@ -79,8 +89,10 @@ impl PtyInputDispatcher {
         );
         if accepted {
             self.queue.changed.notify_one();
+            PtyInputEnqueueResult::Accepted
+        } else {
+            PtyInputEnqueueResult::Saturated
         }
-        accepted
     }
 
     pub fn cancel_release_reservation(&self) {
@@ -112,6 +124,11 @@ impl PtyInputDispatcher {
         }
         let drained = state.events.is_empty() && !state.in_flight;
         state.closed = true;
+        if !drained {
+            state.events.clear();
+            state.queued_bytes = 0;
+            state.release_reservations = 0;
+        }
         self.queue.changed.notify_all();
         drop(state);
         if drained && let Some(worker) = self.worker.take() {
@@ -125,6 +142,9 @@ impl Drop for PtyInputDispatcher {
     fn drop(&mut self) {
         let mut state = self.queue.state.lock().unwrap();
         state.closed = true;
+        state.events.clear();
+        state.queued_bytes = 0;
+        state.release_reservations = 0;
         self.queue.changed.notify_all();
     }
 }
@@ -339,7 +359,10 @@ mod tests {
     #[test]
     fn shutdown_drains_and_joins_the_worker() {
         let mut dispatcher = PtyInputDispatcher::spawn().unwrap();
-        assert!(dispatcher.enqueue(event(1, 1, PtyInputKind::Ordered)));
+        assert_eq!(
+            dispatcher.enqueue(event(1, 1, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Accepted
+        );
         assert!(dispatcher.shutdown(Duration::from_secs(1)));
     }
 
