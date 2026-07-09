@@ -1,4 +1,6 @@
 import CmuxSettings
+import CryptoKit
+import Foundation
 import WebKit
 
 @available(macOS 15.4, *)
@@ -25,8 +27,8 @@ extension BrowserWebExtensionSupport {
             }
         )
 
-        for entryID in plan.unloadEntryIDs {
-            unload(entryID: entryID)
+        for entry in plan.unloadEntries {
+            unload(entryID: entry.id, preservePermissionState: entry.preservePermissionState)
         }
 
         guard canApplyWebExtensionLoad(generation: generation) else { return }
@@ -71,6 +73,16 @@ extension BrowserWebExtensionSupport {
         refreshAllActionSnapshots()
     }
 
+    func refreshActionSnapshot(for action: WKWebExtension.Action, context: WKWebExtensionContext) {
+        if let adapter = action.associatedTab as? BrowserWebExtensionTabAdapter,
+           let panelID = adapter.panel?.id,
+           tabAdapters[panelID] === adapter {
+            refreshActionSnapshots(for: panelID)
+            return
+        }
+        refreshActionSnapshot(for: context)
+    }
+
     func refreshAllActionSnapshots() {
         actionSnapshotRevision &+= 1
     }
@@ -100,9 +112,11 @@ extension BrowserWebExtensionSupport {
         )
     }
 
-    private func unload(entryID: String) {
+    private func unload(entryID: String, preservePermissionState: Bool = true) {
         guard let record = loadedByEntryID[entryID] else { return }
-        persistPermissionState(entryID: entryID, context: record.context)
+        if preservePermissionState {
+            persistPermissionState(entryID: entryID, context: record.context)
+        }
         do {
             try controller.unload(record.context)
         } catch {
@@ -114,6 +128,9 @@ extension BrowserWebExtensionSupport {
         }
 
         removePermissionStateObservers(entryID: entryID)
+        if !preservePermissionState {
+            removePermissionState(entryID: entryID)
+        }
         loadedByEntryID[entryID] = nil
         loadedEntryIDsInOrder.removeAll { $0 == entryID }
         loadErrorsByEntryID.removeValue(forKey: entryID)
@@ -141,8 +158,8 @@ extension BrowserWebExtensionSupport {
         do {
             let webExtension = try await makeWebExtension(for: entry)
             guard canApplyWebExtensionLoad(generation: generation) else { return }
-            let context = try load(webExtension, entryID: entry.id)
             let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
+            let context = try load(webExtension, entryID: entry.id, standardizedPath: standardizedPath)
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
                 entryID: entry.id,
                 standardizedPath: standardizedPath,
@@ -181,8 +198,13 @@ extension BrowserWebExtensionSupport {
     }
 
     @discardableResult
-    private func load(_ webExtension: WKWebExtension, entryID: String) throws -> WKWebExtensionContext {
+    private func load(
+        _ webExtension: WKWebExtension,
+        entryID: String,
+        standardizedPath: String
+    ) throws -> WKWebExtensionContext {
         let context = WKWebExtensionContext(for: webExtension)
+        configureStableContextIdentity(context, entryID: entryID, standardizedPath: standardizedPath)
 #if DEBUG
         context.isInspectable = true
 #endif
@@ -195,6 +217,26 @@ extension BrowserWebExtensionSupport {
             throw error
         }
         return context
+    }
+
+    private func configureStableContextIdentity(
+        _ context: WKWebExtensionContext,
+        entryID: String,
+        standardizedPath: String
+    ) {
+        let identifier = stableContextIdentifier(entryID: entryID, standardizedPath: standardizedPath)
+        context.uniqueIdentifier = identifier
+        context.baseURL = URL(string: "webkit-extension://\(identifier)/")!
+    }
+
+    private func stableContextIdentifier(entryID: String, standardizedPath: String) -> String {
+        let identity = "\(entryID)\n\(standardizedPath)"
+        let digest = SHA256.hash(data: Data(identity.utf8))
+        let hexDigits = Array("0123456789abcdef".utf8)
+        let hexBytes = digest.flatMap { byte in
+            [hexDigits[Int(byte >> 4)], hexDigits[Int(byte & 0x0f)]]
+        }
+        return "cmux-\(String(decoding: hexBytes, as: UTF8.self))"
     }
 
     private func recordLoadError(_ message: String, entryID: String) {

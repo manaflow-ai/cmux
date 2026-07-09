@@ -2748,7 +2748,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
     let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
-    private var webExtensionPageContextIdentifier: ObjectIdentifier?
+    private(set) var webExtensionPageContextIdentifier: ObjectIdentifier?
     private var isRegisteredForWebExtensions = false
     var webViewDidRequestClose: (() -> Void)?
 
@@ -4029,6 +4029,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] in self?.shouldBlockInsecureHTTPNavigation(to: $0) ?? false }
         navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
+        navDelegate.shouldBlockWebExtensionNavigation = { [weak self] in self?.shouldBlockPageInitiatedWebExtensionNavigation(to: $0) ?? false }
+        navDelegate.shouldRouteWebExtensionNavigationInCurrentTab = { [weak self] in self?.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: $0) ?? false }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             guard let self else { return }
             let restoreAttemptID = self.currentDiscardRestoreAttemptID
@@ -4216,10 +4218,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     recordTypedNavigation: false
                 )
             } else {
-                navigateWithoutInsecureHTTPPrompt(
-                    request: initialRequest,
-                    recordTypedNavigation: false
-                )
+                navigateWithoutInsecureHTTPPrompt(request: initialRequest, recordTypedNavigation: false, allowWebExtensionContext: initialExtensionNavigationConfiguration != nil)
             }
         } else if let url = initialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -4234,7 +4233,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 hasCommittedDocumentSinceWebViewReplacement = true
                 refreshBackgroundAppearance()
             } else {
-                navigate(to: url)
+                navigate(to: url, allowWebExtensionContext: initialExtensionNavigationConfiguration != nil)
             }
         }
     }
@@ -5731,13 +5730,13 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
-    func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+    func navigate(to url: URL, recordTypedNavigation: Bool = false, allowWebExtensionContext: Bool = true) {
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
             return
         }
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation, allowWebExtensionContext: allowWebExtensionContext)
     }
 
     func navigateWithoutInsecureHTTPPrompt(
@@ -5759,7 +5758,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false, allowWebExtensionContext: Bool = true
     ) {
-        guard let url = request.url else { return }
+        guard let url = request.url, !shouldBlockWebExtensionNavigation(to: url, allowWebExtensionContext: allowWebExtensionContext) else { return }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(

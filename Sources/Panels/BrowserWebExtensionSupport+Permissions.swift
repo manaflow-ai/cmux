@@ -11,6 +11,10 @@ extension BrowserWebExtensionSupport {
         permissionStateStore.save(BrowserWebExtensionPermissionState(context: context), for: entryID)
     }
 
+    func removePermissionState(entryID: String) {
+        permissionStateStore.removeState(for: entryID)
+    }
+
     func persistPermissionState(for context: WKWebExtensionContext) {
         guard let record = loadedRecordsInOrder.first(where: { $0.context === context }) else { return }
         persistPermissionState(entryID: record.entryID, context: context)

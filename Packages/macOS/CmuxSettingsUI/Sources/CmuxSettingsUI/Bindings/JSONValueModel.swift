@@ -28,6 +28,7 @@ public final class JSONValueModel<Value: SettingCodable> {
 
     /// Error from the most recent set/reset attempt, or `nil`.
     public private(set) var lastWriteError: Error?
+    private(set) var writeResultRevision = 0
 
     private let store: JSONConfigStore
     private let key: JSONKey<Value>
@@ -106,11 +107,17 @@ public final class JSONValueModel<Value: SettingCodable> {
         Task { [weak self, store, key] in
             do {
                 try await store.set(value, for: key)
-                await MainActor.run { self?.lastWriteError = nil }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.lastWriteError = nil
+                    self.writeResultRevision &+= 1
+                }
             } catch {
                 await MainActor.run {
-                    self?.lastWriteError = error
-                    self?.errorLog.record(error, keyID: keyID)
+                    guard let self else { return }
+                    self.lastWriteError = error
+                    self.writeResultRevision &+= 1
+                    self.errorLog.record(error, keyID: keyID)
                 }
             }
         }
@@ -123,11 +130,17 @@ public final class JSONValueModel<Value: SettingCodable> {
         Task { [weak self, store, key] in
             do {
                 try await store.reset(key)
-                await MainActor.run { self?.lastWriteError = nil }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.lastWriteError = nil
+                    self.writeResultRevision &+= 1
+                }
             } catch {
                 await MainActor.run {
-                    self?.lastWriteError = error
-                    self?.errorLog.record(error, keyID: keyID)
+                    guard let self else { return }
+                    self.lastWriteError = error
+                    self.writeResultRevision &+= 1
+                    self.errorLog.record(error, keyID: keyID)
                 }
             }
         }

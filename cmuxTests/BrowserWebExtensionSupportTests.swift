@@ -1,6 +1,8 @@
+import AppKit
 import CmuxSettings
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -175,7 +177,76 @@ struct BrowserWebExtensionSupportTests {
         )
 
         #expect(plan.unloadEntryIDs == ["com.bitwarden.desktop.safari"])
+        #expect(plan.unloadEntries == [
+            BrowserWebExtensionReconciliationPlanner.UnloadEntry(
+                id: "com.bitwarden.desktop.safari",
+                preservePermissionState: false
+            ),
+        ])
         #expect(plan.loadEntries.map(\.path) == [newPath])
+    }
+
+    @Test
+    func reconciliationPreservesPermissionStateWhenConfiguredEntryIsDisabled() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
+        let resourcePath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(
+            for: BrowserWebExtensionEntry(
+                id: "com.bitwarden.desktop.safari",
+                kind: .safariAppExtension,
+                path: appexPath,
+                enabled: true
+            )
+        )
+        let plan = planner.plan(
+            settingsEntries: [
+                BrowserWebExtensionEntry(
+                    id: "com.bitwarden.desktop.safari",
+                    kind: .safariAppExtension,
+                    path: appexPath,
+                    enabled: false
+                ),
+            ],
+            environmentPaths: [],
+            loadedEntries: [
+                BrowserWebExtensionReconciliationPlanner.LoadedEntry(
+                    id: "com.bitwarden.desktop.safari",
+                    standardizedPath: resourcePath
+                ),
+            ]
+        )
+
+        #expect(plan.unloadEntries == [
+            BrowserWebExtensionReconciliationPlanner.UnloadEntry(
+                id: "com.bitwarden.desktop.safari",
+                preservePermissionState: true
+            ),
+        ])
+        #expect(plan.loadEntries.isEmpty)
+    }
+
+    @MainActor
+    @Test
+    func pageInitiatedExtensionNavigationPolicyDistinguishesContextEntryAndExit() throws {
+        let extensionURL = try #require(URL(string: "webkit-extension://cmux-test/options.html"))
+        let normalURL = try #require(URL(string: "https://example.com/"))
+        let unknownExtensionURL = try #require(URL(string: "webkit-extension://other-extension/options.html"))
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-extension-test.txt")
+        let host = BrowserWebExtensionNavigationPolicyTestHost(extensionHost: extensionURL.host)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: extensionURL,
+            renderInitialNavigation: false,
+            browserWebExtensionHost: host
+        )
+        defer { panel.close() }
+
+        #expect(!panel.shouldBlockPageInitiatedWebExtensionNavigation(to: extensionURL))
+        #expect(panel.shouldBlockPageInitiatedWebExtensionNavigation(to: unknownExtensionURL))
+        #expect(panel.shouldBlockPageInitiatedWebExtensionNavigation(to: fileURL))
+        #expect(!panel.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: extensionURL))
+        #expect(panel.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: normalURL))
+        #expect(!panel.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: fileURL))
     }
 
     @Test
@@ -213,6 +284,40 @@ struct BrowserWebExtensionSupportTests {
     }
 
     @Test
+    @available(macOS 15.4, *)
+    func permissionStateStoreRemovesOnlyTargetEntry() throws {
+        let suiteName = "cmux-web-extension-permission-removal-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = BrowserWebExtensionPermissionStateStore(defaults: defaults)
+        let expiration = Date(timeIntervalSince1970: 1_800_000_000)
+        let firstState = BrowserWebExtensionPermissionState(
+            grantedPermissions: ["tabs": expiration],
+            deniedPermissions: [:],
+            grantedPermissionMatchPatterns: [:],
+            deniedPermissionMatchPatterns: [:],
+            hasRequestedOptionalAccessToAllHosts: false,
+            hasAccessToPrivateData: false
+        )
+        let secondState = BrowserWebExtensionPermissionState(
+            grantedPermissions: ["storage": expiration],
+            deniedPermissions: [:],
+            grantedPermissionMatchPatterns: [:],
+            deniedPermissionMatchPatterns: [:],
+            hasRequestedOptionalAccessToAllHosts: false,
+            hasAccessToPrivateData: false
+        )
+
+        store.save(firstState, for: "com.example.first")
+        store.save(secondState, for: "com.example.second")
+        store.removeState(for: "com.example.first")
+
+        #expect(store.state(for: "com.example.first") == nil)
+        #expect(store.state(for: "com.example.second") == secondState)
+    }
+
+    @Test
     func pluginkitParserHandlesVerboseSpaceSeparatedOutput() {
         let output = """
         +    com.bitwarden.desktop.safari(2026.7.0)  01234567-89AB-CDEF-0123-456789ABCDEF  2026-07-09 03:21:09 +0000  /Applications/Bitwarden.app/Contents/PlugIns/safari.appex
@@ -230,4 +335,36 @@ struct BrowserWebExtensionSupportTests {
         #expect(candidates.last?.version == "1.2.3")
         #expect(candidates.last?.path == "/Applications/Example App.app/Contents/PlugIns/Example Extension.appex")
     }
+}
+
+@MainActor
+private final class BrowserWebExtensionNavigationPolicyTestHost: BrowserWebExtensionHosting {
+    private let extensionHost: String?
+    private let contextToken = NSObject()
+    private let configuration = WKWebViewConfiguration()
+
+    init(extensionHost: String?) {
+        self.extensionHost = extensionHost
+    }
+
+    func attach(to configuration: WKWebViewConfiguration) {}
+
+    func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration? {
+        guard url.scheme?.lowercased() == "webkit-extension",
+              url.host == extensionHost else { return nil }
+        return BrowserWebExtensionNavigationConfiguration(
+            contextIdentifier: ObjectIdentifier(contextToken),
+            webViewConfiguration: configuration
+        )
+    }
+
+    func register(panel: BrowserPanel) {}
+
+    func unregister(panelID: UUID) {}
+
+    func noteActivated(panelID: UUID) {}
+
+    func noteTabMetadataChanged(panelID: UUID) {}
+
+    func performCommand(for event: NSEvent) -> Bool { false }
 }

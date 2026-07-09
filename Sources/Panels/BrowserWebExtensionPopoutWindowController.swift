@@ -68,7 +68,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         )
 
         if let url = configuration.tabURLs.first,
-           support.canOpenExtensionRequestedBrowserURL(url) {
+           support.canOpenExtensionPopupURL(url, for: context) {
             webView.load(URLRequest(url: url))
         }
         if configuration.shouldBeFocused {
@@ -138,7 +138,8 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     }
 
     func canLoadExtensionRequestedURL(_ url: URL) -> Bool {
-        support?.canOpenExtensionRequestedBrowserURL(url) == true
+        guard let extensionContext else { return false }
+        return support?.canOpenExtensionPopupURL(url, for: extensionContext) == true
     }
 
     // MARK: - Tab

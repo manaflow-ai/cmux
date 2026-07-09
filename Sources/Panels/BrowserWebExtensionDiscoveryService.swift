@@ -25,6 +25,9 @@ struct BrowserWebExtensionCandidate: Identifiable, Hashable, Sendable {
 /// (Bitwarden, 1Password, AdGuard, …) is found without configuration.
 actor BrowserWebExtensionDiscoveryService {
     private static let pluginkitURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+    private static let pluginkitTimeout: Duration = .seconds(10)
+    private var activePluginkitProcess: Process?
+    private var activePluginkitStdout: Pipe?
 
     func discoverInstalledSafariExtensions() async -> [BrowserWebExtensionCandidate] {
         let output: String
@@ -106,6 +109,15 @@ actor BrowserWebExtensionDiscoveryService {
     }
 
     private func runPluginkit() async throws -> String {
+        try await withTaskCancellationHandler {
+            try startPluginkitProcess()
+            return try await readActivePluginkitOutputWithTimeout()
+        } onCancel: {
+            Task { await self.terminateActivePluginkitProcess() }
+        }
+    }
+
+    private func startPluginkitProcess() throws {
         let process = Process()
         process.executableURL = Self.pluginkitURL
         process.arguments = ["-m", "-p", "com.apple.Safari.web-extension", "-A", "-v"]
@@ -114,8 +126,34 @@ actor BrowserWebExtensionDiscoveryService {
         // Discard rather than pipe stderr: an undrained pipe could block the
         // child if it wrote enough diagnostics, hanging discovery.
         process.standardError = FileHandle.nullDevice
+        activePluginkitProcess = process
+        activePluginkitStdout = stdout
         try process.run()
+    }
 
+    private func readActivePluginkitOutputWithTimeout() async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask { try await self.readActivePluginkitOutput() }
+            group.addTask {
+                try await Task.sleep(for: Self.pluginkitTimeout)
+                await self.terminateActivePluginkitProcess()
+                throw CancellationError()
+            }
+            do {
+                let output = try await group.next() ?? ""
+                group.cancelAll()
+                clearActivePluginkitProcess()
+                return output
+            } catch {
+                group.cancelAll()
+                await terminateActivePluginkitProcess()
+                throw error
+            }
+        }
+    }
+
+    private func readActivePluginkitOutput() async throws -> String {
+        guard let stdout = activePluginkitStdout else { return "" }
         var data = Data()
         // EOF on stdout is the completion signal; pluginkit's exit status is
         // uninteresting (an empty listing and a failure both mean "none found").
@@ -123,5 +161,18 @@ actor BrowserWebExtensionDiscoveryService {
             data.append(byte)
         }
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func terminateActivePluginkitProcess() {
+        if let process = activePluginkitProcess, process.isRunning {
+            process.terminate()
+        }
+        try? activePluginkitStdout?.fileHandleForReading.close()
+        clearActivePluginkitProcess()
+    }
+
+    private func clearActivePluginkitProcess() {
+        activePluginkitProcess = nil
+        activePluginkitStdout = nil
     }
 }

@@ -3543,7 +3543,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
-        browserPanel.registerWebExtensionIfNeeded()
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3597,6 +3596,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+        browserPanel.registerWebExtensionIfNeeded()
+        if focusedPanelId == browserPanel.id {
+            browserPanel.noteWebExtensionActivated()
+        }
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
@@ -11802,6 +11805,9 @@ extension Workspace: BonsplitDelegate {
         let effectiveFocusedPanelId = effectiveSelectedPanelId(inPane: focusedPane) ?? selectedPanelId
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
+        }
+        if let browserPanel = panel as? BrowserPanel {
+            browserPanel.noteWebExtensionActivated()
         }
 
         if debugStressPreloadSelectionDepth > 0 {

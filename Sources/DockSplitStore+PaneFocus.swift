@@ -105,6 +105,9 @@ extension DockSplitStore {
 
         let activationIntent = selectedPanel.preferredFocusIntentForActivation()
         selectedPanel.prepareFocusIntentForActivation(activationIntent)
+        if let browserPanel = selectedPanel as? BrowserPanel {
+            browserPanel.noteWebExtensionActivated()
+        }
         forEachPanel { panelId, panel in
             if panelId != selectedPanel.id {
                 panel.unfocus()
