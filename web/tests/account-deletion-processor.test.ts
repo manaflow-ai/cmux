@@ -96,6 +96,20 @@ describe("account deletion processor", () => {
     ]);
   });
 
+  test("continues a claimed Stack deletion without replaying cleanup", async () => {
+    claimResult = "stack_delete_in_progress";
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies());
+
+    expect(result).toBe("processed");
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "stack-delete:user-1",
+      "completed:user-1",
+    ]);
+  });
+
   test("processes pending jobs and continues after a failed job", async () => {
     pendingJobs = [
       { userId: "user-1", userIdHash: "hash-1", status: "pending" },

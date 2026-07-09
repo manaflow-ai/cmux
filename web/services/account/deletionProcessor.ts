@@ -64,7 +64,8 @@ export async function processAccountDeletionForUser(
   const claimedStatus = await dependencies.claimAccountDeletionProcessing({ userId: input.userId });
   if (!claimedStatus) return "skipped";
 
-  let stackDeletePending = claimedStatus === "stack_delete_pending";
+  let stackDeletePending =
+    claimedStatus === "stack_delete_pending" || claimedStatus === "stack_delete_in_progress";
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {

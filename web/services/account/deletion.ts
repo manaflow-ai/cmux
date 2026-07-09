@@ -76,7 +76,13 @@ export type AccountDeletionInput = {
   readonly userId: string;
 };
 
-export type AccountDeletionStatus = "pending" | "in_progress" | "stack_delete_pending" | "completed" | "failed";
+export type AccountDeletionStatus =
+  | "pending"
+  | "in_progress"
+  | "stack_delete_pending"
+  | "stack_delete_in_progress"
+  | "completed"
+  | "failed";
 
 export type AccountDeletionRequest = {
   readonly userIdHash: string;
@@ -212,9 +218,13 @@ export async function claimAccountDeletionProcessing(
       .limit(1);
     if (!existing || existing.status === "completed") return null;
     if (existing.status === "in_progress" && existing.updatedAt > staleBefore) return null;
+    if (existing.status === "stack_delete_in_progress" && existing.updatedAt > staleBefore) return null;
 
     const now = new Date();
-    const processingStatus = existing.status === "stack_delete_pending" ? "stack_delete_pending" : "in_progress";
+    const processingStatus =
+      existing.status === "stack_delete_pending" || existing.status === "stack_delete_in_progress"
+        ? "stack_delete_in_progress"
+        : "in_progress";
     const [claimed] = await tx
       .update(accountDeletionTombstones)
       .set({
@@ -252,6 +262,10 @@ export async function listPendingAccountDeletionJobs(
         eq(accountDeletionTombstones.status, "failed"),
         eq(accountDeletionTombstones.status, "stack_delete_pending"),
         and(
+          eq(accountDeletionTombstones.status, "stack_delete_in_progress"),
+          lt(accountDeletionTombstones.updatedAt, staleBefore),
+        ),
+        and(
           eq(accountDeletionTombstones.status, "in_progress"),
           lt(accountDeletionTombstones.updatedAt, staleBefore),
         ),
@@ -283,7 +297,10 @@ export async function markAccountDeletionStackDeletePending(
         updatedAt: now,
         errorMessage: input.error ? accountDeletionErrorMessage(input.error) : null,
       })
-      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)));
+      .where(and(
+        eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)),
+        ne(accountDeletionTombstones.status, "completed"),
+      ));
   });
 }
 
@@ -324,7 +341,10 @@ export async function markAccountDeletionFailed(
         updatedAt: now,
         errorMessage: accountDeletionErrorMessage(input.error),
       })
-      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)));
+      .where(and(
+        eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)),
+        ne(accountDeletionTombstones.status, "completed"),
+      ));
   });
 }
 

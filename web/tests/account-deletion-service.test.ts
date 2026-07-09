@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
 import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms } from "../db/schema";
-import { deleteCmuxAccountData, hasAccountDeletionTombstone } from "../services/account/deletion";
+import {
+  claimAccountDeletionProcessing,
+  deleteCmuxAccountData,
+  hasAccountDeletionTombstone,
+} from "../services/account/deletion";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const calls: string[] = [];
@@ -90,6 +94,56 @@ describe("account deletion cleanup", () => {
     };
 
     await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
+  });
+
+  test("claims Stack-delete retries as in-progress work", async () => {
+    let capturedStatus: unknown = null;
+    const runtime = {
+      cloudDb: () => ({
+        transaction: async <T>(callback: (tx: ReturnType<typeof fakeClaimTransaction>) => Promise<T>) =>
+          await callback(fakeClaimTransaction({
+            rows: [{
+              status: "stack_delete_pending",
+              updatedAt: new Date(),
+            }],
+            onSet: (values) => {
+              capturedStatus = values.status;
+            },
+          })),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(claimAccountDeletionProcessing({ userId: "user-1" }, runtime)).resolves.toBe("stack_delete_pending");
+
+    expect(capturedStatus).toBe("stack_delete_in_progress");
+  });
+
+  test("does not claim fresh Stack-delete work already owned by another worker", async () => {
+    let updateCalled = false;
+    const runtime = {
+      cloudDb: () => ({
+        transaction: async <T>(callback: (tx: ReturnType<typeof fakeClaimTransaction>) => Promise<T>) =>
+          await callback(fakeClaimTransaction({
+            rows: [{
+              status: "stack_delete_in_progress",
+              updatedAt: new Date(),
+            }],
+            onSet: () => {
+              updateCalled = true;
+            },
+          })),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(claimAccountDeletionProcessing({ userId: "user-1" }, runtime)).resolves.toBe(null);
+
+    expect(updateCalled).toBe(false);
   });
 
   test("claims providerless VMs before destroying provider-backed account VMs", async () => {
@@ -268,6 +322,17 @@ function fakeTransaction() {
   };
 }
 
+function fakeClaimTransaction(input: {
+  rows: Array<{ status: string; updatedAt: Date }>;
+  onSet: (values: Record<string, unknown>) => void;
+}) {
+  return {
+    execute: async () => [],
+    select: () => selectBuilder(() => input.rows),
+    update: () => updateReturningBuilder(input.onSet),
+  };
+}
+
 function selectBuilder(rows: () => unknown[]) {
   const builder = {
     from: () => builder,
@@ -278,6 +343,18 @@ function selectBuilder(rows: () => unknown[]) {
       resolve: (value: unknown[]) => unknown,
       reject: (reason: unknown) => unknown,
     ) => Promise.resolve(rows()).then(resolve, reject),
+  };
+  return builder;
+}
+
+function updateReturningBuilder(onSet: (values: Record<string, unknown>) => void) {
+  const builder = {
+    set: (values: Record<string, unknown>) => {
+      onSet(values);
+      return builder;
+    },
+    where: () => builder,
+    returning: async () => [{ userIdHash: "hash-1" }],
   };
   return builder;
 }
