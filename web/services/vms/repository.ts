@@ -25,6 +25,7 @@ import {
   VmCreateInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  isVmCreateDisabledError,
   isVmLimitExceededError,
 } from "./errors";
 
@@ -85,7 +86,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -517,7 +518,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           throw err;
         }
       },
-      catch: (cause) => isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
     }),

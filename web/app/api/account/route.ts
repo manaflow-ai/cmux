@@ -154,6 +154,7 @@ export async function DELETE(request: Request): Promise<Response> {
       await stackUser.delete();
     } catch (error) {
       logAccountDeleteError("account.delete.stack_user_failed_after_data_delete", error);
+      if (accountDeletionTombstoneStarted) await markAccountDeletionTombstoneFailed(userId, error);
       return jsonResponse({
         error: "account_delete_retryable",
         retryable: true,

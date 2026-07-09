@@ -1252,6 +1252,10 @@ describe("account deletion route", () => {
     });
     expect(updateStackUser).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
+      (values as { readonly errorMessage?: unknown }).errorMessage === "Error: raw [redacted] leaked by upstream"
+    )).toBe(true);
     expect(routeEvents).toEqual([
       "transaction",
       "transaction-lock",
