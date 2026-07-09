@@ -123,9 +123,20 @@ struct TerminalTranscriptImagePathScanner: Sendable {
             resolvedPath = stripped
         } else {
             guard let cwd = context.cwd, !cwd.isEmpty else { return nil }
-            resolvedPath = URL(fileURLWithPath: stripped, relativeTo: URL(fileURLWithPath: cwd)).standardizedFileURL.path
+            resolvedPath = relativePath(stripped, resolvedFrom: cwd)
         }
         return DetectedImagePath(rowIndex: rowIndex, path: stripped, resolvedPath: resolvedPath)
+    }
+
+    private func relativePath(_ path: String, resolvedFrom cwd: String) -> String {
+        var base = cwd
+        while base.count > 1, base.hasSuffix("/") {
+            base.removeLast()
+        }
+        if base == "/" {
+            return "/" + path
+        }
+        return base + "/" + path
     }
 
     private func stripWrappers(_ candidate: String) -> String {
