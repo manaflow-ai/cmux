@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -68,12 +69,35 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!sql) return;
-  await sql`truncate devices, device_app_instances restart identity cascade`;
+  await sql`truncate devices, device_app_instances, account_deletion_tombstones restart identity cascade`;
   getUser.mockClear();
   currentUserId = "registry-user-1";
 });
 
 describe("device registry route", () => {
+  dbTest("blocks registration while account deletion is in progress", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash("registry-user-1")}, ${"registry-user-1"}, 'pending')
+    `;
+
+    const response = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [],
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "account_deletion_in_progress" });
+    const [{ total }] = await sql<{ total: number }[]>`select count(*)::int as total from devices`;
+    expect(total).toBe(0);
+  });
+
   dbTest("registers a Mac and its app instance, then lists it for the team", async () => {
     if (!sql) throw new Error("test database not initialized");
 
