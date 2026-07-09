@@ -4,15 +4,40 @@ import Testing
 
 @Suite(.serialized)
 struct CLIWindowHandleRoutingTests {
-    @Test func closeWindowResolvesTypedHandleThroughV2() throws {
-        try assertTypedHandleRoutes(command: "close-window", expectedMutation: .v2(method: "window.close"))
+    @Test func closeWindowResolvesTypedHandleBeforeLegacyMutation() throws {
+        try assertTypedHandleRoutes(
+            command: "close-window",
+            expectedMutationLine: "close_window \(Self.targetWindowID)"
+        )
     }
 
     @Test func focusWindowResolvesTypedHandleBeforeLegacyMutation() throws {
         try assertTypedHandleRoutes(
             command: "focus-window",
-            expectedMutation: .v1(line: "focus_window \(Self.targetWindowID)")
+            expectedMutationLine: "focus_window \(Self.targetWindowID)"
         )
+    }
+
+    @Test func closeWindowPreservesLegacyNotFoundError() throws {
+        let socketPath = Self.makeSocketPath("missing")
+        let server = try CLIWindowCommandMockServer(
+            socketPath: socketPath,
+            targetWindowID: Self.targetWindowID,
+            targetWindowRef: Self.targetWindowRef
+        )
+        server.start()
+        defer { server.stop() }
+
+        let result = try Self.runCLI(
+            arguments: ["close-window", "--window", Self.missingWindowID],
+            socketPath: socketPath
+        )
+
+        #expect(server.waitUntilFinished(timeout: 5))
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 1, Comment(rawValue: result.output))
+        #expect(result.output == "Error: ERROR: Window not found\n")
+        #expect(server.receivedLinesSnapshot() == ["close_window \(Self.missingWindowID)"])
     }
 
     @Test func closeWindowRejectsMalformedTypedHandleBeforeMutation() throws {
@@ -42,7 +67,7 @@ struct CLIWindowHandleRoutingTests {
         #expect(server.receivedLinesSnapshot().isEmpty)
     }
 
-    private func assertTypedHandleRoutes(command: String, expectedMutation: ExpectedMutation) throws {
+    private func assertTypedHandleRoutes(command: String, expectedMutationLine: String) throws {
         let socketPath = Self.makeSocketPath(command)
         let server = try CLIWindowCommandMockServer(
             socketPath: socketPath,
@@ -62,20 +87,11 @@ struct CLIWindowHandleRoutingTests {
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "OK")
 
-        switch expectedMutation {
-        case let .v2(method):
-            let requests = try server.requestObjects()
-            #expect(requests.compactMap { $0["method"] as? String } == ["window.list", method])
-            let mutation = try #require(requests.last)
-            let params = try #require(mutation["params"] as? [String: Any])
-            #expect(params["window_id"] as? String == Self.targetWindowID)
-        case let .v1(line):
-            let receivedLines = server.receivedLinesSnapshot()
-            #expect(receivedLines.count == 2)
-            #expect(receivedLines.last == line)
-            let requests = try server.requestObjects()
-            #expect(requests.compactMap { $0["method"] as? String } == ["window.list"])
-        }
+        let receivedLines = server.receivedLinesSnapshot()
+        #expect(receivedLines.count == 2)
+        #expect(receivedLines.last == expectedMutationLine)
+        let requests = try server.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == ["window.list"])
     }
 
     private static func runCLI(arguments: [String], socketPath: String) throws -> ProcessResult {
@@ -142,13 +158,9 @@ struct CLIWindowHandleRoutingTests {
 
     private static let targetWindowID = "22222222-2222-2222-2222-222222222222"
     private static let targetWindowRef = "window:2"
+    private static let missingWindowID = "33333333-3333-3333-3333-333333333333"
 
     private final class BundleToken {}
-
-    private enum ExpectedMutation {
-        case v1(line: String)
-        case v2(method: String)
-    }
 
     private struct ProcessResult {
         let status: Int32

@@ -241,8 +241,11 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     }
 
     private func response(for line: String) -> String {
-        if line == "focus_window \(targetWindowID)" {
+        if line == "focus_window \(targetWindowID)" || line == "close_window \(targetWindowID)" {
             return "OK"
+        }
+        if line.hasPrefix("close_window ") {
+            return "ERROR: Window not found"
         }
 
         guard let data = line.data(using: .utf8),
@@ -263,15 +266,6 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
                         "ref": targetWindowRef,
                         "index": 2,
                     ]],
-                ]
-            )
-        case "window.close":
-            return v2Response(
-                id: id,
-                ok: true,
-                result: [
-                    "window_id": targetWindowID,
-                    "window_ref": targetWindowRef,
                 ]
             )
         default:
