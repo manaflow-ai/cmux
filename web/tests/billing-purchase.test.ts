@@ -609,6 +609,57 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("preserves legacy Team checkout rows owned by the team id", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for legacy team-owned checkout");
+    });
+    const updateTeam = mock(async () => undefined);
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: {},
+      update: updateTeam,
+    };
+    selectResults = [
+      [{ id: "cus_team", stackUserId: "team_123" }],
+      [{ id: "cus_team", stackUserId: "team_123" }],
+    ];
+
+    const result = await recordCheckoutCompletion(teamCheckoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: {
+        getUser,
+        getTeam: async () => team,
+      } as never,
+      stripeClient: () => ({
+        subscriptions: { cancel: cancelSubscription },
+        customers: { del: deleteCustomer },
+      }) as never,
+    });
+
+    expect(result).toEqual({
+      scope: "team",
+      stackTeamId: "team_123",
+      subscriptionId: "sub_team",
+    });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(deleteCustomer).not.toHaveBeenCalled();
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeCustomers &&
+          insert.values.id === "cus_team" &&
+          insert.values.stackUserId === "team_123" &&
+          insert.values.stackTeamId === "team_123",
+      ),
+    ).toBe(true);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
+    });
+  });
+
   test("blocks Team checkout completion while the billing owner is deleting without deleting the team customer", async () => {
     const cancelSubscription = mock(async () => undefined);
     const deleteCustomer = mock(async () => undefined);

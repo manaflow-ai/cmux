@@ -625,8 +625,12 @@ async function recordTeamCheckoutCompletion(input: {
   });
   const checkoutOwnerStackUserId =
     input.stackUserId ?? checkoutCustomerOwnership.stackUserId;
+  const checkoutOwnerIsLegacyTeam =
+    checkoutOwnerStackUserId === input.stackTeamId;
   const ownerStackUserId = checkoutOwnerStackUserId
-    ? teamSubscriptionOwnerStackUserId(checkoutOwnerStackUserId, input.stackTeamId)
+    ? checkoutOwnerIsLegacyTeam
+      ? input.stackTeamId
+      : teamSubscriptionOwnerStackUserId(checkoutOwnerStackUserId, input.stackTeamId)
     : null;
   if (!ownerStackUserId) {
     await cleanupCheckoutStripeResourcesForAccountDeletion({
@@ -642,7 +646,9 @@ async function recordTeamCheckoutCompletion(input: {
     };
   }
 
-  const owner = await loadOptionalStackUser(ownerStackUserId, input.dependencies.stackApp);
+  const owner = checkoutOwnerIsLegacyTeam
+    ? null
+    : await loadOptionalStackUser(ownerStackUserId, input.dependencies.stackApp);
   const lockedResult = await withAccountDeletionUserLock(db, ownerStackUserId, async (tx) => {
     const transactionCustomerOwnership = await teamStripeCustomerOwnership(tx, {
       stackTeamId: input.stackTeamId,
@@ -652,8 +658,12 @@ async function recordTeamCheckoutCompletion(input: {
       input.stackUserId ??
       transactionCustomerOwnership.stackUserId ??
       checkoutOwnerStackUserId;
-    const transactionOwnerStackUserId =
-      stackUserId ? teamSubscriptionOwnerStackUserId(stackUserId, input.stackTeamId) : null;
+    const transactionOwnerIsLegacyTeam = stackUserId === input.stackTeamId;
+    const transactionOwnerStackUserId = stackUserId
+      ? transactionOwnerIsLegacyTeam
+        ? input.stackTeamId
+        : teamSubscriptionOwnerStackUserId(stackUserId, input.stackTeamId)
+      : null;
     const ownerChangedDuringCheckout = transactionOwnerStackUserId !== ownerStackUserId;
     const observedExistingCheckoutCustomer =
       checkoutCustomerOwnership.customerRowExists ||
@@ -661,9 +671,9 @@ async function recordTeamCheckoutCompletion(input: {
     if (
       !transactionOwnerStackUserId ||
       !stackUserId ||
-      (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx)) ||
+      (!transactionOwnerIsLegacyTeam && await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx)) ||
       ownerChangedDuringCheckout ||
-      (transactionOwnerStackUserId && !owner) ||
+      (!transactionOwnerIsLegacyTeam && transactionOwnerStackUserId && !owner) ||
       (owner && isAccountDeletionInProgress(owner))
     ) {
       return {
