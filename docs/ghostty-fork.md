@@ -57,7 +57,8 @@ https://github.com/manaflow-ai/ghostty/pull/96.
 
 Verified with Zig 0.15.2: compression and libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
-build, and a clean universal GhosttyKit build. Prebuilt archive:
+build, a clean universal GhosttyKit build, and tagged cmux reload `gcmp`.
+Prebuilt archive:
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-870ed36f9623377b41e03bbebdb034ccb8a80fa3-crashsubdir-cmux-crash-v1
 
 ### Previous pin
