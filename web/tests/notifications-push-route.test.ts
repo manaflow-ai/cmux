@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { accountDeletionTombstones, deviceTokens, notificationSendEvents } from "../db/schema";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -58,6 +59,8 @@ const sendApnsNotification = mock(async (...args: unknown[]) => {
 let useStubDb = false;
 let pushDbCalls: string[] = [];
 let pushDbTransactionOpen = false;
+let accountDeletionSelectCount = 0;
+let accountDeletionBlockOnSelect: number | null = null;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -146,6 +149,8 @@ beforeEach(() => {
   }];
   pushDbCalls = [];
   pushDbTransactionOpen = false;
+  accountDeletionSelectCount = 0;
+  accountDeletionBlockOnSelect = null;
 });
 
 describe("notifications push route", () => {
@@ -175,11 +180,11 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  test("sends APNs outside the account deletion transaction and rechecks before pruning", async () => {
+  test("holds the account deletion lock while sending APNs and rechecks before pruning", async () => {
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     cloudDbImpl = () => fakePushDb();
     sendApnsNotificationImpl = async () => {
-      expect(pushDbTransactionOpen).toBe(false);
+      expect(pushDbTransactionOpen).toBe(true);
       pushDbCalls.push("send-apns");
       return [{
         deviceToken: "token-1",
@@ -206,16 +211,60 @@ describe("notifications push route", () => {
       "lock",
       "select:accountDeletionTombstones",
       "select:deviceTokens",
+      "transaction:end",
+      "transaction:start",
+      "lock",
+      "select:accountDeletionTombstones",
       "rate-limit-lock",
       "delete:notificationSendEvents",
       "select:notificationSendEvents",
       "insert:notificationSendEvents",
-      "transaction:end",
       "send-apns",
+      "transaction:end",
       "transaction:start",
       "lock",
       "select:accountDeletionTombstones",
       "delete:deviceTokens",
+      "transaction:end",
+    ]);
+  });
+
+  test("does not send APNs when account deletion starts after token selection", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    cloudDbImpl = () => fakePushDb();
+    accountDeletionBlockOnSelect = 2;
+    sendApnsNotificationImpl = async () => {
+      pushDbCalls.push("send-apns");
+      return [{
+        deviceToken: "token-1",
+        status: 200,
+        prune: true,
+      }];
+    };
+
+    const response = await pushRoute.POST(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ title: "Build finished", body: "Tests passed" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "account_deletion_in_progress" });
+    expect(sendApnsNotification).not.toHaveBeenCalled();
+    expect(pushDbCalls).toEqual([
+      "transaction:start",
+      "lock",
+      "select:accountDeletionTombstones",
+      "select:deviceTokens",
+      "transaction:end",
+      "transaction:start",
+      "lock",
+      "select:accountDeletionTombstones",
       "transaction:end",
     ]);
   });
@@ -261,6 +310,16 @@ function selectBuilder() {
   let table: unknown = null;
   const rows = () => {
     pushDbCalls.push(`select:${tableLabel(table)}`);
+    if (table === accountDeletionTombstones) {
+      accountDeletionSelectCount += 1;
+      if (accountDeletionBlockOnSelect !== null && accountDeletionSelectCount >= accountDeletionBlockOnSelect) {
+        return [{
+          userIdHash: accountDeletionUserHash("user-1"),
+          status: "pending",
+        }];
+      }
+      return [];
+    }
     if (table === deviceTokens) {
       return [{
         deviceToken: "token-1",

@@ -101,7 +101,6 @@ async function sendPush(request: Request): Promise<Response> {
         return { kind: "unconfigured" as const };
       }
 
-      await recordPushSendInTransactionOrThrow(tx, user.id, tokens.length);
       return { kind: "ready" as const, config, tokens };
     });
 
@@ -109,7 +108,10 @@ async function sendPush(request: Request): Promise<Response> {
       return jsonResponse({ error: "push_service_not_configured" }, 503);
     }
     if (result.kind === "ready") {
-      const results = await sendApnsNotification(result.config, result.tokens, payload.value);
+      const results = await withAccountDeletionUserMutationLock(db, user.id, async (tx) => {
+        await recordPushSendInTransactionOrThrow(tx, user.id, result.tokens.length);
+        return await sendApnsNotification(result.config, result.tokens, payload.value);
+      });
       await pruneDeadDeviceTokens(db, user.id, results.filter((r) => r.prune).map((r) => r.deviceToken));
       return jsonResponse(summarizeApnsSendResults(results));
     }
