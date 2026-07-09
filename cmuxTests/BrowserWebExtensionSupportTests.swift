@@ -59,6 +59,9 @@ struct BrowserWebExtensionSupportTests {
         support.noteWindowBecameKey(firstWindow)
 
         #expect(support.activePanelID == firstPanel.id)
+        #expect((support.webExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
+        let unrelatedWindow = NSWindow()
+        #expect(support.webExtensionWindow(for: unrelatedWindow) == nil)
     }
 
     @Test
@@ -327,6 +330,11 @@ struct BrowserWebExtensionSupportTests {
             shouldOpenInNewTab: false,
             navigationType: .linkActivated
         ))
+        #expect(!delegate.shouldRouteWebExtensionNavigationAsCurrentTab(
+            targetFrameIsMainFrame: nil,
+            shouldOpenInNewTab: false,
+            navigationType: .other
+        ))
         #expect(delegate.shouldRouteWebExtensionNavigationAsCurrentTab(
             targetFrameIsMainFrame: true,
             shouldOpenInNewTab: false,
@@ -366,6 +374,29 @@ struct BrowserWebExtensionSupportTests {
         #expect(store.state(for: "com.example.first") == firstState)
         #expect(store.state(for: "com.example.second") == secondState)
         #expect(store.state(for: "missing") == nil)
+    }
+
+    @Test
+    @available(macOS 15.4, *)
+    func permissionStateDoesNotCrossResourceIdentities() throws {
+        let suiteName = "cmux-web-extension-permission-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = BrowserWebExtensionPermissionStateStore(defaults: defaults)
+        let state = BrowserWebExtensionPermissionState(
+            grantedPermissions: ["tabs": Date(timeIntervalSince1970: 1_800_000_000)],
+            deniedPermissions: [:],
+            grantedPermissionMatchPatterns: [:],
+            deniedPermissionMatchPatterns: [:],
+            hasRequestedOptionalAccessToAllHosts: false,
+            hasAccessToPrivateData: false
+        )
+
+        store.save(state, for: "com.example.extension", standardizedPath: "/Extensions/Original")
+
+        #expect(store.state(for: "com.example.extension", standardizedPath: "/Extensions/Original") == state)
+        #expect(store.state(for: "com.example.extension", standardizedPath: "/Extensions/Replacement") == nil)
     }
 
     @Test
