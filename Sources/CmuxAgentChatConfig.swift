@@ -195,7 +195,7 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
     }
 }
 
-struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
+nonisolated struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
     var port: Int
     var pid: Int
     var launchId: String?
@@ -261,7 +261,9 @@ struct AgentChatSidecarStateFileStore: Sendable {
                     fileManager: fileManager
                 )
                 try? fileManager.removeItem(at: stateFileURL)
-                _ = fileManager.createFile(atPath: stateFileURL.path, contents: nil)
+                guard fileManager.createFile(atPath: stateFileURL.path, contents: nil) else {
+                    return nil
+                }
                 return stateFileURL
             } catch {
                 return nil

@@ -170,7 +170,10 @@ function basePrefix(): string {
 function routePath(): string {
   if (typeof location === "undefined") return "/";
   const base = basePrefix();
-  return base && location.pathname.startsWith(base + "/") ? location.pathname.slice(base.length) : location.pathname;
+  if (!base) return location.pathname;
+  // Bare /<token> (no trailing slash) is the app root.
+  if (location.pathname === base) return "/";
+  return location.pathname.startsWith(base + "/") ? location.pathname.slice(base.length) : location.pathname;
 }
 
 function appPath(path: string): string {
