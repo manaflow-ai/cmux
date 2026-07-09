@@ -57,7 +57,7 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("passes only single-member Stack team ids into cmux cleanup", async () => {
+  test("passes owned team ids and retained team billing owners into cmux cleanup", async () => {
     const personalTeam = stackTeam("team-personal", ["user-1"]);
     const sharedTeam = stackTeam("team-shared", ["user-1", "user-2"]);
 
@@ -78,8 +78,7 @@ describe("account deletion processor", () => {
     }));
 
     expect(result).toBe("processed");
-    expect(calls).toContain("cleanup:user-1:team-personal");
-    expect(calls).not.toContain("cleanup:user-1:team-shared");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal:retained=team-shared->user-2");
   });
 
   test("pages through Stack teams before selecting owned-team cleanup scope", async () => {
@@ -109,8 +108,7 @@ describe("account deletion processor", () => {
 
     expect(result).toBe("processed");
     expect(requestedCursors).toEqual([undefined, "page-2"]);
-    expect(calls).toContain("cleanup:user-1:team-personal-page-2");
-    expect(calls).not.toContain("cleanup:user-1:team-shared");
+    expect(calls).toContain("cleanup:user-1:owned=team-personal-page-2:retained=team-shared->user-2");
   });
 
   test("keeps cleanup-started failures blocking so the durable job can retry", async () => {
@@ -304,10 +302,17 @@ function dependencies(
       calls.push(`claim:${userId}`);
       return claimResult;
     },
-    deleteCmuxAccountData: async ({ userId, ownedTeamIds }) => {
-      const scope = ownedTeamIds && ownedTeamIds.length > 0
-        ? `:${ownedTeamIds.join(",")}`
-        : "";
+    deleteCmuxAccountData: async ({ userId, ownedTeamIds, retainedTeamBillingOwners }) => {
+      const scopeParts: string[] = [];
+      if (ownedTeamIds && ownedTeamIds.length > 0) {
+        scopeParts.push(`owned=${ownedTeamIds.join(",")}`);
+      }
+      if (retainedTeamBillingOwners && retainedTeamBillingOwners.length > 0) {
+        scopeParts.push(`retained=${retainedTeamBillingOwners.map((owner) =>
+          `${owner.stackTeamId}->${owner.stackUserId}`
+        ).join(",")}`);
+      }
+      const scope = scopeParts.length > 0 ? `:${scopeParts.join(":")}` : "";
       calls.push(`cleanup:${userId}${scope}`);
       if (cleanupError) throw cleanupError;
     },

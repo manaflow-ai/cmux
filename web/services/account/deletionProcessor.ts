@@ -14,6 +14,7 @@ import {
   markAccountDeletionStackDeletePending,
   type AccountDeletionJob,
   type AccountDeletionStatus,
+  type RetainedTeamBillingOwner,
   type StackAccountDeletionMetadataUser,
 } from "./deletion";
 
@@ -38,7 +39,11 @@ type StackAccountDeletionTeamPage = readonly unknown[] & {
 export type AccountDeletionProcessorDependencies = {
   readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<AccountDeletionStatus | null>;
   readonly deleteCmuxAccountData: (
-    input: { readonly userId: string; readonly ownedTeamIds?: readonly string[] },
+    input: {
+      readonly userId: string;
+      readonly ownedTeamIds?: readonly string[];
+      readonly retainedTeamBillingOwners?: readonly RetainedTeamBillingOwner[];
+    },
   ) => Promise<void>;
   readonly deleteIOSAnalyticsIdentities: (input: { readonly userId: string }) => Promise<void>;
   readonly deletePostHogPersonData: (
@@ -90,8 +95,12 @@ export async function processAccountDeletionForUser(
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
       if (!user) throw new Error("Stack user unavailable for account deletion");
-      const ownedTeamIds = user ? await accountDeletionOwnedTeamIds(user) : [];
-      await dependencies.deleteCmuxAccountData({ userId: input.userId, ownedTeamIds });
+      const teamScope = await accountDeletionTeamScope(user);
+      await dependencies.deleteCmuxAccountData({
+        userId: input.userId,
+        ownedTeamIds: teamScope.ownedTeamIds,
+        retainedTeamBillingOwners: teamScope.retainedTeamBillingOwners,
+      });
       const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
       await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
       await dependencies.deleteIOSAnalyticsIdentities({ userId: input.userId });
@@ -136,17 +145,33 @@ export async function processPendingAccountDeletions(
   return { scanned: jobs.length, processed, skipped, failed };
 }
 
-async function accountDeletionOwnedTeamIds(user: StackAccountDeletionUser): Promise<readonly string[]> {
+async function accountDeletionTeamScope(user: StackAccountDeletionUser): Promise<{
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
+}> {
   const listedTeams = await listAllAccountDeletionStackTeams(user);
   const teams = uniqueStackTeams([
     stackTeamFromUnknown(user.selectedTeam),
     ...listedTeams.map(stackTeamFromUnknown),
   ]);
   const ownedTeamIds: string[] = [];
+  const retainedTeamBillingOwners: RetainedTeamBillingOwner[] = [];
   for (const team of teams) {
-    if (await isOnlyTeamMember(team, user.id)) ownedTeamIds.push(team.id);
+    const memberIds = await accountDeletionTeamMemberIds(team);
+    if (memberIds.length === 1 && memberIds[0] === user.id) {
+      ownedTeamIds.push(team.id);
+      continue;
+    }
+    if (!memberIds.includes(user.id)) continue;
+    const replacementOwnerId = memberIds.find((memberId) => memberId !== user.id);
+    if (replacementOwnerId) {
+      retainedTeamBillingOwners.push({
+        stackTeamId: team.id,
+        stackUserId: replacementOwnerId,
+      });
+    }
   }
-  return ownedTeamIds;
+  return { ownedTeamIds, retainedTeamBillingOwners };
 }
 
 async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser): Promise<readonly unknown[]> {
@@ -166,15 +191,14 @@ async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser):
   return teams;
 }
 
-async function isOnlyTeamMember(team: StackAccountDeletionTeam, userId: string): Promise<boolean> {
-  if (typeof team.listUsers !== "function") return false;
+async function accountDeletionTeamMemberIds(team: StackAccountDeletionTeam): Promise<readonly string[]> {
+  if (typeof team.listUsers !== "function") return [];
   const members = await team.listUsers();
-  const memberIds = members.flatMap((member) => {
+  return uniqueStrings(members.flatMap((member) => {
     if (!member || typeof member !== "object") return [];
     const id = (member as { readonly id?: unknown }).id;
     return typeof id === "string" && id.trim() ? [id.trim()] : [];
-  });
-  return memberIds.length === 1 && memberIds[0] === userId;
+  }));
 }
 
 function normalizedStackCursor(value: string | null | undefined): string | undefined {
@@ -206,4 +230,15 @@ function uniqueStackTeams(
     teams.push(team);
   }
   return teams;
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  const strings: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    strings.push(value);
+  }
+  return strings;
 }

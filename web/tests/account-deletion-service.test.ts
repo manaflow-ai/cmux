@@ -576,7 +576,7 @@ describe("account deletion cleanup", () => {
     expect(subscriptionUpdate?.values.stackTeamId).toBe(customerUpdate?.values.stackTeamId);
   });
 
-  test("scrubs shared-team Stripe identifiers without canceling shared billing", async () => {
+  test("reassigns retained shared-team Stripe billing without canceling it", async () => {
     stripeCustomerRows = [
       { id: "cus_personal", stackUserId: "user-1", stackTeamId: null },
       { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
@@ -602,23 +602,62 @@ describe("account deletion cleanup", () => {
 
     await deleteCmuxAccountData({
       userId: "user-1",
+      retainedTeamBillingOwners: [{
+        stackTeamId: "team-shared",
+        stackUserId: "user-2",
+      }],
     }, fakeRuntime());
 
     const sharedCustomerUpdate = stripeCustomerUpdates.find((entry) => entry.id === "cus_shared");
     expect(sharedCustomerUpdate?.params.email).toBe("");
-    expect(sharedCustomerUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(sharedCustomerUpdate?.params.metadata?.stackUserId).toBe("user-2");
     expect(sharedCustomerUpdate?.params.metadata?.stackTeamId).toBeUndefined();
     expect(sharedCustomerUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
 
     const sharedSubscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_shared");
-    expect(sharedSubscriptionUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(sharedSubscriptionUpdate?.params.metadata?.stackUserId).toBe("user-2");
     expect(sharedSubscriptionUpdate?.params.metadata?.stackTeamId).toBeUndefined();
     expect(sharedSubscriptionUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
     expect(stripeSubscriptionCancels).not.toContain("sub_shared");
 
+    const sharedCustomerLocalUpdate = updateSets.find((entry) =>
+      entry.label === "reassign-retained-team-stripe-customers"
+    );
+    expect(sharedCustomerLocalUpdate?.values.stackUserId).toBe("user-2");
+    expect(sharedCustomerLocalUpdate?.values.email).toBeNull();
+    const sharedSubscriptionLocalUpdate = updateSets.find((entry) =>
+      entry.label === "reassign-retained-team-stripe-subscriptions"
+    );
+    expect(sharedSubscriptionLocalUpdate?.values.stackUserId).toBe("user-2");
+    expect(sharedSubscriptionLocalUpdate?.values.raw).toBeNull();
+
     const personalSubscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_personal");
     expect(personalSubscriptionUpdate?.params.metadata?.stackUserId).toBe("");
     expect(stripeSubscriptionCancels).toContain("sub_personal");
+  });
+
+  test("fails closed when retained shared-team billing lacks a replacement owner", async () => {
+    stripeCustomerRows = [
+      { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
+    ];
+    stripeSubscriptionRows = [
+      {
+        id: "sub_shared",
+        stackUserId: "user-1",
+        stackTeamId: "team-shared",
+        status: "active",
+        scope: "team",
+        plan: TEAM_PLAN_ID,
+      },
+    ];
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("retained team billing owner missing for team-shared");
+
+    expect(stripeCustomerUpdates).toHaveLength(0);
+    expect(stripeSubscriptionUpdates).toHaveLength(0);
+    expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
   });
 
   test("cancels personal Stripe subscriptions even when the local row status is stale", async () => {
@@ -758,20 +797,10 @@ function fakeTransaction() {
       if (table === cloudVms) return updateBuilder("anonymize-team-cloud-vms");
       if (table === cloudVmUsageEvents) return updateBuilder("anonymize-team-cloud-vm-usage-events");
       if (table === stripeCustomers) {
-        return updateBuilder(
-          updateSets.some((entry) => entry.label === "anonymize-user-stripe-customers")
-            ? "anonymize-owned-team-stripe-customers"
-            : "anonymize-user-stripe-customers",
-        );
+        return updateBuilder(stripeCustomerUpdateLabel);
       }
       if (table === stripeSubscriptions) {
-        const userSubscriptionUpdates = updateSets.filter((entry) =>
-          entry.label === "anonymize-user-stripe-subscriptions" ||
-          entry.label === "cancel-stripe-subscriptions"
-        ).length;
-        if (userSubscriptionUpdates === 0) return updateBuilder("cancel-stripe-subscriptions");
-        if (userSubscriptionUpdates === 1) return updateBuilder("anonymize-user-stripe-subscriptions");
-        return updateBuilder("anonymize-owned-team-stripe-subscriptions");
+        return updateBuilder(stripeSubscriptionUpdateLabel);
       }
       return updateBuilder();
     },
@@ -821,18 +850,39 @@ function updateReturningBuilder(onSet: (values: Record<string, unknown>) => void
   return builder;
 }
 
-function updateBuilder(label?: string) {
+function updateBuilder(label?: string | ((values: Record<string, unknown>) => string | undefined)) {
+  let resolvedLabel: string | undefined;
   const builder = {
     set: (values: Record<string, unknown>) => {
-      if (label) updateSets.push({ label, values });
+      resolvedLabel = typeof label === "function" ? label(values) : label;
+      if (resolvedLabel) updateSets.push({ label: resolvedLabel, values });
       return builder;
     },
     where: async () => {
-      if (label) calls.push(label);
+      if (resolvedLabel) calls.push(resolvedLabel);
       return [];
     },
   };
   return builder;
+}
+
+function stripeCustomerUpdateLabel(values: Record<string, unknown>): string | undefined {
+  const stackUserId = typeof values.stackUserId === "string" ? values.stackUserId : null;
+  const stackTeamId = typeof values.stackTeamId === "string" ? values.stackTeamId : null;
+  if (stackTeamId?.startsWith("deleted_team_")) return "anonymize-owned-team-stripe-customers";
+  if (stackUserId?.startsWith("deleted_")) return "anonymize-user-stripe-customers";
+  if (stackUserId) return "reassign-retained-team-stripe-customers";
+  return undefined;
+}
+
+function stripeSubscriptionUpdateLabel(values: Record<string, unknown>): string | undefined {
+  const stackUserId = typeof values.stackUserId === "string" ? values.stackUserId : null;
+  const stackTeamId = typeof values.stackTeamId === "string" ? values.stackTeamId : null;
+  if (values.status === "canceled") return "cancel-stripe-subscriptions";
+  if (stackTeamId?.startsWith("deleted_team_")) return "anonymize-owned-team-stripe-subscriptions";
+  if (stackUserId?.startsWith("deleted_")) return "anonymize-user-stripe-subscriptions";
+  if (stackUserId) return "reassign-retained-team-stripe-subscriptions";
+  return undefined;
 }
 
 function writeBuilder(label?: string) {
