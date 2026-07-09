@@ -27,7 +27,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     let permissionStateStore = BrowserWebExtensionPermissionStateStore()
 
-    var actionSnapshots: [BrowserWebExtensionActionSnapshot] = []
+    var actionSnapshotIDs: [String] = []
+    var actionSnapshotRevision = 0
     var loadErrors: [String] = []
 
     @ObservationIgnored
@@ -153,6 +154,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     func noteTabMetadataChanged(panelID: UUID) {
         guard let adapter = tabAdapters[panelID] else { return }
         controller.didChangeTabProperties([.title, .URL, .loading, .muted], for: adapter)
+        refreshActionSnapshots()
     }
 
     func tabAdapter(for panelID: UUID) -> BrowserWebExtensionTabAdapter? {

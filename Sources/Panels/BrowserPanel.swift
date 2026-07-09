@@ -3332,7 +3332,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         currentURL = restoreURL
         shouldRenderWebView = false
@@ -4653,7 +4653,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -5163,7 +5163,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
@@ -6279,7 +6279,7 @@ extension BrowserPanel {
         )
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         shouldRenderWebView = false
         refreshWebViewLifecycleState()
         bindWebView(replacement)
