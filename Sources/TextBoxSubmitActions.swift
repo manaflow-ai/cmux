@@ -359,15 +359,20 @@ extension TextBoxInputContainer {
         let iconOpacity = canSend ? 0.86 : 0.76
         if let image = submitActionNSImage(for: action) {
             Image(nsImage: image)
+                .renderingMode(action.id == "codex" ? .template : .original)
                 .resizable()
                 .scaledToFit()
+                .foregroundStyle(Color.black)
                 .opacity(iconOpacity)
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize
                 )
         } else if let assetName = resolvedSubmitActionAssetName(for: action) {
-            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
+            CmuxResolvedIconImage(request: submitActionIconRequest(
+                assetName: assetName,
+                tintColor: action.id == "codex" ? .black : nil
+            ))
                 .opacity(iconOpacity)
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
