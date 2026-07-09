@@ -190,10 +190,17 @@ export async function DELETE(request: Request): Promise<Response> {
       }, 500);
     }
     try {
-      await markAccountDeletionTombstoneCompleted(userId);
       await finishPostStackAccountCleanup(userId, accountScope.teamIds);
+      await markAccountDeletionTombstoneCompleted(userId);
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
+      if (accountDeletionTombstoneStarted) {
+        try {
+          await markAccountDeletionTombstoneFailed(userId, error);
+        } catch (markFailedError) {
+          logAccountDeleteError("account.delete.post_stack_cleanup_mark_failed", markFailedError);
+        }
+      }
       return jsonResponse({
         ok: true,
         cleanupIncomplete: true,

@@ -1384,8 +1384,10 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(tombstoneUpdates.some((values) =>
-      (values as { readonly status?: unknown; readonly userId?: unknown }).status === "completed" &&
-      (values as { readonly userId?: unknown }).userId === null
+      (values as { readonly status?: unknown }).status === "completed"
+    )).toBe(false);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "failed"
     )).toBe(true);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
@@ -1405,6 +1407,9 @@ describe("account deletion route", () => {
       destroyedVms: 2,
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "failed"
+    )).toBe(true);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.post_stack_cleanup_failed",
       "Error: tombstone unavailable",
