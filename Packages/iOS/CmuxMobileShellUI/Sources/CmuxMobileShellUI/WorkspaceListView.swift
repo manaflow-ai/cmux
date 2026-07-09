@@ -227,22 +227,24 @@ struct WorkspaceListView: View {
             visibleSelection: currentVisibleMacSelection
         )
         let list = List {
-            if let store, showsConnectionRecoveryRow {
-                Section {
-                    MobileConnectionRecoveryBanner(
-                        connectionRequiresReauth: store.connectionRequiresReauth,
-                        connectionRecoveryFailed: store.connectionRecoveryFailed,
-                        isRecoveringConnection: store.isRecoveringConnection,
-                        connectionError: store.connectionError,
-                        retry: { store.retryMobileConnection() },
-                        signOut: signOut,
-                        rendersInline: true
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                    .listRowSeparator(.hidden)
+            switch connectionChrome {
+            case .recoveryBanner:
+                if let store {
+                    Section {
+                        MobileConnectionRecoveryBanner(
+                            connectionRequiresReauth: store.connectionRequiresReauth,
+                            connectionRecoveryFailed: store.connectionRecoveryFailed,
+                            isRecoveringConnection: store.isRecoveringConnection,
+                            connectionError: store.connectionError,
+                            retry: { store.retryMobileConnection() },
+                            signOut: signOut,
+                            rendersInline: true
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                    }
                 }
-            }
-            if connectionStatus != .connected {
+            case .macStatusRow:
                 Section {
                     MobileMacConnectionStatusRow(
                         host: host,
@@ -264,6 +266,8 @@ struct WorkspaceListView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
+            case .none:
+                EmptyView()
             }
             Section {
                 if rendersGroupedSections {
@@ -474,11 +478,14 @@ struct WorkspaceListView: View {
     }
     #endif
 
-    private var showsConnectionRecoveryRow: Bool {
-        guard let store else { return false }
-        return store.connectionRequiresReauth
-            || store.connectionRecoveryFailed
-            || store.isRecoveringConnection
+    var connectionChrome: WorkspaceListConnectionChrome {
+        WorkspaceListConnectionChrome(
+            hasStore: store != nil,
+            connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
+            connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
+            isRecoveringConnection: store?.isRecoveringConnection ?? false,
+            connectionStatus: connectionStatus
+        )
     }
 
     private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
