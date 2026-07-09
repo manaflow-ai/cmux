@@ -15,6 +15,7 @@ import {
   subrouterRuntimeConfig,
   type ClaudeAccountInput,
   type CodexAccountInput,
+  type SubrouterClient,
   type SubrouterAccountInput,
 } from "../../../../services/subrouter/client";
 import {
@@ -72,25 +73,46 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const db = cloudDb();
-    const account = await withAccountDeletionUserMutationLock(
+    await assertSubrouterAccountUploadAllowed(db, context.userId);
+    const tenant = await getOrCreateTenantForTeam(
       db,
-      context.userId,
-      async () => {
-        const tenant = await getOrCreateTenantForTeam(
-          db,
-          context.team.teamId,
-          context.team.teamName,
-          {
-            client: context.client,
-            tenantKeySecret: context.config.tenantKeySecret,
-          },
-        );
-        return await context.client.createAccount(tenant.tenantKey, input.value, { validate });
+      context.team.teamId,
+      context.team.teamName,
+      {
+        client: context.client,
+        tenantKeySecret: context.config.tenantKeySecret,
       },
     );
+    await assertSubrouterAccountUploadAllowed(db, context.userId);
+    const account = await context.client.createAccount(tenant.tenantKey, input.value, { validate });
+    try {
+      await assertSubrouterAccountUploadAllowed(db, context.userId);
+    } catch (err) {
+      await deleteSubrouterAccountBestEffort(context.client, tenant.tenantKey, account.id);
+      throw err;
+    }
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);
+  }
+}
+
+async function assertSubrouterAccountUploadAllowed(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+): Promise<void> {
+  await withAccountDeletionUserMutationLock(db, userId, async () => undefined);
+}
+
+async function deleteSubrouterAccountBestEffort(
+  client: SubrouterClient,
+  tenantKey: string,
+  accountId: string,
+): Promise<void> {
+  try {
+    await client.deleteAccount(tenantKey, accountId);
+  } catch (error) {
+    console.warn("[subrouter] failed to delete account created during account deletion race", { accountId, error });
   }
 }
 

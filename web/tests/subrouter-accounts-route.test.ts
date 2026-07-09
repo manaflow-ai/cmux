@@ -288,6 +288,7 @@ describe("subrouter accounts route", () => {
       label: "OpenAI",
       apiKey: "sk-test-openai",
     });
+    expect(upstream.accountCreatesInsideTransaction).toBe(0);
     expect(upstream.adminCreates).toBe(1);
     expect(fakeDb.rows).toHaveLength(1);
   });
@@ -330,6 +331,31 @@ describe("subrouter accounts route", () => {
     expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
     expect(upstream.fetch).not.toHaveBeenCalled();
     expect(fakeDb.rows).toHaveLength(0);
+  });
+
+  test("deletes a created upstream account when account deletion starts during upload", async () => {
+    upstream.afterCreateAccount = () => {
+      fakeDb.deletionRows.push({
+        userIdHash: accountDeletionUserHash("user-1"),
+        status: "pending",
+      });
+    };
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(body)).toEqual({ error: "account_deletion_in_progress" });
+    expect(upstream.accountCreatesInsideTransaction).toBe(0);
+    expect(upstream.deletedAccountIds).toEqual(["acct-created"]);
   });
 
   test("keeps first tenant mapping when account creation fails", async () => {
@@ -529,6 +555,8 @@ function createMockSubrouter() {
     deletedAccountIds: [] as string[],
     lastCreateAccountUrl: null as URL | null,
     lastCreateAccountBody: null as unknown,
+    accountCreatesInsideTransaction: 0,
+    afterCreateAccount: null as (() => void | Promise<void>) | null,
     createAccountFailureStatus: null as number | null,
     fetch: undefined as unknown as ReturnType<typeof mock>,
   };
@@ -559,6 +587,7 @@ function createMockSubrouter() {
 
     if (url.pathname === "/tenant/accounts" && method === "POST") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      if (fakeDb.transactionDepth > 0) state.accountCreatesInsideTransaction += 1;
       state.lastCreateAccountUrl = url;
       state.lastCreateAccountBody = JSON.parse(String(init?.body ?? "{}"));
       if (state.createAccountFailureStatus) {
@@ -572,6 +601,7 @@ function createMockSubrouter() {
         createdAt: "2026-07-02T00:00:00.000Z",
       };
       state.accounts.push(account);
+      await state.afterCreateAccount?.();
       return jsonResponse(account);
     }
 
@@ -618,6 +648,9 @@ function createFakeRouteDb() {
   const db = {
     rows,
     deletionRows,
+    get transactionDepth() {
+      return transactionDepth;
+    },
     insertCalls: 0,
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
