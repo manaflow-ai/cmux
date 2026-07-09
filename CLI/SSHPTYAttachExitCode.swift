@@ -54,6 +54,7 @@ nonisolated enum SSHPTYAttachExitCode: Int32 {
             description.contains("remote daemon tunnel is not ready") ||
             description.contains("pty_input_queue_full") ||
             description.contains("pty input queue is full") ||
+            description.contains("input is temporarily backed up") ||
             description.contains("connection refused") ||
             description.contains("connection reset") {
             return .retryableTransient
