@@ -317,6 +317,93 @@ import Testing
         #expect(attempts.count(.tailscale) == 0)
     }
 
+    @Test func failedRegistryConnectDoesNotAcceptExistingConnectionAtSameEndpoint() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let oldRoute = try CmxAttachRoute(
+            id: "old-route",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: CmxMobileDefaults.defaultHostPort)
+        )
+        let targetRoute = try CmxAttachRoute(
+            id: "target-route",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: CmxMobileDefaults.defaultHostPort)
+        )
+        try await pairedMacStore.upsert(
+            macDeviceID: "old-mac",
+            displayName: "Old Mac",
+            routes: [oldRoute],
+            markActive: true,
+            stackUserID: "phone-user",
+            teamID: nil,
+            now: Date().addingTimeInterval(-10)
+        )
+        try await pairedMacStore.upsert(
+            macDeviceID: "target-mac",
+            displayName: "Target Mac",
+            routes: [targetRoute],
+            markActive: false,
+            stackUserID: "phone-user",
+            teamID: nil,
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: RouteSelectiveFailureTransportFactory(
+                failingRouteID: targetRoute.id,
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() },
+            supportedRouteKinds: [.tailscale],
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            workspaces: [],
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            reachability: AlwaysOnlineReachability(),
+            manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+        )
+        store.signIn()
+        await store.loadPairedMacs()
+        let oldTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "old-mac",
+            macDisplayName: "Old Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [oldRoute],
+            expiresAt: Date().addingTimeInterval(3_600),
+            authToken: "old-ticket"
+        )
+        #expect(await store.connectPairingURL(try attachURL(for: oldTicket)))
+        let device = RegistryDevice(
+            deviceId: "target-mac",
+            platform: "mac",
+            displayName: "Target Mac",
+            lastSeenAt: Date(),
+            instances: []
+        )
+        let instance = RegistryAppInstance(tag: "stale", routes: [targetRoute], lastSeenAt: Date())
+
+        await store.connectToRegistryInstance(device: device, instance: instance)
+
+        let activeIDs = try await pairedMacStore
+            .loadAll(stackUserID: "phone-user", teamID: nil)
+            .filter(\.isActive)
+            .map(\.macDeviceID)
+        #expect(activeIDs == ["old-mac"])
+        #expect(store.connectionState == .connected)
+        #expect(store.foregroundMacDeviceIDForTesting() == "old-mac")
+    }
+
     private func hostPortRoute(kind: CmxAttachTransportKind, host: String) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: kind.rawValue,

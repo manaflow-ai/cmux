@@ -83,6 +83,7 @@ actor LivenessHostRouter {
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
+    private var heldAuthorizationFailureMethods: Set<String> = []
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -237,6 +238,11 @@ actor LivenessHostRouter {
         heldReplayResponsesRemaining += count
     }
 
+    /// Hold the next request for `method`, then answer it as unauthorized once released.
+    func holdAuthorizationFailure(for method: String) {
+        heldAuthorizationFailureMethods.insert(method)
+    }
+
     /// Hold the Nth `mobile.terminal.viewport` response (1-based), allowing a
     /// later viewport report to acknowledge before an older one.
     func holdViewportRequest(number: Int) {
@@ -267,6 +273,11 @@ actor LivenessHostRouter {
     }
 
     func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
+        if let method,
+           heldAuthorizationFailureMethods.remove(method) != nil {
+            await park()
+            return try? Self.errorFrame(id: id, message: "Unauthorized")
+        }
         switch method {
         case "mobile.attach_ticket.create":
             return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])

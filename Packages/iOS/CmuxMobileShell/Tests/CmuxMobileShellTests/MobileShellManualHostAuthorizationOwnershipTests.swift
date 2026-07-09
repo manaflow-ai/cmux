@@ -148,6 +148,73 @@ import Testing
         #expect(store.secondaryMacSubscriptions["secondary-mac"] == nil)
     }
 
+    @Test func staleForegroundAuthorizationFailureDoesNotDisconnectReplacementClient() async throws {
+        let oldRouter = LivenessHostRouter()
+        let oldRuntime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: oldRouter, box: TransportBox()),
+            now: { Date() },
+            supportedRouteKinds: [.debugLoopback],
+            supportsServerPushEvents: false
+        )
+        let oldRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56_584)
+        let newRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56_585)
+        let oldTicket = try ticket(route: oldRoute, macDeviceID: "old-mac", authToken: "old-ticket")
+        let newTicket = try ticket(route: newRoute, macDeviceID: "new-mac", authToken: "new-ticket")
+        let newClient = MobileCoreRPCClient(runtime: oldRuntime, route: newRoute, ticket: newTicket)
+        let store = MobileShellComposite.preview(runtime: oldRuntime)
+        store.signIn()
+        #expect(await store.connectPairingURL(try attachURL(for: oldTicket)))
+        let capabilities = MobileWorkspaceActionCapabilities(supportsWorkspaceActions: true)
+        let workspace = MobileWorkspacePreview(
+            id: "old-workspace",
+            macDeviceID: "old-mac",
+            name: "Old Workspace",
+            terminals: []
+        )
+        store.setWorkspaceStatesForTesting([
+            "old-mac": MacWorkspaceState(
+                macDeviceID: "old-mac",
+                workspaces: [workspace],
+                status: .connected,
+                actionCapabilities: capabilities
+            ),
+        ], foregroundMacDeviceID: "old-mac")
+        let rowID = try #require(store.workspaces.first?.id)
+        await oldRouter.holdAuthorizationFailure(for: "workspace.action")
+
+        let rename = Task { @MainActor in
+            await store.renameWorkspace(id: rowID, title: "Renamed")
+        }
+        await oldRouter.waitForCount(of: "workspace.action", atLeast: 1)
+        store.remoteClient = newClient
+        store.setWorkspaceStatesForTesting([:], foregroundMacDeviceID: "new-mac")
+        await oldRouter.releaseAllHeld()
+        _ = await rename.value
+
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === newClient)
+        #expect(store.foregroundMacDeviceIDForTesting() == "new-mac")
+        #expect(store.manualHostTrustWarning == nil)
+        #expect(!store.connectionRequiresReauth)
+    }
+
+    private func ticket(
+        route: CmxAttachRoute,
+        macDeviceID: String,
+        authToken: String
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDeviceID,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600),
+            authToken: authToken
+        )
+    }
+
     private func hostPortRoute(
         kind: CmxAttachTransportKind,
         host: String,
