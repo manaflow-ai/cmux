@@ -3,34 +3,8 @@ import HTTPTypes
 import OpenAPIRuntime
 import OpenAPIURLSession
 
-public struct CmuxAccountPlan: Sendable, Hashable {
-    public var userID: String
-    /// Empty when the Stack user has no primary email.
-    public var email: String
-    public var planID: String
-    public var isPro: Bool
-    public var billingManagement: String
-
-    public init(
-        userID: String,
-        email: String,
-        planID: String,
-        isPro: Bool,
-        billingManagement: String
-    ) {
-        self.userID = userID
-        self.email = email
-        self.planID = planID
-        self.isPro = isPro
-        self.billingManagement = billingManagement
-    }
-}
-
-public enum CmuxAPIError: Error, Sendable, Equatable {
-    case unauthorized
-    case unexpectedStatus
-}
-
+/// Type-safe client for the cmux API, generated from the checked-in OpenAPI
+/// document via swift-openapi-generator.
 public struct CmuxAPIClient: Sendable {
     /// Base path the API is mounted at; matches the OpenAPI `servers[0].url`.
     /// Append to an origin to build the `serverURL` this client expects.
@@ -38,6 +12,11 @@ public struct CmuxAPIClient: Sendable {
 
     private let client: Client
 
+    /// Creates a client against `serverURL` with caller-supplied middlewares.
+    /// - Parameters:
+    ///   - serverURL: Origin plus ``apiServerPath`` (for example `https://cmux.io/api/v1`).
+    ///   - transport: HTTP transport; defaults to `URLSessionTransport`.
+    ///   - middlewares: Request middlewares applied in order.
     public init(
         serverURL: URL,
         transport: any ClientTransport = URLSessionTransport(),
@@ -50,6 +29,12 @@ public struct CmuxAPIClient: Sendable {
         )
     }
 
+    /// Creates a client that authenticates every request with a Stack session.
+    /// - Parameters:
+    ///   - serverURL: Origin plus ``apiServerPath``.
+    ///   - accessToken: Stack access token, sent as a bearer token.
+    ///   - refreshToken: Stack refresh token, sent as `X-Stack-Refresh-Token`.
+    ///   - transport: HTTP transport; defaults to `URLSessionTransport`.
     public init(
         serverURL: URL,
         accessToken: String,
@@ -66,6 +51,9 @@ public struct CmuxAPIClient: Sendable {
     }
 
     /// Fetches the authenticated account and its resolved billing plan.
+    /// - Returns: The signed-in account's ``CmuxAccountPlan``.
+    /// - Throws: ``CmuxAPIError/unauthorized`` on HTTP 401, or
+    ///   ``CmuxAPIError/unexpectedStatus`` for any other unmodeled status.
     public func accountMe() async throws -> CmuxAccountPlan {
         let output = try await client.account_me()
 
@@ -88,6 +76,8 @@ public struct CmuxAPIClient: Sendable {
     }
 }
 
+/// Injects Stack access/refresh tokens onto every outbound request so the
+/// server can resolve the signed-in user.
 private struct StackAuthMiddleware: ClientMiddleware {
     private let accessToken: String
     private let refreshToken: String
