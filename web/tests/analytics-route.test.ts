@@ -71,6 +71,26 @@ describe("iOS analytics route", () => {
     expect(forwardToPostHog).toHaveBeenCalled();
   });
 
+  test("persists authenticated capture-event anonymous aliases", async () => {
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "ios_app_foregrounded",
+        distinct_id: "stack-user-1",
+        properties: {
+          "$anon_distinct_id": "66666666-6666-4666-8666-666666666666",
+          client_id: "66666666-6666-4666-8666-666666666666",
+        },
+      }],
+    }), dependencies());
+
+    expect(response.status).toBe(200);
+    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
+      userId: "stack-user-1",
+      anonymousIds: ["66666666-6666-4666-8666-666666666666"],
+    });
+    expect(forwardToPostHog).toHaveBeenCalled();
+  });
+
   test("records identify mappings before forwarding to PostHog", async () => {
     const calls: string[] = [];
 

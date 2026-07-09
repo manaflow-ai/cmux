@@ -104,7 +104,7 @@ export async function postAnalyticsEvents(
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  const anonymousIds = user ? identifyAnonymousIds(accepted) : [];
+  const anonymousIds = user ? authenticatedAnonymousIds(accepted) : [];
   if (user) {
     if (anonymousIds.length > 0) {
       await dependencies.recordIOSAnalyticsIdentities({
@@ -154,10 +154,9 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   };
 }
 
-function identifyAnonymousIds(events: readonly IncomingEvent[]): string[] {
+function authenticatedAnonymousIds(events: readonly IncomingEvent[]): string[] {
   const ids: string[] = [];
   for (const event of events) {
-    if (event.event !== "$identify") continue;
     const anonymousId = event.properties.$anon_distinct_id;
     if (typeof anonymousId === "string") ids.push(anonymousId);
   }
