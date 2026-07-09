@@ -65,6 +65,41 @@ struct AgentHibernationTranscriptGuardScanTests {
         #expect(try Data(contentsOf: missingLive) == snapshotBytes)
     }
 
+    @Test
+    func snapshotBeforeTeardownFailsClosedForNonEmptyUnclassifiedTranscripts() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/repo"
+        let summarySession = "summary-only"
+        let summaryTranscript = transcriptURL(home: home, cwd: cwd, sessionId: summarySession)
+        try writeFile(#"{"type":"summary","summary":"Compacted session"}"# + "\n", to: summaryTranscript)
+
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: summarySession, workingDirectory: cwd),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
+        #expect(FileManager.default.fileExists(atPath: snapshots.appendingPathComponent("\(summarySession).jsonl").path) == false)
+
+        let nestedSession = "stub-then-summary"
+        let directStub = transcriptURL(home: home, cwd: cwd, sessionId: nestedSession)
+        let nestedSummary = nestedTranscriptURL(home: home, cwd: cwd, sessionId: nestedSession)
+        try writeFile(metadataStub, to: directStub)
+        try writeFile(#"{"type":"summary","summary":"Nested compacted session"}"# + "\n", to: nestedSummary)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: nestedSession, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == nestedSummary.path)
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: nestedSession, workingDirectory: cwd),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
+    }
+
     private var metadataStub: String {
         [
             #"{"type":"last-prompt","prompt":"continue"}"#,
@@ -85,6 +120,41 @@ struct AgentHibernationTranscriptGuardScanTests {
         }
         restored.append(trailing)
         return restored
+    }
+
+    private func transcriptURL(home: URL, cwd: String, sessionId: String) -> URL {
+        home
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd), isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+    }
+
+    private func nestedTranscriptURL(home: URL, cwd: String, sessionId: String) -> URL {
+        transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+            .deletingLastPathComponent()
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("messages", isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+    }
+
+    private func writeFile(_ content: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func outcomeIsUnableToProtect(_ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome) -> Bool {
+        guard case .unableToProtect = outcome else { return false }
+        return true
+    }
+
+    private func agent(sessionId: String, workingDirectory: String?) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: nil
+        )
     }
 
     private func temporaryDirectory() throws -> URL {
