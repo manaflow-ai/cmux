@@ -67,7 +67,7 @@ public enum AgentLaunchSanitizer {
 
         switch fallbackKind {
         case "claude":
-            guard let preserved = preservedClaudeLaunchArguments(
+            guard let preserved = ClaudeLaunchArgumentsPreserver().preservedArguments(
                 args: tail,
                 stripCmuxHookSettings: executable == "claude"
             ) else { return nil }
@@ -88,19 +88,10 @@ public enum AgentLaunchSanitizer {
         }
     }
 
-    static func preservedClaudeLaunchArguments(
-        args: [String],
-        stripCmuxHookSettings: Bool = true
-    ) -> [String]? {
-        var policy = claudePolicy
-        policy.skipClaudeHookSettings = stripCmuxHookSettings
-        return preserveOptions(args, policy: policy)
-    }
-
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
         switch kind {
         case "claude":
-            return preservedClaudeLaunchArguments(args: args)
+            return ClaudeLaunchArgumentsPreserver().preservedArguments(args: args)
         case "codex":
             return preservedCodexLaunchArguments(args: args)
         case "codex-fork-replay": return preservedCodexForkArguments(args: args, preservePromptTags: true)

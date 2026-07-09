@@ -53,7 +53,7 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
                 let preservedTail = preservedCodexLaunchArguments(args: scriptTail, stripCmuxHooks: false) ?? []
                 return Array(argv.prefix(scriptIndex + 1)) + preservedTail
             case "claude":
-                let preservedTail = AgentLaunchSanitizer.preservedClaudeLaunchArguments(
+                let preservedTail = ClaudeLaunchArgumentsPreserver().preservedArguments(
                     args: scriptTail,
                     stripCmuxHookSettings: false
                 ) ?? []
