@@ -10,13 +10,18 @@ final class TerminalInlineImageController {
     private let scanner = TerminalTranscriptImagePathScanner()
     private let reconciler = TerminalInlineImageReconciler()
     private let cache = TerminalInlineImageThumbnailCache()
+    private let scanQueue = DispatchQueue(label: "com.cmux.inline-image-scan", qos: .utility)
     private var settingsObserver: TerminalInlineImageSettingsObserver?
     private var observers: [NSObjectProtocol] = []
     private var releaseFrameDemand: (() -> Void)?
     private var debounceTimer: DispatchSourceTimer?
     private var pendingScanFirstRequestedAt: DispatchTime?
+    private var scanGeneration: UInt64 = 0
+    private var lastScannedGridJSON: Data?
+    private var lastScannedRowOffset: Int?
     private var annotations: [TerminalInlineImageAnnotation] = []
     private var thumbnailsByID: [UUID: TerminalInlineImageThumbnail] = [:]
+    private var pendingThumbnailIDs: Set<UUID> = []
     private var isEnabled = false
 
     init(hostedView: GhosttySurfaceScrollView, overlayView: TerminalInlineImageOverlayView) {
@@ -34,9 +39,7 @@ final class TerminalInlineImageController {
 
     func stop() {
         settingsObserver?.stop()
-        stopSurfaceObservers()
-        cancelDebounce()
-        clearAnnotations()
+        setEnabled(false)
     }
 
     deinit {
@@ -54,6 +57,8 @@ final class TerminalInlineImageController {
         } else {
             stopSurfaceObservers()
             cancelDebounce()
+            lastScannedGridJSON = nil
+            lastScannedRowOffset = nil
             clearAnnotations()
         }
     }
@@ -132,17 +137,53 @@ final class TerminalInlineImageController {
         guard isEnabled,
               let hostedView,
               let terminalSurface = hostedView.surfaceView.terminalSurface,
-              let snapshot = terminalSurface.mobileRenderGridFrame(stateSeq: 0, full: true, scrollbackLines: 0),
-              snapshot.frame.activeScreen == .primary else {
+              let gridJSON = terminalSurface.mobileRenderGridJSON(stateSeq: 0) else {
+            lastScannedGridJSON = nil
+            lastScannedRowOffset = nil
             clearAnnotations()
             return
         }
+        let rowOffset = Int(clamping: hostedView.surfaceView.scrollbar?.offset ?? 0)
+        if gridJSON == lastScannedGridJSON, rowOffset == lastScannedRowOffset {
+            // The visible grid did not change; only retry thumbnails that are
+            // still missing (e.g. the file appeared on disk after its path
+            // was printed).
+            requestMissingThumbnails(for: annotations)
+            return
+        }
+        scanGeneration &+= 1
+        let generation = scanGeneration
         let context = TerminalTranscriptImagePathScanner.Context(
             cwd: terminalSurface.requestedWorkingDirectory,
             homeDirectory: NSHomeDirectory()
         )
-        let detected = scanner.scan(rows: snapshot.rows, context: context)
-        let rowOffset = Int(clamping: hostedView.surfaceView.scrollbar?.offset ?? 0)
+        let scanner = scanner
+        scanQueue.async { [weak self] in
+            var detected: [DetectedImagePath]?
+            if let frame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: gridJSON),
+               frame.activeScreen == .primary {
+                detected = scanner.scan(rows: frame.plainRows(), context: context)
+            }
+            let scanned = detected
+            Task { @MainActor in
+                self?.applyScanResult(scanned, gridJSON: gridJSON, rowOffset: rowOffset, generation: generation)
+            }
+        }
+    }
+
+    private func applyScanResult(
+        _ detected: [DetectedImagePath]?,
+        gridJSON: Data,
+        rowOffset: Int,
+        generation: UInt64
+    ) {
+        guard isEnabled, generation == scanGeneration else { return }
+        lastScannedGridJSON = gridJSON
+        lastScannedRowOffset = rowOffset
+        guard let detected else {
+            clearAnnotations()
+            return
+        }
         let nextAnnotations = reconciler.reconcile(
             existing: annotations,
             detectedPaths: detected,
@@ -151,12 +192,15 @@ final class TerminalInlineImageController {
         annotations = nextAnnotations
         let liveIDs = Set(nextAnnotations.map(\.id))
         thumbnailsByID = thumbnailsByID.filter { liveIDs.contains($0.key) }
+        pendingThumbnailIDs.formIntersection(liveIDs)
         render()
         requestMissingThumbnails(for: nextAnnotations)
     }
 
     private func requestMissingThumbnails(for annotations: [TerminalInlineImageAnnotation]) {
-        for annotation in annotations where thumbnailsByID[annotation.id] == nil {
+        for annotation in annotations
+        where thumbnailsByID[annotation.id] == nil && !pendingThumbnailIDs.contains(annotation.id) {
+            pendingThumbnailIDs.insert(annotation.id)
             cache.thumbnail(for: annotation.resolvedPath) { [weak self, id = annotation.id, key = annotation.key] thumbnail in
                 Task { @MainActor in
                     self?.receiveThumbnail(thumbnail, id: id, key: key)
@@ -170,6 +214,7 @@ final class TerminalInlineImageController {
         id: UUID,
         key: TerminalInlineImageAnnotationKey
     ) {
+        pendingThumbnailIDs.remove(id)
         guard let thumbnail,
               annotations.contains(where: { $0.id == id && $0.key == key }) else {
             return
@@ -198,6 +243,7 @@ final class TerminalInlineImageController {
     private func clearAnnotations() {
         annotations.removeAll()
         thumbnailsByID.removeAll()
+        pendingThumbnailIDs.removeAll()
         overlayView?.clear()
     }
 }
