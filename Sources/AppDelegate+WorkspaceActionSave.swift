@@ -55,7 +55,10 @@ extension AppDelegate {
             shortcutRoutingActiveWindow,
         ]
         .compactMap { contextForMainWindow($0) }
-        .first ?? mainWindowContexts.values.first
+        .first
+        // Fail closed: if no active-window candidate resolves to a main-window
+        // context, don't target an arbitrary workspace/pane. Fall through to the
+        // guard's editor fallback below instead.
 
         guard let context = targetContext,
               let workspace = context.tabManager.selectedWorkspace,

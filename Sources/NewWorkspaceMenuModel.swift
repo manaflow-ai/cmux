@@ -93,7 +93,7 @@ struct NewWorkspaceMenuModel: Equatable {
         let management = ManagementSection(
             defaultLayout: defaultLayout,
             deletableActions: loadedActions
-                .filter(deletable)
+                .filter { isWorkspaceLayout($0) && deletable($0) }
                 .sorted { ($0.title, $0.id) < ($1.title, $1.id) }
         )
 
