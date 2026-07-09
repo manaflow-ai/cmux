@@ -103,13 +103,13 @@ function teamCheckoutInput(customerId = "cus_team") {
       customer: customerId,
       customer_details: { email: "buyer@example.com" },
       subscription: "sub_team",
-      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
     },
     subscription: {
       id: "sub_team",
       customer: customerId,
       status: "active",
-      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
       cancel_at_period_end: false,
       items: {
         data: [
@@ -398,18 +398,18 @@ describe("recordCheckoutCompletion", () => {
 
   test("records Team checkout rows and syncs the Stack team entitlement", async () => {
     const updateTeam = mock(async () => undefined);
-    const team = {
-      id: "team_123",
-      clientReadOnlyMetadata: {},
-      update: updateTeam,
-    };
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
       clientReadOnlyMetadata: {},
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: {},
+      update: updateTeam,
+    };
+    selectResults = [[]];
 
     const result = await recordCheckoutCompletion(teamCheckoutInput() as never, {
       db: fakeDb() as never,
@@ -448,32 +448,42 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("blocks Team checkout completion when the recorded owner is deleting", async () => {
+  test("blocks Team checkout completion while owner account deletion is in progress", async () => {
+    const updateTeam = mock(async () => undefined);
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
       clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }]];
+    selectResults = [[]];
 
     await expect(
       recordCheckoutCompletion(teamCheckoutInput() as never, {
         db: fakeDb() as never,
         stackApp: {
           getUser: async () => owner,
-          getTeam: async () => {
-            throw new Error("should not load Stack team when owner row blocks");
-          },
+          getTeam: async () => ({
+            id: "team_123",
+            clientReadOnlyMetadata: {},
+            update: updateTeam,
+          }),
         } as never,
       }),
     ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
 
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
+    expect(updateTeam).not.toHaveBeenCalled();
   });
 
   test("blocks Team checkout completion when the singleton team owner is deleting", async () => {
+    const input = teamCheckoutInput() as unknown as {
+      session: { metadata: Record<string, string> };
+      subscription: { metadata: Record<string, string> };
+    };
+    delete input.session.metadata.stackUserId;
+    delete input.subscription.metadata.stackUserId;
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
@@ -489,7 +499,7 @@ describe("recordCheckoutCompletion", () => {
     selectResults = [[], []];
 
     await expect(
-      recordCheckoutCompletion(teamCheckoutInput() as never, {
+      recordCheckoutCompletion(input as never, {
         db: fakeDb() as never,
         stackApp: {
           getUser: async () => owner,
@@ -505,25 +515,25 @@ describe("recordCheckoutCompletion", () => {
 
   test("clears Team metadata when a Team subscription lapses", async () => {
     const updateTeam = mock(async () => undefined);
-    const team = {
-      id: "team_123",
-      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
-      update: updateTeam,
-    };
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
       clientReadOnlyMetadata: {},
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
+      update: updateTeam,
+    };
+    selectResults = [[]];
 
     const result = await applySubscriptionUpdate(
       {
         id: "sub_team",
         customer: "cus_team",
         status: "canceled",
-        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
         cancel_at_period_end: false,
         items: {
           data: [
@@ -556,6 +566,93 @@ describe("recordCheckoutCompletion", () => {
     expect(updateTeam).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
     });
+  });
+
+  test("skips Team subscription updates while owner account deletion is in progress", async () => {
+    const updateTeam = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => ({
+            id: "team_123",
+            clientReadOnlyMetadata: {},
+            update: updateTeam,
+          }),
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(updateTeam).not.toHaveBeenCalled();
+  });
+
+  test("fails Team subscription updates without an owner mapping", async () => {
+    selectResults = [[], []];
+
+    await expect(
+      applySubscriptionUpdate(
+        {
+          id: "sub_team",
+          customer: "cus_team",
+          status: "active",
+          metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                quantity: 7,
+                current_period_end: 1_800_000_000,
+                price: { id: "price_team" },
+              },
+            ],
+          },
+        } as never,
+        {
+          db: fakeDb() as never,
+          stackApp: {
+            getUser: async () => {
+              throw new Error("should not load Stack user without owner mapping");
+            },
+            getTeam: async () => ({
+              id: "team_123",
+              clientReadOnlyMetadata: {},
+              update: mock(async () => undefined),
+            }),
+          } as never,
+        },
+      ),
+    ).rejects.toThrow("Stack user not found for Team Stripe subscription update: team_123");
+
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
   test("removes a user from TestFlight when a user Pro subscription lapses", async () => {
@@ -711,25 +808,25 @@ describe("recordCheckoutCompletion", () => {
 
   test("does not remove TestFlight access when a Team subscription lapses", async () => {
     const removeTester = mock(async () => undefined);
-    const team = {
-      id: "team_123",
-      clientReadOnlyMetadata: { cmuxPlan: "team" },
-      update: mock(async () => undefined),
-    };
     const owner = {
       id: "owner_123",
       primaryEmail: "owner@example.com",
       clientReadOnlyMetadata: {},
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[]];
 
     const result = await applySubscriptionUpdate(
       {
         id: "sub_team",
         customer: "cus_team",
         status: "canceled",
-        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team_123", stackUserId: "owner_123", plan: "team", app: "cmux" },
         cancel_at_period_end: false,
         items: {
           data: [

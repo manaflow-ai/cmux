@@ -121,6 +121,7 @@ export async function recordCheckoutCompletion(
       subscription,
       customerId,
       stackTeamId: teamScope.stackTeamId,
+      stackUserId: teamScope.stackUserId,
       dependencies,
     });
   }
@@ -182,11 +183,13 @@ export async function applySubscriptionUpdate(
     const guard = await teamBillingDeletionGuard({
       db,
       stackTeamId: teamScope.stackTeamId,
+      stackUserId: teamScope.stackUserId,
       customerId,
       stackApp: dependencies.stackApp,
+      missingOwnerMessage: `Stack user not found for Team Stripe subscription update: ${teamScope.stackTeamId}`,
     });
     if (guard.blocked) return { skipped: true };
-    const stackUserId = guard.stackUserId ?? teamScope.stackTeamId;
+    const stackUserId = guard.stackUserId;
     await upsertTeamStripeCustomer(db, {
       customerId,
       stackUserId,
@@ -308,19 +311,22 @@ async function recordTeamCheckoutCompletion(input: {
   subscription: Stripe.Subscription;
   customerId: string;
   stackTeamId: string;
+  stackUserId?: string | null;
   dependencies: BillingPurchaseDependencies;
 }): Promise<{ scope: "team"; stackTeamId: string; subscriptionId: string }> {
   const db = input.dependencies.db ?? cloudDb();
   const guard = await teamBillingDeletionGuard({
     db,
     stackTeamId: input.stackTeamId,
+    stackUserId: input.stackUserId,
     customerId: input.customerId,
     stackApp: input.dependencies.stackApp,
+    missingOwnerMessage: `Stack user not found for Team Stripe purchase: ${input.stackTeamId}`,
   });
   if (guard.blocked) {
-    throw new AccountDeletionBillingBlockedError(guard.stackUserId ?? input.stackTeamId);
+    throw new AccountDeletionBillingBlockedError(guard.stackUserId);
   }
-  const stackUserId = guard.stackUserId ?? input.stackTeamId;
+  const stackUserId = guard.stackUserId;
   await upsertTeamStripeCustomer(db, {
     customerId: input.customerId,
     stackUserId,
@@ -346,26 +352,28 @@ async function recordTeamCheckoutCompletion(input: {
 async function teamBillingDeletionGuard(input: {
   db: BillingDb;
   stackTeamId: string;
+  stackUserId?: string | null;
   customerId: string;
   stackApp: StackBillingApp | null | undefined;
-}): Promise<{ blocked: boolean; stackUserId: string | null }> {
-  const existingStackUserId = await stackUserIdForTeamStripeCustomer(input.db, {
-    stackTeamId: input.stackTeamId,
-    customerId: input.customerId,
-  });
-  if (existingStackUserId) {
-    return {
-      blocked: await isBillingStackUserDeletionBlocked(existingStackUserId, input),
-      stackUserId: existingStackUserId,
-    };
+  missingOwnerMessage: string;
+}): Promise<{ blocked: boolean; stackUserId: string }> {
+  let stackUserId = input.stackUserId ?? null;
+  if (!stackUserId) {
+    stackUserId = await stackUserIdForTeamStripeCustomer(input.db, {
+      stackTeamId: input.stackTeamId,
+      customerId: input.customerId,
+    });
   }
 
-  const team = await loadStackTeam(input.stackTeamId, input.stackApp);
-  const singletonUserId = await singletonStackTeamUserId(team);
-  if (!singletonUserId) return { blocked: false, stackUserId: null };
+  if (!stackUserId) {
+    const team = await loadStackTeam(input.stackTeamId, input.stackApp);
+    stackUserId = await singletonStackTeamUserId(team);
+  }
+
+  if (!stackUserId) throw new Error(input.missingOwnerMessage);
   return {
-    blocked: await isBillingStackUserDeletionBlocked(singletonUserId, input),
-    stackUserId: singletonUserId,
+    blocked: await isBillingStackUserDeletionBlocked(stackUserId, input),
+    stackUserId,
   };
 }
 
@@ -700,25 +708,30 @@ function expandedSubscription(
 function teamScopeFromSession(
   session: Stripe.Checkout.Session,
   subscription: Stripe.Subscription,
-): { stackTeamId: string } | null {
+): { stackTeamId: string; stackUserId: string | null } | null {
   const metadata = session.metadata?.plan === TEAM_PLAN_ID
     ? session.metadata
     : subscription.metadata;
   const stackTeamId = metadata?.stackTeamId;
   return metadata?.plan === TEAM_PLAN_ID && typeof stackTeamId === "string" && stackTeamId
-    ? { stackTeamId }
+    ? { stackTeamId, stackUserId: metadataStackUserId(metadata) }
     : null;
 }
 
 function teamScopeFromSubscription(
   subscription: Stripe.Subscription,
-): { stackTeamId: string } | null {
+): { stackTeamId: string; stackUserId: string | null } | null {
   const stackTeamId = subscription.metadata?.stackTeamId;
   return subscription.metadata?.plan === TEAM_PLAN_ID &&
     typeof stackTeamId === "string" &&
     stackTeamId
-    ? { stackTeamId }
+    ? { stackTeamId, stackUserId: metadataStackUserId(subscription.metadata) }
     : null;
+}
+
+function metadataStackUserId(metadata: Stripe.Metadata | null | undefined): string | null {
+  const stackUserId = metadata?.stackUserId;
+  return typeof stackUserId === "string" && stackUserId.trim() ? stackUserId.trim() : null;
 }
 
 function stackUserIdFromSession(

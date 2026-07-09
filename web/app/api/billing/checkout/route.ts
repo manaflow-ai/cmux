@@ -144,6 +144,7 @@ async function stripeTeamCheckout(
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
   const metadata = {
     stackTeamId: teamId,
+    stackUserId: user.id,
     plan: "team",
     app: "cmux",
   };
