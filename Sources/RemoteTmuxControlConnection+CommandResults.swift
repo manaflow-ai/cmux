@@ -242,15 +242,15 @@ extension RemoteTmuxControlConnection {
         }
     }
 
-    /// Coalesces any rejected swap in a batch into one authoritative refresh
-    /// after every command result has drained, preserving FIFO alignment.
+    /// Reconciles every completed batch from authoritative tmux order while
+    /// coalescing any rejected swap into recovery that blocks later reorders.
     func completeWindowReorderCommand(isLast: Bool, failed: Bool) {
         windowReorderBatchFailed = windowReorderBatchFailed || failed
         guard isLast else { return }
         if windowReorderBatchFailed {
             windowReorderRecoveryGeneration = windowReorderGeneration
-            requestWindows()
         }
+        requestWindows()
         windowReorderBatchFailed = false
     }
 }
