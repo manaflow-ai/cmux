@@ -6,6 +6,7 @@ import {
   type MaybeAttributes,
 } from "@/services/telemetry";
 import { isVaultConfigured } from "@/services/vault/config";
+import { VaultWritesDisabledError } from "@/services/vault/usage";
 import {
   unauthorized,
   verifyRequest,
@@ -101,6 +102,9 @@ async function runVaultRoute(
   try {
     return finalize(await handler({ span, setResponseFinalizer }));
   } catch (error) {
+    if (error instanceof VaultWritesDisabledError) {
+      return finalize(jsonResponse({ error: "account_deletion_in_progress" }, 409));
+    }
     recordSpanError(span, error);
     console.error(failureLog, error);
     return finalize(jsonResponse({ error: "internal_error" }, 500));

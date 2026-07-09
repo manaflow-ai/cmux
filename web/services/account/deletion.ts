@@ -35,6 +35,7 @@ import type { ProviderId } from "../vms/drivers";
 import { deleteVmSnapshot, destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
 import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
+import { withVaultUserQuotaLock } from "../vault/usage";
 import {
   createSubrouterClientFromEnv,
   SubrouterClientError,
@@ -394,7 +395,17 @@ export async function deleteCmuxAccountData(
   await destroyProviderBackedAccountVms(input.userId, runtime);
   await deleteAccountVmSnapshots(input.userId, runtime);
   await deletePersonalSubrouterTenant(input.userId, runtime);
-  await deleteAccountVaultObjects(input.userId, runtime);
+  await withVaultUserQuotaLock(
+    runtime.cloudDb(),
+    input.userId,
+    async (lockedDb) => {
+      await deleteAccountVaultObjects(input.userId, {
+        ...runtime,
+        cloudDb: () => lockedDb,
+      });
+    },
+    { allowAccountDeletion: true },
+  );
 
   await cancelStripeAccountBilling(input.userId, anonymizedUserId, runtime);
 

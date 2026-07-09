@@ -470,6 +470,7 @@ function fakeTransaction() {
       calls.push("lock-account-deletion");
       return [];
     },
+    select: () => fakeDbSelectBuilder(),
     update: (table: unknown) => {
       if (table === cloudVms) return updateBuilder("anonymize-team-cloud-vms");
       if (table === cloudVmUsageEvents) return updateBuilder("anonymize-team-cloud-vm-usage-events");
