@@ -2403,15 +2403,16 @@ final class TerminalOutputCollector {
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 1 {
+    for _ in 0..<500 where collector.lines != [oldGridText] {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
+    #expect(collector.lines == [oldGridText])
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where collector.lines.isEmpty {
+    for _ in 0..<500 where collector.lines.count < 2 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
