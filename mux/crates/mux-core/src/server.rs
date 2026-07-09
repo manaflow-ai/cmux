@@ -25,17 +25,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use base64::Engine;
-use ghostty_vt::{key_input_from_chord, KeyEncoder};
+use ghostty_vt::{KeyEncoder, key_input_from_chord};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::{
-    assign_short_ids, AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction,
-    LayoutLeafSpec, LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId,
-    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode,
+    AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
+    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -84,6 +84,12 @@ enum Command {
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    SidebarPlugin {
+        cols: u16,
+        rows: u16,
+        #[serde(default)]
+        relaunch: bool,
     },
     WaitFor {
         surface: SurfaceId,
@@ -436,12 +442,14 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || loop {
-        let Ok(stream) = listener.accept() else { continue };
-        let mux = mux.clone();
-        let _ = std::thread::Builder::new()
-            .name("mux-conn".into())
-            .spawn(move || handle_connection(mux, stream));
+    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        loop {
+            let Ok(stream) = listener.accept() else { continue };
+            let mux = mux.clone();
+            let _ = std::thread::Builder::new()
+                .name("mux-conn".into())
+                .spawn(move || handle_connection(mux, stream));
+        }
     })?;
     Ok(path)
 }
@@ -673,10 +681,10 @@ fn workspaces_json(
 
 fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
     let allowed = ["workspace", "screen", "pane", "surface"];
-    if let Some(kind) = kind {
-        if !allowed.contains(&kind) {
-            anyhow::bail!("bad kind {kind}");
-        }
+    if let Some(kind) = kind
+        && !allowed.contains(&kind)
+    {
+        anyhow::bail!("bad kind {kind}");
     }
     let mut raw = Vec::new();
     for ws in &state.workspaces {
@@ -707,6 +715,15 @@ fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+}
+
+fn sidebar_plugin_status_json(status: SidebarPluginStatus) -> Value {
+    let retry_after_ms = status.retry_after.map(|duration| duration.as_millis() as u64);
+    json!({
+        "surface": status.surface,
+        "error": status.error,
+        "retry_after_ms": retry_after_ms,
+    })
 }
 
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
@@ -918,6 +935,9 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::SidebarPlugin { cols, rows, relaunch } => {
+            Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
             let surface = get_surface(mux, surface)?;
@@ -1413,11 +1433,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                     while frames.notify.recv().is_ok() {
                         let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                        if let Some(state) = update.state {
-                            if writer.send(&browser_state_json(surface_id, &state, false)).is_err()
-                            {
-                                break;
-                            }
+                        if let Some(state) = update.state
+                            && writer.send(&browser_state_json(surface_id, &state, false)).is_err()
+                        {
+                            break;
                         }
                         if let Some(frame) = update.frame {
                             let value = json!({

@@ -18,7 +18,11 @@ extension MobileShellComposite {
     }
 
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
-        terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+        // The toolbar observes this dictionary via `isAlternateScreen`; same-value
+        // writes would re-fire observers for every delivered render-grid frame.
+        if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
+            terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+        }
         if renderGrid.activeScreen == .alternate, renderGrid.full {
             terminalAlternateRenderGridBaselineSurfaceIDs.insert(renderGrid.surfaceID)
         } else if renderGrid.activeScreen == .primary {
@@ -102,7 +106,9 @@ extension MobileShellComposite {
             )
         if source == "event", needsRenderGridBaseline, !establishesRenderGridBaseline {
             if renderGrid.activeScreen == .alternate {
-                terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = .alternate
+                if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != .alternate {
+                    terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = .alternate
+                }
                 deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
             }
             MobileDebugLog.anchormux("sync.render_grid_waiting_for_baseline source=\(source) surface=\(renderGrid.surfaceID) seq=\(renderGrid.stateSeq)")
@@ -123,7 +129,9 @@ extension MobileShellComposite {
                 )
             }
             if deliveryDecision.updateTrackedScreen {
-                terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+                if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
+                    terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+                }
                 if renderGrid.activeScreen == .primary {
                     terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
                 }

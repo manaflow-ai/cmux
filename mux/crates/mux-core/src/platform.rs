@@ -142,11 +142,7 @@ pub fn default_shell() -> String {
         return shell;
     }
 
-    if Path::new("/bin/bash").is_file() {
-        "/bin/bash".to_string()
-    } else {
-        "/bin/sh".to_string()
-    }
+    if Path::new("/bin/bash").is_file() { "/bin/bash".to_string() } else { "/bin/sh".to_string() }
 }
 
 /// Default interactive shell for spawned PTY surfaces.

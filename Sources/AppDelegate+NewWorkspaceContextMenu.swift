@@ -236,8 +236,7 @@ extension AppDelegate {
             return menuAction.action.id
         })
         if configuredActionIDs.contains(actionID) { return false }
-        if action.newWorkspaceMenu == true { return true }
-        return !cmuxConfigStore.newWorkspaceContextMenuIsConfigured
+        return true
     }
 
     private func appendNewWorkspaceMenuSection(_ items: [NSMenuItem], to menu: NSMenu) {

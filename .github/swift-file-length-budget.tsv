@@ -42,7 +42,7 @@
 2403	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2229	Sources/TerminalWindowPortal.swift
-2225	Sources/RestorableAgentSession.swift
+2203	Sources/RestorableAgentSession.swift
 2216	Sources/TerminalNotificationStore.swift
 2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2126	cmuxTests/CmuxConfigTests.swift

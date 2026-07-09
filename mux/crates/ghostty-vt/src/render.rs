@@ -4,7 +4,7 @@ use std::ptr;
 use ghostty_vt_sys as sys;
 
 use crate::terminal::{Rgb, Terminal};
-use crate::{check, Result};
+use crate::{Result, check};
 
 /// Global dirty state after a [`RenderState::update`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,7 +314,7 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     }
 
     let mut style =
-        sys::GhosttyStyle { size: std::mem::size_of::<sys::GhosttyStyle>(), ..Default::default() };
+        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,

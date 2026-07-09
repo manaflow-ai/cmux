@@ -1,0 +1,167 @@
+name: tui release cut
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version component to bump when version is not set"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: "Explicit X.Y.Z version override"
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: tui-release-cut-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: create release tag
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: write
+      # actions: write lets this job dispatch the downstream build/publish
+      # workflows: a tag pushed with the default GITHUB_TOKEN does NOT fire
+      # other workflows' push triggers (GitHub suppresses token-created events),
+      # so the release cut must dispatch them explicitly.
+      actions: write
+    steps:
+      - name: Require main branch dispatch
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Refusing to cut a TUI release from $GITHUB_REF; dispatch this workflow on main." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compute next TUI version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXPLICIT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags
+          latest_tag="$(
+            git tag --merged HEAD --list 'cmux-tui-v*' --sort=-v:refname |
+              grep -E '^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$' |
+              head -n 1 || true
+          )"
+          if [[ -z "$latest_tag" ]]; then
+            latest_version="0.0.0"
+          else
+            latest_version="${latest_tag#cmux-tui-v}"
+          fi
+
+          version_gt() {
+            local lhs="$1"
+            local rhs="$2"
+            IFS=. read -r lhs_major lhs_minor lhs_patch <<<"$lhs"
+            IFS=. read -r rhs_major rhs_minor rhs_patch <<<"$rhs"
+            if (( lhs_major != rhs_major )); then
+              (( lhs_major > rhs_major ))
+              return
+            fi
+            if (( lhs_minor != rhs_minor )); then
+              (( lhs_minor > rhs_minor ))
+              return
+            fi
+            (( lhs_patch > rhs_patch ))
+          }
+
+          if [[ -n "$EXPLICIT_VERSION" ]]; then
+            [[ "$EXPLICIT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "version must match X.Y.Z" >&2
+              exit 1
+            }
+            next_version="$EXPLICIT_VERSION"
+          else
+            IFS=. read -r major minor patch <<<"$latest_version"
+            case "$BUMP" in
+              patch)
+                patch=$((patch + 1))
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              *)
+                echo "unsupported bump: $BUMP" >&2
+                exit 1
+                ;;
+            esac
+            next_version="$major.$minor.$patch"
+          fi
+
+          if ! version_gt "$next_version" "$latest_version"; then
+            echo "next version $next_version must be greater than latest $latest_version" >&2
+            exit 1
+          fi
+
+          tag="cmux-tui-v$next_version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "tag already exists: $tag" >&2
+            exit 1
+          fi
+          {
+            echo "version=$next_version"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### TUI release cut"
+            echo
+            echo "- Latest: $latest_version"
+            echo "- New tag: $tag"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create annotated tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "cmux TUI $VERSION"
+
+      - name: Push tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git push origin "refs/tags/$TAG"
+
+      - name: Dispatch downstream build and PyPI publish
+        # The tag push above was made with the default GITHUB_TOKEN, which
+        # never triggers other workflows' tag-push events. Dispatch them
+        # explicitly against the new tag so the release actually builds and
+        # publishes. npm stays a deliberate manual dispatch (confirm gate).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh workflow run mux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          {
+            echo "- Dispatched mux-tui-release.yml and tui-publish-pypi.yml on $TAG"
+            echo "- npm publish: dispatch tui-publish-npm.yml with version=$VERSION and confirm_tui_cmux=true"
+          } >> "$GITHUB_STEP_SUMMARY"

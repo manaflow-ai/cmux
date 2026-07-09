@@ -6,19 +6,19 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 use mux_core::{
-    platform::transport, BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb,
-    SurfaceId, SurfaceKind,
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId,
+    SurfaceKind, platform::transport,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::tree::{parse_tree, TreeView};
+use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
 #[derive(Clone)]
@@ -75,12 +75,12 @@ impl RemoteSurface {
         let (cols, rows) = (cols.max(1), rows.max(1));
         self.set_server_size(cols, rows);
         let mut term = self.term.lock().unwrap();
-        if let Some(replay) = replay {
-            if let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default()) {
-                fresh.vt_write(replay);
-                *term = fresh;
-                return;
-            }
+        if let Some(replay) = replay
+            && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
+        {
+            fresh.vt_write(replay);
+            *term = fresh;
+            return;
         }
         let _ = term.resize(cols, rows, 8, 16);
     }
@@ -221,7 +221,7 @@ impl RemoteSession {
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
         if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6; restart the cmux-mux server"
             );
         }
         session.request(json!({"cmd": "subscribe"}))?;
@@ -475,12 +475,25 @@ impl RemoteSession {
         id: SurfaceId,
         size: Option<(u16, u16)>,
     ) -> Option<Arc<RemoteSurface>> {
+        let kind = {
+            let tree = self.tree.lock().unwrap();
+            tree.surface_kind(id)
+        };
+        self.ensure_surface_with_kind(id, kind, size)
+    }
+
+    pub fn ensure_surface_with_kind(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        kind: SurfaceKind,
+        size: Option<(u16, u16)>,
+    ) -> Option<Arc<RemoteSurface>> {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
-        let (kind, source) = {
+        let source = {
             let tree = self.tree.lock().unwrap();
-            (tree.surface_kind(id), browser_source_from_tree(&tree, id))
+            browser_source_from_tree(&tree, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
         let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
@@ -626,8 +639,8 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
 
     use ghostty_vt::{Callbacks, Terminal};
     use serde_json::json;
