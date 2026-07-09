@@ -501,7 +501,7 @@ export async function deleteCmuxAccountData(
       .where(eq(cloudVmNotificationEvents.userId, input.userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, input.userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, input.userId));
-    await tx.delete(cloudVmUsageEvents).where(personalCloudVmUsageEvents(scope));
+    await tx.delete(cloudVmUsageEvents).where(accountOwnedCloudVmUsageEvents(scope));
     await tx.update(cloudVmUsageEvents)
       .set({ userId: anonymizedUserId })
       .where(teamScopedUsageEventsCreatedByUser(scope));
@@ -526,7 +526,7 @@ export async function deleteCmuxAccountData(
         inArray(cloudVmBases.scopeId, scope.ownedBillingTeamIds),
       ),
     ));
-    await tx.delete(cloudVms).where(personalCloudVmRows(scope));
+    await tx.delete(cloudVms).where(accountOwnedCloudVmRows(scope));
     await tx.update(cloudVms)
       .set({ userId: anonymizedUserId, updatedAt: now })
       .where(teamScopedCloudVmRowsCreatedByUser(scope));
@@ -680,7 +680,7 @@ async function claimProviderlessAccountVms(
       failureMessage: "Account deletion cleaned up a stale providerless provisioning VM.",
     })
     .where(and(
-      personalCloudVmRows(scope),
+      accountOwnedCloudVmRows(scope),
       eq(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
       lt(cloudVms.updatedAt, staleBefore),
@@ -690,7 +690,7 @@ async function claimProviderlessAccountVms(
     .select({ id: cloudVms.id })
     .from(cloudVms)
     .where(and(
-      personalCloudVmRows(scope),
+      accountOwnedCloudVmRows(scope),
       eq(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
     ))
@@ -707,7 +707,7 @@ async function claimProviderlessAccountVms(
       updatedAt: now,
     })
     .where(and(
-      personalCloudVmRows(scope),
+      accountOwnedCloudVmRows(scope),
       ne(cloudVms.status, "destroyed"),
       ne(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
@@ -735,7 +735,7 @@ async function destroyProviderBackedAccountVms(
       if (!vm.providerVmId) continue;
       try {
         await runtime.runVmWorkflow(runtime.destroyAccountOwnedVm({
-          userId: scope.userId,
+          userId: vm.userId,
           provider: vm.provider,
           providerVmId: vm.providerVmId,
         }));
@@ -756,19 +756,30 @@ async function destroyProviderBackedAccountVms(
 async function providerBackedAccountVms(
   scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
-): Promise<readonly { readonly provider: ProviderId; readonly providerVmId: string | null }[]> {
+): Promise<readonly {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly providerVmId: string | null;
+}[]> {
   const db = runtime.cloudDb();
   return await db
-    .select({ provider: cloudVms.provider, providerVmId: cloudVms.providerVmId })
+    .select({ userId: cloudVms.userId, provider: cloudVms.provider, providerVmId: cloudVms.providerVmId })
     .from(cloudVms)
     .where(and(
-      personalCloudVmRows(scope),
+      accountOwnedCloudVmRows(scope),
       ne(cloudVms.status, "destroyed"),
       isNotNull(cloudVms.providerVmId),
     ));
 }
 
-function personalCloudVmRows(scope: AccountDeletionScope) {
+function accountOwnedCloudVmRows(scope: AccountDeletionScope) {
+  return or(
+    personalCloudVmRowsCreatedByUser(scope),
+    inArray(cloudVms.billingTeamId, scope.ownedBillingTeamIds),
+  );
+}
+
+function personalCloudVmRowsCreatedByUser(scope: AccountDeletionScope) {
   return and(
     eq(cloudVms.userId, scope.userId),
     or(
@@ -794,7 +805,14 @@ function teamScopedUsageEventsCreatedByUser(scope: AccountDeletionScope) {
   );
 }
 
-function personalCloudVmUsageEvents(scope: AccountDeletionScope) {
+function accountOwnedCloudVmUsageEvents(scope: AccountDeletionScope) {
+  return or(
+    personalCloudVmUsageEventsCreatedByUser(scope),
+    inArray(cloudVmUsageEvents.billingTeamId, scope.ownedBillingTeamIds),
+  );
+}
+
+function personalCloudVmUsageEventsCreatedByUser(scope: AccountDeletionScope) {
   return and(
     eq(cloudVmUsageEvents.userId, scope.userId),
     or(
@@ -840,7 +858,7 @@ async function accountVmSnapshotRows(
     })
     .from(cloudVmUsageEvents)
     .where(and(
-      personalCloudVmUsageEvents(scope),
+      accountOwnedCloudVmUsageEvents(scope),
       eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
       isNotNull(cloudVmUsageEvents.provider),
       sql`${cloudVmUsageEvents.metadata}->>'snapshotId' is not null`,
@@ -902,7 +920,7 @@ async function accountVmIdentityLeaseRows(
     .from(cloudVmLeases)
     .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
     .where(and(
-      eq(cloudVmLeases.userId, scope.userId),
+      accountOwnedCloudVmRows(scope),
       isNotNull(cloudVmLeases.providerIdentityHandle),
       isNull(cloudVmLeases.revokedAt),
     ))

@@ -44,7 +44,11 @@ type StripeUpdateParams = {
 };
 
 const calls: string[] = [];
-let providerBackedVmBatches: Array<Array<{ provider: ProviderId; providerVmId: string | null }>> = [];
+let providerBackedVmBatches: Array<Array<{
+  userId: string;
+  provider: ProviderId;
+  providerVmId: string | null;
+}>> = [];
 let providerlessProvisioningRows: Array<{ id: string }> = [];
 let providerlessProvisioningSelectsRemaining = 0;
 let providerlessCloudVmUpdateCount = 0;
@@ -87,8 +91,12 @@ type AccountDeletionTestWorkflow =
   | DeleteVmSnapshotWorkflow
   | RevokeVmIdentityLeaseWorkflow;
 
-function providerBackedVm(providerVmId: string, provider: ProviderId = "freestyle") {
-  return { provider, providerVmId };
+function providerBackedVm(
+  providerVmId: string,
+  provider: ProviderId = "freestyle",
+  userId = "user-1",
+) {
+  return { userId, provider, providerVmId };
 }
 
 const destroyAccountOwnedVm = mock((input: unknown): DestroyAccountOwnedVmWorkflow => ({
@@ -309,6 +317,25 @@ describe("account deletion cleanup", () => {
     expect(calls).toContain("delete-personal-cloud-vms");
     expect(calls).toContain("anonymize-team-cloud-vms");
     expect(calls).toContain("anonymize-team-cloud-vm-usage-events");
+  });
+
+  test("destroys owned-team Cloud VMs created by another user", async () => {
+    providerBackedVmBatches = [
+      [providerBackedVm("provider-team-vm-1", "freestyle", "former-member")],
+      [],
+    ];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned-1"],
+    }, fakeRuntime());
+
+    expect(destroyAccountOwnedVm).toHaveBeenCalledWith({
+      userId: "former-member",
+      provider: "freestyle",
+      providerVmId: "provider-team-vm-1",
+    });
+    expect(calls).toContain("destroy:former-member:provider-team-vm-1");
   });
 
   test("deletes retained team device registry rows", async () => {
