@@ -8,6 +8,11 @@ extension BrowserWebExtensionSupport {
     }
 
     func apply(entries: [BrowserWebExtensionEntry]) async {
+        await apply(entries: entries, generation: settingsLoadGeneration)
+    }
+
+    func apply(entries: [BrowserWebExtensionEntry], generation: Int) async {
+        guard canApplyWebExtensionLoad(generation: generation) else { return }
         let planner = BrowserWebExtensionReconciliationPlanner()
         let plan = planner.plan(
             settingsEntries: entries,
@@ -24,11 +29,19 @@ extension BrowserWebExtensionSupport {
             unload(entryID: entryID)
         }
 
+        guard canApplyWebExtensionLoad(generation: generation) else { return }
         for entry in plan.loadEntries where loadedByEntryID[entry.id] == nil {
-            await load(entry: entry)
+            await load(entry: entry, generation: generation)
         }
 
+        guard canApplyWebExtensionLoad(generation: generation) else { return }
         rebuildActionSnapshots()
+    }
+
+    func canApplyWebExtensionLoad(generation: Int) -> Bool {
+        generation == settingsLoadGeneration &&
+            !Task.isCancelled &&
+            BrowserAvailabilitySettings.isEnabled()
     }
 
     func context(forActionID actionID: String) -> WKWebExtensionContext? {
@@ -37,6 +50,7 @@ extension BrowserWebExtensionSupport {
 
     func actionSnapshots(for panelID: UUID) -> [BrowserWebExtensionActionSnapshot] {
         _ = actionSnapshotRevision
+        _ = actionSnapshotInvalidationsByPanelID[panelID]?.revision
         let tabAdapter = tabAdapters[panelID]
         return actionSnapshotIDs.compactMap { entryID in
             guard let record = loadedByEntryID[entryID] else { return nil }
@@ -46,7 +60,7 @@ extension BrowserWebExtensionSupport {
 
     func rebuildActionSnapshots() {
         actionSnapshotIDs = loadedRecordsInOrder.map(\.entryID)
-        refreshActionSnapshots()
+        refreshAllActionSnapshots()
     }
 
     func refreshActionSnapshot(for context: WKWebExtensionContext) {
@@ -54,11 +68,17 @@ extension BrowserWebExtensionSupport {
             rebuildActionSnapshots()
             return
         }
-        refreshActionSnapshots()
+        refreshAllActionSnapshots()
     }
 
-    func refreshActionSnapshots() {
+    func refreshAllActionSnapshots() {
         actionSnapshotRevision &+= 1
+    }
+
+    func refreshActionSnapshots(for panelID: UUID?) {
+        guard let panelID,
+              let invalidation = actionSnapshotInvalidationsByPanelID[panelID] else { return }
+        invalidation.refresh()
     }
 
     private func actionSnapshot(
@@ -117,9 +137,10 @@ extension BrowserWebExtensionSupport {
         rebuildActionSnapshots()
     }
 
-    private func load(entry: BrowserWebExtensionEntry) async {
+    private func load(entry: BrowserWebExtensionEntry, generation: Int) async {
         do {
             let webExtension = try await makeWebExtension(for: entry)
+            guard canApplyWebExtensionLoad(generation: generation) else { return }
             let context = try load(webExtension, entryID: entry.id)
             let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
@@ -139,6 +160,7 @@ extension BrowserWebExtensionSupport {
             )
 #endif
         } catch {
+            guard canApplyWebExtensionLoad(generation: generation) else { return }
             recordLoadError(error.localizedDescription, entryID: entry.id)
 #if DEBUG
             cmuxDebugLog("browser.webext.loadFailed url=\(entry.path) error=\(error.localizedDescription)")

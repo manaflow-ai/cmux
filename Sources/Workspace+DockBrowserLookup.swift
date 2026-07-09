@@ -48,7 +48,8 @@ extension Workspace {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: panel.profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            allowWebExtensionInitialNavigationConfiguration: false
         ) != nil
     }
 
@@ -64,7 +65,8 @@ extension Workspace {
                 initialRequest: seed.initialRequest,
                 focus: true,
                 preferredProfileID: panel.profileID,
-                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                allowWebExtensionInitialNavigationConfiguration: false
             ) != nil
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
@@ -99,7 +101,8 @@ extension DockSplitStore {
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
-        webViewConfiguration: WKWebViewConfiguration? = nil
+        webViewConfiguration: WKWebViewConfiguration? = nil,
+        allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
@@ -113,7 +116,8 @@ extension DockSplitStore {
             isRemoteWorkspace: settings.isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
             browserWebExtensionHost: browserWebExtensionHost,
-            webViewConfiguration: webViewConfiguration
+            webViewConfiguration: webViewConfiguration,
+            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         panel.webViewDidRequestClose = { [weak self, weak panel] in

@@ -67,7 +67,8 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
             defaultValue: "Extension"
         )
 
-        if let url = configuration.tabURLs.first {
+        if let url = configuration.tabURLs.first,
+           support.canOpenExtensionRequestedBrowserURL(url) {
             webView.load(URLRequest(url: url))
         }
         if configuration.shouldBeFocused {
@@ -136,6 +137,10 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         completionHandler(nil)
     }
 
+    func canLoadExtensionRequestedURL(_ url: URL) -> Bool {
+        support?.canOpenExtensionRequestedBrowserURL(url) == true
+    }
+
     // MARK: - Tab
 
     /// The popout window's single extension-page tab.
@@ -177,7 +182,12 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         }
 
         func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-            controller?.webView.load(URLRequest(url: url))
+            guard let controller,
+                  controller.canLoadExtensionRequestedURL(url) else {
+                completionHandler(NSError(domain: "cmux.webExtension.popup", code: 1))
+                return
+            }
+            controller.webView.load(URLRequest(url: url))
             completionHandler(nil)
         }
 

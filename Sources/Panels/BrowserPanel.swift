@@ -3103,6 +3103,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let request: URLRequest
         let recordTypedNavigation: Bool
         let preserveRestoredSessionHistory: Bool
+        let allowWebExtensionContext: Bool
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
@@ -3956,7 +3957,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
-        webViewConfiguration: WKWebViewConfiguration? = nil
+        webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3979,9 +3980,8 @@ final class BrowserPanel: Panel, ObservableObject {
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
         self.browserWebExtensionHost = browserWebExtensionHost
-        let initialExtensionNavigationConfiguration = (initialRequest?.url ?? initialURL).flatMap {
-            browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: $0)
-        }
+        let canUseInitialExtensionConfiguration = allowWebExtensionInitialNavigationConfiguration || webViewConfiguration != nil
+        let initialExtensionNavigationConfiguration = canUseInitialExtensionConfiguration ? (initialRequest?.url ?? initialURL).flatMap { browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: $0) } : nil
         let initialWebViewConfiguration = webViewConfiguration
             ?? initialExtensionNavigationConfiguration?.webViewConfiguration
         let webView: CmuxWebView
@@ -4019,9 +4019,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
-        }
-        navDelegate.shouldReissueNavigationForWebExtensionConfiguration = { [weak self] request in
-            self?.needsWebExtensionNavigationConfigurationSwap(for: request) ?? false
         }
         navDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
@@ -5760,7 +5757,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func navigateWithoutInsecureHTTPPrompt(
         request: URLRequest,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool = false
+        preserveRestoredSessionHistory: Bool = false, allowWebExtensionContext: Bool = true
     ) {
         guard let url = request.url else { return }
         cancelHiddenWebViewDiscard()
@@ -5768,7 +5765,7 @@ final class BrowserPanel: Panel, ObservableObject {
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
                 recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory, allowWebExtensionContext: allowWebExtensionContext
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -5781,7 +5778,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
-            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory, allowWebExtensionContext: allowWebExtensionContext
         )
     }
 
@@ -5801,7 +5798,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: navigation.request,
             originalURL: originalURL,
             recordTypedNavigation: navigation.recordTypedNavigation,
-            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory, allowWebExtensionContext: navigation.allowWebExtensionContext
         )
         pendingRemoteNavigation = nil
     }
@@ -5810,7 +5807,7 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         originalURL: URL,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool
+        preserveRestoredSessionHistory: Bool, allowWebExtensionContext: Bool
     ) {
         cancelHiddenWebViewDiscard()
         clearWebContentTerminationRecovery()
@@ -5818,7 +5815,7 @@ final class BrowserPanel: Panel, ObservableObject {
             abandonRestoredSessionHistoryIfNeeded()
         }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
-        ensureWebExtensionNavigationConfiguration(for: originalURL)
+        ensureWebExtensionNavigationConfiguration(for: originalURL, allowWebExtensionContext: allowWebExtensionContext)
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -5842,22 +5839,25 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func needsWebExtensionNavigationConfigurationSwap(for request: URLRequest) -> Bool {
-        guard let url = request.url else { return false }
-        let targetContextIdentifier = browserWebExtensionHost?
-            .webViewConfiguration(forNavigatingTo: url)?
-            .contextIdentifier
-        return targetContextIdentifier != webExtensionPageContextIdentifier
-    }
-
-    private func ensureWebExtensionNavigationConfiguration(for url: URL) {
+    private func ensureWebExtensionNavigationConfiguration(for url: URL, allowWebExtensionContext: Bool) {
         let targetConfiguration = browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: url)
         let targetContextIdentifier = targetConfiguration?.contextIdentifier
         guard targetContextIdentifier != webExtensionPageContextIdentifier else { return }
-        replaceWebViewForWebExtensionNavigation(
-            webViewConfiguration: targetConfiguration?.webViewConfiguration,
-            contextIdentifier: targetContextIdentifier
-        )
+        guard targetContextIdentifier == nil || allowWebExtensionContext else { return }
+        replaceWebViewForWebExtensionNavigation(webViewConfiguration: targetConfiguration?.webViewConfiguration, contextIdentifier: targetContextIdentifier)
+    }
+
+    func navigateFromWebExtension(to url: URL, webViewConfiguration: WKWebViewConfiguration?) {
+        if let webViewConfiguration {
+            let contextIdentifier = browserWebExtensionHost?
+                .webViewConfiguration(forNavigatingTo: url)?
+                .contextIdentifier
+            replaceWebViewForWebExtensionNavigation(
+                webViewConfiguration: webViewConfiguration,
+                contextIdentifier: contextIdentifier
+            )
+        }
+        navigate(to: url)
     }
 
     private func replaceWebViewForWebExtensionNavigation(
@@ -6008,7 +6008,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch intent {
         case .currentTab:
-            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
+            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false, allowWebExtensionContext: false)
         case .newTab:
             openLinkInNewTab(request: request)
         }
@@ -6499,7 +6499,7 @@ extension BrowserPanel {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce, allowWebExtensionInitialNavigationConfiguration: false
         ) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")

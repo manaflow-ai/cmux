@@ -60,11 +60,16 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        guard let panel else {
+        guard let panel,
+              let support,
+              support.canOpenExtensionRequestedBrowserURL(url) else {
             completionHandler(webExtensionTabError(code: 4))
             return
         }
-        panel.navigate(to: url)
+        panel.navigateFromWebExtension(
+            to: url,
+            webViewConfiguration: support.webViewConfigurationForExtensionRequestedBrowserURL(url)
+        )
         completionHandler(nil)
     }
 

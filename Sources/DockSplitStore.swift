@@ -278,7 +278,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil
+        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> UUID? {
         ensureLoaded()
         guard let panel = makePanel(
@@ -290,7 +290,7 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration, allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
@@ -461,7 +461,7 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil
+        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> (any Panel)? {
         switch kind {
         case .terminal:
@@ -483,7 +483,7 @@ final class DockSplitStore: BonsplitDelegate {
                 url: url,
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
-                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration, allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
             )
         }
     }
