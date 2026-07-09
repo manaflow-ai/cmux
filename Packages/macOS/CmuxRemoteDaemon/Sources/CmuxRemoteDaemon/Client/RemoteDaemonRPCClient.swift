@@ -59,6 +59,12 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for resize notifications
     /// (`pty.resize.notification`; value is test-pinned, do not change).
     public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
+    /// Optional wire capability for sequenced, acked PTY input
+    /// (`pty.input.seq_ack`; value is test-pinned, do not change).
+    public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
+    /// Wire-pinned rpc error code the daemon returns for a sequenced
+    /// `pty.write` whose seq is not exactly last+1.
+    public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
     static let maxCloudCLIRequestsInFlight = 4
 
     // Subscription records pair the caller's delivery queue with its handler.
@@ -119,6 +125,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var streamSubscriptions: [String: StreamSubscription] = [:]
     var ptySubscriptions: [String: PTYSubscription] = [:]
     var cliRequestsInFlight = 0
+    var advertisedCapabilities: Set<String> = []
 
     /// Creates a client for one daemon transport.
     ///
@@ -168,6 +175,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         do {
             let hello = try call(method: "hello", params: [:], timeout: 8.0)
             let capabilities = (hello["capabilities"] as? [String]) ?? []
+            stateQueue.sync {
+                advertisedCapabilities = Set(capabilities)
+            }
             let missingCapabilities = Self.missingRequiredCapabilities(
                 Self.requiredCapabilities(for: configuration),
                 in: capabilities
@@ -229,6 +239,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         stderrBuffer = ""
         streamSubscriptions.removeAll(keepingCapacity: false)
         ptySubscriptions.removeAll(keepingCapacity: false)
+        advertisedCapabilities.removeAll(keepingCapacity: false)
     }
 
     func failPTYSubscriptionsLocked(_ detail: String) {

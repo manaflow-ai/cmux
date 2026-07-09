@@ -1,6 +1,8 @@
 #if DEBUG
 extension TerminalController {
     nonisolated static let v2DebugMethodNames: [String] = [
+        "remote.tmux.test_exec",
+        "remote.tmux.test_set_frame",
         "debug.shortcut.set",
         "debug.shortcut.simulate",
         "debug.type",

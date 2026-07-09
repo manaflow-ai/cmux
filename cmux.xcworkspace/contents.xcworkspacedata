@@ -45,6 +45,9 @@
          location = "group:CmuxMobileCamera">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileCrashReporting">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
