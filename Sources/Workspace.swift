@@ -4145,8 +4145,8 @@ final class Workspace: Identifiable, ObservableObject {
               let paneId = paneId(forPanelId: panelId) else { return }
         bonsplitController.updateTab(tabId, isPinned: pinned)
         let restorePinState = {
-            if wasPinned { pinnedPanelIds.insert(panelId) } else { pinnedPanelIds.remove(panelId) }
-            bonsplitController.updateTab(tabId, isPinned: wasPinned)
+            if wasPinned { self.pinnedPanelIds.insert(panelId) } else { self.pinnedPanelIds.remove(panelId) }
+            self.bonsplitController.updateTab(tabId, isPinned: wasPinned)
         }
         guard normalizePinnedTabs(in: paneId, beforeMirrorRollback: restorePinState) else {
             restorePinState()
