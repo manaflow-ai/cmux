@@ -403,7 +403,7 @@ final class PaneDropTargetView: NSView {
             return nil
         case .agentSession, .project:
             return nil
-        case .extensionBrowser:
+        case .extensionBrowser, .workspaceTodo:
             return nil
         case .cloudVMLoading:
             return nil
