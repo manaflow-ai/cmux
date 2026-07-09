@@ -692,6 +692,8 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     };
 
     let result = app.event_loop(&mut terminal, rx);
+    app.cancel_pty_mouse_drag();
+    let _ = app.pty_input.shutdown(Duration::from_secs(3));
     if let Some(writer) = app.graphics_writer.as_mut() {
         writer.shutdown(Duration::from_millis(200));
     }
@@ -984,6 +986,9 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
+                if matches!(&self.drag, Some(Drag::PtyMouse { surface, .. }) if *surface == id) {
+                    self.drag = None;
+                }
                 self.render_states.remove(&id);
                 self.session.forget_surface(id);
                 if self.sidebar_plugin_surface == Some(id) {
@@ -1056,13 +1061,16 @@ impl App {
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
+            AppEvent::Input(Event::FocusLost) => {
+                self.cancel_pty_mouse_drag();
+                Ok(RenderAction::None)
+            }
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Input(_) => Ok(RenderAction::None),
         }
     }
 
@@ -2268,9 +2276,12 @@ impl App {
         if reported_button != active_button {
             return true;
         }
+        if !self.pty_mouse_tracking(surface) {
+            self.drag = None;
+            return true;
+        }
         let content = self.current_pty_content(surface).unwrap_or(content);
-        self.drag = None;
-        let _ = self.forward_pty_mouse_to_surface(
+        let delivered = self.forward_pty_mouse_to_surface(
             surface,
             content,
             x,
@@ -2280,6 +2291,9 @@ impl App {
             modifiers,
             false,
         );
+        if delivered {
+            self.drag = None;
+        }
         true
     }
 
@@ -2288,9 +2302,12 @@ impl App {
         else {
             return;
         };
+        if !self.pty_mouse_tracking(surface) {
+            self.drag = None;
+            return;
+        }
         let content = self.current_pty_content(surface).unwrap_or(content);
-        self.drag = None;
-        let _ = self.forward_pty_mouse_to_surface(
+        let delivered = self.forward_pty_mouse_to_surface(
             surface,
             content,
             position.0,
@@ -2300,6 +2317,9 @@ impl App {
             modifiers,
             false,
         );
+        if delivered {
+            self.drag = None;
+        }
     }
 
     fn forward_pty_mouse_at(
@@ -2321,7 +2341,7 @@ impl App {
         {
             return false;
         }
-        self.forward_pty_mouse_to_surface(
+        let _ = self.forward_pty_mouse_to_surface(
             area.surface,
             area.content,
             x,
@@ -2330,7 +2350,8 @@ impl App {
             button,
             modifiers,
             any_button_pressed,
-        )
+        );
+        true
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2374,6 +2395,18 @@ impl App {
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
             let kind = match action {
+                MouseAction::Press
+                    if matches!(
+                        button,
+                        Some(
+                            GhosttyMouseButton::Left
+                                | GhosttyMouseButton::Right
+                                | GhosttyMouseButton::Middle
+                        )
+                    ) =>
+                {
+                    PtyInputKind::Press
+                }
                 MouseAction::Press => PtyInputKind::Ordered,
                 MouseAction::Release => PtyInputKind::Release,
                 MouseAction::Motion => PtyInputKind::Motion,
@@ -2384,14 +2417,23 @@ impl App {
     }
 
     fn write_pty_bytes(
-        &self,
+        &mut self,
         surface_id: SurfaceId,
         surface: SurfaceHandle,
         bytes: Vec<u8>,
         kind: PtyInputKind,
     ) -> bool {
         if matches!(&surface, SurfaceHandle::Remote(_, _)) {
-            self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind })
+            let accepted =
+                self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind });
+            if !accepted {
+                // Saturation means ordered input can no longer be represented
+                // safely. Disconnect instead of silently dropping or replaying
+                // a partial stream after recovery.
+                self.pty_input.abort();
+                self.quit = true;
+            }
+            accepted
         } else {
             surface.write_bytes(&bytes);
             true
@@ -3353,14 +3395,14 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, Drag, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
-        pane_parts_for_rect,
+        App, AppEvent, Drag, PaneArea, browser_content_size_for_rect,
+        browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
-    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ghostty_vt::{KeyEncoder, MouseEncoder, RenderState};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -3508,6 +3550,12 @@ mod tests {
         assert!(app.drag.is_none());
         assert!(app.prompt.is_some());
         app.prompt = None;
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
+            .unwrap();
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
+        assert!(app.drag.is_none());
 
         app.encode_buf.clear();
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT))
