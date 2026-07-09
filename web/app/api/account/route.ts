@@ -130,7 +130,7 @@ async function deleteVaultRowsAndObjectsForAccount(userId: string): Promise<void
       .orderBy(asc(vaultSnapshots.id))
       .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
     if (snapshots.length === 0) break;
-    for (const snapshot of snapshots) await deleteObject(snapshot.objectKey);
+    await Promise.all(snapshots.map((snapshot) => deleteObject(snapshot.objectKey)));
     await db.delete(vaultSnapshots).where(inArray(vaultSnapshots.id, snapshots.map((snapshot) => snapshot.id)));
     if (snapshots.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
@@ -147,10 +147,10 @@ async function deleteVaultRowsAndObjectsForAccount(userId: string): Promise<void
       .orderBy(asc(vaultUploadGrants.id))
       .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
     if (grants.length === 0) break;
-    for (const grant of grants) {
-      await deleteObject(grant.objectKey);
-      await deleteObject(grant.uploadObjectKey);
-    }
+    await Promise.all(grants.flatMap((grant) => [
+      deleteObject(grant.objectKey),
+      deleteObject(grant.uploadObjectKey),
+    ]));
     await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, grants.map((grant) => grant.id)));
     if (grants.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
@@ -167,10 +167,10 @@ async function deleteVaultRowsAndObjectsForAccount(userId: string): Promise<void
       .orderBy(asc(vaultUploadTombstones.id))
       .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
     if (tombstones.length === 0) break;
-    for (const tombstone of tombstones) {
-      await deleteObject(tombstone.objectKey);
-      await deleteObject(tombstone.uploadObjectKey);
-    }
+    await Promise.all(tombstones.flatMap((tombstone) => [
+      deleteObject(tombstone.objectKey),
+      deleteObject(tombstone.uploadObjectKey),
+    ]));
     await db
       .delete(vaultUploadTombstones)
       .where(inArray(vaultUploadTombstones.id, tombstones.map((tombstone) => tombstone.id)));
@@ -185,7 +185,7 @@ async function deleteVaultRowsAndObjectsForAccount(userId: string): Promise<void
       .orderBy(asc(vaultSessions.id))
       .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
     if (sessions.length === 0) break;
-    for (const session of sessions) await deleteObject(session.latestObjectKey);
+    await Promise.all(sessions.map((session) => deleteObject(session.latestObjectKey)));
     await db.delete(vaultSessions).where(inArray(vaultSessions.id, sessions.map((session) => session.id)));
     if (sessions.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
