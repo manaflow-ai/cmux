@@ -382,6 +382,7 @@ import Testing
         // genuine end (stop retrying, close).
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("can't find session: work"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no server running on /tmp/tmux-501/default"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no sessions"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("lost server"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("ERROR: SESSION NOT FOUND"))
     }

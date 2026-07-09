@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -17,6 +18,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorLifecycleTests {
+    private final class CloseVetoDelegate: NSObject, NSWindowDelegate {
+        func windowShouldClose(_ sender: NSWindow) -> Bool { false }
+    }
+
     private let ignoreInput: @Sendable (Data) -> Void = { _ in }
 
     private func mirror(
@@ -80,6 +85,106 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(manager.tabs.contains { $0.id == betaWorkspace.id })
         #expect(alpha.exited)
         #expect(!beta.exited)
+    }
+
+    @Test func nonInteractiveWindowCloseCommitsEvenWhenInteractiveCloseIsVetoed() {
+        _ = NSApplication.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        manager.window = window
+        let veto = CloseVetoDelegate()
+        window.delegate = veto
+        var didClose = false
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: nil
+        ) { _ in
+            didClose = true
+        }
+        defer {
+            NotificationCenter.default.removeObserver(closeObserver)
+            window.delegate = nil
+            if !didClose { window.close() }
+            manager.window = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        #expect(appDelegate.closeMainWindow(windowId: windowId))
+        #expect(didClose)
+    }
+
+    @Test func nonInteractiveCloseRemovesLastDeadMirrorAndItsWindow() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager()
+        let localWorkspace = try #require(manager.selectedWorkspace)
+        let host = RemoteTmuxHost(destination: "user@host")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        appDelegate.remoteTmuxController.cacheConnection(connection)
+        #expect(try appDelegate.remoteTmuxController.mirrorSession(
+            host: host,
+            sessionName: "dev",
+            into: manager
+        ))
+        let mirrorWorkspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        manager.closeWorkspace(localWorkspace)
+        #expect(manager.tabs.map(\.id) == [mirrorWorkspace.id])
+        connection.stop()
+
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        manager.window = window
+        var didClose = false
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: nil
+        ) { _ in
+            didClose = true
+        }
+        defer {
+            NotificationCenter.default.removeObserver(closeObserver)
+            if !didClose { window.close() }
+            manager.window = nil
+            if appDelegate.remoteTmuxController.sessionMirror(host: host, sessionName: "dev") != nil {
+                appDelegate.remoteTmuxController.detach(host: host, sessionName: "dev")
+            }
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let resolution = TerminalController.shared.controlCloseWorkspace(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: true,
+                windowID: windowId,
+                groupID: nil,
+                workspaceID: mirrorWorkspace.id,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            workspaceID: mirrorWorkspace.id
+        )
+
+        #expect(resolution == .resolved(windowID: windowId))
+        #expect(didClose)
+        #expect(appDelegate.remoteTmuxController.sessionMirror(host: host, sessionName: "dev") == nil)
     }
 
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {
