@@ -531,9 +531,12 @@ describe("recordCheckoutCompletion", () => {
     const result = await recordCheckoutCompletion(teamCheckoutInput() as never, {
       db: fakeDb() as never,
       stackApp: {
-        getUser: async () => {
-          throw new Error("should not load Stack user for Team checkout");
-        },
+        getUser: async () => ({
+          id: "owner_123",
+          primaryEmail: "owner@example.com",
+          clientReadOnlyMetadata: {},
+          update: mock(async () => undefined),
+        }),
         getTeam: async () => team,
       } as never,
     });
@@ -565,6 +568,44 @@ describe("recordCheckoutCompletion", () => {
     expect(updateTeam).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "team" },
     });
+  });
+
+  test("blocks Team checkout completion while the billing owner is deleting their account", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+    const owner = {
+      id: "owner_123",
+      primaryEmail: "owner@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "owner_123" }], []];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => owner,
+          getTeam: async () => {
+            throw new Error("should not load Stack team for blocked Team checkout");
+          },
+        } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "owner_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(deleteCustomer).toHaveBeenCalledWith("cus_team");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(owner.update).not.toHaveBeenCalled();
   });
 
   test("clears Team metadata when a Team subscription lapses", async () => {
