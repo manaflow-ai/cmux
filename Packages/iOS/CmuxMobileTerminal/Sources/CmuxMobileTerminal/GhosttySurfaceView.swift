@@ -136,11 +136,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the same FIFO-before-dispose ordering discipline.
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
-    private var pendingSurfaceFreeCount = 0
+    private(set) var pendingSurfaceFreeCount = 0
     #if DEBUG
     var recoveryStressFreeDrainObserver: (@MainActor @Sendable (RecoveryStressSnapshot) -> Void)?
     #endif
-    private var renderPipelineRecoveryPaused = false
+    private(set) var renderPipelineRecoveryPaused = false
     private var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
@@ -307,7 +307,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }()
 
     private(set) var surface: ghostty_surface_t?
-    private var surfaceGeneration: UInt64 = 0
+    private(set) var surfaceGeneration: UInt64 = 0
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -366,13 +366,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardHeightAnimationID = 0
 
     #if DEBUG
-    struct RecoveryStressSnapshot: Equatable, Sendable {
-        let generation: UInt64
-        let pendingSurfaceFreeCount: Int
-        let hasSurface: Bool
-        let recoveryPaused: Bool
-    }
-
     struct DebugGeometrySnapshot {
         let boundsSize: CGSize
         let renderRect: CGRect
@@ -423,29 +416,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             liveFontSize: liveFontSize,
             baseFontSize: userBaseFontSize
         )
-    }
-
-    func recoveryStressSnapshot() -> RecoveryStressSnapshot {
-        RecoveryStressSnapshot(
-            generation: surfaceGeneration,
-            pendingSurfaceFreeCount: pendingSurfaceFreeCount,
-            hasSurface: surface != nil,
-            recoveryPaused: renderPipelineRecoveryPaused
-        )
-    }
-
-    @discardableResult
-    func forceRecoveryForStress() -> RecoveryStressSnapshot {
-        _ = recoverRenderPipeline(
-            reason: "recovery_stress",
-            stalledMs: 0,
-            replay: .delegateWhenNoCaller
-        )
-        return recoveryStressSnapshot()
-    }
-
-    func setFocusForRecoveryStress(_ focused: Bool) {
-        setFocus(focused)
     }
 
     func setKeyboardHeightForTesting(_ height: CGFloat) {
@@ -2386,21 +2356,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
-        _ = pointTag
-        // ghostty_surface_read_text_html not available in this build
-        return nil
-    }
-
-    func processExitedForTesting() -> Bool {
-        guard let surface else { return false }
-        return ghostty_surface_process_exited(surface)
-    }
-
     func disposeSurface() {
         stopDisplayLink()
         guard let surface else { return }
-        let generation = surfaceGeneration
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
         let currentBridge = bridge
@@ -2416,7 +2374,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // work from being enqueued once `surface` is nil, so only the bounded
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
-        enqueueSurfaceFree(surface, bridge: currentBridge, generation: generation, on: currentQueue)
+        enqueueSurfaceFree(surface, bridge: currentBridge, generation: surfaceGeneration, on: currentQueue)
     }
 
     private func enqueueSurfaceFree(
@@ -2427,15 +2385,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        surfaceFreeDrainWatchdog.start(
-            generation: generation,
-            pendingFrees: { [weak self] in self?.pendingSurfaceFreeCount ?? 0 },
-            onStuck: { generation, pendingFrees in
-                let message = "surface.free.STUCK generation=\(generation) pendingFrees=\(pendingFrees)"
-                MobileDebugLog.anchormux(message)
-                log.fault("surface.free.STUCK generation=\(generation, privacy: .public) pendingFrees=\(pendingFrees, privacy: .public)")
-            }
-        )
+        surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
         // weak: a wedged free must not keep the whole view alive with it.
         queue.async { [weak self] in
             ghostty_surface_free(surface)
@@ -2491,7 +2441,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func recoverRenderPipeline(
+    func recoverRenderPipeline(
         reason: String,
         stalledMs: Int,
         replay: RenderPipelineRecoveryReplay
@@ -2517,10 +2467,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let oldQueue = outputQueue
         oldBridge.detach()
         if let oldSurface {
-            let oldGeneration = surfaceGeneration
             GhosttySurfaceView.unregister(surface: oldSurface)
             pendingSurfaceFreeCount += 1
-            enqueueSurfaceFree(oldSurface, bridge: oldBridge, generation: oldGeneration, on: oldQueue) { [weak self] in
+            enqueueSurfaceFree(oldSurface, bridge: oldBridge, generation: surfaceGeneration, on: oldQueue) { [weak self] in
                 guard let self else { return }
                 self.pendingSurfaceFreeCount = max(0, self.pendingSurfaceFreeCount - 1)
                 MobileDebugLog.anchormux(
@@ -2990,7 +2939,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func setFocus(_ focused: Bool) {
+    func setFocus(_ focused: Bool) {
         guard let surface else { return }
         ghostty_surface_set_focus(surface, focused)
     }
@@ -3920,7 +3869,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 }
 
-nonisolated private enum RenderPipelineRecoveryReplay {
+nonisolated enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
