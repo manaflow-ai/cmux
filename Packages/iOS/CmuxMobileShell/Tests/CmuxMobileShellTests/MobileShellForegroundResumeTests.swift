@@ -65,3 +65,29 @@ import Testing
     await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1)
     collector.unmount()
 }
+
+@MainActor
+@Test func inactiveReturnDoesNotResetLongBackgroundDwell() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing foreground phase order"
+    )
+    let subscribeCount = await router.count(of: "mobile.events.subscribe")
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: 31)
+    store.suspendForegroundRefresh()
+    store.resumeForegroundRefresh()
+
+    await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1)
+    collector.unmount()
+}

@@ -13,7 +13,6 @@ extension WorkspaceDetailView {
                 .accessibilityHidden(surface != .terminal)
             if surface == .chat, let session = chosenChatSession {
                 chatContent(session)
-                    .transition(.opacity)
                     .background(TerminalPalette.background)
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)

@@ -41,6 +41,14 @@ import Testing
 
     let followUpChunk = try #require(await iterator.next())
     #expect(String(data: followUpChunk.data, encoding: .utf8) == "follow-up-replay")
+    let queuedReplayTailAccepted = store.deliverTerminalBytes(
+        Data("queued-after-follow-up-cap".utf8),
+        surfaceID: surfaceID,
+        bypassReplayBarrier: true
+    )
+    #expect(queuedReplayTailAccepted == true)
+    store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] = 100
+    store.pendingTerminalInputDroppedRenderGridSurfaceIDs.insert(surfaceID)
     let followUpDropAccepted = store.deliverTerminalBytes(
         Data("live-during-follow-up-barrier".utf8),
         surfaceID: surfaceID
@@ -56,6 +64,22 @@ import Testing
     )
     #expect(!secondFollowUpRequested, "continuous output must not keep replaying indefinitely")
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    #expect(store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
+    #expect(!store.pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(surfaceID))
+
+    let queuedAfterFailOpen = try #require(await iterator.next())
+    #expect(String(data: queuedAfterFailOpen.data, encoding: .utf8) == "queued-after-follow-up-cap")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: queuedAfterFailOpen.streamToken)
+
+    store.terminalOutputTransport = .renderGrid
+    store.deliverAuthoritativeTerminalRenderGrid(
+        try renderGridFrame(surfaceID: surfaceID, seq: 100, text: "live-grid-after-fail-open"),
+        source: "event"
+    )
+    let liveGridAfterFailOpen = try #require(await iterator.next())
+    let liveGridText = try #require(String(data: liveGridAfterFailOpen.data, encoding: .utf8))
+    #expect(liveGridText.contains("live-grid-after-fail-open"))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveGridAfterFailOpen.streamToken)
 
     store.deliverTerminalBytes(Data("after-bounded-replay".utf8), surfaceID: surfaceID)
     let afterBoundedReplay = try #require(await iterator.next())

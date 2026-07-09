@@ -7389,13 +7389,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
                 guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
                 markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
-                if !terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
-                    resyncTerminalOutput(
-                        reason: "seq_gap",
-                        restartEventStream: false,
-                        surfaceIDs: [surfaceID]
-                    )
+                if terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
+                    cancelTerminalReplayInFlight(surfaceID: surfaceID)
                 }
+                resyncTerminalOutput(
+                    reason: "seq_gap",
+                    restartEventStream: false,
+                    surfaceIDs: [surfaceID]
+                )
                 return
             }
             if endSeq <= deliveredSeq {

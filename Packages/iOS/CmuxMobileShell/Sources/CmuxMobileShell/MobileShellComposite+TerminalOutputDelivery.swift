@@ -309,18 +309,19 @@ extension MobileShellComposite {
             let needsFollowUpReplay = coveredDroppedOutputCount.map {
                 currentDroppedOutputCount > $0
             } ?? true
-            terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
-            let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID) != nil
-            terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+            let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
             if droppedOutputDuringBarrier, needsFollowUpReplay {
                 if claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
                     let baselineReplayRequestCount = missingBaselineReplayBarrier
                         ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
                         : nil
+                    terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+                    terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                    terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     let replayBarrierToken = beginTerminalReplayBarrier(
                         surfaceID: surfaceID,
                         preservingFollowUpCount: true
@@ -338,17 +339,24 @@ extension MobileShellComposite {
                     requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
                     return
                 }
-                // Same invariant as failOpenTerminalReplayBarrier: do not leave
-                // live output dropped with no replay progress possible.
-                rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
-                deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-                MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=followup_cap")
-                return
+                _ = failOpenTerminalReplayBarrier(
+                    surfaceID: surfaceID,
+                    token: replayBarrierToken,
+                    reason: "followup_cap"
+                )
+            } else {
+                terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+                terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+                // Fully resolved: a seq-less raw tail leaves no delivered sequence,
+                // so the floor restore is the truthful baseline hand-back.
+                restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+                terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
             }
-            // Fully resolved: a seq-less raw tail leaves no delivered sequence,
-            // so the floor restore is the truthful baseline hand-back.
-            restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
-            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],

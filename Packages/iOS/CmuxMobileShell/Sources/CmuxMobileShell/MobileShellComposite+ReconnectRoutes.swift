@@ -31,7 +31,9 @@ extension MobileShellComposite {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
-        if shouldResyncTerminalOutputOnForeground() {
+        let shouldResync = shouldResyncTerminalOutputOnForeground()
+        lastBackgroundedAt = nil
+        if shouldResync {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         // The foreground Mac's workspace list updates live over the sync stream,
@@ -45,6 +47,7 @@ extension MobileShellComposite {
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
+        guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
     }
 

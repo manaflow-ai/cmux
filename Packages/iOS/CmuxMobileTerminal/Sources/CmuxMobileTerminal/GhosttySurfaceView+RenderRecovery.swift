@@ -105,11 +105,14 @@ extension GhosttySurfaceView {
         renderPipelineRecoveryPaused = false
         renderPipelineRecoveryPausedAt = nil
         cancelRenderPipelineRecoveryResumeTimer()
-        _ = recoverRenderPipeline(
+        let recovered = recoverRenderPipeline(
             reason: "free_drained",
             stalledMs: 0,
-            replay: .delegateWhenNoCaller
+            replay: .callerWillRequestReplay
         )
+        if recovered {
+            delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
+        }
     }
 
     func ensureRenderPipelineRecoveryResumeTimer() {
