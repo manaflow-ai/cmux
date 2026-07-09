@@ -47,6 +47,15 @@ enum PendingManualHostTrust {
         }
     }
 
+    var pairedMacDeviceID: String? {
+        switch self {
+        case let .manual(_, _, _, _, _, pairedMacDeviceID, _, _, _):
+            pairedMacDeviceID
+        case .pairingURL:
+            nil
+        }
+    }
+
     func approving(route: CmxAttachRoute) -> PendingManualHostTrust {
         switch self {
         case .manual:

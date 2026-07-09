@@ -1,20 +1,89 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    func disconnectForAuthorizationFailureIfNeeded(
+    func handleAuthorizationFailureIfNeeded(
         _ error: any Error,
-        route: CmxAttachRoute? = nil,
-        preservingActiveConnection: Bool = false
+        owner: MobileShellAuthorizationFailureOwner
     ) -> Bool {
         guard shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
-        let category = MobilePairingFailureCategory.classify(error: error, route: route ?? activeRoute)
-        applyAuthorizationFailure(category, preservingActiveConnection: preservingActiveConnection)
+        if let connectionError = error as? MobileShellConnectionError,
+           case .insecureManualRoute = connectionError {
+            switch owner {
+            case let .foreground(route):
+                if queueForegroundManualHostReapproval(route: route) {
+                    return true
+                }
+            case let .connectionAttempt(route, preservingActiveConnection):
+                if !preservingActiveConnection,
+                   queueForegroundManualHostReapproval(route: route) {
+                    return true
+                }
+            case let .secondary(macDeviceID, client, _):
+                invalidateSecondaryConnection(macDeviceID: macDeviceID, client: client)
+                return true
+            }
+        }
+        if case let .secondary(macDeviceID, client, _) = owner {
+            invalidateSecondaryConnection(macDeviceID: macDeviceID, client: client)
+            return true
+        }
+        let category = MobilePairingFailureCategory.classify(error: error, route: owner.route)
+        applyAuthorizationFailure(
+            category,
+            preservingActiveConnection: owner.preservesActiveConnection
+        )
         return true
+    }
+
+    private func queueForegroundManualHostReapproval(route: CmxAttachRoute?) -> Bool {
+        guard let route,
+              MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(route),
+              case let .hostPort(host, port) = route.endpoint else {
+            return false
+        }
+        let displayName = connectedHostName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pairedMacDeviceID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+        let attemptID = beginPairingValidationAttempt()
+        queueManualHostTrustWarning(
+            route: route,
+            displayHost: host,
+            pending: .manual(
+                attemptID: attemptID,
+                name: displayName.isEmpty ? host : displayName,
+                host: host,
+                port: port,
+                route: route,
+                pairedMacDeviceID: pairedMacDeviceID,
+                recordsPairingAttempt: false,
+                macSwitchAttemptID: nil,
+                ifStillCurrent: nil
+            )
+        )
+        disconnectForegroundForManualHostReapproval()
+        return true
+    }
+
+    private func invalidateSecondaryConnection(
+        macDeviceID: String,
+        client: MobileCoreRPCClient
+    ) {
+        guard let subscription = secondaryMacSubscriptions[macDeviceID],
+              subscription.client === client else {
+            return
+        }
+        subscription.cancel()
+        secondaryMacSubscriptions[macDeviceID] = nil
+        removeSecondaryConnectionFromPool(macDeviceID: macDeviceID)
+        if var state = workspacesByMac[macDeviceID] {
+            state.status = .unavailable
+            workspacesByMac[macDeviceID] = state
+        }
     }
 
     private func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {

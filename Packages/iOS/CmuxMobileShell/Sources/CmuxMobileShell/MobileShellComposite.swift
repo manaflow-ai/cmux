@@ -627,7 +627,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
-    private let analytics: any AnalyticsEmitting
+    let analytics: any AnalyticsEmitting
     let connectAttemptRegistry = MobileRPCConnectAttemptRegistry()
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
@@ -652,6 +652,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pairingAttemptIsFirstPair = false
     private var pendingPairingVersionWarningURL: String?
     @ObservationIgnored var pendingManualHostTrust: PendingManualHostTrust?
+    @ObservationIgnored var pendingWorkspaceOpenIntent: PendingWorkspaceOpenIntent?
 
     /// The structured diagnostic log, injected from the app composition root.
     ///
@@ -1717,10 +1718,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
-            if disconnectForAuthorizationFailureIfNeeded(
+            if handleAuthorizationFailureIfNeeded(
                 underlyingError,
-                route: failureRoute,
-                preservingActiveConnection: preservesActiveConnection
+                owner: .connectionAttempt(
+                    route: failureRoute,
+                    preservingActiveConnection: preservesActiveConnection
+                )
             ) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: underlyingError, route: failureRoute)
             applyPairingFailure(category, phase: "connect")
@@ -3286,10 +3289,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Definitive auth failures drive the re-auth prompt rather than a
             // generic connection error (matches the manual-host path); the
             // helper records the analytics failure + guidance.
-            if disconnectForAuthorizationFailureIfNeeded(
+            if handleAuthorizationFailureIfNeeded(
                 underlyingError,
-                route: failureRoute,
-                preservingActiveConnection: preservesActiveConnection
+                owner: .connectionAttempt(
+                    route: failureRoute,
+                    preservingActiveConnection: preservesActiveConnection
+                )
             ) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: underlyingError, route: failureRoute)
             applyPairingFailure(category, phase: "connect")
@@ -3835,12 +3840,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let owner = workspaces.first(where: { $0.id == id })?.macDeviceID
         if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
             return WorkspaceMutationTarget(
-                client: remoteClient, isForeground: true, macDeviceID: foregroundMacDeviceID)
+                client: remoteClient,
+                route: activeRoute,
+                isForeground: true,
+                macDeviceID: foregroundMacDeviceID
+            )
         }
         if let owner, let sub = secondaryMacSubscriptions[owner] {
-            return WorkspaceMutationTarget(client: sub.client, isForeground: false, macDeviceID: owner)
+            return WorkspaceMutationTarget(
+                client: sub.client,
+                route: sub.route,
+                isForeground: false,
+                macDeviceID: owner
+            )
         }
-        return WorkspaceMutationTarget(client: nil, isForeground: false, macDeviceID: owner)
+        return WorkspaceMutationTarget(client: nil, route: nil, isForeground: false, macDeviceID: owner)
     }
 
     /// Re-sync the authoritative workspace list for the Mac a mutation actually hit:
@@ -4268,61 +4282,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
         reportedViewportSizesByTerminalKey[key] = viewportSize
-    }
-
-    /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
-    public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
-        let workspace = workspaces.first { $0.id == id }
-        let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
-        let ownerMacDeviceID = workspace?.macDeviceID
-        let workspaceHadUnread = workspace?.hasUnread == true
-        // Cross-Mac open (P5): a workspace from the aggregated list may belong to
-        // a Mac other than the current foreground connection. Switch the
-        // foreground to that Mac first so the terminal attaches to the right one.
-        if multiMacAggregationEnabled,
-           let macDeviceID = ownerMacDeviceID,
-           !macDeviceID.isEmpty,
-           macDeviceID != foregroundMacDeviceID {
-            // Only proceed if that Mac actually became the foreground connection.
-            // The tap already selected this workspace and pushed its detail
-            // synchronously (this runs from the detail's task), so on a failed
-            // switch ROLL BACK the selection — popping the compact stack back to the
-            // list — instead of leaving the user in a workspace whose Mac is not the
-            // live connection (terminal input would route to the wrong client). The
-            // offline row's Reconnect / the next aggregation pass recovers it.
-            guard await switchToMac(macDeviceID: macDeviceID) else {
-                mobileShellLog.error("openWorkspace: switch to mac failed, popping mac=\(macDeviceID, privacy: .public)")
-                if selectedWorkspaceID == id {
-                    setSelectedWorkspaceID(nil)
-                }
-                return
-            }
-        }
-        let resolvedRowID = rowWorkspaceID(
-            forRemoteWorkspaceID: remoteWorkspaceID,
-            macDeviceID: ownerMacDeviceID
-        ) ?? (workspaces.contains(where: { $0.id == id }) ? id : nil)
-        guard let resolvedRowID else {
-            mobileShellLog.error("openWorkspace: workspace disappeared after switch id=\(remoteWorkspaceID.rawValue, privacy: .private) mac=\(ownerMacDeviceID ?? "", privacy: .public)")
-            if selectedWorkspaceID == id {
-                setSelectedWorkspaceID(nil)
-            }
-            return
-        }
-        analytics.capture("ios_workspace_opened", [
-            "terminal_count": .int(workspace?.terminals.count ?? 0),
-            "is_pinned": .bool(workspace?.isPinned ?? false),
-            "source": .string("list_tap"),
-        ])
-        setSelectedWorkspaceID(resolvedRowID)
-        // Tapping into a workspace is a read receipt: clear its unread on the Mac
-        // (like opening a thread marks it read), so it drops out of the unread
-        // list and the back-button count. Only when the Mac advertises read-state
-        // actions and the workspace is actually unread, so older Macs and
-        // already-read workspaces send nothing.
-        if supportsWorkspaceReadStateActions, workspaceHadUnread {
-            await setWorkspaceUnread(id: resolvedRowID, false)
-        }
     }
 
     /// Submit the current terminal input text from a synchronous UI action.
@@ -5265,7 +5224,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
             if isCurrentRemoteConnection(client: client, generation: generation) {
-                _ = disconnectForAuthorizationFailureIfNeeded(error)
+                _ = handleAuthorizationFailureIfNeeded(
+                    error,
+                    owner: .foreground(route: activeRoute)
+                )
             }
             return false
         }
@@ -5275,6 +5237,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         connectedHostName = ""
+    }
+
+    /// Tears down only the foreground session while keeping account auth valid for host reapproval.
+    func disconnectForegroundForManualHostReapproval() {
+        connectionRequiresReauth = false
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
+    }
+
+    /// Removes a failed secondary client from the internal connection pool.
+    func removeSecondaryConnectionFromPool(macDeviceID: String) {
+        connections[macDeviceID] = nil
     }
 
     func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
@@ -5407,7 +5382,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return attemptID
     }
 
-    private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
+    func beginPairingValidationAttempt(method: String? = nil) -> UUID {
         let attemptID = UUID()
         pairingAttemptID = attemptID
         if let method {
@@ -5925,7 +5900,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            guard !handleAuthorizationFailureIfNeeded(
+                error,
+                owner: .foreground(route: activeRoute)
+            ) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
         }
@@ -5986,7 +5964,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
             guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            guard !handleAuthorizationFailureIfNeeded(
+                error,
+                owner: .foreground(route: activeRoute)
+            ) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
         }
@@ -6070,7 +6051,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         } catch {
             guard generation == connectionGeneration else { return false }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            guard !handleAuthorizationFailureIfNeeded(
+                error,
+                owner: .foreground(route: activeRoute)
+            ) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
             return false
@@ -6167,7 +6151,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         } catch {
             guard generation == connectionGeneration else { return false }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            guard !handleAuthorizationFailureIfNeeded(
+                error,
+                owner: .foreground(route: activeRoute)
+            ) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
             return false
@@ -6230,7 +6217,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // force-refresh + retry) must drive the re-auth prompt instead of a
             // silently stale live frame.
             if remoteClient === client {
-                _ = disconnectForAuthorizationFailureIfNeeded(error)
+                _ = handleAuthorizationFailureIfNeeded(
+                    error,
+                    owner: .foreground(route: activeRoute)
+                )
             }
             return .failed
         }
@@ -7273,7 +7263,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // definitive auth failure here (after the RPC layer's
                 // force-refresh-and-retry already gave up) must drive the re-auth
                 // prompt instead of silently leaving a stale frame.
-                guard !self.disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                guard !self.handleAuthorizationFailureIfNeeded(
+                    error,
+                    owner: .foreground(route: self.activeRoute)
+                ) else { return }
                 if let retryToken = self.prepareTerminalReplayFailureRetry(
                     surfaceID: surfaceID,
                     replayBarrierToken: replayBarrierTokenForRequest

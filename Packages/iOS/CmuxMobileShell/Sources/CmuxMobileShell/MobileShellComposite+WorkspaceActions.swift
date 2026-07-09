@@ -328,7 +328,19 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             _ = try await client.sendRequest(request)
         } catch {
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            let failureOwner: MobileShellAuthorizationFailureOwner
+            if !target.isForeground,
+               let macDeviceID = target.macDeviceID,
+               let route = target.route {
+                failureOwner = .secondary(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    route: route
+                )
+            } else {
+                failureOwner = .foreground(route: target.route)
+            }
+            if handleAuthorizationFailureIfNeeded(error, owner: failureOwner) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground
@@ -361,6 +373,7 @@ extension MobileShellComposite {
         guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
             return WorkspaceMutationTarget(
                 client: remoteClient,
+                route: activeRoute,
                 isForeground: true,
                 macDeviceID: foregroundMacDeviceID
             )

@@ -4,6 +4,7 @@ public import CmuxMobileShellModel
 @MainActor
 extension MobileShellComposite {
     func clearManualHostTrustWarning() {
+        cancelPendingWorkspaceOpenIntent()
         manualHostTrustWarning = nil
         pendingManualHostTrust = nil
     }
@@ -85,6 +86,7 @@ extension MobileShellComposite {
         clearPairingVersionWarning()
         if let currentPending = pendingManualHostTrust,
            currentPending.attemptID != pending.attemptID {
+            cancelPendingWorkspaceOpenIntent()
             finishPendingManualHostSwitchAttempt(currentPending)
         }
         pendingManualHostTrust = pending
@@ -108,14 +110,18 @@ extension MobileShellComposite {
             clearManualHostTrustWarning()
             return .superseded
         }
+        let workspaceOpenIntent = takePendingWorkspaceOpenIntent(for: pending)
         clearManualHostTrustWarning()
         await manualHostTrustStore.trust(warning.scope)
         guard isPendingManualHostTrustCurrent(pending) else {
+            if let workspaceOpenIntent {
+                cancelWorkspaceOpen(workspaceOpenIntent)
+            }
             finishPendingManualHostSwitchAttempt(pending)
             return .superseded
         }
         switch pending {
-        case let .manual(_, name, host, port, route, pairedMacDeviceID, recordsPairingAttempt, _, ifStillCurrent):
+        case let .manual(_, name, host, port, route, pairedMacDeviceID, recordsPairingAttempt, macSwitchAttemptID, ifStillCurrent):
             let result = await connectManualHost(
                 name: name,
                 host: host,
@@ -123,9 +129,19 @@ extension MobileShellComposite {
                 pairedMacDeviceID: pairedMacDeviceID,
                 recordsPairingAttempt: recordsPairingAttempt,
                 route: route,
+                pendingMacSwitchAttemptID: macSwitchAttemptID,
                 ifStillCurrent: ifStillCurrent
             )
+            if result == .needsUserApproval {
+                pendingWorkspaceOpenIntent = workspaceOpenIntent
+                return result
+            }
             finishPendingManualHostSwitchAttempt(pending)
+            if result == .connected, let workspaceOpenIntent {
+                await resumePendingWorkspaceOpen(workspaceOpenIntent)
+            } else if let workspaceOpenIntent {
+                cancelWorkspaceOpen(workspaceOpenIntent)
+            }
             return result
         case let .pairingURL(_, rawURL, acceptedVersionWarning, approvedRouteID):
             return await connectPairingURLResult(

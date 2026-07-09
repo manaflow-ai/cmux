@@ -13,6 +13,8 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
     private let sessionIdentifier: String
     private let trustDuration: TimeInterval
     private let now: @Sendable () -> Date
+    private var persistedExpirations: [String: TimeInterval]
+    private var trustedScopes: [MobileManualHostTrustScope: TimeInterval]
 
     /// Creates a same-session manual-host trust store.
     /// - Parameters:
@@ -33,6 +35,12 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
         self.sessionIdentifier = sessionIdentifier
         self.trustDuration = trustDuration
         self.now = now
+        let persistedExpirations = Self.loadTrustedExpirations(defaults: defaults, key: key)
+        self.persistedExpirations = persistedExpirations
+        self.trustedScopes = Self.loadTrustedScopes(
+            from: persistedExpirations,
+            sessionIdentifier: sessionIdentifier
+        )
     }
 
     /// Creates a same-session manual-host trust store in a named defaults suite.
@@ -49,32 +57,39 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
         trustDuration: TimeInterval = UserDefaultsMobileManualHostTrustStore.defaultTrustDuration,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
+        let resolvedDefaults: UserDefaults
         if let suiteDefaults = UserDefaults(suiteName: suiteName) {
-            self.defaults = suiteDefaults
+            resolvedDefaults = suiteDefaults
         } else {
             assertionFailure("Failed to resolve UserDefaults suite \(suiteName); falling back to .standard")
             manualHostTrustStoreLog.error(
                 "failed to resolve UserDefaults suite \(suiteName, privacy: .public); falling back to standard defaults"
             )
-            self.defaults = .standard
+            resolvedDefaults = .standard
         }
+        self.defaults = resolvedDefaults
         self.key = key
         self.sessionIdentifier = sessionIdentifier
         self.trustDuration = trustDuration
         self.now = now
+        let persistedExpirations = Self.loadTrustedExpirations(defaults: resolvedDefaults, key: key)
+        self.persistedExpirations = persistedExpirations
+        self.trustedScopes = Self.loadTrustedScopes(
+            from: persistedExpirations,
+            sessionIdentifier: sessionIdentifier
+        )
     }
 
     /// Returns whether the given host/port/account scope is already trusted and unexpired.
     /// - Parameter scope: The scope to look up.
     public func isTrusted(_ scope: MobileManualHostTrustScope) async -> Bool {
-        var trusted = trustedExpirations()
-        let scopedKey = sessionStorageKey(for: scope)
-        guard let expiresAt = trusted[scopedKey] else {
+        guard let expiresAt = trustedScopes[scope] else {
             return false
         }
         guard expiresAt > now().timeIntervalSince1970 else {
-            trusted.removeValue(forKey: scopedKey)
-            defaults.set(trusted, forKey: key)
+            trustedScopes.removeValue(forKey: scope)
+            persistedExpirations.removeValue(forKey: sessionStorageKey(for: scope))
+            defaults.set(persistedExpirations, forKey: key)
             return false
         }
         return true
@@ -85,19 +100,29 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
     public func trust(_ scope: MobileManualHostTrustScope) async {
         guard !Task.isCancelled else { return }
         let currentTime = now().timeIntervalSince1970
-        var trusted = trustedExpirations().filter { _, expiresAt in
+        persistedExpirations = persistedExpirations.filter { _, expiresAt in
             expiresAt > currentTime
         }
-        trusted[sessionStorageKey(for: scope)] = currentTime + trustDuration
-        defaults.set(trusted, forKey: key)
+        trustedScopes = trustedScopes.filter { _, expiresAt in
+            expiresAt > currentTime
+        }
+        let expiresAt = currentTime + trustDuration
+        trustedScopes[scope] = expiresAt
+        persistedExpirations[sessionStorageKey(for: scope)] = expiresAt
+        defaults.set(persistedExpirations, forKey: key)
     }
 
     /// Removes every stored approval.
     public func removeAll() async {
+        persistedExpirations.removeAll()
+        trustedScopes.removeAll()
         defaults.removeObject(forKey: key)
     }
 
-    private func trustedExpirations() -> [String: TimeInterval] {
+    nonisolated private static func loadTrustedExpirations(
+        defaults: UserDefaults,
+        key: String
+    ) -> [String: TimeInterval] {
         guard let raw = defaults.dictionary(forKey: key) else {
             return [:]
         }
@@ -110,6 +135,32 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
             }
         }
         return trusted
+    }
+
+    nonisolated private static func loadTrustedScopes(
+        from persistedExpirations: [String: TimeInterval],
+        sessionIdentifier: String
+    ) -> [MobileManualHostTrustScope: TimeInterval] {
+        let sessionPrefix = sessionIdentifier.mobileManualHostTrustStorageEscaped + "|"
+        var trustedScopes: [MobileManualHostTrustScope: TimeInterval] = [:]
+        for (storageKey, expiresAt) in persistedExpirations {
+            guard storageKey.hasPrefix(sessionPrefix) else { continue }
+            let components = storageKey.dropFirst(sessionPrefix.count).split(
+                separator: "|",
+                omittingEmptySubsequences: false
+            )
+            guard components.count == 3,
+                  let port = Int(components[2]),
+                  let scope = MobileManualHostTrustScope(
+                    host: String(components[1]).mobileManualHostTrustStorageUnescaped,
+                    port: port,
+                    stackUserID: String(components[0]).mobileManualHostTrustStorageUnescaped
+                  ) else {
+                continue
+            }
+            trustedScopes[scope] = expiresAt
+        }
+        return trustedScopes
     }
 
     private func sessionStorageKey(for scope: MobileManualHostTrustScope) -> String {
@@ -125,5 +176,11 @@ private extension String {
         self
             .replacing("%", with: "%25")
             .replacing("|", with: "%7C")
+    }
+
+    var mobileManualHostTrustStorageUnescaped: String {
+        self
+            .replacing("%7C", with: "|")
+            .replacing("%25", with: "%")
     }
 }
