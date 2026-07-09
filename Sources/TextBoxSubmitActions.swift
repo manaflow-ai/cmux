@@ -32,6 +32,13 @@ extension TextBoxInputContainer {
         for action in actions.prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount) {
             guard let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !path.isEmpty else {
+                if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !assetName.isEmpty {
+                    let key = "asset:\(assetName)"
+                    if seenKeys.insert(key).inserted {
+                        keys.append(key)
+                    }
+                }
                 continue
             }
             let key = "path:\(expandPath(path))"
@@ -428,9 +435,11 @@ extension TextBoxInputContainer {
     func refreshSubmitActionImageCache(keys: [String]) async {
         let keySet = Set(keys)
         submitActionImageCache = submitActionImageCache.filter { keySet.contains($0.key) }
+        submitActionAssetAvailabilityCache = submitActionAssetAvailabilityCache.filter { keySet.contains($0.key) }
 
-        for key in keys where submitActionImageCache[key] == nil {
+        for key in keys {
             if let path = submitActionPath(fromCacheKey: key) {
+                guard submitActionImageCache[key] == nil else { continue }
                 let image = await Task.detached(priority: .utility) {
                     TextBoxSubmitActionImageSupport.image(atPath: path)
                 }.value
@@ -438,6 +447,10 @@ extension TextBoxInputContainer {
                 if let image {
                     submitActionImageCache[key] = image
                 }
+            } else if let assetName = submitActionAssetName(fromCacheKey: key),
+                      submitActionAssetAvailabilityCache[key] == nil {
+                submitActionAssetAvailabilityCache[key] =
+                    Bundle.main.image(forResource: assetName) != nil || NSImage(named: assetName) != nil
             }
         }
     }
@@ -450,9 +463,18 @@ extension TextBoxInputContainer {
         "path:\(path)"
     }
 
+    func submitActionAssetImageCacheKey(_ assetName: String) -> String {
+        "asset:\(assetName)"
+    }
+
     func submitActionPath(fromCacheKey key: String) -> String? {
         guard key.hasPrefix("path:") else { return nil }
         return String(key.dropFirst("path:".count))
+    }
+
+    func submitActionAssetName(fromCacheKey key: String) -> String? {
+        guard key.hasPrefix("asset:") else { return nil }
+        return String(key.dropFirst("asset:".count))
     }
 
     struct SubmitDispatchPlan {

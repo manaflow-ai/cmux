@@ -29,11 +29,11 @@ import Testing
             tintColor: .labelColor,
             symbolWeight: .regular
         ))
-        let lightImage = try #require(view.renderedImage)
+        let lightImage = try #require(renderedImage(in: view))
 
         view.appearance = NSAppearance(named: .darkAqua)
         view.viewDidChangeEffectiveAppearance()
-        let darkImage = try #require(view.renderedImage)
+        let darkImage = try #require(renderedImage(in: view))
 
         #expect(darkImage !== lightImage)
         #expect(visiblePixelCount(in: darkImage) > 0)
@@ -48,11 +48,11 @@ import Testing
             tintColor: .labelColor,
             symbolWeight: .regular
         ))
-        let lightImage = try #require(view.renderedImage)
+        let lightImage = try #require(renderedImage(in: view))
 
         view.appearance = NSAppearance(named: .vibrantLight)
         view.viewDidChangeEffectiveAppearance()
-        let vibrantImage = try #require(view.renderedImage)
+        let vibrantImage = try #require(renderedImage(in: view))
 
         #expect(vibrantImage !== lightImage)
         #expect(visiblePixelCount(in: vibrantImage) > 0)
@@ -67,7 +67,7 @@ import Testing
             tintColor: .labelColor,
             symbolWeight: .regular
         ))
-        let firstImage = try #require(view.renderedImage)
+        let firstImage = try #require(renderedImage(in: view))
 
         view.apply(CmuxResolvedIconRequest(
             source: .systemSymbol(name: "doc", accessibilityDescription: nil),
@@ -76,24 +76,25 @@ import Testing
             symbolWeight: .regular
         ))
 
-        #expect(view.renderedImage === firstImage)
+        #expect(renderedImage(in: view) === firstImage)
     }
 
-    @Test func imageViewRerendersWhenImageRepresentationsChange() throws {
+    @Test func imageViewRerendersWhenImagePixelsChangeInPlace() throws {
         let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
         view.appearance = NSAppearance(named: .aqua)
         let sourceImage = NSImage(size: NSSize(width: 16, height: 16))
-        sourceImage.addRepresentation(solidBitmapRepresentation(color: .systemRed, pixels: 16))
+        let representation = solidBitmapRepresentation(color: .systemRed, pixels: 16)
+        sourceImage.addRepresentation(representation)
         let request = CmuxResolvedIconRequest(
             source: .image(sourceImage),
             size: NSSize(width: 16, height: 16)
         )
         view.apply(request)
-        let firstImage = try #require(view.renderedImage)
+        let firstImage = try #require(renderedImage(in: view))
 
-        sourceImage.addRepresentation(solidBitmapRepresentation(color: .systemBlue, pixels: 32))
+        fill(representation, color: .systemBlue)
         view.apply(request)
-        let updatedImage = try #require(view.renderedImage)
+        let updatedImage = try #require(renderedImage(in: view))
 
         #expect(updatedImage !== firstImage)
         #expect(visiblePixelCount(in: updatedImage) > 0)
@@ -136,6 +137,18 @@ import Testing
         NSRect(x: 0, y: 0, width: pixels, height: pixels).fill()
         NSGraphicsContext.restoreGraphicsState()
         return representation
+    }
+
+    private func fill(_ representation: NSBitmapImageRep, color: NSColor) {
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: representation)
+        color.setFill()
+        NSRect(origin: .zero, size: representation.size).fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func renderedImage(in view: CmuxResolvedIconImageView) -> NSImage? {
+        view.subviews.compactMap { ($0 as? NSImageView)?.image }.first
     }
 
     private func visiblePixelCount(in image: NSImage) -> Int {

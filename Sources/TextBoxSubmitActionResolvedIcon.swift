@@ -11,8 +11,9 @@ extension TextBoxInputContainer {
               !assetName.isEmpty else {
             return nil
         }
-        let hasAsset = Bundle.main.image(forResource: assetName) != nil || NSImage(named: assetName) != nil
-        guard hasAsset else { return nil }
+        guard submitActionAssetAvailabilityCache[submitActionAssetImageCacheKey(assetName)] == true else {
+            return nil
+        }
         return assetName
     }
 

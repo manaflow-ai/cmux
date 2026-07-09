@@ -8,11 +8,6 @@ public final class CmuxResolvedIconImageView: NSView {
     private var request: CmuxResolvedIconRequest?
     private var renderKey: RenderKey?
 
-    /// The last rendered image, exposed for callers that need to inspect the AppKit result.
-    public var renderedImage: NSImage? {
-        imageView.image
-    }
-
     /// Creates the resolved icon view.
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -78,6 +73,7 @@ public final class CmuxResolvedIconImageView: NSView {
 
     private struct RenderKey: Equatable {
         private let source: SourceKey
+        private let canReuseRenderedImage: Bool
         private let width: CGFloat
         private let height: CGFloat
         private let tint: NSColor?
@@ -87,6 +83,7 @@ public final class CmuxResolvedIconImageView: NSView {
 
         init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
             self.source = SourceKey(request.source)
+            self.canReuseRenderedImage = source.canReuseRenderedImage
             self.width = request.size.width
             self.height = request.size.height
             self.tint = request.tintColor
@@ -96,7 +93,9 @@ public final class CmuxResolvedIconImageView: NSView {
         }
 
         static func == (lhs: RenderKey, rhs: RenderKey) -> Bool {
-            lhs.source == rhs.source &&
+            lhs.canReuseRenderedImage &&
+                rhs.canReuseRenderedImage &&
+                lhs.source == rhs.source &&
                 lhs.width == rhs.width &&
                 lhs.height == rhs.height &&
                 lhs.symbolWeight == rhs.symbolWeight &&
@@ -119,7 +118,7 @@ public final class CmuxResolvedIconImageView: NSView {
         private enum SourceKey: Equatable {
             case systemSymbol(name: String, accessibilityDescription: String?)
             case asset(name: String, bundle: ObjectIdentifier)
-            case image(ImageKey)
+            case image
 
             init(_ source: CmuxResolvedIconSource) {
                 switch source {
@@ -127,51 +126,18 @@ public final class CmuxResolvedIconImageView: NSView {
                     self = .systemSymbol(name: name, accessibilityDescription: accessibilityDescription)
                 case .asset(let name, let bundle):
                     self = .asset(name: name, bundle: ObjectIdentifier(bundle))
-                case .image(let image):
-                    self = .image(ImageKey(image))
+                case .image:
+                    self = .image
                 }
             }
-        }
 
-        private struct ImageKey: Equatable {
-            private let identity: ObjectIdentifier
-            private let width: CGFloat
-            private let height: CGFloat
-            private let isTemplate: Bool
-            private let representations: [ImageRepresentationKey]
-
-            init(_ image: NSImage) {
-                self.identity = ObjectIdentifier(image)
-                self.width = image.size.width
-                self.height = image.size.height
-                self.isTemplate = image.isTemplate
-                self.representations = image.representations.map(ImageRepresentationKey.init)
-            }
-        }
-
-        private struct ImageRepresentationKey: Equatable {
-            private let identity: ObjectIdentifier
-            private let classIdentity: ObjectIdentifier
-            private let pixelsWide: Int
-            private let pixelsHigh: Int
-            private let width: CGFloat
-            private let height: CGFloat
-            private let bitsPerSample: Int
-            private let hasAlpha: Bool
-            private let isOpaque: Bool
-            private let colorSpaceName: NSColorSpaceName
-
-            init(_ representation: NSImageRep) {
-                self.identity = ObjectIdentifier(representation)
-                self.classIdentity = ObjectIdentifier(type(of: representation))
-                self.pixelsWide = representation.pixelsWide
-                self.pixelsHigh = representation.pixelsHigh
-                self.width = representation.size.width
-                self.height = representation.size.height
-                self.bitsPerSample = representation.bitsPerSample
-                self.hasAlpha = representation.hasAlpha
-                self.isOpaque = representation.isOpaque
-                self.colorSpaceName = representation.colorSpaceName
+            var canReuseRenderedImage: Bool {
+                switch self {
+                case .systemSymbol, .asset:
+                    return true
+                case .image:
+                    return false
+                }
             }
         }
     }

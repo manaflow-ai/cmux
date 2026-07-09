@@ -97,15 +97,26 @@ struct RenderableSystemSymbolTests {
         #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
     }
 
-    @Test @MainActor func failedSymbolLookupCreatesBoundedNegativeCacheEntry() {
-        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
-        #expect(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "not.an.sf.symbol",
-            pointSize: 11,
-            weight: .regular
-        ) == nil)
-        #expect(RenderableSystemSymbol.renderabilityCache["not.an.sf.symbol"] == false)
-        #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
-        #expect(RenderableSystemSymbol.renderabilityCache["not.an.sf.symbol"] == false)
+    @Test func failedSymbolLookupRetriesAfterNegativeCacheExpires() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        var resolveCount = 0
+        var cache = RenderableSystemSymbol.RenderabilityCache(
+            limit: 8,
+            negativeRetryInterval: 60,
+            now: { now },
+            resolve: { _ in
+                resolveCount += 1
+                return false
+            }
+        )
+
+        #expect(cache.isRenderable("not.an.sf.symbol") == false)
+        #expect(resolveCount == 1)
+        #expect(cache.isRenderable("not.an.sf.symbol") == false)
+        #expect(resolveCount == 1)
+
+        now = now.addingTimeInterval(61)
+        #expect(cache.isRenderable("not.an.sf.symbol") == false)
+        #expect(resolveCount == 2)
     }
 }
