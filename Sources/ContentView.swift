@@ -11322,7 +11322,7 @@ struct VerticalTabsSidebar: View {
         now: Date,
         dropRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> some View {
-        let rowView = VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 CmuxSystemSymbolImage(magnified: "folder.fill", pointSize: 14, weight: .regular)
                     .foregroundColor(.secondary)
@@ -13623,7 +13623,7 @@ struct TabItemView: View, Equatable {
     }
 
     func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids, resolvingStableIdsFrom: tabManager.tabs)
+        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
@@ -13676,7 +13676,7 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        VStack(alignment: .leading, spacing: 4) {
+        let rowView = VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
@@ -14181,7 +14181,7 @@ struct TabItemView: View, Equatable {
         observedIsActive = isActive
     }
 
-    private func refreshWorkspaceSnapshot(force: Bool = false) {
+    func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         workspaceSnapshotScratch.value = nextSnapshot
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
