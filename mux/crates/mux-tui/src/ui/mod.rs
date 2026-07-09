@@ -13,9 +13,9 @@ mod scrollbar;
 mod sidebar;
 
 use mux_core::Rect;
+use ratatui::Frame;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::Frame;
 
 use crate::app::{App, Hit};
 
@@ -41,10 +41,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     // sets it on the input row).
     if app.prompt.is_some() {
         overlay::draw_prompt(app, frame);
-    } else if app.menu.is_none() {
-        if let Some((x, y)) = cursor {
-            frame.set_cursor_position(Position::new(x, y));
-        }
+    } else if app.menu.is_none()
+        && let Some((x, y)) = cursor
+    {
+        frame.set_cursor_position(Position::new(x, y));
     }
 }
 

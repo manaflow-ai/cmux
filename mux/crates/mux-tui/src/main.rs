@@ -16,8 +16,8 @@ mod session;
 mod ui;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mux_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
@@ -54,6 +54,7 @@ OPTIONS:
   --headless         Run only the control socket, no TUI.
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
+  -V, --version      Print the cmux-mux version.
 
 KEYS (prefix: Ctrl-b)
   c  new tab in pane   B    new browser tab    n/p  next/prev tab
@@ -110,24 +111,38 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--session" => {
-                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"))
+                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"));
             }
             "--socket" => {
-                out.socket =
-                    Some(args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into())
+                out.socket = Some(
+                    args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
+                );
             }
             "--headless" => out.headless = true,
             "--term" => {
-                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")))
+                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")));
             }
             "-h" | "--help" => {
                 print!("{USAGE}");
+                std::process::exit(0);
+            }
+            "-V" | "--version" => {
+                println!("cmux-mux {}", version_string());
                 std::process::exit(0);
             }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
     }
     out
+}
+
+fn version_string() -> String {
+    // CI artifact builds stamp the commit so binaries in cloud snapshots are
+    // traceable back to a cmux revision; local builds report the crate version.
+    match option_env!("CMUX_MUX_BUILD_COMMIT") {
+        Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
 }
 
 fn main() {
@@ -204,7 +219,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
             Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250))
+                std::thread::park_timeout(std::time::Duration::from_millis(250));
             }
         }
     }

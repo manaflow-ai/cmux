@@ -1,7 +1,13 @@
 {
   "name": "cmux",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Node.js client for the cmux-mux JSON-lines protocol",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manaflow-ai/cmux.git",
+    "directory": "mux/bindings/typescript"
+  },
+  "homepage": "https://github.com/manaflow-ai/cmux/tree/main/mux/bindings/typescript",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "scripts": {

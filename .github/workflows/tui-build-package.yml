@@ -1,0 +1,324 @@
+name: tui build package
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "npm package version, or the shared stable X.Y.Z version"
+        required: true
+        type: string
+      pypi_version:
+        description: "PyPI package version; defaults to version"
+        required: false
+        default: ""
+        type: string
+      package_npm:
+        description: "Build and upload npm package directory artifacts"
+        required: false
+        default: true
+        type: boolean
+      package_pypi:
+        description: "Build and upload PyPI wheel artifacts"
+        required: false
+        default: true
+        type: boolean
+      include_windows:
+        description: "Also build and upload the experimental Windows artifact"
+        required: false
+        default: false
+        type: boolean
+      checkout_ref:
+        description: "Optional git ref to build instead of the caller ref"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+            cross: false
+            ext: ""
+          - target: x86_64-apple-darwin
+            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+            cross: true
+            ext: ""
+          - target: x86_64-unknown-linux-gnu
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            cross: false
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            cross: true
+            ext: ""
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Install Rust target
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cargo-zigbuild
+        if: matrix.cross == true
+        shell: bash
+        run: cargo install --locked cargo-zigbuild@0.20.0
+
+      - name: Build cmux-mux (native)
+        if: matrix.cross == false
+        working-directory: mux
+        shell: bash
+        env:
+          CMUX_MUX_BUILD_COMMIT: ${{ github.sha }}
+        run: cargo build -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
+
+      - name: Build cmux-mux (cross)
+        if: matrix.cross == true
+        working-directory: mux
+        shell: bash
+        env:
+          CMUX_MUX_BUILD_COMMIT: ${{ github.sha }}
+        run: cargo zigbuild -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "mux/target/${{ matrix.target }}/release/cmux-mux${{ matrix.ext }}" "dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}"
+          ls -la dist
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-mux-${{ matrix.target }}
+          path: dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}
+          if-no-files-found: error
+
+  build-windows:
+    name: build x86_64-pc-windows-gnu
+    if: inputs.include_windows
+    runs-on: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
+    timeout-minutes: 60
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+
+      - name: Build libghostty-vt + cmux-mux (Windows GNU)
+        shell: bash
+        env:
+          CMUX_MUX_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          cd ghostty
+          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
+          cd ../mux
+          cargo build -p mux-tui --bin cmux-mux --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "mux/target/x86_64-pc-windows-gnu/release/cmux-mux.exe" "dist/cmux-mux-x86_64-pc-windows-gnu.exe"
+          ls -la dist
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-mux-x86_64-pc-windows-gnu
+          path: dist/cmux-mux-x86_64-pc-windows-gnu.exe
+          if-no-files-found: error
+
+  package:
+    name: package distributions
+    needs: build
+    if: inputs.package_npm || inputs.package_pypi
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      NPM_VERSION: ${{ inputs.version }}
+      PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Download darwin arm64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-mux-aarch64-apple-darwin
+          path: dist/binaries
+
+      - name: Download darwin x64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-mux-x86_64-apple-darwin
+          path: dist/binaries
+
+      - name: Download linux x64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-mux-x86_64-unknown-linux-gnu
+          path: dist/binaries
+
+      - name: Download linux arm64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-mux-aarch64-unknown-linux-gnu
+          path: dist/binaries
+
+      - name: Build npm package directories
+        if: inputs.package_npm
+        run: |
+          python3 mux/dist/scripts/package_npm.py \
+            --binaries-dir dist/binaries \
+            --version "$NPM_VERSION" \
+            --out dist/npm-packages
+
+      - name: Build PyPI wheels
+        if: inputs.package_pypi
+        run: |
+          python3 mux/dist/scripts/package_pypi.py \
+            --binaries-dir dist/binaries \
+            --version "$PYPI_VERSION" \
+            --out dist/pypi-wheels
+
+      - name: Smoke verify npm packages
+        if: inputs.package_npm
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import stat
+          import sys
+
+          version = os.environ["NPM_VERSION"]
+          root = pathlib.Path("dist/npm-packages")
+          platforms = {
+              "cmux-tui-darwin-arm64": ("darwin", "arm64"),
+              "cmux-tui-darwin-x64": ("darwin", "x64"),
+              "cmux-tui-linux-x64": ("linux", "x64"),
+              "cmux-tui-linux-arm64": ("linux", "arm64"),
+          }
+          launcher = json.loads((root / "cmux" / "package.json").read_text())
+          deps = launcher.get("optionalDependencies", {})
+          if deps != {name: version for name in platforms}:
+              print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
+              raise SystemExit(1)
+          for name, (os_name, cpu) in platforms.items():
+              package_json = json.loads((root / name / "package.json").read_text())
+              if package_json["version"] != version:
+                  raise SystemExit(f"{name}: version mismatch")
+              if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
+                  raise SystemExit(f"{name}: os/cpu mismatch")
+              binary = root / name / "bin" / "cmux-mux"
+              if not binary.stat().st_mode & stat.S_IXUSR:
+                  raise SystemExit(f"{binary} is not executable")
+          PY
+          chmod +x dist/binaries/cmux-mux-x86_64-unknown-linux-gnu
+          dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --version >/tmp/cmux-mux-version.txt 2>&1 || \
+            dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --help >/tmp/cmux-mux-version.txt 2>&1
+
+      - name: Smoke verify PyPI wheels
+        if: inputs.package_pypi
+        run: |
+          set -euo pipefail
+          for wheel in dist/pypi-wheels/*.whl; do
+            python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
+          done
+          chmod +x dist/binaries/cmux-mux-x86_64-unknown-linux-gnu
+          dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --version >/tmp/cmux-mux-version.txt 2>&1 || \
+            dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --help >/tmp/cmux-mux-version.txt 2>&1
+          python3 -m venv /tmp/cmux-tui-wheel-smoke
+          /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
+          /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
+          grep -i usage /tmp/cmux-help.txt
+
+      - name: Upload npm package directories
+        if: inputs.package_npm
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-packages
+          path: dist/npm-packages
+          if-no-files-found: error
+
+      - name: Upload PyPI wheels
+        if: inputs.package_pypi
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pypi-wheels
+          path: dist/pypi-wheels/*.whl
+          if-no-files-found: error
