@@ -380,6 +380,32 @@ struct BrowserPaneFileDropUploadRegressionTests {
         #expect(consumed?.map(\.path) == ["/tmp/one.png", "/tmp/two.png"])
     }
 
+    @Test func guardReleasesRecordsAfterTTLWithoutFurtherGuardCalls() async throws {
+        let guardStore = BrowserFileDropNavigationGuard(timeToLive: 0.1)
+        let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        guardStore.recordDelivery(
+            webView: webView,
+            pasteboard: makeFilePasteboard(paths: ["/tmp/upload.png"]),
+            now: Date()
+        )
+        #expect(!guardStore.records.isEmpty)
+
+        // A successful page upload never calls the guard again, so only the
+        // scheduled expiry sweep can release the record. Poll without calling
+        // guard methods (they prune opportunistically and would mask a missing
+        // sweep).
+        var swept = false
+        for _ in 0..<200 {
+            if guardStore.records.isEmpty {
+                swept = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(swept, "drop record should expire without another guard call")
+    }
+
     @Test func fallbackNavigationClassifierRequiresMainFrameFileOtherNavigation() {
         #expect(BrowserFileDropNavigationGuard.isDropFallbackNavigation(
             url: URL(fileURLWithPath: "/tmp/upload.png"),

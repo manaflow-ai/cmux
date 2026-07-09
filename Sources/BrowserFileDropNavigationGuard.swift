@@ -6,10 +6,16 @@ import WebKit
 final class BrowserFileDropNavigationGuard {
     static let shared = BrowserFileDropNavigationGuard()
 
-    private static let timeToLive: TimeInterval = 5
-    private var records: [ObjectIdentifier: Record] = [:]
+    private let timeToLive: TimeInterval
+    // Read by regression tests via @testable import to observe expiry.
+    private(set) var records: [ObjectIdentifier: Record] = [:]
+    private var expirySweepTask: Task<Void, Never>?
 
-    private final class Record {
+    init(timeToLive: TimeInterval = 5) {
+        self.timeToLive = timeToLive
+    }
+
+    final class Record {
         weak var webView: WKWebView?
         let webViewID: ObjectIdentifier
         /// Every file URL delivered by the drop, in pasteboard order. WebKit's
@@ -45,6 +51,7 @@ final class BrowserFileDropNavigationGuard {
             urls: urls,
             timestamp: now
         )
+        scheduleExpirySweep()
     }
 
     /// Consumes (once) the drop record that `url` belongs to and returns every
@@ -77,10 +84,27 @@ final class BrowserFileDropNavigationGuard {
         return url.isFileURL && isMainFrame && navigationType == .other
     }
 
+    /// Guard calls prune opportunistically, but the common successful-upload
+    /// path never calls the guard again (the page handled the drop, so no
+    /// fallback navigation fires). One coalesced sweep per drop batch releases
+    /// the recorded paths without waiting for a future drop. Bounded by
+    /// construction: at most one pending task, alive for timeToLive plus a
+    /// small margin, cancelled and replaced by any newer delivery.
+    private func scheduleExpirySweep() {
+        expirySweepTask?.cancel()
+        let delay = timeToLive + 0.05
+        expirySweepTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            self.expirySweepTask = nil
+            self.pruneExpiredRecords(now: Date())
+        }
+    }
+
     private func pruneExpiredRecords(now: Date) {
         records = records.filter { _, record in
             guard record.webView != nil else { return false }
-            return now.timeIntervalSince(record.timestamp) <= Self.timeToLive
+            return now.timeIntervalSince(record.timestamp) <= timeToLive
         }
     }
 }
