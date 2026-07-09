@@ -3462,6 +3462,9 @@
       "faqA4": "Ja. cmux er gratis og open source til macOS."
     }
   },
+  "pricing": {
+    "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

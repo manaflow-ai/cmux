@@ -3462,6 +3462,9 @@
       }
     }
   },
+  "pricing": {
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

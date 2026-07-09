@@ -10,6 +10,8 @@ export const TEAM_CHECKOUT_URL = withCheckoutExternalBrowserIntent(TEAM_CHECKOUT
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";
 
+type SearchParamValue = string | string[] | null | undefined;
+
 export function withCheckoutExternalBrowserIntent(href: string): string {
   return withSearchParam(href, CHECKOUT_EXTERNAL_BROWSER_PARAM, "1");
 }
@@ -30,11 +32,25 @@ export function appPricingCheckoutURL(
   return href;
 }
 
+export function isAppStoreDistributionMode(params: {
+  cmux_distribution?: SearchParamValue;
+  cmux_ios_app_store?: SearchParamValue;
+}): boolean {
+  const distribution = firstSearchParam(params.cmux_distribution)?.trim().toLowerCase();
+  if (distribution === "appstore" || distribution === "app-store") return true;
+  return firstSearchParam(params.cmux_ios_app_store) === "1";
+}
+
 function withSearchParam(href: string, name: string, value: string): string {
   const [withoutHash, hash] = href.split("#", 2);
   const separator = withoutHash.includes("?") ? "&" : "?";
   const nextHref = `${withoutHash}${separator}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
   return hash === undefined ? nextHref : `${nextHref}#${hash}`;
+}
+
+function firstSearchParam(value: SearchParamValue): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
 }
 
 function configuredAppPricingCheckoutURL(requestOrigin: string | null): string {

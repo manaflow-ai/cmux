@@ -103,12 +103,16 @@ jobs:
         if: matrix.cross == false
         working-directory: mux
         shell: bash
+        env:
+          CMUX_MUX_BUILD_COMMIT: ${{ github.sha }}
         run: cargo build -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
 
       - name: Build cmux-mux (cross)
         if: matrix.cross == true
         working-directory: mux
         shell: bash
+        env:
+          CMUX_MUX_BUILD_COMMIT: ${{ github.sha }}
         run: cargo zigbuild -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
 
       - name: Stage binary
@@ -163,6 +167,8 @@ jobs:
 
       - name: Build libghostty-vt + cmux-mux (Windows GNU)
         shell: bash
+        env:
+          CMUX_MUX_BUILD_COMMIT: ${{ github.sha }}
         run: |
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"

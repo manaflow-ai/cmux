@@ -54,6 +54,7 @@ OPTIONS:
   --headless         Run only the control socket, no TUI.
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
+  -V, --version      Print the cmux-mux version.
 
 KEYS (prefix: Ctrl-b)
   c  new tab in pane   B    new browser tab    n/p  next/prev tab
@@ -124,10 +125,23 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                 print!("{USAGE}");
                 std::process::exit(0);
             }
+            "-V" | "--version" => {
+                println!("cmux-mux {}", version_string());
+                std::process::exit(0);
+            }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
     }
     out
+}
+
+fn version_string() -> String {
+    // CI artifact builds stamp the commit so binaries in cloud snapshots are
+    // traceable back to a cmux revision; local builds report the crate version.
+    match option_env!("CMUX_MUX_BUILD_COMMIT") {
+        Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
 }
 
 fn main() {
