@@ -1375,10 +1375,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           metadata: input.metadata ?? {},
           expiresAt: input.expiresAt,
         };
-        try {
-          await tx.insert(cloudVmLeases).values(values);
-        } catch (err) {
-          if (pgErrorCode(err) !== "23505") throw err;
+        const inserted = await tx
+          .insert(cloudVmLeases)
+          .values(values)
+          .onConflictDoNothing({ target: cloudVmLeases.tokenHash })
+          .returning({ tokenHash: cloudVmLeases.tokenHash });
+        if (inserted.length === 0) {
           const [existing] = await tx
             .select()
             .from(cloudVmLeases)
@@ -1390,7 +1392,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             existing.userId !== input.userId ||
             existing.kind !== input.kind
           ) {
-            throw err;
+            throw new Error("Cloud VM lease token collision");
           }
           await tx
             .update(cloudVmLeases)
