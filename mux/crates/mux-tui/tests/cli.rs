@@ -286,12 +286,10 @@ fn help_lists_plugin_verbs() {
 #[cfg(unix)]
 #[test]
 fn plugin_install_use_and_list_work_against_local_git_repo() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = unique_temp_dir("plugin-install");
     let source = dir.join("source");
-    let bin_dir = source.join("bin");
-    fs::create_dir_all(&bin_dir).unwrap();
+    // The runnable is NOT committed: [build] must create it, so this fixture
+    // exercises the build step and the post-build executable verification.
     fs::write(
         source.join("cmux-plugin.toml"),
         r#"
@@ -303,14 +301,22 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
 
             [run]
             command = ["bin/sidebar"]
+
+            [build]
+            command = ["/bin/sh", "build.sh"]
         "#,
     )
     .unwrap();
-    let script = bin_dir.join("sidebar");
-    fs::write(&script, "#!/bin/sh\nprintf 'fixture sidebar\\n'\n").unwrap();
-    let mut permissions = fs::metadata(&script).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&script, permissions).unwrap();
+    let build_script = concat!(
+        "#!/bin/sh\n",
+        "mkdir -p bin\n",
+        "cat > bin/sidebar <<'EOF'\n",
+        "#!/bin/sh\n",
+        "printf 'fixture sidebar\\n'\n",
+        "EOF\n",
+        "chmod 755 bin/sidebar\n"
+    );
+    fs::write(source.join("build.sh"), build_script).unwrap();
     git(&source, &["init"]);
     git(&source, &["add", "."]);
     git(
@@ -371,10 +377,13 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
         serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(written["future"]["keep"].as_bool(), Some(true));
     assert_eq!(written["sidebar"]["width"].as_u64(), Some(33));
-    assert_eq!(written["sidebar"]["plugin"]["cwd"].as_str(), Some(installed_dir.to_str().unwrap()));
+    // plugin use canonicalizes paths; /tmp is a symlink to /private/tmp on
+    // macOS, so compare against the canonicalized install dir.
+    let canonical_dir = fs::canonicalize(&installed_dir).unwrap();
+    assert_eq!(written["sidebar"]["plugin"]["cwd"].as_str(), Some(canonical_dir.to_str().unwrap()));
     assert_eq!(
         written["sidebar"]["plugin"]["command"][0].as_str(),
-        Some(installed_dir.join("bin/sidebar").to_str().unwrap())
+        Some(canonical_dir.join("bin/sidebar").to_str().unwrap())
     );
 
     let list = plugin_cli(&data_home, &config_path, &["--json", "plugin", "list"]);

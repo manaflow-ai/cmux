@@ -501,7 +501,7 @@ fn verb_by_name(name: &str) -> Option<&'static VerbSpec> {
 }
 
 fn run_command(args: CliArgs) -> i32 {
-    let (build, print, stream) = match args.verb.kind {
+    let (build, print, stream_mode) = match args.verb.kind {
         VerbKind::Socket { build, print, stream } => (build, print, stream),
         VerbKind::Local(run) => return run(&args.global, &args.flags),
     };
@@ -524,7 +524,7 @@ fn run_command(args: CliArgs) -> i32 {
             return 3;
         }
     };
-    if stream {
+    if stream_mode {
         let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     } else {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
@@ -543,7 +543,11 @@ fn run_command(args: CliArgs) -> i32 {
     }
 
     let mut reader = BufReader::new(stream);
-    if stream { run_stream(reader) } else { run_one_response(&mut reader, args.global.json, print) }
+    if stream_mode {
+        run_stream(reader)
+    } else {
+        run_one_response(&mut reader, args.global.json, print)
+    }
 }
 
 fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
