@@ -5,8 +5,9 @@ import { makeBillingCompleteHandler } from "../app/api/billing/complete/route";
 
 let stripeConfigured = true;
 let retrievedSession: Record<string, unknown>;
+let checkoutCompletionResult: Record<string, unknown>;
 const retrieveSession = mock(async () => retrievedSession);
-const recordCheckoutCompletion = mock(async () => ({ stackUserId: "user-1", subscriptionId: "sub_1" }));
+const recordCheckoutCompletion = mock(async () => checkoutCompletionResult);
 
 const GET = makeBillingCompleteHandler({
   isConfigured: () => stripeConfigured,
@@ -32,6 +33,7 @@ describe("billing complete route", () => {
       subscription: { id: "sub_1" },
       customer: { id: "cus_1" },
     };
+    checkoutCompletionResult = { scope: "user", stackUserId: "user-1", subscriptionId: "sub_1" };
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
   });
@@ -93,6 +95,22 @@ describe("billing complete route", () => {
     expect(response.headers.get("location")).toBe(
       "https://cmux.test/dashboard/billing?welcome=team",
     );
+  });
+
+  test("redirects skipped account-deletion completions to cancelled pricing state", async () => {
+    checkoutCompletionResult = {
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user-1",
+      subscriptionId: "sub_1",
+    };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_123"),
+    );
+
+    expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=cancelled");
   });
 
   test("rejects foreign paid sessions without recording them", async () => {

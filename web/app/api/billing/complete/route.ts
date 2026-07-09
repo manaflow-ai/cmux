@@ -62,11 +62,14 @@ export function makeBillingCompleteHandler(
           session.payment_status === "paid" ||
           session.payment_status === "no_payment_required"
         ) {
-          await dependencies.recordCheckoutCompletion({
+          const result = await dependencies.recordCheckoutCompletion({
             session,
             subscription: expandedSubscription(session),
             customer: expandedCustomer(session),
           });
+          if ("skipped" in result) {
+            return NextResponse.redirect(new URL("/pricing?billing=cancelled", request.url));
+          }
           if (session.metadata?.plan === "team") {
             return NextResponse.redirect(
               new URL("/dashboard/billing?welcome=team", request.nextUrl.origin),
