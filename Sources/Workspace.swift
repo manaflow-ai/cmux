@@ -2275,19 +2275,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
     var gitBranch: SidebarGitBranchState? {
         get { sidebarMetadata.gitBranch }
-        set { sidebarMetadata.gitBranch = newValue }
+        set { sidebarMetadata.gitBranch = newValue; reconcileExpiredTaskStatusOverride() }
     }
     var panelGitBranches: [UUID: SidebarGitBranchState] {
         get { sidebarMetadata.panelGitBranches }
-        set { sidebarMetadata.panelGitBranches = newValue }
+        set { sidebarMetadata.panelGitBranches = newValue; reconcileExpiredTaskStatusOverride() }
     }
     var pullRequest: SidebarPullRequestState? {
         get { sidebarMetadata.pullRequest }
-        set { sidebarMetadata.pullRequest = newValue }
+        set { sidebarMetadata.pullRequest = newValue; reconcileExpiredTaskStatusOverride() }
     }
     var panelPullRequests: [UUID: SidebarPullRequestState] {
         get { sidebarMetadata.panelPullRequests }
-        set { sidebarMetadata.panelPullRequests = newValue }
+        set { sidebarMetadata.panelPullRequests = newValue; reconcileExpiredTaskStatusOverride() }
     }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
@@ -9402,6 +9402,9 @@ final class Workspace: Identifiable, ObservableObject {
                 "reason=panelExists elapsedMs=\(debugElapsedMs(since: attachStart))"
             )
 #endif
+            return nil
+        }
+        guard detached.panel.panelType != .workspaceTodo || detached.sourceWorkspaceId == id else {
             return nil
         }
 

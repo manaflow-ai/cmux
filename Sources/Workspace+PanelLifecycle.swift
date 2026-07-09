@@ -32,7 +32,7 @@ extension Workspace {
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
         get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue); reconcileExpiredTaskStatusOverride() }
     }
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {

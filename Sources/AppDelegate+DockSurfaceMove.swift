@@ -174,6 +174,10 @@ extension AppDelegate {
         focus: Bool,
         focusWindow: Bool
     ) -> Bool {
+        guard let panel = sourceDock.panels[panelId],
+              canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
+            return false
+        }
         guard let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
               let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
             return false
@@ -232,6 +236,10 @@ extension AppDelegate {
         focus: Bool = true,
         focusWindow: Bool = false
     ) -> Bool {
+        guard let panel = sourceDock.panels[panelId],
+              canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
+            return false
+        }
         // A window Dock resolves its owning window; a Workspace Dock resolves
         // that workspace's window (see `dockReferenceTabManager`).
         guard let manager = dockReferenceTabManager(for: sourceDock) else { return false }
@@ -266,12 +274,23 @@ extension AppDelegate {
     }
 
     private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
-        if case .workspace(_, let workspace, _, _) = source,
-           workspace.isRemoteTmuxMirror {
-            // Remote tmux mirror panes are manually driven by the mirror
-            // workspace. Dock has no mirror-owned I/O routing yet, so moving one
-            // would leave the Dock panel detached from its remote owner.
-            return false
+        switch source {
+        case .workspace(_, let workspace, let panelId, _):
+            guard let panel = workspace.panels[panelId],
+                  canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
+                return false
+            }
+            if workspace.isRemoteTmuxMirror {
+                // Remote tmux mirror panes are manually driven by the mirror
+                // workspace. Dock has no mirror-owned I/O routing yet, so moving one
+                // would leave the Dock panel detached from its remote owner.
+                return false
+            }
+        case .dock(let dock, let panelId):
+            guard let panel = dock.panels[panelId],
+                  canTransferSurfaceAcrossWorkspaceBoundary(panel: panel) else {
+                return false
+            }
         }
         return true
     }

@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSettings"),
+        .package(path: "../CmuxWorkspaces"),
     ],
     targets: [
         .target(
             name: "CmuxControlSocket",
             dependencies: [
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxWorkspaces", package: "CmuxWorkspaces"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -33,6 +35,7 @@ let package = Package(
             dependencies: [
                 "CmuxControlSocket",
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxWorkspaces", package: "CmuxWorkspaces"),
             ]
         ),
     ]

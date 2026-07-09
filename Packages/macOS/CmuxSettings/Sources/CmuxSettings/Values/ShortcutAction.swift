@@ -264,6 +264,7 @@ extension ShortcutAction {
         self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
+            && self != .toggleChecklistItemComplete
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
