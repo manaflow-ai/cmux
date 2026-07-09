@@ -924,6 +924,21 @@ if (windowsAccepted.isError || windowsAccepted.text.includes("not approved")) {
   console.error("FAIL: accepted elicitation should clear the window-list gate");
   process.exit(1);
 }
+let listedWindows;
+try {
+  listedWindows = JSON.parse(windowsAccepted.text);
+} catch {
+  listedWindows = null;
+}
+const listedBounds = listedWindows?.[0]?.bounds;
+if (
+  !listedBounds ||
+  !["x", "y", "width", "height"].every((key) => typeof listedBounds[key] === "number") ||
+  ["X", "Y", "Width", "Height"].some((key) => Object.hasOwn(listedBounds, key))
+) {
+  console.error("FAIL: computer_windows should expose normalized lowercase bounds");
+  process.exit(1);
+}
 
 const windowsAcceptedJa = await run({
   withElicitation: true,
@@ -994,10 +1009,10 @@ if (!openDeclined.isError || !openDeclined.text.includes("not approved")) {
 const openAccepted = await run({
   withElicitation: true,
   tool: "computer_open",
-  args: { app: "TestApp" },
+  args: { app: "Test" },
 });
 console.log(`computer_open with accepted elicitation -> isError=${openAccepted.isError}`);
-if (openAccepted.isError || openAccepted.text.includes("not approved")) {
-  console.error("FAIL: accepted elicitation should clear app launch");
+if (openAccepted.isError || openAccepted.text.includes("not approved") || !openAccepted.text.includes("TestApp")) {
+  console.error("FAIL: accepted app launch should return the canonical resolved app identity");
   process.exit(1);
 }
