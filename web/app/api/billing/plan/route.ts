@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   FREE_PLAN_ID,
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const billingAvailable = isStripeBillingConfigured();
   const stackServerApp = getStackServerApp();
   const bearer = parseBearer(request);
   const user = bearer
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return jsonResponse({
       authenticated: false,
-      billingAvailable: true,
+      billingAvailable,
       planId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
   const teamStatus = await resolveTeamPlanStatus(user);
   return jsonResponse({
     authenticated: !user.isAnonymous,
-    billingAvailable: true,
+    billingAvailable,
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
