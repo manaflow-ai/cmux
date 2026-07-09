@@ -85,6 +85,10 @@ function expectDeletedAccountMetadata(
   }
 }
 
+function expectDeletedAccountEmail(value: unknown) {
+  expect(value).toMatch(/^deleted\+[0-9a-f]{24}@cmux\.com$/);
+}
+
 function checkoutInput(customerId = "cus_123") {
   return {
     session: {
@@ -207,7 +211,7 @@ describe("recordCheckoutCompletion", () => {
 
     const customerUpdate = mockCall(updateCustomer);
     expect(customerUpdate[0]).toBe("cus_123");
-    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_123");
@@ -243,7 +247,7 @@ describe("recordCheckoutCompletion", () => {
     expect(getUser).not.toHaveBeenCalled();
     const customerUpdate = mockCall(updateCustomer);
     expect(customerUpdate[0]).toBe("cus_123");
-    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_123");
@@ -562,7 +566,7 @@ describe("recordCheckoutCompletion", () => {
 
     const customerUpdate = mockCall(updateCustomer);
     expect(customerUpdate[0]).toBe("cus_team");
-    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
@@ -618,7 +622,7 @@ describe("recordCheckoutCompletion", () => {
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
     const customerUpdate = mockCall(updateCustomer);
     expect(customerUpdate[0]).toBe("cus_team");
-    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
     expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");

@@ -450,7 +450,7 @@ export async function deleteCmuxAccountData(
 
   await cancelStripeAccountBilling(scope, anonymizedUserId, runtime);
 
-  const anonymizedEmail = `${anonymizedUserId}@deleted.cmux.invalid`;
+  const anonymizedEmail = deletedAccountEmail(anonymizedUserId);
   const now = new Date();
   const db = runtime.cloudDb();
 
@@ -1059,7 +1059,7 @@ async function updateStripeCustomerForAccountDeletion(
 ): Promise<void> {
   try {
     await stripeClient.customers.update(customerId, {
-      email: "",
+      email: deletedAccountEmail(anonymizedUserId),
       metadata: accountDeletionStripeMetadata({
         anonymizedUserId,
         clearStackTeamId,
@@ -1152,6 +1152,13 @@ function accountDeletionStripeMetadata(input: {
     ...(input.clearStackTeamId ? { stackTeamId: "" } : {}),
     deletedAccountId: input.anonymizedUserId,
   };
+}
+
+function deletedAccountEmail(anonymizedUserId: string): string {
+  const suffix = anonymizedUserId.startsWith("deleted_")
+    ? anonymizedUserId.slice("deleted_".length)
+    : anonymizedUserId.replace(/[^A-Za-z0-9]/g, "").slice(0, 24);
+  return `deleted+${suffix}@cmux.com`;
 }
 
 function assertRetainedTeamBillingOwners(

@@ -278,13 +278,14 @@ async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
   dependencies: BillingPurchaseDependencies;
 }): Promise<void> {
   const client = (input.dependencies.stripeClient ?? stripe)();
+  const anonymizedUserId = deletedAccountId(input.stackUserId);
   const metadata = accountDeletionStripeMetadata({
-    anonymizedUserId: deletedAccountId(input.stackUserId),
+    anonymizedUserId,
     clearStackTeamId: input.clearStackTeamId,
   });
   await ignoreStripeDeletionCleanupError(
     client.customers.update(input.customerId, {
-      email: "",
+      email: deletedAccountEmail(anonymizedUserId),
       metadata,
     }),
   );
@@ -319,6 +320,13 @@ function accountDeletionStripeMetadata(input: {
 
 function deletedAccountId(userId: string): string {
   return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
+}
+
+function deletedAccountEmail(anonymizedUserId: string): string {
+  const suffix = anonymizedUserId.startsWith("deleted_")
+    ? anonymizedUserId.slice("deleted_".length)
+    : anonymizedUserId.replace(/[^A-Za-z0-9]/g, "").slice(0, 24);
+  return `deleted+${suffix}@cmux.com`;
 }
 
 function isStripeMissingResourceError(error: unknown): boolean {

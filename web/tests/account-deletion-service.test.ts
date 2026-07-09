@@ -626,7 +626,9 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     const sharedCustomerUpdate = stripeCustomerUpdates.find((entry) => entry.id === "cus_shared");
-    expect(sharedCustomerUpdate?.params.email).toBe("");
+    expect(sharedCustomerUpdate?.params.email).toBe(
+      `deleted+${accountDeletionUserHash("user-1").slice(0, 24)}@cmux.com`,
+    );
     expect(sharedCustomerUpdate?.params.metadata?.stackUserId).toBe("user-2");
     expect(sharedCustomerUpdate?.params.metadata?.stackTeamId).toBeUndefined();
     expect(sharedCustomerUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
