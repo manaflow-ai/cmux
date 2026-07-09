@@ -44,6 +44,7 @@ import { deleteObject } from "../../../services/vault/storage";
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
 import { isVmAccountDeletionIdentityRevocationError } from "../../../services/vms/errors";
@@ -93,8 +94,10 @@ export async function DELETE(request: Request): Promise<Response> {
   let restoreBillingEntitlementsOnFailure = true;
   try {
     const accountScope = await accountDeletionScopeForUser(stackUser);
-    await markAccountDeletionTombstonePending(userId);
-    accountDeletionTombstoneStarted = true;
+    accountDeletionTombstoneStarted = await markAccountDeletionTombstonePending(userId);
+    if (!accountDeletionTombstoneStarted) {
+      return jsonResponse({ ok: true, deletionPending: true, destroyedVms: 0 }, 202);
+    }
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(
@@ -171,6 +174,7 @@ export async function DELETE(request: Request): Promise<Response> {
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     if (destructiveCleanupStarted || cmuxOwnedRowsDeleted) {
+      if (accountDeletionTombstoneStarted) await markAccountDeletionTombstoneFailed(userId, error);
       logAccountDeleteError("account.delete.partial_after_destructive_cleanup", error);
       return jsonResponse({
         error: "account_delete_retryable",
@@ -208,12 +212,24 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   return user as DeletableStackUser;
 }
 
-async function markAccountDeletionTombstonePending(userId: string): Promise<void> {
+async function markAccountDeletionTombstonePending(userId: string): Promise<boolean> {
   const db = cloudDb();
   const now = new Date();
   const userIdHash = accountDeletionUserHash(userId);
-  await db.transaction(async (tx) => {
+  return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+    const [existing] = await tx
+      .select({
+        userIdHash: accountDeletionTombstones.userIdHash,
+        status: accountDeletionTombstones.status,
+      })
+      .from(accountDeletionTombstones)
+      .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+      .limit(1);
+    if (existing && (existing.status === "completed" || isBlockingAccountDeletionStatus(existing.status))) {
+      return false;
+    }
+
     await tx
       .insert(accountDeletionTombstones)
       .values({
@@ -232,6 +248,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<void
           errorMessage: null,
         },
       });
+    return true;
   });
 }
 
@@ -713,9 +730,15 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         isNotNull(stripeCustomers.stackTeamId),
       ));
 
-    await tx.delete(cloudVmBillingGrants).where(and(
-      eq(cloudVmBillingGrants.billingCustomerType, "user"),
-      eq(cloudVmBillingGrants.billingCustomerId, userId),
+    await tx.delete(cloudVmBillingGrants).where(or(
+      and(
+        eq(cloudVmBillingGrants.billingCustomerType, "user"),
+        eq(cloudVmBillingGrants.billingCustomerId, userId),
+      ),
+      and(
+        eq(cloudVmBillingGrants.billingCustomerType, "team"),
+        inArray(cloudVmBillingGrants.billingCustomerId, deletionTeamIds),
+      ),
     ));
     await tx.delete(cloudVmNotificationDeliveries).where(eq(cloudVmNotificationDeliveries.userId, userId));
     await tx.delete(cloudVmNotificationEvents).where(eq(cloudVmNotificationEvents.userId, userId));
@@ -732,9 +755,15 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         .where(inArray(cloudVms.id, sharedTeamVmRows.map((vm) => vm.id)));
     }
     await tx.delete(cloudVmBaseEvents).where(eq(cloudVmBaseEvents.userId, userId));
-    await tx.delete(cloudVmBases).where(and(
-      eq(cloudVmBases.scopeType, "user"),
-      eq(cloudVmBases.scopeId, userId),
+    await tx.delete(cloudVmBases).where(or(
+      and(
+        eq(cloudVmBases.scopeType, "user"),
+        eq(cloudVmBases.scopeId, userId),
+      ),
+      and(
+        eq(cloudVmBases.scopeType, "team"),
+        inArray(cloudVmBases.scopeId, deletionTeamIds),
+      ),
     ));
     await tx
       .update(cloudVmBases)
@@ -791,7 +820,10 @@ async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{
   readonly teamIds: readonly string[];
   readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
 }> {
-  const listedTeams = typeof user.listTeams === "function" ? await user.listTeams() : [];
+  if (typeof user.listTeams !== "function") {
+    throw new Error("Stack team listing is required for account deletion");
+  }
+  const listedTeams = await user.listTeams();
   const teams = uniqueStackTeams([
     stackTeamFromUnknown(user.selectedTeam),
     ...listedTeams.map(stackTeamFromUnknown),

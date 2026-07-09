@@ -62,12 +62,15 @@ const getUser = mock(async () => stackUser(stackUserIds.shift()));
 const transaction = mock(async (...args: unknown[]) => {
   const [callback] = args as [(tx: MockTransaction) => Promise<void>];
   routeEvents.push("transaction");
-  await callback(mockTransaction);
+  return await callback(mockTransaction);
 });
 const transactionSelect = mock(() => ({
-  from: () => ({
+  from: (table: unknown) => ({
     where: () => ({
       for: async () => nextTransactionSelectResult(),
+      limit: async () => table === accountDeletionTombstones
+        ? nextTransactionTombstoneSelectResult()
+        : nextTransactionSelectResult(),
     }),
   }),
 }));
@@ -204,6 +207,7 @@ let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
 let selectResults: unknown[][] = [];
 let transactionSelectResults: unknown[][] = [];
+let transactionTombstoneSelectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
@@ -278,6 +282,10 @@ function nextSelectResult(): unknown[] {
 
 function nextTransactionSelectResult(): unknown[] {
   return transactionSelectResults.shift() ?? [];
+}
+
+function nextTransactionTombstoneSelectResult(): unknown[] {
+  return transactionTombstoneSelectResults.shift() ?? [];
 }
 
 function chainableSelectResult(rows: unknown[]): SelectResult {
@@ -441,6 +449,7 @@ beforeEach(() => {
   stackUserIds = [];
   selectResults = [[], [], [], [], [], []];
   transactionSelectResults = [];
+  transactionTombstoneSelectResults = [];
   deletedVaultObjects = [];
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
@@ -607,6 +616,30 @@ describe("account deletion route", () => {
     expect(deletedStripeCustomers).toEqual(["cus_user", "cus_team"]);
     expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
     expect(transactionExecute).toHaveBeenCalledTimes(5);
+    const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);
+    expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
+    const baseDelete = deletedWhere.find((entry) => entry.table === cloudVmBases);
+    expect(conditionColumnNames(baseDelete?.condition)).toContain("scope_id");
+  });
+
+  test("joins an in-progress account deletion instead of rerunning destructive cleanup", async () => {
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "pending",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      deletionPending: true,
+      destroyedVms: 0,
+    });
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
   test("does not treat a selected shared Stack team as account-owned data", async () => {
@@ -901,7 +934,7 @@ describe("account deletion route", () => {
     });
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(transactionExecute).toHaveBeenCalledTimes(2);
-    expect(transactionSelect).toHaveBeenCalledTimes(1);
+    expect(transactionSelect).toHaveBeenCalledTimes(2);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
