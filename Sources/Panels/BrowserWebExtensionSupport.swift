@@ -120,18 +120,6 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
         contexts.append(context)
 #if DEBUG
         logDiagnostics(for: context, label: "postLoad")
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(5))
-            self?.logDiagnostics(for: context, label: "postLoad+5s")
-        }
-        if ProcessInfo.processInfo.environment["CMUX_WEBEXT_AUTOPROBE"] == "1" {
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(8))
-                guard let self else { return }
-                cmuxDebugLog("browser.webext.autoprobe performAction")
-                context.performAction(for: self.activeTabAdapter)
-            }
-        }
 #endif
     }
 
@@ -188,8 +176,15 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
     func unregister(panelID: UUID) {
         guard let adapter = tabAdapters.removeValue(forKey: panelID) else { return }
         orderedPanelIDs.removeAll { $0 == panelID }
-        if activePanelID == panelID { activePanelID = orderedPanelIDs.last }
         controller.didCloseTab(adapter, windowIsClosing: false)
+        if activePanelID == panelID {
+            activePanelID = orderedPanelIDs.last
+            // Tell extensions which tab is active now, or they keep acting on
+            // the closed one until the next focus change.
+            if let successor = activePanelID.flatMap({ tabAdapters[$0] }) {
+                controller.didActivateTab(successor, previousActiveTab: adapter)
+            }
+        }
     }
 
     func noteActivated(panelID: UUID) {
@@ -238,14 +233,6 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
 #endif
             return true
         }
-#if DEBUG
-        if !contexts.isEmpty {
-            cmuxDebugLog(
-                "browser.webext.command unmatched key=\(event.charactersIgnoringModifiers ?? "?") " +
-                "mods=\(event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue)"
-            )
-        }
-#endif
         return false
     }
 
@@ -349,71 +336,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         }
         popover.behavior = .transient
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
-#if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_WEBEXT_AUTOPROBE"] == "1",
-           let popupWebView = action.popupWebView {
-            probePopup(popupWebView)
-        }
-#endif
         completionHandler(nil)
     }
-
-#if DEBUG
-    /// Evaluates a WebExtension-API probe inside the action popup so tab/window
-    /// adapter behavior is observable from the extension's point of view.
-    /// Installs an error-capture hook and reloads the popup first so boot-time
-    /// console errors and unhandled rejections are observable.
-    private func probePopup(_ popupWebView: WKWebView) {
-        Task { @MainActor in
-            let hookSource = """
-            window.__errs = [];
-            window.addEventListener("error", (e) => window.__errs.push("E:" + e.message + "@" + (e.filename || "") + ":" + (e.lineno || 0)));
-            window.addEventListener("unhandledrejection", (e) => window.__errs.push("R:" + ((e.reason && (e.reason.stack || e.reason.message)) || e.reason)));
-            const ce = console.error.bind(console);
-            console.error = (...a) => { window.__errs.push("C:" + a.map(String).join(" ").slice(0, 300)); ce(...a); };
-            """
-            popupWebView.configuration.userContentController.addUserScript(
-                WKUserScript(source: hookSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-            )
-            popupWebView.reload()
-            try? await Task.sleep(for: .seconds(5))
-            let script = """
-            try {
-              const api = globalThis.browser || globalThis.chrome;
-              const tabs = await api.tabs.query({ active: true, currentWindow: true });
-              const wins = await api.windows.getAll();
-              const win = await api.windows.getCurrent().catch((e) => 'ERR:' + e.message);
-              let popoutTest = "skipped";
-              try {
-                const w = await api.windows.create({ url: "popup/index.html", type: "popup", width: 380, height: 500, focused: false });
-                popoutTest = w ? "created:" + w.id + ":tabs=" + (w.tabs ? w.tabs.length : "?") : "null";
-                if (w) { await new Promise(r => setTimeout(r, 1500)); await api.windows.remove(w.id); popoutTest += ":removed"; }
-              } catch (e) { popoutTest = "ERR:" + (e && e.message); }
-              return JSON.stringify({
-                ready: document.readyState,
-                bodyChildren: document.body ? document.body.children.length : -1,
-                tabCount: tabs.length,
-                tab0: tabs[0] ? `${tabs[0].id}:${tabs[0].url || "nourl"}:${tabs[0].title || "notitle"}` : "none",
-                winCount: wins.length,
-                currentWin: typeof win === "string" ? win : (win ? win.id : "none"),
-                text: (document.body ? document.body.innerText : "").replace(/\\s+/g, " ").slice(0, 160),
-                html: (document.body ? document.body.innerHTML : "").replace(/\\s+/g, " ").slice(0, 240),
-                errs: (window.__errs || []).slice(0, 8),
-                popoutTest
-              });
-            } catch (e) { return "ERR:" + (e && e.message); }
-            """
-            popupWebView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value):
-                    cmuxDebugLog("browser.webext.popupProbe \(value ?? "nil")")
-                case .failure(let error):
-                    cmuxDebugLog("browser.webext.popupProbe error=\(error.localizedDescription)")
-                }
-            }
-        }
-    }
-#endif
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
