@@ -21,6 +21,7 @@ const signedInUser = {
   id: "user-signed-in",
   isAnonymous: false,
   primaryEmail: "signed@example.com",
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   createCheckoutUrl: mock(async () => "https://checkout.test/signed-in"),
   listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
@@ -30,6 +31,7 @@ const anonymousUser = {
   id: "user-anonymous",
   isAnonymous: true,
   primaryEmail: null,
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   createCheckoutUrl: mock(async () => "https://checkout.test/anonymous"),
   listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
@@ -137,6 +139,8 @@ describe("billing checkout route", () => {
     anonymousUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/anonymous");
     anonymousUser.listProducts.mockResolvedValue(emptyProductsPage());
     anonymousUser.update.mockResolvedValue(undefined);
+    signedInUser.clientReadOnlyMetadata = {};
+    anonymousUser.clientReadOnlyMetadata = {};
     signedInUser.selectedTeam = null;
     userResponses = [];
     stripeConfigured = false;
@@ -202,6 +206,22 @@ describe("billing checkout route", () => {
       productId: "pro",
       returnUrl: "https://cmux.test/api/billing/confirm",
     });
+  });
+
+  test("blocks checkout while account deletion is in progress", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxAccountDeletionInProgress: true };
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+    expect(signedInUser.createCheckoutUrl).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("syncs metadata when Stack says Pro checkout is already granted and products confirm it", async () => {

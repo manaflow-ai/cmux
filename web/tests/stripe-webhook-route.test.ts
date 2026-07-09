@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeStripeWebhookHandler } from "../app/api/stripe/webhook/route";
+import { AccountDeletionBillingBlockedError } from "../services/billing/purchase";
 
 let currentEvent: Record<string, unknown>;
 let constructThrows = false;
 let insertedEventRows: unknown[] = [{ id: "evt_1" }];
 let selectedEventRows: unknown[] = [];
 const updates: Record<string, unknown>[] = [];
+let recordCheckoutBlocked = false;
 let recordCheckoutShouldFail = false;
 const recordCheckoutCompletion = mock(async () => {
+  if (recordCheckoutBlocked) throw new AccountDeletionBillingBlockedError("user_1");
   if (recordCheckoutShouldFail) throw new Error("db down");
 });
 const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
@@ -95,6 +98,7 @@ describe("Stripe billing webhook route", () => {
     insertedEventRows = [{ id: "evt_1" }];
     selectedEventRows = [];
     updates.length = 0;
+    recordCheckoutBlocked = false;
     recordCheckoutShouldFail = false;
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
@@ -144,6 +148,18 @@ describe("Stripe billing webhook route", () => {
       expand: ["subscription", "customer"],
     });
     expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ error: null });
+  });
+
+  test("skips checkout completion while account deletion is in progress", async () => {
+    recordCheckoutBlocked = true;
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "account_deletion_in_progress",
+    });
     expect(updates.at(-1)).toMatchObject({ error: null });
   });
 

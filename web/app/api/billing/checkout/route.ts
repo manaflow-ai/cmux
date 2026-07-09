@@ -6,6 +6,7 @@ import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import { isAppStoreDistributionMode } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
+import { isStackAccountDeletionBlocked } from "../../../../services/account/deletion";
 import {
   PRO_PRODUCT_ID,
   TEAM_PRODUCT_ID,
@@ -67,6 +68,7 @@ async function stripeProCheckout(
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
+  if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
 
   const status = await resolveProPlanStatus(user);
   if (status.isPro) {
@@ -125,6 +127,7 @@ async function stripeTeamCheckout(
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
+  if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
   const team = await checkoutTeamCustomer(user);
   const teamId = team.id;
   if (!teamId) {
@@ -187,6 +190,7 @@ async function legacyStackCheckout(
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
+  if (await isStackAccountDeletionBlocked(user)) return accountDeletionBillingRedirect(request);
 
   if (plan === "pro" && (await hasActiveProSubscription(user))) {
     await syncProPlanMetadata(user, true);
@@ -342,6 +346,10 @@ function appStorePricingRedirect(request: NextRequest): URL {
   }
 
   return redirectURL;
+}
+
+function accountDeletionBillingRedirect(request: NextRequest): NextResponse {
+  return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
 }
 
 function isAlreadyGrantedError(error: unknown): boolean {

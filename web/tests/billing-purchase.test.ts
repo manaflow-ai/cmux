@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { billingEmailClaims, stripeCustomers, stripeSubscriptions } from "../db/schema";
+import {
+  accountDeletionTombstones,
+  billingEmailClaims,
+  stripeCustomers,
+  stripeSubscriptions,
+} from "../db/schema";
 import {
   applySubscriptionUpdate,
   recordCheckoutCompletion,
@@ -27,8 +32,10 @@ function fakeDb() {
       },
     }),
     select: () => ({
-      from: () => ({
-        where: () => selectableResult(),
+      from: (table: unknown) => ({
+        where: () => table === accountDeletionTombstones
+          ? emptySelectableResult()
+          : selectableResult(),
       }),
     }),
     update: (table: unknown) => ({
@@ -46,6 +53,13 @@ function selectableResult() {
   return {
     orderBy: () => selectableResult(),
     limit: () => Promise.resolve(selectResults.shift() ?? []),
+  };
+}
+
+function emptySelectableResult() {
+  return {
+    orderBy: () => emptySelectableResult(),
+    limit: () => Promise.resolve([]),
   };
 }
 
@@ -139,6 +153,27 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
+  });
+
+  test("blocks user checkout completion while account deletion is in progress", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: null,
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update,
+    };
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      }),
+    ).rejects.toThrow("Billing writes are disabled while account deletion is in progress.");
+
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
   });
 
   test("records an email claim instead of attaching an email owned by a different Stack user", async () => {
@@ -485,6 +520,29 @@ describe("recordCheckoutCompletion", () => {
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("skips user subscription updates while account deletion is in progress", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+      update,
+    };
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
   });
 
   test("does not fail the webhook when TestFlight removal fails", async () => {

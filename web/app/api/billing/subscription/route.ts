@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeSubscriptions } from "../../../../db/schema";
+import { isStackAccountDeletionBlocked } from "../../../../services/account/deletion";
 import { localizedVaultPath, vaultSignInHref } from "../../../lib/vault-auth";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { locales, routing } from "../../../../i18n/routing";
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
       );
     }
     stackUserId = user.id;
+    if (await isStackAccountDeletionBlocked(user)) {
+      return billingRedirect(request, "error");
+    }
 
     if (!isStripeBillingConfigured()) {
       throw new Error("Billing subscription management is not configured");

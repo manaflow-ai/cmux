@@ -13,12 +13,14 @@ const stripeModule = await import("../services/billing/stripe");
 const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   selectedTeam: null as null | { id: string },
   listTeams: mock(async () => [] as Array<{ id: string }>),
 };
 const anonymousUser = {
   id: "anonymous-pro",
   isAnonymous: true,
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
 };
 
 let stackConfigured = true;
@@ -54,11 +56,7 @@ mock.module("../db/client", () => ({
   cloudDb: () => ({
     select: () => ({
       from: () => ({
-        where: () => ({
-          orderBy: () => ({
-            limit: mock(async () => subscriptionRows),
-          }),
-        }),
+        where: () => subscriptionRowsResult(),
       }),
     }),
     update: () => ({
@@ -90,6 +88,15 @@ mock.module("../services/errors", () => ({
 
 const { POST } = await import("../app/api/billing/subscription/route");
 
+function subscriptionRowsResult() {
+  return {
+    limit: mock(async () => []),
+    orderBy: () => ({
+      limit: mock(async () => subscriptionRows),
+    }),
+  };
+}
+
 describe("billing subscription route", () => {
   beforeEach(() => {
     stackConfigured = true;
@@ -98,6 +105,8 @@ describe("billing subscription route", () => {
     anonymousIfExistsUser = null;
     subscriptionRows = [{ id: "sub_123" }];
     dbUpdates.length = 0;
+    signedInUser.clientReadOnlyMetadata = {};
+    anonymousUser.clientReadOnlyMetadata = {};
     signedInUser.selectedTeam = null;
     signedInUser.listTeams.mockClear();
     getUser.mockClear();
@@ -164,6 +173,20 @@ describe("billing subscription route", () => {
       cancel_at_period_end: false,
     });
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(false);
+  });
+
+  test("blocks subscription changes while account deletion is in progress", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxAccountDeletionInProgress: true };
+
+    const response = await postAction("cancel");
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=error",
+    );
+    expect(updateSubscription).not.toHaveBeenCalled();
+    expect(dbUpdates).toHaveLength(0);
+    expect(captureBillingError).not.toHaveBeenCalled();
   });
 
   test("cancels the current user's Team subscription from the derived billing team", async () => {

@@ -76,6 +76,8 @@ type AccountDeletionRuntime = {
   readonly stripeClient?: () => ReturnType<typeof stripe>;
 };
 
+type AccountDeletionTombstoneRuntime = Pick<AccountDeletionRuntime, "cloudDb">;
+
 const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   cloudDb,
   deleteObject,
@@ -132,6 +134,11 @@ export type StackAccountDeletionMetadataUser = {
   update(options: { clientReadOnlyMetadata: StackJsonObject }): Promise<void>;
 };
 
+export type StackAccountDeletionBlockUser = {
+  readonly id: string;
+  readonly clientReadOnlyMetadata?: unknown;
+};
+
 export function isStackAccountDeletionInProgress(metadata: unknown): boolean {
   return !!metadata &&
     typeof metadata === "object" &&
@@ -149,9 +156,18 @@ export function isAccountDeletionTombstoneStoreConfigured(): boolean {
   }
 }
 
+export async function isStackAccountDeletionBlocked(
+  user: StackAccountDeletionBlockUser,
+  runtime?: AccountDeletionTombstoneRuntime,
+): Promise<boolean> {
+  if (isStackAccountDeletionInProgress(user.clientReadOnlyMetadata)) return true;
+  if (!runtime && !isAccountDeletionTombstoneStoreConfigured()) return false;
+  return await hasAccountDeletionTombstone({ userId: user.id }, runtime ?? defaultAccountDeletionRuntime);
+}
+
 export async function hasAccountDeletionTombstone(
   input: AccountDeletionInput,
-  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+  runtime: AccountDeletionTombstoneRuntime = defaultAccountDeletionRuntime,
 ): Promise<boolean> {
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
