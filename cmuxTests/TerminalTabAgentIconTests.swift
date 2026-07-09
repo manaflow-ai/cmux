@@ -304,15 +304,36 @@ struct TerminalTabAgentIconTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let notificationStore = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousNotificationStore = appDelegate.notificationStore
+        let previousNotifications = notificationStore.notifications
+        appDelegate.notificationStore = notificationStore
+        defer {
+            notificationStore.replaceNotificationsForTesting(previousNotifications)
+            appDelegate.notificationStore = previousNotificationStore
+        }
 
         workspace.recordAgentPID(key: stalePIDKey, pid: 0, panelId: panel.id, refreshPorts: false)
         let staleAgentPort = 54_321
         workspace.agentListeningPorts = [staleAgentPort]
         workspace.recomputeListeningPorts()
+        let staleNotification = TerminalNotification(
+            id: UUID(), tabId: workspace.id, surfaceId: panel.id,
+            title: "Stale agent", subtitle: "", body: "Needs input",
+            createdAt: Date(), isRead: false
+        )
+        let siblingNotification = TerminalNotification(
+            id: UUID(), tabId: workspace.id, surfaceId: UUID(),
+            title: "Sibling", subtitle: "", body: "Keep me",
+            createdAt: Date(), isRead: false
+        )
+        notificationStore.replaceNotificationsForTesting([staleNotification, siblingNotification])
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == staleAsset)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == staleAsset)
         #expect(workspace.listeningPorts.contains(staleAgentPort))
+        #expect(notificationStore.notifications.contains { $0.id == staleNotification.id })
 
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
@@ -321,5 +342,7 @@ struct TerminalTabAgentIconTests {
         #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
         #expect(workspace.agentListeningPorts.isEmpty)
         #expect(!workspace.listeningPorts.contains(staleAgentPort))
+        #expect(!notificationStore.notifications.contains { $0.id == staleNotification.id })
+        #expect(notificationStore.notifications.contains { $0.id == siblingNotification.id })
     }
 }
