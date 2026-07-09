@@ -159,6 +159,12 @@ final class AgentHibernationController {
         lifecycleChangeByPanel[key] = recordedAt.timeIntervalSince1970
     }
 
+    func recordAgentProcessChange(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
+        guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let recordedAt = recordedAt ?? Date()
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+    }
+
     @discardableResult
     private func recordActivity(workspaceId: UUID, panelId: UUID, recordedAt: Date) -> AgentHibernationPanelKey {
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)

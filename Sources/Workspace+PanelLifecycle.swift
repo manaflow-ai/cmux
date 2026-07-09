@@ -137,9 +137,10 @@ extension Workspace {
         } else {
             removeAgentPIDOwnership(key: key)
         }
-        if refreshPorts {
-            refreshTrackedAgentPorts()
+        for changedPanelId in (previousPanelId == panelId ? [panelId] : [previousPanelId, panelId]).compactMap({ $0 }) {
+            AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
         }
+        if refreshPorts { refreshTrackedAgentPorts() }
         syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
@@ -330,6 +331,7 @@ extension Workspace {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
+        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {

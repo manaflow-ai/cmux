@@ -9,6 +9,38 @@ import Testing
 
 @Suite
 struct AgentHibernationPlannerSwiftTests {
+    @MainActor
+    @Test
+    func agentPIDMutationInvalidatesPendingHibernationTeardown() throws {
+        let controller = AgentHibernationController.shared
+        let wasEnabled = AgentHibernationTrackingGate.isEnabled()
+        defer { AgentHibernationTrackingGate.setEnabled(wasEnabled) }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panelKey = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
+        let baselineEpoch = controller.teardownValidationEpochByPanel[panelKey] ?? 0
+
+        AgentHibernationTrackingGate.setEnabled(true)
+        workspace.recordAgentPID(
+            key: "codex.live-session",
+            pid: 12_345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let recordEpoch = try #require(controller.teardownValidationEpochByPanel[panelKey])
+        #expect(recordEpoch == baselineEpoch + 1)
+
+        AgentHibernationTrackingGate.setEnabled(true)
+        workspace.clearAgentPID(
+            key: "codex.live-session",
+            panelId: panelId,
+            clearStatus: true,
+            refreshPorts: false
+        )
+        #expect(controller.teardownValidationEpochByPanel[panelKey] == recordEpoch + 1)
+    }
+
     @Test
     func liveScopedProcessCreatesPressureButIsNotSelected() {
         let workspaceId = UUID()
