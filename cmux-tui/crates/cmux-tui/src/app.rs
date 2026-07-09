@@ -987,6 +987,7 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 if matches!(&self.drag, Some(Drag::PtyMouse { surface, .. }) if *surface == id) {
+                    self.cancel_pty_release_reservation(id);
                     self.drag = None;
                 }
                 self.render_states.remove(&id);
@@ -2203,7 +2204,9 @@ impl App {
             return false;
         }
 
-        self.session.focus_pane(area.pane);
+        if self.active_pane() != Some(area.pane) {
+            self.session.focus_pane(area.pane);
+        }
         self.sidebar_focused = false;
         self.selection = None;
         if !self.forward_pty_mouse_to_surface(
@@ -2277,6 +2280,7 @@ impl App {
             return true;
         }
         if !self.pty_mouse_tracking(surface) {
+            self.cancel_pty_release_reservation(surface);
             self.drag = None;
             return true;
         }
@@ -2303,6 +2307,7 @@ impl App {
             return;
         };
         if !self.pty_mouse_tracking(surface) {
+            self.cancel_pty_release_reservation(surface);
             self.drag = None;
             return;
         }
@@ -2393,27 +2398,33 @@ impl App {
         }) else {
             return false;
         };
-        if encoded.is_ok() && !self.encode_buf.is_empty() {
-            let kind = match action {
-                MouseAction::Press
-                    if matches!(
-                        button,
-                        Some(
-                            GhosttyMouseButton::Left
-                                | GhosttyMouseButton::Right
-                                | GhosttyMouseButton::Middle
-                        )
-                    ) =>
-                {
-                    PtyInputKind::Press
-                }
-                MouseAction::Press => PtyInputKind::Ordered,
-                MouseAction::Release => PtyInputKind::Release,
-                MouseAction::Motion => PtyInputKind::Motion,
-            };
-            return self.write_pty_bytes(surface_id, surface, self.encode_buf.clone(), kind);
+        if encoded.is_err() {
+            return false;
         }
-        false
+        if self.encode_buf.is_empty() {
+            if action == MouseAction::Release && matches!(&surface, SurfaceHandle::Remote(_, _)) {
+                self.pty_input.cancel_release_reservation();
+            }
+            return true;
+        }
+        let kind = match action {
+            MouseAction::Press
+                if matches!(
+                    button,
+                    Some(
+                        GhosttyMouseButton::Left
+                            | GhosttyMouseButton::Right
+                            | GhosttyMouseButton::Middle
+                    )
+                ) =>
+            {
+                PtyInputKind::Press
+            }
+            MouseAction::Press => PtyInputKind::Ordered,
+            MouseAction::Release => PtyInputKind::Release,
+            MouseAction::Motion => PtyInputKind::Motion,
+        };
+        self.write_pty_bytes(surface_id, surface, self.encode_buf.clone(), kind)
     }
 
     fn write_pty_bytes(
@@ -2442,6 +2453,12 @@ impl App {
 
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
         self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
+    }
+
+    fn cancel_pty_release_reservation(&self, surface: SurfaceId) {
+        if matches!(self.session.surface(surface), Some(SurfaceHandle::Remote(_, _))) {
+            self.pty_input.cancel_release_reservation();
+        }
     }
 
     fn pty_mouse_tracking(&self, surface_id: SurfaceId) -> bool {
@@ -2742,9 +2759,11 @@ impl App {
         }
 
         if let Some(area) = self.pane_area_at(x, y).copied() {
-            self.session.focus_pane(area.pane);
             if area.content.contains(x, y) {
                 if self.surface_kind(area.surface) == SurfaceKind::Browser {
+                    if self.active_pane() != Some(area.pane) {
+                        self.session.focus_pane(area.pane);
+                    }
                     self.send_browser_mouse(
                         area.surface,
                         area.content,
@@ -2757,6 +2776,9 @@ impl App {
                 } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers) {
                     return Ok(RenderAction::Draw);
                 } else {
+                    if self.active_pane() != Some(area.pane) {
+                        self.session.focus_pane(area.pane);
+                    }
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
                     let offset = self.surface_scroll_offset(area.surface);
@@ -2769,6 +2791,8 @@ impl App {
                         col: x - area.content.x,
                     });
                 }
+            } else if self.active_pane() != Some(area.pane) {
+                self.session.focus_pane(area.pane);
             }
             return Ok(RenderAction::Draw);
         }

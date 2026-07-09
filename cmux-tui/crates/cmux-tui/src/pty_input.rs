@@ -15,6 +15,8 @@ use cmux_tui_core::SurfaceId;
 use crate::session::SurfaceHandle;
 
 const QUEUE_CAPACITY: usize = 512;
+const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
+const RESERVED_RELEASE_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyInputKind {
@@ -34,6 +36,7 @@ pub struct PtyInputEvent {
 #[derive(Default)]
 struct QueueState {
     events: VecDeque<PtyInputEvent>,
+    queued_bytes: usize,
     release_reservations: usize,
     in_flight: bool,
     closed: bool,
@@ -65,12 +68,25 @@ impl PtyInputDispatcher {
         if state.closed {
             return false;
         }
-        let QueueState { events, release_reservations, .. } = &mut *state;
-        let accepted = enqueue_bounded(events, release_reservations, event, QUEUE_CAPACITY);
+        let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
+        let accepted = enqueue_bounded(
+            events,
+            queued_bytes,
+            release_reservations,
+            event,
+            QUEUE_CAPACITY,
+            MAX_QUEUED_BYTES,
+        );
         if accepted {
             self.queue.changed.notify_one();
         }
         accepted
+    }
+
+    pub fn cancel_release_reservation(&self) {
+        let mut state = self.queue.state.lock().unwrap();
+        state.release_reservations = state.release_reservations.saturating_sub(1);
+        self.queue.changed.notify_all();
     }
 
     /// Stop accepting work and discard queued bytes after an explicit input
@@ -79,6 +95,7 @@ impl PtyInputDispatcher {
         let mut state = self.queue.state.lock().unwrap();
         state.closed = true;
         state.events.clear();
+        state.queued_bytes = 0;
         state.release_reservations = 0;
         self.queue.changed.notify_all();
     }
@@ -114,15 +131,25 @@ impl Drop for PtyInputDispatcher {
 
 fn enqueue_bounded(
     events: &mut VecDeque<PtyInputEvent>,
+    queued_bytes: &mut usize,
     release_reservations: &mut usize,
     mut event: PtyInputEvent,
     capacity: usize,
+    max_bytes: usize,
 ) -> bool {
     if event.kind == PtyInputKind::Motion
         && events.back().is_some_and(|previous| {
             previous.kind == PtyInputKind::Motion && previous.surface_id == event.surface_id
         })
     {
+        let previous_len = events.back().unwrap().bytes.len();
+        let projected_bytes = queued_bytes.saturating_sub(previous_len)
+            + event.bytes.len()
+            + *release_reservations * RESERVED_RELEASE_BYTES;
+        if projected_bytes > max_bytes {
+            return false;
+        }
+        *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.bytes.len();
         *events.back_mut().unwrap() = event;
         return true;
     }
@@ -139,13 +166,22 @@ fn enqueue_bounded(
     if consumes_reservation {
         projected -= 1;
     }
-    while projected > capacity {
+    let mut projected_bytes = *queued_bytes
+        + event.bytes.len()
+        + (*release_reservations + usize::from(event.kind == PtyInputKind::Press))
+            * RESERVED_RELEASE_BYTES;
+    if consumes_reservation {
+        projected_bytes = projected_bytes.saturating_sub(RESERVED_RELEASE_BYTES);
+    }
+    while projected > capacity || projected_bytes > max_bytes {
         let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion)
         else {
             return false;
         };
-        events.remove(index);
+        let removed = events.remove(index).unwrap();
+        *queued_bytes = queued_bytes.saturating_sub(removed.bytes.len());
         projected -= 1;
+        projected_bytes = projected_bytes.saturating_sub(removed.bytes.len());
     }
 
     if event.kind == PtyInputKind::Press {
@@ -155,8 +191,10 @@ fn enqueue_bounded(
     }
 
     if merge_stream {
+        *queued_bytes += event.bytes.len();
         events.back_mut().unwrap().bytes.append(&mut event.bytes);
     } else {
+        *queued_bytes += event.bytes.len();
         events.push_back(event);
     }
     true
@@ -173,7 +211,9 @@ fn worker(queue: Arc<SharedQueue>) {
                 return;
             }
             state.in_flight = true;
-            state.events.pop_front().unwrap()
+            let event = state.events.pop_front().unwrap();
+            state.queued_bytes = state.queued_bytes.saturating_sub(event.bytes.len());
+            event
         };
         event.surface.write_bytes(&event.bytes);
         let mut state = queue.state.lock().unwrap();
@@ -198,9 +238,24 @@ mod tests {
     #[test]
     fn consecutive_motion_on_one_surface_keeps_latest() {
         let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
         let mut releases = 0;
-        assert!(enqueue_bounded(&mut events, &mut releases, event(1, 1, PtyInputKind::Motion), 8,));
-        assert!(enqueue_bounded(&mut events, &mut releases, event(1, 2, PtyInputKind::Motion), 8,));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 1, PtyInputKind::Motion),
+            8,
+            1024,
+        ));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 2, PtyInputKind::Motion),
+            8,
+            1024,
+        ));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].bytes, vec![2]);
     }
@@ -208,6 +263,7 @@ mod tests {
     #[test]
     fn ordered_bytes_batch_without_crossing_motion_or_surfaces() {
         let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
         let mut releases = 0;
         for item in [
             event(1, 1, PtyInputKind::Ordered),
@@ -215,7 +271,7 @@ mod tests {
             event(1, 3, PtyInputKind::Motion),
             event(2, 4, PtyInputKind::Ordered),
         ] {
-            assert!(enqueue_bounded(&mut events, &mut releases, item, 8));
+            assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024,));
         }
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].bytes, vec![1, 2]);
@@ -226,24 +282,58 @@ mod tests {
     #[test]
     fn accepted_press_guarantees_its_release_slot() {
         let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
         let mut releases = 0;
-        assert!(enqueue_bounded(&mut events, &mut releases, event(1, 1, PtyInputKind::Press), 3,));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 1, PtyInputKind::Press),
+            3,
+            1024,
+        ));
         assert_eq!(releases, 1);
-        assert!(
-            enqueue_bounded(&mut events, &mut releases, event(2, 2, PtyInputKind::Ordered), 3,)
-        );
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(2, 2, PtyInputKind::Ordered),
+            3,
+            1024,
+        ));
         assert!(!enqueue_bounded(
             &mut events,
+            &mut queued_bytes,
             &mut releases,
             event(3, 3, PtyInputKind::Ordered),
             3,
+            1024,
         ));
-        assert!(
-            enqueue_bounded(&mut events, &mut releases, event(1, 4, PtyInputKind::Release), 3,)
-        );
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 4, PtyInputKind::Release),
+            3,
+            1024,
+        ));
         assert_eq!(releases, 0);
         assert_eq!(events.len(), 3);
         assert_eq!(events.back().unwrap().bytes, vec![4]);
+    }
+
+    #[test]
+    fn ordered_batch_respects_byte_budget() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = 0;
+        let mut first = event(1, 1, PtyInputKind::Ordered);
+        first.bytes = vec![1; 8];
+        assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, first, 8, 10,));
+        let mut overflow = event(1, 2, PtyInputKind::Ordered);
+        overflow.bytes = vec![2; 3];
+        assert!(!enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, overflow, 8, 10,));
+        assert_eq!(queued_bytes, 8);
     }
 
     #[test]
