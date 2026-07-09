@@ -445,7 +445,9 @@ fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Op
     let configured_max =
         if config.sidebar.max_width > 0 { config.sidebar.max_width } else { u16::MAX };
     let effective_max = terminal_max.min(configured_max);
-    (effective_max >= 10).then_some(desired.clamp(10, effective_max))
+    // then_some would evaluate clamp(10, effective_max) eagerly and panic when
+    // effective_max < 10 (terminal narrower than 50 columns).
+    (effective_max >= 10).then(|| desired.clamp(10, effective_max))
 }
 
 fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16) -> Option<u16> {
