@@ -59,7 +59,8 @@ describe("iOS analytics route", () => {
     expect(forwardToPostHog).toHaveBeenCalled();
   });
 
-  test("persists authenticated identify aliases even when the client distinct id is stale", async () => {
+  test("strips authenticated identify aliases when the client distinct id is stale", async () => {
+    let forwardedProperties: Record<string, unknown> | null = null;
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
         event: "$identify",
@@ -68,17 +69,21 @@ describe("iOS analytics route", () => {
           "$anon_distinct_id": "55555555-5555-4555-8555-555555555555",
         },
       }],
-    }), dependencies());
+    }), {
+      ...dependencies(),
+      forwardToPostHog: async (events: readonly { readonly properties: Record<string, unknown> }[]) => {
+        forwardedProperties = events[0]?.properties ?? null;
+        return { ok: true };
+      },
+    });
 
     expect(response.status).toBe(200);
-    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
-      userId: "stack-user-1",
-      anonymousIds: ["55555555-5555-4555-8555-555555555555"],
-    });
-    expect(forwardToPostHog).toHaveBeenCalled();
+    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
+    expect(forwardedProperties).toEqual({});
   });
 
-  test("persists authenticated capture-event anonymous aliases", async () => {
+  test("strips authenticated capture-event anonymous aliases before forwarding", async () => {
+    let forwardedProperties: Record<string, unknown> | null = null;
     const response = await postAnalyticsEvents(jsonRequest({
       batch: [{
         event: "ios_app_foregrounded",
@@ -88,14 +93,19 @@ describe("iOS analytics route", () => {
           client_id: "66666666-6666-4666-8666-666666666666",
         },
       }],
-    }), dependencies());
+    }), {
+      ...dependencies(),
+      forwardToPostHog: async (events: readonly { readonly properties: Record<string, unknown> }[]) => {
+        forwardedProperties = events[0]?.properties ?? null;
+        return { ok: true };
+      },
+    });
 
     expect(response.status).toBe(200);
-    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
-      userId: "stack-user-1",
-      anonymousIds: ["66666666-6666-4666-8666-666666666666"],
+    expect(recordIOSAnalyticsIdentities).not.toHaveBeenCalled();
+    expect(forwardedProperties).toEqual({
+      client_id: "66666666-6666-4666-8666-666666666666",
     });
-    expect(forwardToPostHog).toHaveBeenCalled();
   });
 
   test("records identify mappings before forwarding to PostHog", async () => {

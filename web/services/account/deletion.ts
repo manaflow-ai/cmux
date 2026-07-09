@@ -33,7 +33,7 @@ import {
 } from "../billing/pro";
 import { isStripeBillingConfigured, stripe } from "../billing/stripe";
 import type { ProviderId } from "../vms/drivers";
-import { deleteVmSnapshot, destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
+import { deleteVmSnapshot, destroyAccountOwnedVm, revokeVmIdentityLease, runVmWorkflow } from "../vms/workflows";
 import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
 import { withVaultUserQuotaLock } from "../vault/usage";
@@ -51,6 +51,7 @@ const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const ACCOUNT_DELETION_JOB_STALE_MS = 60 * 60 * 1000;
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 const ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE = 50;
+const ACCOUNT_VM_LEASE_REVOKE_BATCH_SIZE = 50;
 const VAULT_ACCOUNT_DELETION_BATCH_SIZE = 100;
 
 type AccountDeletionWorkflow = unknown;
@@ -66,6 +67,10 @@ type AccountDeletionRuntime = {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => AccountDeletionWorkflow;
+  readonly revokeVmIdentityLease?: (input: {
+    readonly provider: ProviderId;
+    readonly identityHandle: string;
+  }) => AccountDeletionWorkflow;
   readonly runVmWorkflow: (workflow: AccountDeletionWorkflow) => Promise<unknown>;
   readonly revokeSubrouterTenant?: (tenantId: string) => Promise<void>;
 };
@@ -75,6 +80,7 @@ const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   deleteObject,
   destroyAccountOwnedVm: (input) => destroyAccountOwnedVm(input),
   deleteVmSnapshot: (input) => deleteVmSnapshot(input),
+  revokeVmIdentityLease: (input) => revokeVmIdentityLease(input),
   runVmWorkflow: (workflow) =>
     runVmWorkflow(workflow as Parameters<typeof runVmWorkflow>[0]),
   revokeSubrouterTenant: revokeSubrouterTenantFromEnv,
@@ -402,6 +408,7 @@ export async function deleteCmuxAccountData(
   await claimProviderlessAccountVms(scope, runtime);
   await destroyProviderBackedAccountVms(scope, runtime);
   await deleteAccountVmSnapshots(scope, runtime);
+  await revokeAccountVmIdentityLeases(scope, runtime);
   await deletePersonalSubrouterTenants(scope, runtime);
   await withVaultUserQuotaLock(
     runtime.cloudDb(),
@@ -731,6 +738,62 @@ async function accountVmSnapshotRows(
     if (!row.provider || !snapshotId) return [];
     return [{ id: row.id, provider: row.provider, snapshotId }];
   });
+}
+
+async function revokeAccountVmIdentityLeases(
+  scope: AccountDeletionScope,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const buildWorkflow = runtime.revokeVmIdentityLease ?? defaultAccountDeletionRuntime.revokeVmIdentityLease;
+  if (!buildWorkflow) {
+    throw new Error("Cloud VM identity lease revocation is not configured");
+  }
+
+  for (;;) {
+    const leases = await accountVmIdentityLeaseRows(scope, runtime);
+    if (leases.length === 0) return;
+
+    const revokedIds: string[] = [];
+    for (const lease of leases) {
+      const identityHandle = lease.providerIdentityHandle?.trim();
+      if (identityHandle) {
+        await runtime.runVmWorkflow(buildWorkflow({
+          provider: lease.provider,
+          identityHandle,
+        }));
+      }
+      revokedIds.push(lease.id);
+    }
+
+    if (revokedIds.length > 0) {
+      await db
+        .update(cloudVmLeases)
+        .set({ revokedAt: new Date() })
+        .where(inArray(cloudVmLeases.id, revokedIds));
+    }
+  }
+}
+
+async function accountVmIdentityLeaseRows(
+  scope: AccountDeletionScope,
+  runtime: AccountDeletionRuntime,
+): Promise<readonly { readonly id: string; readonly provider: ProviderId; readonly providerIdentityHandle: string | null }[]> {
+  const db = runtime.cloudDb();
+  return await db
+    .select({
+      id: cloudVmLeases.id,
+      provider: cloudVms.provider,
+      providerIdentityHandle: cloudVmLeases.providerIdentityHandle,
+    })
+    .from(cloudVmLeases)
+    .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
+    .where(and(
+      eq(cloudVmLeases.userId, scope.userId),
+      isNotNull(cloudVmLeases.providerIdentityHandle),
+      isNull(cloudVmLeases.revokedAt),
+    ))
+    .limit(ACCOUNT_VM_LEASE_REVOKE_BATCH_SIZE);
 }
 
 async function deleteAccountVaultObjects(

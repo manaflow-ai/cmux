@@ -1378,6 +1378,21 @@ export function revokeExpiredIdentityLeases(input: {
   });
 }
 
+export function revokeVmIdentityLease(input: {
+  readonly provider: ProviderId;
+  readonly identityHandle: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    yield* revokeSSHIdentityForCleanup(providers, input.provider, input.identityHandle).pipe(
+      Effect.catchAll((err) => {
+        if (isProviderIdentityNotFoundError(err.cause)) return Effect.void;
+        return Effect.fail(err);
+      }),
+    );
+  });
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;

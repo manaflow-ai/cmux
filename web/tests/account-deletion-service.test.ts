@@ -25,6 +25,8 @@ let providerlessCloudVmUpdateCount = 0;
 let workflowErrorsByProviderId = new Map<string, unknown>();
 let snapshotRows: Array<{ id: string; provider: ProviderId; snapshotId: string }> = [];
 let snapshotDeleteError: unknown = null;
+let identityLeaseRows: Array<{ id: string; provider: ProviderId; providerIdentityHandle: string | null }> = [];
+let identityLeaseRevokeError: unknown = null;
 let subrouterTenantRows: Array<{ tenantId: string }> = [];
 let subrouterRevokeError: unknown = null;
 let updateSets: Array<{ readonly label: string; readonly values: Record<string, unknown> }> = [];
@@ -39,7 +41,15 @@ type DeleteVmSnapshotWorkflow = {
   kind: "delete-vm-snapshot";
   input: DeleteVmSnapshotInput;
 };
-type AccountDeletionTestWorkflow = DestroyAccountOwnedVmWorkflow | DeleteVmSnapshotWorkflow;
+type RevokeVmIdentityLeaseInput = { provider: ProviderId; identityHandle: string };
+type RevokeVmIdentityLeaseWorkflow = {
+  kind: "revoke-vm-identity-lease";
+  input: RevokeVmIdentityLeaseInput;
+};
+type AccountDeletionTestWorkflow =
+  | DestroyAccountOwnedVmWorkflow
+  | DeleteVmSnapshotWorkflow
+  | RevokeVmIdentityLeaseWorkflow;
 
 function providerBackedVm(providerVmId: string, provider: ProviderId = "freestyle") {
   return { provider, providerVmId };
@@ -53,11 +63,20 @@ const deleteVmSnapshot = mock((input: unknown): DeleteVmSnapshotWorkflow => ({
   kind: "delete-vm-snapshot",
   input: input as DeleteVmSnapshotInput,
 }));
+const revokeVmIdentityLease = mock((input: unknown): RevokeVmIdentityLeaseWorkflow => ({
+  kind: "revoke-vm-identity-lease",
+  input: input as RevokeVmIdentityLeaseInput,
+}));
 const runVmWorkflow = mock(async (workflow: unknown) => {
   const vmWorkflow = workflow as AccountDeletionTestWorkflow;
   if (vmWorkflow.kind === "delete-vm-snapshot") {
     calls.push(`delete-snapshot:${vmWorkflow.input.provider}:${vmWorkflow.input.snapshotId}`);
     if (snapshotDeleteError) throw snapshotDeleteError;
+    return;
+  }
+  if (vmWorkflow.kind === "revoke-vm-identity-lease") {
+    calls.push(`revoke-identity:${vmWorkflow.input.provider}:${vmWorkflow.input.identityHandle}`);
+    if (identityLeaseRevokeError) throw identityLeaseRevokeError;
     return;
   }
   const workflowError = workflowErrorsByProviderId.get(vmWorkflow.input.providerVmId);
@@ -78,11 +97,14 @@ beforeEach(() => {
   workflowErrorsByProviderId = new Map();
   snapshotRows = [];
   snapshotDeleteError = null;
+  identityLeaseRows = [];
+  identityLeaseRevokeError = null;
   subrouterTenantRows = [];
   subrouterRevokeError = null;
   updateSets = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
+  revokeVmIdentityLease.mockClear();
   runVmWorkflow.mockClear();
   deleteObject.mockClear();
 });
@@ -315,6 +337,60 @@ describe("account deletion cleanup", () => {
     expect(calls.indexOf("delete-snapshot-usage-events")).toBeLessThan(calls.indexOf("transaction"));
   });
 
+  test("revokes active VM identity leases before deleting local lease rows", async () => {
+    identityLeaseRows = [{
+      id: "00000000-0000-4000-8000-000000000301",
+      provider: "freestyle",
+      providerIdentityHandle: "identity-shared-1",
+    }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("select-identity-leases");
+    expect(calls).toContain("revoke-identity:freestyle:identity-shared-1");
+    expect(calls).toContain("mark-identity-leases-revoked");
+    expect(calls.indexOf("mark-identity-leases-revoked")).toBeLessThan(
+      calls.indexOf("transaction"),
+    );
+    expect(calls.indexOf("transaction")).toBeLessThan(calls.indexOf("delete-cloud-vm-leases"));
+  });
+
+  test("marks blank VM identity lease handles without retrying forever", async () => {
+    identityLeaseRows = [{
+      id: "00000000-0000-4000-8000-000000000303",
+      provider: "freestyle",
+      providerIdentityHandle: "   ",
+    }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("select-identity-leases");
+    expect(calls).not.toContain("revoke-identity:freestyle:");
+    expect(calls).toContain("mark-identity-leases-revoked");
+    expect(calls).toContain("delete-cloud-vm-leases");
+  });
+
+  test("fails closed when VM identity lease revocation fails", async () => {
+    identityLeaseRows = [{
+      id: "00000000-0000-4000-8000-000000000302",
+      provider: "freestyle",
+      providerIdentityHandle: "identity-shared-2",
+    }];
+    identityLeaseRevokeError = new Error("identity revoke failed");
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("identity revoke failed");
+
+    expect(calls).toContain("revoke-identity:freestyle:identity-shared-2");
+    expect(calls).not.toContain("mark-identity-leases-revoked");
+    expect(calls).not.toContain("delete-cloud-vm-leases");
+  });
+
   test("fails closed when provider snapshot deletion fails", async () => {
     snapshotRows = [{
       id: "00000000-0000-4000-8000-000000000202",
@@ -438,6 +514,7 @@ function fakeDb() {
             : "claim-providerless-vms",
         );
       }
+      if (table === cloudVmLeases) return updateBuilder("mark-identity-leases-revoked");
       return updateBuilder();
     },
     delete: (table: unknown) => {
@@ -474,6 +551,10 @@ function fakeDbSelectBuilder() {
       calls.push("select-snapshot-usage-events");
       return snapshotRows.splice(0, 50);
     }
+    if (table === cloudVmLeases && identityLeaseRows.length > 0) {
+      calls.push("select-identity-leases");
+      return identityLeaseRows.splice(0, 50);
+    }
     return [];
   };
   const builder = {
@@ -498,6 +579,7 @@ function fakeRuntime() {
     deleteObject,
     destroyAccountOwnedVm,
     deleteVmSnapshot,
+    revokeVmIdentityLease,
     runVmWorkflow,
     revokeSubrouterTenant: async (tenantId: string) => {
       calls.push(`revoke-subrouter-tenant:${tenantId}`);

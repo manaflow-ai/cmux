@@ -104,7 +104,8 @@ export async function postAnalyticsEvents(
     return jsonResponse({ error: "no_valid_events" }, 400);
   }
 
-  const anonymousIds = user ? authenticatedAnonymousIds(accepted) : [];
+  const anonymousIds = user ? authenticatedAnonymousIds(accepted, user.id) : [];
+  const eventsForForwarding = user ? stripUntrustedAnonymousAliases(accepted, user.id) : accepted;
   if (user) {
     if (anonymousIds.length > 0) {
       try {
@@ -118,7 +119,7 @@ export async function postAnalyticsEvents(
       }
     }
   }
-  const forwarded = await dependencies.forwardToPostHog(accepted, user?.id ?? null);
+  const forwarded = await dependencies.forwardToPostHog(eventsForForwarding, user?.id ?? null);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
@@ -159,13 +160,29 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   };
 }
 
-function authenticatedAnonymousIds(events: readonly IncomingEvent[]): string[] {
+function authenticatedAnonymousIds(events: readonly IncomingEvent[], userId: string): string[] {
   const ids: string[] = [];
   for (const event of events) {
-    const anonymousId = event.properties.$anon_distinct_id;
-    if (typeof anonymousId === "string") ids.push(anonymousId);
+    const anonymousId = trustedAnonymousAlias(event, userId);
+    if (anonymousId) ids.push(anonymousId);
   }
   return ids;
+}
+
+function stripUntrustedAnonymousAliases(events: readonly IncomingEvent[], userId: string): readonly IncomingEvent[] {
+  return events.map((event) => {
+    if (!("$anon_distinct_id" in event.properties)) return event;
+    if (trustedAnonymousAlias(event, userId)) return event;
+    const { $anon_distinct_id: _anonymousId, ...properties } = event.properties;
+    return { ...event, properties };
+  });
+}
+
+function trustedAnonymousAlias(event: IncomingEvent, userId: string): string | null {
+  const anonymousId = event.properties.$anon_distinct_id;
+  if (event.event !== "$identify") return null;
+  if (event.distinctID !== userId) return null;
+  return typeof anonymousId === "string" ? anonymousId : null;
 }
 
 function isScalar(value: unknown): boolean {
