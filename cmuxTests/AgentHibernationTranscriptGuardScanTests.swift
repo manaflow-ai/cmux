@@ -206,6 +206,27 @@ struct AgentHibernationTranscriptGuardScanTests {
         )))
     }
 
+    @Test
+    func snapshotBeforeTeardownFailsClosedWhenCopiedSnapshotLosesConversationTurns() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        let fileManager = RewritingCopyFileManager(replacement: metadataStub)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/repo"
+        let sessionId = "copy-race"
+        let live = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: live)
+
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots,
+            fileManager: fileManager
+        )))
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: snapshots.path))?.isEmpty != false)
+    }
+
     private var metadataStub: String {
         [
             #"{"type":"last-prompt","prompt":"continue"}"#,
@@ -268,5 +289,19 @@ struct AgentHibernationTranscriptGuardScanTests {
             .appendingPathComponent("cmux-transcript-guard-scan-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    private final class RewritingCopyFileManager: FileManager {
+        private let replacement: String
+
+        init(replacement: String) {
+            self.replacement = replacement
+            super.init()
+        }
+
+        override func copyItem(atPath srcPath: String, toPath dstPath: String) throws {
+            try replacement.write(toFile: srcPath, atomically: true, encoding: .utf8)
+            try super.copyItem(atPath: srcPath, toPath: dstPath)
+        }
     }
 }
