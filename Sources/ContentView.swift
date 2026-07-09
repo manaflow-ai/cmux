@@ -13504,7 +13504,10 @@ struct TabItemView: View, Equatable {
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
-        let titleFirstLineCenter = scaledFontSize(12.5) * 0.6
+        let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
+            scaledFontSize(12.5),
+            percent: globalFontMagnificationPercent
+        ) * 0.6
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
