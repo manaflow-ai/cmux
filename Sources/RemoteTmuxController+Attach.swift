@@ -5,7 +5,7 @@ extension RemoteTmuxController {
     @discardableResult
     func attachHost(
         host: RemoteTmuxHost,
-        into requestedManager: TabManager?,
+        windowTarget: RemoteTmuxAttachWindowTarget,
         activate: Bool
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
@@ -32,20 +32,17 @@ extension RemoteTmuxController {
         try Task.checkCancellation()
         try await ensureControlMasterReadyForBurst(host: host)
 
-        // Post-await re-resolve against the app's authoritative window registry:
-        // a closing manager may still retain an NSWindow after it is no longer a
-        // valid routing target.
-        let liveRequestedManager = requestedManager.flatMap { manager in
-            appDelegate.windowId(for: manager) == nil ? nil : manager
-        }
-        let liveFallbackManager = appDelegate.tabManager.flatMap { manager in
-            appDelegate.windowId(for: manager) == nil ? nil : manager
-        }
-        let targetManager = existingMirrorManager(for: host)
-            ?? liveRequestedManager
-            ?? liveFallbackManager
-        guard let targetManager,
-              let resolvedWindowId = appDelegate.windowId(for: targetManager) else {
+        // Resolve stable ids after every SSH await. A live existing mirror
+        // stays first so one host cannot be split across windows.
+        let existingMirrorWindowID = existingMirrorManager(for: host)
+            .flatMap { appDelegate.windowId(for: $0) }
+        let activeWindowID = appDelegate.tabManager
+            .flatMap { appDelegate.windowId(for: $0) }
+        guard let resolvedWindowId = windowTarget.resolve(
+            existingMirrorWindowID: existingMirrorWindowID,
+            activeWindowID: activeWindowID,
+            isLive: { appDelegate.tabManagerFor(windowId: $0) != nil }
+        ), let targetManager = appDelegate.tabManagerFor(windowId: resolvedWindowId) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
 

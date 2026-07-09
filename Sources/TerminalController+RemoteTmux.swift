@@ -136,8 +136,14 @@ extension TerminalController {
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            let requestedManager = await MainActor.run { self.resolveTabManager(routing: routing) }
-            let outcome = try await controller.attachHost(host: host, into: requestedManager, activate: activate)
+            let windowTarget = await MainActor.run {
+                self.remoteTmuxAttachWindowTarget(routing: routing)
+            }
+            let outcome = try await controller.attachHost(
+                host: host,
+                windowTarget: windowTarget,
+                activate: activate
+            )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
                 return [
@@ -167,6 +173,19 @@ extension TerminalController {
                 ?? v2UUID(params, "tab_id"),
             paneID: v2UUID(params, "pane_id")
         )
+    }
+
+    @MainActor
+    func remoteTmuxAttachWindowTarget(
+        routing: ControlRoutingSelectors
+    ) -> RemoteTmuxAttachWindowTarget {
+        if routing.hasWindowIDParam {
+            return routing.windowID.map(RemoteTmuxAttachWindowTarget.explicitWindow)
+                ?? .unresolvedExplicitWindow
+        }
+        let preferredWindowID = resolveTabManager(routing: routing)
+            .flatMap { AppDelegate.shared?.windowId(for: $0) }
+        return .contextualWindow(preferredWindowID)
     }
 
     /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
