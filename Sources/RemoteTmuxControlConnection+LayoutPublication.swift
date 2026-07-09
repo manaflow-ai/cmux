@@ -27,7 +27,10 @@ extension RemoteTmuxControlConnection {
     ) {
         guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
         // Preserve any name tmux already reported (a %layout-change carries no name).
-        let existingName = windowsByID[windowId]?.name ?? pendingLayouts[windowId]?.name ?? ""
+        let existingName = windowsByID[windowId]?.name
+            ?? pendingLayouts[windowId]?.name
+            ?? initialBatchStaged[windowId]?.name
+            ?? ""
         let visibleNode = visibleLayout.flatMap { RemoteTmuxRawLayoutParser.parse($0) }
         stagePendingLayout(
             windowId: windowId,

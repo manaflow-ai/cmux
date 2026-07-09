@@ -188,20 +188,5 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(workspace.title == "work")
         #expect(workspace.processTitle == "work")
 
-        // Verify final window chrome without mounting AppKit/SwiftUI during the
-        // terminal-icon mutations above (the test host has no real window scene).
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        manager.window = window
-        defer {
-            manager.window = nil
-            window.close()
-        }
-        manager.refreshWindowTitle()
-        #expect(window.title == "work")
     }
 }

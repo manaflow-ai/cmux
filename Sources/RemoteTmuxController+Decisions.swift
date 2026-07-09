@@ -151,6 +151,44 @@ extension RemoteTmuxController {
         return commands
     }
 
+    /// Pushes a local mirror-tab reorder to tmux as one detached swap batch.
+    /// Rejected synchronous sends rebuild from the connection ledger; an async
+    /// tmux `%error` triggers an authoritative `list-windows` reconciliation.
+    func handleMirrorWindowsReordered(
+        workspaceId: UUID,
+        orderedPanelIds: [UUID],
+        verification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
+        guard mirror.connection.connectionState == .connected else {
+            mirror.rebuild()
+            return false
+        }
+        let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
+        guard desired.count == orderedPanelIds.count else { mirror.rebuild(); return false }
+        guard desired.count >= 2 else {
+            verification?(true)
+            return true
+        }
+        let desiredSet = Set(desired)
+        let current = mirror.connection.windowOrder.filter { desiredSet.contains($0) }
+        guard current.count == desired.count, Set(current) == desiredSet else {
+            mirror.rebuild()
+            return false
+        }
+        guard current != desired else {
+            verification?(true)
+            return true
+        }
+        let commands = Self.mirrorWindowReorderCommands(current: current, desired: desired)
+        guard mirror.connection.sendWindowReorder(commands, verification: verification) else {
+            mirror.rebuild()
+            return false
+        }
+        mirror.connection.applyWindowReorder(desired)
+        return true
+    }
+
     /// The tab manager `remote.tmux.mirror` should mirror into: the host's
     /// dedicated mirror window when one is bound and still resolvable, else the
     /// fallback (usually the key window).

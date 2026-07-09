@@ -8,14 +8,21 @@ extension RemoteTmuxControlConnection {
     }
 
     /// Atomically enqueues a window-reorder batch and its result correlation.
-    func sendWindowReorder(_ commands: [String]) -> Bool {
-        guard !commands.isEmpty else { return true }
+    func sendWindowReorder(
+        _ commands: [String],
+        verification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard !commands.isEmpty else {
+            verification?(true)
+            return true
+        }
         guard windowReorderRecoveryGeneration == nil else { return false }
         let kinds: [CommandKind] = commands.indices.map {
             .windowReorder(isLast: $0 == commands.index(before: commands.endIndex))
         }
         guard sendBatchInternal(commands, kinds: kinds) else { return false }
         windowReorderGeneration &+= 1
+        windowReorderVerifications[windowReorderGeneration] = verification
         return true
     }
 

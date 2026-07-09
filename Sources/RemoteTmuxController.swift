@@ -512,11 +512,12 @@ final class RemoteTmuxController {
             autoWelcomeIfNeeded: false
         )
         workspace.isRemoteTmuxMirror = true
-        workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds in
+        workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
             return self.handleMirrorWindowsReordered(
                 workspaceId: workspace.id,
-                orderedPanelIds: orderedPanelIds
+                orderedPanelIds: orderedPanelIds,
+                verification: verification
             )
         }
         sessionMirrors[key] = RemoteTmuxSessionMirror(
@@ -585,32 +586,6 @@ final class RemoteTmuxController {
             }
 
         }
-    }
-
-    /// Pushes a local mirror-tab reorder to tmux as one detached swap batch.
-    /// Rejected synchronous sends rebuild from the connection ledger; an async
-    /// tmux `%error` triggers an authoritative `list-windows` reconciliation.
-    func handleMirrorWindowsReordered(workspaceId: UUID, orderedPanelIds: [UUID]) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })
-        else { return false }
-        guard mirror.connection.connectionState == .connected else {
-            mirror.rebuild()
-            return false
-        }
-        let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
-        guard desired.count == orderedPanelIds.count else { mirror.rebuild(); return false }
-        guard desired.count >= 2 else { return true }
-        let desiredSet = Set(desired)
-        let current = mirror.connection.windowOrder.filter { desiredSet.contains($0) }
-        guard current.count == desired.count, Set(current) == desiredSet else {
-            mirror.rebuild()
-            return false
-        }
-        guard current != desired else { return true }
-        let commands = Self.mirrorWindowReorderCommands(current: current, desired: desired)
-        guard mirror.connection.sendWindowReorder(commands) else { mirror.rebuild(); return false }
-        mirror.connection.applyWindowReorder(desired)
-        return true
     }
 
     /// A split was requested from a mirrored multi-pane surface → propagate to

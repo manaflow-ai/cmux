@@ -22,15 +22,21 @@ nonisolated struct AgentChatActionInFlightGate {
     }
 
     static func end() {
-        lock.withLock { $0.isRunning = false }
+        lock.withLock { state in
+            state.isRunning = false
+        }
     }
 
     static func ownedServerSession() -> AgentChatOwnedServerSession? {
-        lock.withLock { $0.ownedServerSession }
+        lock.withLock { state in
+            state.ownedServerSession
+        }
     }
 
     static func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
-        lock.withLock { $0.ownedServerSession = session }
+        lock.withLock { state in
+            state.ownedServerSession = session
+        }
     }
 
     static func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
@@ -41,18 +47,22 @@ nonisolated struct AgentChatActionInFlightGate {
     }
 
     static func sidecarStateFileStore() -> AgentChatSidecarStateFileStore? {
-        lock.withLock { $0.sidecarStateFileStore }
+        lock.withLock { state in
+            state.sidecarStateFileStore
+        }
     }
 }
 
 struct AgentChatServerAvailability: Sendable {
     var isReachable: Bool
-    /// nil means the owned launch failed; never fall back to the legacy URL.
+    /// nil means the owned launch failed and nothing safe exists to open;
+    /// the action must fail instead of falling back to the legacy URL.
     var browserURL: URL?
 }
 
 extension AppDelegate {
-    /// Workstream feed title mapping extracted from budget-bound `AppDelegate.swift`.
+    /// Workstream feed title mapping extracted because `AppDelegate.swift`
+    /// sits at its file-length budget.
     nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
         switch event.hookEventName {
         case .preCompact, .postCompact:
@@ -438,7 +448,9 @@ extension AppDelegate {
         }
     }
 
-    nonisolated private static func canonicalAgentChatPath(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
+    nonisolated private static func canonicalAgentChatPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
 
     nonisolated private static func generateAgentChatToken(byteCount: Int = 32) -> String? {
         var bytes = [UInt8](repeating: 0, count: byteCount)

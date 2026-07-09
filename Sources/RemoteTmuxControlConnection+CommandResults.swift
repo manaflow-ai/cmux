@@ -205,6 +205,10 @@ extension RemoteTmuxControlConnection {
                 break
             }
             let optimisticOrder = windowOrder.filter { knownWindowIDs.contains($0) }
+            finishWindowReorderVerification(
+                generation: requestGeneration,
+                succeeded: requestGeneration == windowReorderGeneration && order == windowOrder
+            )
             let reconciledOrder = requestGeneration == windowReorderGeneration
                 ? order
                 : decoding.windowOrder(order, applyingReorder: optimisticOrder)
@@ -280,14 +284,19 @@ extension RemoteTmuxControlConnection {
 
     /// Verifies a successful reorder without restaging every window's geometry.
     func requestWindowOrder() {
-        sendInternal(
+        let generation = windowReorderGeneration
+        guard sendInternal(
             "list-windows -F \"#{window_id}\"",
-            kind: .listWindowOrder(reorderGeneration: windowReorderGeneration)
-        )
+            kind: .listWindowOrder(reorderGeneration: generation)
+        ) else {
+            finishWindowReorderVerification(generation: generation, succeeded: false)
+            return
+        }
     }
 
     /// Escalates a failed order-only verification to blocking full recovery.
     func requestFullWindowOrderRecovery() {
+        failPendingWindowReorderVerifications()
         windowReorderRecoveryGeneration = windowReorderGeneration
         requestWindows()
     }
@@ -308,5 +317,15 @@ extension RemoteTmuxControlConnection {
         let completions = Array(newWindowCompletions.values)
         newWindowCompletions.removeAll()
         completions.forEach { $0(nil) }
+    }
+
+    func finishWindowReorderVerification(generation: UInt64, succeeded: Bool) {
+        windowReorderVerifications.removeValue(forKey: generation)?(succeeded)
+    }
+
+    func failPendingWindowReorderVerifications() {
+        let verifications = windowReorderVerifications.sorted { $0.key < $1.key }
+        windowReorderVerifications.removeAll()
+        verifications.forEach { $0.value(false) }
     }
 }

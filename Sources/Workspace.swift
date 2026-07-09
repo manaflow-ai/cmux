@@ -3950,7 +3950,8 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     private func normalizePinnedTabs(
         in paneId: PaneID,
-        beforeMirrorRollback: () -> Void = {}
+        beforeMirrorRollback: () -> Void = {},
+        onMirrorVerification: ((Bool) -> Void)? = nil
     ) -> Bool {
         guard !isNormalizingPinnedTabOrder else { return true }
         isNormalizingPinnedTabOrder = true
@@ -3972,7 +3973,8 @@ final class Workspace: Identifiable, ObservableObject {
             guard desiredPanelOrder.count == desiredOrder.count else { return false }
             return performRemoteTmuxMirrorOrderMutation(
                 in: paneId,
-                beforeRollback: beforeMirrorRollback
+                beforeRollback: beforeMirrorRollback,
+                onVerification: onMirrorVerification
             ) {
                 reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
             }
@@ -4144,11 +4146,19 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else { return }
         bonsplitController.updateTab(tabId, isPinned: pinned)
-        let restorePinState = {
+        let restorePinState = { [weak self] in
+            guard let self else { return }
             if wasPinned { self.pinnedPanelIds.insert(panelId) } else { self.pinnedPanelIds.remove(panelId) }
             self.bonsplitController.updateTab(tabId, isPinned: wasPinned)
         }
-        guard normalizePinnedTabs(in: paneId, beforeMirrorRollback: restorePinState) else {
+        let handleVerification: (Bool) -> Void = { succeeded in
+            if !succeeded { restorePinState() }
+        }
+        guard normalizePinnedTabs(
+            in: paneId,
+            beforeMirrorRollback: restorePinState,
+            onMirrorVerification: handleVerification
+        ) else {
             restorePinState()
             return
         }
@@ -5150,7 +5160,7 @@ final class Workspace: Identifiable, ObservableObject {
     var isRemoteTmuxMirror: Bool = false
 
     /// Bound action for this mirror's outbound window-order mutation boundary.
-    var remoteTmuxWindowOrderSync: (([UUID]) -> Bool)?
+    var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
@@ -12427,7 +12437,7 @@ extension Workspace: BonsplitDelegate {
         guard isRemoteTmuxMirror else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
-        _ = remoteTmuxWindowOrderSync?(orderedPanelIds)
+        _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {

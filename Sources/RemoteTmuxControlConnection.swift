@@ -96,6 +96,7 @@ final class RemoteTmuxControlConnection {
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
+    var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
@@ -369,6 +370,7 @@ final class RemoteTmuxControlConnection {
         // caller of spawnProcess can't strand command decisions.
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowReorderVerifications()
         attachBlockDrained = false
         stderrBuffer = ""
         enterReceived = false
@@ -679,6 +681,7 @@ final class RemoteTmuxControlConnection {
     private func cancelScheduledWork() {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowReorderVerifications()
         reconnectTask?.cancel()
         reconnectTask = nil
         cancelSizingFollowUps()
@@ -817,6 +820,7 @@ final class RemoteTmuxControlConnection {
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowReorderVerifications()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
         teardownProcessHandles()

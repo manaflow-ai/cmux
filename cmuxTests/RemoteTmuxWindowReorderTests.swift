@@ -177,4 +177,44 @@ import Testing
 
         #expect(connection.connectionState == .reconnecting)
     }
+
+    @Test func matchingOrderCompletesVerificationSuccessfully() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2])
+        var verification: Bool?
+
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { verification = $0 }
+        ))
+        connection.applyWindowReorder([2, 1])
+        reply(connection, lines: [])
+        #expect(verification == nil)
+
+        reply(connection, lines: windowOrderLines([2, 1]))
+        #expect(verification == true)
+    }
+
+    @Test func mismatchedOrderFailsVerificationBeforeTopologyPublication() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2])
+        var events: [String] = []
+        let observer = connection.addObserver(onTopologyChanged: {
+            events.append("topology")
+        })
+        defer { connection.removeObserver(observer) }
+
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { events.append("verification:\($0)") }
+        ))
+        connection.applyWindowReorder([2, 1])
+        reply(connection, lines: [])
+        reply(connection, lines: windowOrderLines([1, 2]))
+
+        #expect(events == ["verification:false", "topology"])
+        #expect(connection.windowOrder == [1, 2])
+    }
 }

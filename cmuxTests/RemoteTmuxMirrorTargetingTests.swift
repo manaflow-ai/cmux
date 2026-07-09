@@ -280,7 +280,7 @@ struct RemoteTmuxMirrorTargetingTests {
         let focusedPaneBefore = workspace.bonsplitController.focusedPaneId
         let focusedPanelBefore = workspace.focusedPanelId
         var requestedPanelOrder: [UUID]?
-        workspace.remoteTmuxWindowOrderSync = { panelOrder in
+        workspace.remoteTmuxWindowOrderSync = { panelOrder, _ in
             requestedPanelOrder = panelOrder
             return false
         }
@@ -311,7 +311,10 @@ struct RemoteTmuxMirrorTargetingTests {
         }
         workspace.isRemoteTmuxMirror = true
         var requestedPanelOrder: [UUID]?
-        workspace.remoteTmuxWindowOrderSync = { requestedPanelOrder = $0; return true }
+        workspace.remoteTmuxWindowOrderSync = { panelOrder, _ in
+            requestedPanelOrder = panelOrder
+            return true
+        }
 
         workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
 
@@ -334,7 +337,7 @@ struct RemoteTmuxMirrorTargetingTests {
         }
         workspace.isRemoteTmuxMirror = true
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
-        workspace.remoteTmuxWindowOrderSync = { _ in false }
+        workspace.remoteTmuxWindowOrderSync = { _, _ in false }
 
         workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
         let secondTabId = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
@@ -342,6 +345,41 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
         #expect(!workspace.isPanelPinned(secondPanel.id))
         #expect(workspace.bonsplitController.tab(secondTabId)?.isPinned == false)
+    }
+
+    @Test func mirrorPinAsyncReorderFailureRestoresPinBeforeAuthoritativeOrder() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        guard let secondPanel = workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 2, title: "two", onInput: { _ in }
+        ) else {
+            Issue.record("Expected a second mirror panel")
+            return
+        }
+        workspace.isRemoteTmuxMirror = true
+        let orderBefore = workspace.bonsplitController.tabs(inPane: paneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+        var verification: ((Bool) -> Void)?
+        workspace.remoteTmuxWindowOrderSync = { _, completion in
+            verification = completion
+            return true
+        }
+
+        workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+        let secondTabId = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
+        #expect(workspace.isPanelPinned(secondPanel.id))
+        #expect(workspace.bonsplitController.tabs(inPane: paneId).first?.id == secondTabId)
+
+        verification?(false)
+        #expect(!workspace.isPanelPinned(secondPanel.id))
+        #expect(workspace.bonsplitController.tab(secondTabId)?.isPinned == false)
+
+        #expect(workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: orderBefore))
+        let recoveredOrder = workspace.bonsplitController.tabs(inPane: paneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+        #expect(recoveredOrder == orderBefore)
+        #expect(!workspace.isPanelPinned(secondPanel.id))
     }
 
     @Test func mirrorWindowReorderUsesDetachedSwaps() {
