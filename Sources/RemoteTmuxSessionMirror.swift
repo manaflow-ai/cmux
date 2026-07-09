@@ -68,6 +68,7 @@ final class RemoteTmuxSessionMirror {
     private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
+    private var pendingExplicitFocusWindowId: Int?
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
 
     init(
@@ -179,6 +180,13 @@ final class RemoteTmuxSessionMirror {
     /// local tab(s) once at least one remote tab exists.
     func rebuild() {
         guard let workspace else { return }
+        workspace.performRemoteTmuxMirrorMutation {
+            rebuildTopology(in: workspace)
+        }
+        focusExplicitlyRequestedWindowIfAvailable()
+    }
+
+    private func rebuildTopology(in workspace: Workspace) {
         for windowId in connection.windowOrder {
             guard let window = connection.windowsByID[windowId],
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
@@ -248,7 +256,7 @@ final class RemoteTmuxSessionMirror {
                 mirror.teardown()
                 windowMirrorByWindowId[windowId] = nil
             }
-            _ = workspace.closePanel(panelId, force: true)
+            _ = workspace.removeRemoteTmuxDisplayPane(panelId)
             panelIdByWindow[windowId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
         }
@@ -268,6 +276,21 @@ final class RemoteTmuxSessionMirror {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
+    }
+
+    /// Applies explicit focus only after the corresponding mirror tab exists and
+    /// the focus-neutral topology transaction has completed.
+    func focusWindowWhenAvailable(_ windowId: Int) {
+        pendingExplicitFocusWindowId = windowId
+        focusExplicitlyRequestedWindowIfAvailable()
+    }
+
+    private func focusExplicitlyRequestedWindowIfAvailable() {
+        guard let windowId = pendingExplicitFocusWindowId,
+              let panelId = panelIdByWindow[windowId],
+              let workspace else { return }
+        pendingExplicitFocusWindowId = nil
+        workspace.focusPanel(panelId)
     }
 
     /// Creates the in-tab multi-pane renderer the first time a window has more
@@ -317,7 +340,7 @@ final class RemoteTmuxSessionMirror {
     private func closeDefaultTabsIfNeeded() {
         guard !defaultClosed, !panelIdByWindow.isEmpty, let workspace else { return }
         for panelId in defaultPanelIds where workspace.panels[panelId] != nil {
-            _ = workspace.closePanel(panelId, force: true)
+            _ = workspace.removeRemoteTmuxDisplayPane(panelId)
         }
         defaultClosed = true
     }

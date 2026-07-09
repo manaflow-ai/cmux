@@ -78,6 +78,7 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?
     private var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -365,8 +366,9 @@ final class RemoteTmuxControlConnection {
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
-        // caller of spawnProcess can't strand a close decision.
+        // caller of spawnProcess can't strand command decisions.
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         attachBlockDrained = false
         stderrBuffer = ""
         enterReceived = false
@@ -463,32 +465,6 @@ final class RemoteTmuxControlConnection {
         if stderrBuffer.utf8.count > Self.maxStderrBytes {
             stderrBuffer = String(decoding: Array(stderrBuffer.utf8.suffix(Self.maxStderrBytes)), as: UTF8.self)
         }
-    }
-
-    /// Sends a tmux command on the control stream (newline-terminated).
-    @discardableResult
-    func send(_ command: String) -> Bool {
-        sendInternal(command, kind: .other)
-    }
-
-    func sendWindowReorder(_ commands: [String]) -> Bool {
-        guard !commands.isEmpty else { return true }
-        guard windowReorderRecoveryGeneration == nil else { return false }
-        guard connectionState == .connected, let stdinWriter else { return false }
-        let payload = commands.joined(separator: "\n") + "\n"
-        guard let data = payload.data(using: .utf8) else { return false }
-        let pendingStart = pendingCommands.count
-        pendingCommands.append(contentsOf: commands.indices.map {
-            .windowReorder(isLast: $0 == commands.index(before: commands.endIndex))
-        })
-        guard stdinWriter.enqueue(data) else {
-            pendingCommands.removeSubrange(pendingStart...)
-            record("stdin-write-backpressure")
-            beginReconnecting()
-            return false
-        }
-        windowReorderGeneration &+= 1
-        return true
     }
 
     /// The last size any writer requested per window — per-window dedup
@@ -702,6 +678,7 @@ final class RemoteTmuxControlConnection {
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         reconnectTask?.cancel()
         reconnectTask = nil
         cancelSizingFollowUps()
@@ -748,15 +725,23 @@ final class RemoteTmuxControlConnection {
 
     @discardableResult
     func sendInternal(_ command: String, kind: CommandKind) -> Bool {
+        sendBatchInternal([command], kinds: [kind])
+    }
+
+    /// Atomically records command-result correlation before enqueueing one payload.
+    @discardableResult
+    func sendBatchInternal(_ commands: [String], kinds: [CommandKind]) -> Bool {
+        guard !commands.isEmpty, commands.count == kinds.count else { return false }
         guard connectionState == .connected, let stdinWriter else { return false }
-        let line = command.hasSuffix("\n") ? command : command + "\n"
-        guard let data = line.data(using: .utf8) else { return false }
+        let payload = commands.map { $0.hasSuffix("\n") ? $0 : $0 + "\n" }.joined()
+        guard let data = payload.data(using: .utf8) else { return false }
         // Record before the writer can emit bytes, so a fast `%begin`/`%end`
         // reply never outruns its local FIFO slot. If the bounded writer rejects
-        // the command, remove this slot immediately and reconnect.
-        pendingCommands.append(kind)
+        // the payload, remove the whole batch immediately and reconnect.
+        let pendingStart = pendingCommands.count
+        pendingCommands.append(contentsOf: kinds)
         guard stdinWriter.enqueue(data) else {
-            pendingCommands.removeLast()
+            pendingCommands.removeSubrange(pendingStart...)
             record("stdin-write-backpressure")
             beginReconnecting()
             return false
@@ -831,6 +816,7 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
         teardownProcessHandles()

@@ -16,6 +16,10 @@ extension RemoteTmuxControlConnection {
                let completion = activityQueryCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .newWindow(token) = kind,
+               let completion = newWindowCompletions.removeValue(forKey: token) {
+                completion(nil)
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -55,6 +59,12 @@ extension RemoteTmuxControlConnection {
             return
         }
         switch kind {
+        case let .newWindow(token):
+            guard let completion = newWindowCompletions.removeValue(forKey: token) else { break }
+            let windowId = lines.first.flatMap {
+                RemoteTmuxControlStreamParser.id(Substring($0), sigil: "@")
+            }
+            completion(windowId)
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
         case let .listWindows(requestGeneration):
@@ -292,5 +302,11 @@ extension RemoteTmuxControlConnection {
             requestWindowOrder()
         }
         windowReorderBatchFailed = false
+    }
+
+    func failPendingNewWindowRequests() {
+        let completions = Array(newWindowCompletions.values)
+        newWindowCompletions.removeAll()
+        completions.forEach { $0(nil) }
     }
 }
