@@ -64,7 +64,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state: state,
             fulfillWhen: { line in
                 guard let payload = self.jsonObject(line) else { return false }
-                return payload["method"] as? String == "workspace.remote.pty_attach_end"
+                return payload["method"] as? String == "workspace.remote.pty_bridge"
             }
         ) { line in
             guard let payload = self.jsonObject(line),
@@ -83,9 +83,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":
-                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
-                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-                XCTAssertEqual(params["session_id"] as? String, sessionId)
                 return self.v2Response(id: id, ok: true, result: ["ended": true])
             default:
                 return self.v2Response(
@@ -116,7 +113,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
-        XCTAssertTrue(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
+        // Wrapper-retryable failures re-run the attach on this same surface;
+        // sending pty_attach_end here would untrack it app-side and a
+        // successful retry never re-tracks it.
+        XCTAssertFalse(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
     }
 
     func testSSHPTYAttachSilentBridgeTimesOutRetryable() throws {
@@ -141,7 +141,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state: state,
             fulfillWhen: { line in
                 guard let payload = self.jsonObject(line) else { return false }
-                return payload["method"] as? String == "workspace.remote.pty_attach_end"
+                return payload["method"] as? String == "workspace.remote.pty_bridge"
             }
         ) { line in
             guard let payload = self.jsonObject(line),
@@ -201,7 +201,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
-        XCTAssertTrue(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
+        // Wrapper-retryable failures re-run the attach on this same surface;
+        // sending pty_attach_end here would untrack it app-side and a
+        // successful retry never re-tracks it.
+        XCTAssertFalse(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
     }
 
     /// Accepts one bridge connection, drains the client handshake, and never
