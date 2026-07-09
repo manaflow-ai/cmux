@@ -111,13 +111,13 @@ enum AgentChatThemeSync {
         if NSApp?.isRunning == true {
             scheduleDebouncedSync()
         } else {
-            var launchObserver: NSObjectProtocol?
-            launchObserver = NotificationCenter.default.addObserver(
+            // didFinishLaunching posts once per process, so the registration
+            // can stay put like the two permanent observers above.
+            _ = NotificationCenter.default.addObserver(
                 forName: NSApplication.didFinishLaunchingNotification,
                 object: nil,
                 queue: nil
             ) { _ in
-                if let launchObserver { NotificationCenter.default.removeObserver(launchObserver) }
                 scheduleDebouncedSync()
             }
         }
