@@ -48,12 +48,23 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func activate(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        support?.noteActivated(panelID: panelID)
-        completionHandler(nil)
+        completionHandler(focusOwningCmuxTab() ? nil : webExtensionTabError(code: 3))
+    }
+
+    func setSelected(_ selected: Bool, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        guard selected else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(focusOwningCmuxTab() ? nil : webExtensionTabError(code: 3))
     }
 
     func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.webView.load(URLRequest(url: url))
+        guard let panel else {
+            completionHandler(webExtensionTabError(code: 4))
+            return
+        }
+        panel.navigate(to: url)
         completionHandler(nil)
     }
 
@@ -74,5 +85,19 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     func goForward(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
         panel?.webView.goForward()
         completionHandler(nil)
+    }
+
+    private func focusOwningCmuxTab() -> Bool {
+        guard let panel else { return false }
+        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelID,
+            preferredWorkspaceId: panel.workspaceId
+        )?.workspace else { return false }
+        workspace.focusPanel(panelID)
+        return true
+    }
+
+    private func webExtensionTabError(code: Int) -> NSError {
+        NSError(domain: "cmux.webExtension.tab", code: code)
     }
 }
