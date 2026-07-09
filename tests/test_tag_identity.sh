@@ -23,4 +23,28 @@ assert_identity "-n" "n" "n"
 assert_identity "-ne" "ne" "ne"
 assert_identity "Feature Tag" "feature-tag" "feature.tag"
 
+if cmux_attach_tag_is_usable "default"; then
+  echo "FAIL: reserved tag 'default' was accepted" >&2
+  exit 1
+fi
+if ! cmux_attach_tag_is_usable "feature"; then
+  echo "FAIL: normal tag 'feature' was rejected" >&2
+  exit 1
+fi
+
+assert_entrypoint_rejects_default() {
+  local script="$1" output
+  if output="$("$script" --tag default 2>&1)"; then
+    echo "FAIL: $script accepted reserved tag 'default'" >&2
+    exit 1
+  fi
+  if ! grep -Fq "reserved tag 'default'" <<<"$output"; then
+    printf 'FAIL: %s rejected for the wrong reason:\n%s\n' "$script" "$output" >&2
+    exit 1
+  fi
+}
+
+assert_entrypoint_rejects_default "$ROOT_DIR/scripts/reload.sh"
+assert_entrypoint_rejects_default "$ROOT_DIR/ios/scripts/reload.sh"
+
 echo "PASS: shared dev tag identity is option-safe and consistent"

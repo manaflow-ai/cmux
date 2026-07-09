@@ -16,6 +16,7 @@ import Testing
 
         #expect(ios == mac)
         #expect(ios.value == "feature")
+        #expect(ios.matchingMacTag == "feature")
         #expect(ios.serializedScope == "cmux-dev:v2:ZmVhdHVyZQ")
     }
 
@@ -36,7 +37,11 @@ import Testing
         ) == nil)
         #expect(CmxPairedMacClientScope.currentMac(
             environment: ["CMUX_TAG": "default"],
-            bundleIdentifier: "com.cmuxterm.app.debug"
+            bundleIdentifier: "com.cmuxterm.app.debug.default"
+        ) == nil)
+        #expect(CmxPairedMacClientScope.currentMac(
+            environment: ["CMUX_TAG": "default"],
+            bundleIdentifier: "com.cmuxterm.app.debug.feature"
         ) == nil)
         #expect(CmxPairedMacClientScope.currentMac(
             environment: ["CMUX_TAG": "feature"],
@@ -48,23 +53,32 @@ import Testing
         ) == nil)
     }
 
-    @Test func explicitDefaultTaggedBuildsStayStrictlyScoped() throws {
-        let ios = try #require(CmxPairedMacClientScope.currentIOS(
+    @Test func debugFallbackIdentitiesAreDistinctAndCannotMatchMacs() throws {
+        let base = try #require(CmxPairedMacClientScope.currentIOS(
             devTag: nil,
-            bundleIdentifier: "dev.cmux.ios.default"
+            bundleIdentifier: "dev.cmux.ios",
+            isDebugBuild: true
         ))
-        let legacyIOSBundle = try #require(CmxPairedMacClientScope.currentIOS(
-            devTag: "default",
-            bundleIdentifier: "dev.cmux.ios"
+        let custom = try #require(CmxPairedMacClientScope.currentIOS(
+            devTag: nil,
+            bundleIdentifier: "com.example.custom-debug",
+            isDebugBuild: true
         ))
-        let mac = try #require(CmxPairedMacClientScope.currentMac(
-            environment: ["CMUX_TAG": "default"],
-            bundleIdentifier: "com.cmuxterm.app.debug.default"
+        let explicitDefault = try #require(CmxPairedMacClientScope.currentIOS(
+            devTag: nil,
+            bundleIdentifier: "dev.cmux.ios.default",
+            isDebugBuild: true
         ))
 
-        #expect(ios == mac)
-        #expect(legacyIOSBundle == mac)
-        #expect(ios.serializedScope == "cmux-dev:v2:ZGVmYXVsdA")
+        #expect(Set([base.serializedScope, custom.serializedScope, explicitDefault.serializedScope]).count == 3)
+        for scope in [base, custom, explicitDefault] {
+            #expect(scope.matchingMacTag == nil)
+            #expect(!scope.matchesMacInstance(
+                tag: "default",
+                bundleIdentifier: "com.cmuxterm.app.debug.default"
+            ))
+        }
+        #expect(CmxPairedMacClientScope("default") == nil)
         #expect(CmxPairedMacClientScope.pairedMacBackupPath == "/v2/sync/paired-macs")
     }
 
@@ -81,13 +95,20 @@ import Testing
         ))
 
         #expect(custom.value == "custom-tag")
-        #expect(fallback.value == "default")
+        #expect(custom.matchingMacTag == "custom-tag")
+        #expect(custom.matchesMacInstance(
+            tag: "custom-tag",
+            bundleIdentifier: "com.cmuxterm.app.debug.custom-tag"
+        ))
+        #expect(fallback.matchingMacTag == nil)
+        #expect(fallback.value != "default")
     }
 
     @Test func canonicalizesRawTagsLikeSharedReloadTooling() throws {
         #expect(try #require(CmxPairedMacClientScope("Feature Tag")).value == "feature-tag")
         #expect(try #require(CmxPairedMacClientScope("-n")).value == "n")
         #expect(CmxPairedMacClientScope("---") == nil)
+        #expect(CmxPairedMacClientScope("default") == nil)
     }
 
     @Test func scopeAcceptsOnlyItsMatchingMacPresenceTag() throws {
