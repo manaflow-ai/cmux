@@ -12339,6 +12339,7 @@ struct CMUXCLI {
         }
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
+        var wrapperWillRetrySameSurface = false
         var attachFinished = false
         var attachmentToken = ""
         defer {
@@ -12351,6 +12352,7 @@ struct CMUXCLI {
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
                     clearLocalSurface: !bridgeReachedReady && !sessionLostWillRespawn
+                        && !wrapperWillRetrySameSurface
                 )
             }
         }
@@ -12388,6 +12390,11 @@ struct CMUXCLI {
             if requireExisting && exitCode == .sessionNotFound {
                 // Match the bridge-status path below: keep surface tracking intact before respawn.
                 sessionLostWillRespawn = true
+            }
+            if exitCode.isWrapperRetryable {
+                // The shell wrapper loop re-runs this attach on the same
+                // surface; keep it tracked instead of sending pty_attach_end.
+                wrapperWillRetrySameSurface = true
             }
             throw CLIError(
                 message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))",
@@ -12432,6 +12439,14 @@ struct CMUXCLI {
                let cliError = error as? CLIError,
                cliError.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue {
                 sessionLostWillRespawn = true
+            }
+            if let cliError = error as? CLIError,
+               SSHPTYAttachExitCode(rawValue: cliError.exitCode)?.isWrapperRetryable == true {
+                // Transient pre-ready failure (TCP connect, handshake, ready
+                // wait): the shell wrapper loop re-runs this attach on the
+                // same surface; keep it tracked instead of sending
+                // pty_attach_end, which a successful retry cannot undo.
+                wrapperWillRetrySameSurface = true
             }
             if let connectedFD {
                 Darwin.close(connectedFD)

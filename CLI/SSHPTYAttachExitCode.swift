@@ -13,6 +13,15 @@ nonisolated enum SSHPTYAttachExitCode: Int32 {
     case bridgeClosedSessionRunning = 254
     case retryableTransient = 255
 
+    /// Statuses the embedded wrapper loops (`case 254|255`) re-run instead of
+    /// surfacing. Failures exiting with these codes must keep app-side surface
+    /// tracking intact: the wrapper immediately reattaches on the same surface,
+    /// and a successful retry never re-tracks a surface that pty_attach_end
+    /// already untracked.
+    var isWrapperRetryable: Bool {
+        self == .bridgeClosedSessionRunning || self == .retryableTransient
+    }
+
     static func classifyBridgeEstablishmentFailure(_ rawDescription: String) -> SSHPTYAttachExitCode {
         classifyNormalized(rawDescription.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
