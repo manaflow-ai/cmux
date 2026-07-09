@@ -17,7 +17,7 @@ import {
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
-  isBlockingAccountDeletionStatus,
+  isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import {
@@ -267,11 +267,15 @@ async function assertAccountVmCreateAllowed(
     .select({
       userIdHash: accountDeletionTombstones.userIdHash,
       status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
     })
     .from(accountDeletionTombstones)
     .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
     .limit(1);
-  if (deletion?.userIdHash !== userIdHash || !isBlockingAccountDeletionStatus(deletion.status)) return;
+  if (
+    deletion?.userIdHash !== userIdHash ||
+    !isBlockingAccountDeletionTombstone(deletion)
+  ) return;
   throw new VmAccountDeletionInProgressError({
     provider: input.provider,
     phase: "create",

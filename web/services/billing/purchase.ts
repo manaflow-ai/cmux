@@ -12,7 +12,7 @@ import {
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
-  isBlockingAccountDeletionStatus,
+  isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import {
   PRO_PLAN_ID,
@@ -451,11 +451,14 @@ async function hasCheckoutBlockingAccountDeletionTombstone(
   db: BillingDbClient,
 ): Promise<boolean> {
   const [row] = await db
-    .select({ status: accountDeletionTombstones.status })
+    .select({
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
     .from(accountDeletionTombstones)
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
     .limit(1);
-  return row ? row.status === "completed" || isBlockingAccountDeletionStatus(row.status) : false;
+  return row ? isBlockingAccountDeletionTombstone(row) : false;
 }
 
 async function withAccountDeletionUserLock<T>(

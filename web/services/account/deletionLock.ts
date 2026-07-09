@@ -20,8 +20,29 @@ export function accountDeletionAdvisoryLockKey(userId: string): string {
   return `account-deletion:${accountDeletionUserHash(userId)}`;
 }
 
+export const ACCOUNT_DELETION_TOMBSTONE_LEASE_MS = 15 * 60 * 1000;
+
 export function isBlockingAccountDeletionStatus(status: string): boolean {
   return status !== "failed";
+}
+
+export function isStaleAccountDeletionTombstone(
+  updatedAt: Date | null,
+  now: Date = new Date(),
+): boolean {
+  return !updatedAt || now.getTime() - updatedAt.getTime() >= ACCOUNT_DELETION_TOMBSTONE_LEASE_MS;
+}
+
+export function isBlockingAccountDeletionTombstone(
+  tombstone: {
+    readonly status: string;
+    readonly updatedAt: Date | null;
+  },
+  now: Date = new Date(),
+): boolean {
+  if (!isBlockingAccountDeletionStatus(tombstone.status)) return false;
+  if (tombstone.status === "completed" || tombstone.status === "cleanup_incomplete") return true;
+  return !isStaleAccountDeletionTombstone(tombstone.updatedAt, now);
 }
 
 export async function assertAccountDeletionUserMutationAllowed(
@@ -34,10 +55,14 @@ export async function assertAccountDeletionUserMutationAllowed(
     .select({
       userIdHash: accountDeletionTombstones.userIdHash,
       status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
     })
     .from(accountDeletionTombstones)
     .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
     .limit(1);
-  if (deletion?.userIdHash !== userIdHash || !isBlockingAccountDeletionStatus(deletion.status)) return;
+  if (
+    deletion?.userIdHash !== userIdHash ||
+    !isBlockingAccountDeletionTombstone(deletion)
+  ) return;
   throw new AccountDeletionMutationBlockedError(userId);
 }

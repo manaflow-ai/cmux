@@ -98,6 +98,33 @@ describe("device registry route", () => {
     expect(total).toBe(0);
   });
 
+  dbTest("allows registration after a pending account deletion lease expires", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
+      values (
+        ${accountDeletionUserHash("registry-user-1")},
+        ${"registry-user-1"},
+        'pending',
+        now() - interval '20 minutes'
+      )
+    `;
+
+    const response = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [{ id: "r1", kind: "tailscale", priority: 0, endpoint: { host: "100.1.2.3", port: 51001 } }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [{ total }] = await sql<{ total: number }[]>`select count(*)::int as total from devices`;
+    expect(total).toBe(1);
+  });
+
   dbTest("registers a Mac and its app instance, then lists it for the team", async () => {
     if (!sql) throw new Error("test database not initialized");
 

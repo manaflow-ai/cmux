@@ -984,7 +984,7 @@ describe("recordCheckoutCompletion", () => {
       throw new Error("should not load Stack team after tombstone blocks Team subscription");
     });
     selectResults = [[], [], [], []];
-    tombstoneSelectResults = [[{ status: "pending" }]];
+    tombstoneSelectResults = [[{ status: "pending", updatedAt: new Date() }]];
 
     const result = await applySubscriptionUpdate(
       {
@@ -1171,7 +1171,7 @@ describe("recordCheckoutCompletion", () => {
       throw new Error("should not load Stack user after tombstone blocks subscription write");
     });
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
-    tombstoneSelectResults = [[{ status: "pending" }]];
+    tombstoneSelectResults = [[{ status: "pending", updatedAt: new Date() }]];
 
     const result = await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,

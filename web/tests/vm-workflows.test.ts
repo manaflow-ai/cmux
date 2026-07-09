@@ -1859,6 +1859,58 @@ describe("VM Effect workflows", () => {
     expect(vmCount).toBe("0");
   });
 
+  dbTest("opens Base after a pending account deletion lease expires", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`
+      truncate account_deletion_tombstones, cloud_vm_base_events, cloud_vm_base_generations,
+        cloud_vm_bases, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases,
+        cloud_vms restart identity cascade
+    `;
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
+      values (
+        ${accountDeletionUserHash("user-base-stale-delete")},
+        'user-base-stale-delete',
+        'pending',
+        now() - interval '20 minutes'
+      )
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-base-stale-delete",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    const vm = await Effect.runPromise(openBaseVm({
+      userId: "user-base-stale-delete",
+      billingCustomerType: "user",
+      billingTeamId: "user-base-stale-delete",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      baseName: "default",
+    }).pipe(Effect.provide(providerLayer(provider))));
+
+    expect(createCalls).toBe(1);
+    expect(vm.providerVmId).toBe("provider-vm-base-stale-delete");
+  });
+
   dbTest("opens Base as one stable VM per account scope", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;

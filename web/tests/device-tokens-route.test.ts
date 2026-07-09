@@ -77,6 +77,42 @@ describe("device token route", () => {
     expect(stored.total).toBe(0);
   });
 
+  dbTest("allows registration after a pending account deletion lease expires", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
+      values (
+        ${accountDeletionUserHash("push-user-1")},
+        ${"push-user-1"},
+        'pending',
+        now() - interval '20 minutes'
+      )
+    `;
+
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: "b".repeat(64),
+          bundleId: "dev.cmux.ios.push1",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const [stored] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_tokens where user_id = 'push-user-1'
+    `;
+    expect(stored.total).toBe(1);
+  });
+
   dbTest("serializes registration cap enforcement per user", async () => {
     if (!sql) throw new Error("test database not initialized");
 

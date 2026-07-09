@@ -46,7 +46,7 @@ import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
-  isBlockingAccountDeletionStatus,
+  isBlockingAccountDeletionTombstone,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
 import {
@@ -102,8 +102,6 @@ type AccountDeletionTombstoneStart =
   | { readonly kind: "pending" }
   | { readonly kind: "completed" }
   | { readonly kind: "cleanupIncomplete" };
-
-const ACCOUNT_DELETION_TOMBSTONE_LEASE_MS = 15 * 60 * 1000;
 
 export async function DELETE(request: Request): Promise<Response> {
   const stackUser = await currentDeletableStackUser(request);
@@ -286,7 +284,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
       .limit(1);
     if (existing?.status === "completed") return { kind: "completed" };
     if (existing?.status === "cleanup_incomplete") return { kind: "cleanupIncomplete" };
-    if (existing && isBlockingAccountDeletionStatus(existing.status) && !isStaleAccountDeletionTombstone(existing.updatedAt, now)) {
+    if (existing && isBlockingAccountDeletionTombstone(existing, now)) {
       return { kind: "pending" };
     }
 
@@ -312,10 +310,6 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
       });
     return { kind: "started" };
   });
-}
-
-function isStaleAccountDeletionTombstone(updatedAt: Date | null, now: Date): boolean {
-  return !updatedAt || now.getTime() - updatedAt.getTime() >= ACCOUNT_DELETION_TOMBSTONE_LEASE_MS;
 }
 
 async function markAccountDeletionTombstoneCompleted(userId: string): Promise<void> {
