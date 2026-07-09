@@ -157,6 +157,15 @@ export async function markStackUserDeletionInProgress(
   await user.update({ clientReadOnlyMetadata: metadata });
 }
 
+export async function clearStackUserDeletionInProgress(
+  user: StackAccountDeletionMetadataUser,
+): Promise<void> {
+  if (!isStackAccountDeletionInProgress(user.clientReadOnlyMetadata)) return;
+  const metadata = stackJsonObject(user.clientReadOnlyMetadata);
+  delete metadata[ACCOUNT_DELETION_METADATA_KEY];
+  await user.update({ clientReadOnlyMetadata: metadata });
+}
+
 export async function enqueueAccountDeletion(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,

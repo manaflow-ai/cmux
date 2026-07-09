@@ -66,6 +66,7 @@ describe("account deletion processor", () => {
       "claim:user-1",
       "load-stack:user-1",
       "cleanup:user-1",
+      "clear-deleting:user-1",
       "failed:user-1:cleanup failed",
     ]);
   });
@@ -171,6 +172,9 @@ function dependencies(
           if (stackDeleteError) throw stackDeleteError;
         },
       };
+    },
+    clearStackUserDeletionInProgress: async (user) => {
+      calls.push(`clear-deleting:${user.id}`);
     },
     markAccountDeletionCompleted: async ({ userId }) => {
       calls.push(`completed:${userId}`);
