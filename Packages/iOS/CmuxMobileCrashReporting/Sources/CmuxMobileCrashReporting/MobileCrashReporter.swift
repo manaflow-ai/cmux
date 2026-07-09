@@ -171,14 +171,17 @@ public struct MobileCrashReporter {
     /// changes are observed via `UserDefaults.didChangeNotification`, the same
     /// backing store the consent provider reads.
     public final class RevocationWatcher: @unchecked Sendable {
+        // lint:allow singleton — process-lifetime default for the production
+        // observer registration; tests inject fresh instances.
         public static let shared = RevocationWatcher()
 
         /// Tests inject fresh instances so parallel suites cannot stomp each
         /// other's registration on the shared watcher.
         public init() {}
 
-        // Serial low-level primitive guarding token/armed across the
-        // notification queue and arm callers.
+        // lint:allow lock — sanctioned carve-out: guards a token swap across
+        // the notification-delivery thread and arm callers; an actor would
+        // force async hops into the synchronous notification callback.
         private let lock = NSLock()
         private var token: (any NSObjectProtocol)?
         private var center: NotificationCenter?

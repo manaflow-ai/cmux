@@ -18,6 +18,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
             start: { _ in startCount += 1 },
+            purgeCache: {},
             crash: { crashCount += 1 }
         )
 
@@ -32,7 +33,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in startCount += 1 },
+            close: {},
+            purgeCache: {},
             crash: {}
         )
 
@@ -77,7 +81,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in didStart = true },
+            close: {},
+            purgeCache: {},
             crash: {
                 #expect(didStart)
                 crashCount += 1
@@ -98,7 +105,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in },
+            close: {},
+            purgeCache: {},
             crash: { crashCount += 1 }
         )
 
@@ -119,7 +129,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: environment,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in startCount += 1 },
+            close: {},
+            purgeCache: {},
             crash: {}
         )
 
@@ -133,7 +146,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: ["PATH": "/usr/bin", "HOME": "/var/mobile"],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in startCount += 1 },
+            close: {},
+            purgeCache: {},
             crash: {}
         )
 
@@ -208,7 +224,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
             consent: consent,
             arguments: ["cmux"],
             environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { captured = $0 },
+            close: {},
+            purgeCache: {},
             crash: {}
         )
 
