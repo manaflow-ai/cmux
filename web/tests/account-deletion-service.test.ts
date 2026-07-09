@@ -385,29 +385,39 @@ describe("account deletion cleanup", () => {
     expect(deletedDeviceColumns).toContain("team_id");
   });
 
-  test("keeps active vault upload tracking rows for expiry cleanup", async () => {
+  test("deletes active vault upload grant rows after their objects are removed", async () => {
     vaultUploadGrantRows = [{
       id: "grant-row-1",
       objectKey: "vault/u/user-1/grant.jsonl.zst",
       uploadObjectKey: "vault/uploads/grant",
     }];
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("vault cleanup has more objects to delete");
+
+    expect(deleteObject).toHaveBeenCalledWith("vault/u/user-1/grant.jsonl.zst");
+    expect(deleteObject).toHaveBeenCalledWith("vault/uploads/grant");
+    expect(calls).toContain("delete-vault-upload-grants");
+    expect(calls).not.toContain("delete-vault-upload-tombstones");
+    expect(calls).not.toContain("delete-vault-sessions");
+  });
+
+  test("deletes active vault upload tombstone rows after their objects are removed", async () => {
     vaultUploadTombstoneRows = [{
       id: "tombstone-row-1",
       objectKey: "vault/u/user-1/tombstone.jsonl.zst",
       uploadObjectKey: "vault/uploads/tombstone",
     }];
 
-    await deleteCmuxAccountData({
+    await expect(deleteCmuxAccountData({
       userId: "user-1",
-    }, fakeRuntime());
+    }, fakeRuntime())).rejects.toThrow("vault cleanup has more objects to delete");
 
-    expect(deleteObject).toHaveBeenCalledWith("vault/u/user-1/grant.jsonl.zst");
-    expect(deleteObject).toHaveBeenCalledWith("vault/uploads/grant");
     expect(deleteObject).toHaveBeenCalledWith("vault/u/user-1/tombstone.jsonl.zst");
     expect(deleteObject).toHaveBeenCalledWith("vault/uploads/tombstone");
-    expect(calls).not.toContain("delete-vault-upload-grants");
-    expect(calls).not.toContain("delete-vault-upload-tombstones");
-    expect(calls).toContain("delete-vault-sessions");
+    expect(calls).toContain("delete-vault-upload-tombstones");
+    expect(calls).not.toContain("delete-vault-sessions");
   });
 
   test("rechecks when a provider-backed VM disappears during account deletion", async () => {

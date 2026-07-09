@@ -539,6 +539,8 @@ export async function deleteCmuxAccountData(
       inArray(devices.teamId, scope.ownedBillingTeamIds),
     ));
 
+    await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.userId, input.userId));
+    await tx.delete(vaultUploadTombstones).where(eq(vaultUploadTombstones.userId, input.userId));
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, input.userId));
     await tx.delete(vaultSessions).where(eq(vaultSessions.userId, input.userId));
 
@@ -979,8 +981,8 @@ async function deleteAccountVaultObjectBatch(
   runtime: AccountDeletionRuntime,
 ): Promise<boolean> {
   if (await deleteVaultSnapshotObjectBatch(userId, runtime) > 0) return false;
-  await deleteVaultUploadGrantObjects(userId, runtime);
-  await deleteVaultUploadTombstoneObjects(userId, runtime);
+  if (await deleteVaultUploadGrantObjectBatch(userId, runtime) > 0) return false;
+  if (await deleteVaultUploadTombstoneObjectBatch(userId, runtime) > 0) return false;
   return true;
 }
 
@@ -1002,54 +1004,46 @@ async function deleteVaultSnapshotObjectBatch(
   return rows.length;
 }
 
-async function deleteVaultUploadGrantObjects(
+async function deleteVaultUploadGrantObjectBatch(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<void> {
+): Promise<number> {
   const db = runtime.cloudDb();
-  let offset = 0;
-  for (;;) {
-    const rows = await db
-      .select({
-        id: vaultUploadGrants.id,
-        objectKey: vaultUploadGrants.objectKey,
-        uploadObjectKey: vaultUploadGrants.uploadObjectKey,
-      })
-      .from(vaultUploadGrants)
-      .where(eq(vaultUploadGrants.userId, userId))
-      .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE)
-      .offset(offset);
-    if (rows.length === 0) return;
+  const rows = await db
+    .select({
+      id: vaultUploadGrants.id,
+      objectKey: vaultUploadGrants.objectKey,
+      uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+    })
+    .from(vaultUploadGrants)
+    .where(eq(vaultUploadGrants.userId, userId))
+    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
+  if (rows.length === 0) return 0;
 
-    await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
-    if (rows.length < VAULT_ACCOUNT_DELETION_BATCH_SIZE) return;
-    offset += rows.length;
-  }
+  await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
+  await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, rows.map((row) => row.id)));
+  return rows.length;
 }
 
-async function deleteVaultUploadTombstoneObjects(
+async function deleteVaultUploadTombstoneObjectBatch(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<void> {
+): Promise<number> {
   const db = runtime.cloudDb();
-  let offset = 0;
-  for (;;) {
-    const rows = await db
-      .select({
-        id: vaultUploadTombstones.id,
-        objectKey: vaultUploadTombstones.objectKey,
-        uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
-      })
-      .from(vaultUploadTombstones)
-      .where(eq(vaultUploadTombstones.userId, userId))
-      .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE)
-      .offset(offset);
-    if (rows.length === 0) return;
+  const rows = await db
+    .select({
+      id: vaultUploadTombstones.id,
+      objectKey: vaultUploadTombstones.objectKey,
+      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+    })
+    .from(vaultUploadTombstones)
+    .where(eq(vaultUploadTombstones.userId, userId))
+    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
+  if (rows.length === 0) return 0;
 
-    await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
-    if (rows.length < VAULT_ACCOUNT_DELETION_BATCH_SIZE) return;
-    offset += rows.length;
-  }
+  await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
+  await db.delete(vaultUploadTombstones).where(inArray(vaultUploadTombstones.id, rows.map((row) => row.id)));
+  return rows.length;
 }
 
 async function deleteVaultObjectKeys(
