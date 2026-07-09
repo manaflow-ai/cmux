@@ -56,7 +56,7 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
             ))
             return
         }
-        NSApp.activate(ignoringOtherApps: false)
+        NSApp.activate()
         hostWindow.makeKeyAndOrderFront(nil)
         completionHandler(nil)
     }
