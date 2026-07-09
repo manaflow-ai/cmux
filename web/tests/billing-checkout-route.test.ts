@@ -323,7 +323,7 @@ describe("billing checkout route", () => {
     expect(resolveTeamPrice).toHaveBeenCalled();
     expect(createStripeCustomer).toHaveBeenCalledWith({
       name: "Signed Team",
-      metadata: { stackTeamId: "team-signed-in", app: "cmux" },
+      metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", app: "cmux" },
     });
     expect(insertedStripeCustomers).toContainEqual({
       id: "cus_team",
@@ -342,9 +342,9 @@ describe("billing checkout route", () => {
       ],
       customer: "cus_team",
       client_reference_id: "team-signed-in",
-      metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+      metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", plan: "team", app: "cmux" },
       subscription_data: {
-        metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+        metadata: { stackTeamId: "team-signed-in", stackUserId: "user-signed-in", plan: "team", app: "cmux" },
       },
       allow_promotion_codes: true,
       success_url:

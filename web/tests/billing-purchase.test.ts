@@ -684,6 +684,39 @@ describe("recordCheckoutCompletion", () => {
     expect(owner.update).not.toHaveBeenCalled();
   });
 
+  test("cancels Team checkout completion when buyer ownership is missing", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+    selectResults = [[], []];
+
+    await expect(
+      recordCheckoutCompletion(teamCheckoutInput("cus_team_new") as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load a Stack user without a checkout owner");
+          },
+          getTeam: async () => {
+            throw new Error("should not sync Stack team without a checkout owner");
+          },
+        } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
+      }),
+    ).resolves.toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "team_123",
+      subscriptionId: "sub_team",
+    });
+
+    expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
+    expect(deleteCustomer).toHaveBeenCalledWith("cus_team_new");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
   test("preserves an existing Team checkout customer when account deletion blocks a metadata-owned checkout", async () => {
     const cancelSubscription = mock(async () => undefined);
     const deleteCustomer = mock(async () => undefined);

@@ -608,15 +608,25 @@ async function recordTeamCheckoutCompletion(input: {
   });
   const checkoutOwnerStackUserId =
     input.stackUserId ?? checkoutCustomerOwnership.stackUserId;
-  const resolvedStackUserId = checkoutOwnerStackUserId ?? input.stackTeamId;
-  const ownerStackUserId =
-    resolvedStackUserId !== input.stackTeamId && resolvedStackUserId !== DELETED_ACCOUNT_ACTOR_ID
-      ? resolvedStackUserId
-      : null;
-  const owner = ownerStackUserId
-    ? await loadOptionalStackUser(ownerStackUserId, input.dependencies.stackApp)
+  const ownerStackUserId = checkoutOwnerStackUserId
+    ? teamSubscriptionOwnerStackUserId(checkoutOwnerStackUserId, input.stackTeamId)
     : null;
-  const lockedResult = await withAccountDeletionUserLock(db, resolvedStackUserId, async (tx) => {
+  if (!ownerStackUserId) {
+    await cleanupCheckoutStripeResourcesForAccountDeletion({
+      subscription: input.subscription,
+      customerId: input.customerId,
+      dependencies: input.dependencies,
+      deleteCustomer: !checkoutCustomerOwnership.customerRowExists,
+    });
+    return {
+      skipped: "account_deletion_in_progress",
+      stackUserId: checkoutOwnerStackUserId ?? input.stackTeamId,
+      subscriptionId: input.subscription.id,
+    };
+  }
+
+  const owner = await loadOptionalStackUser(ownerStackUserId, input.dependencies.stackApp);
+  const lockedResult = await withAccountDeletionUserLock(db, ownerStackUserId, async (tx) => {
     const transactionCustomerOwnership = await teamStripeCustomerOwnership(tx, {
       stackTeamId: input.stackTeamId,
       customerId: input.customerId,
@@ -624,18 +634,16 @@ async function recordTeamCheckoutCompletion(input: {
     const stackUserId =
       input.stackUserId ??
       transactionCustomerOwnership.stackUserId ??
-      checkoutOwnerStackUserId ??
-      input.stackTeamId;
+      checkoutOwnerStackUserId;
     const transactionOwnerStackUserId =
-      stackUserId !== input.stackTeamId && stackUserId !== DELETED_ACCOUNT_ACTOR_ID
-        ? stackUserId
-        : null;
+      stackUserId ? teamSubscriptionOwnerStackUserId(stackUserId, input.stackTeamId) : null;
     const ownerChangedDuringCheckout = transactionOwnerStackUserId !== ownerStackUserId;
     const observedExistingCheckoutCustomer =
       checkoutCustomerOwnership.customerRowExists ||
       transactionCustomerOwnership.customerRowExists;
     if (
-      stackUserId === DELETED_ACCOUNT_ACTOR_ID ||
+      !transactionOwnerStackUserId ||
+      !stackUserId ||
       (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx)) ||
       ownerChangedDuringCheckout ||
       (transactionOwnerStackUserId && !owner) ||
@@ -645,7 +653,7 @@ async function recordTeamCheckoutCompletion(input: {
         checkoutCleanup: { deleteCustomer: !observedExistingCheckoutCustomer },
         result: {
           skipped: "account_deletion_in_progress" as const,
-          stackUserId,
+          stackUserId: stackUserId ?? input.stackTeamId,
           subscriptionId: input.subscription.id,
         },
       };
