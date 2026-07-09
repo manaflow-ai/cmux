@@ -212,6 +212,28 @@ private final class BrowserDiscardRestorePolicyCancelAlert: NSAlert {
 
 @MainActor
 struct BrowserDiscardRestorePolicyCancelTests {
+    @Test func stalledRestoreClearsTrackedNavigationBeforeReactivation() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        panel.hiddenWebViewDiscardManager.markDiscarded(
+            reason: "test.discard",
+            now: Date(timeIntervalSince1970: 100)
+        )
+        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.pendingDiscardRestoreNavigation = WKNavigation()
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+
+        #expect(panel.pendingDiscardRestoreNavigation == nil)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+        #expect(panel.webViewLifecycleTopPayload()["state"] as? String != "discarded")
+    }
+
     @Test func cancelledExternalAppPromptDoesNotReportTerminalRestore() throws {
         let url = try #require(URL(string: "cmux-issue-7504-external://open"))
         let panel = BrowserPanel(

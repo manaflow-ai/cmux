@@ -62,8 +62,7 @@ extension BrowserPanel {
             hasPendingRemoteNavigation: hasPendingRemoteNavigation,
             hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement
         ) {
-            hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: "\(reason).stalled")
-            refreshWebViewLifecycleState()
+            noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "\(reason).stalled")
         }
 
         if forceRestartPendingRestore {
