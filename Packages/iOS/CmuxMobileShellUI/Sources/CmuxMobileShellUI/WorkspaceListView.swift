@@ -285,6 +285,10 @@ struct WorkspaceListView: View {
             }
         }
         .listStyle(.plain)
+        // Let the invisible group-footer drop-target row collapse to its 12pt
+        // frame; the iOS default minimum (~44pt) inflated it into a large dead
+        // gap after every group. Real rows are taller than this floor anyway.
+        .environment(\.defaultMinListRowHeight, 12)
         .workspaceListRefreshable(refresh)
         .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
