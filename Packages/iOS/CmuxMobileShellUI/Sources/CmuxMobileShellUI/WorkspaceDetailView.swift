@@ -33,6 +33,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -74,7 +75,6 @@ struct WorkspaceDetailView: View {
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
-
     var body: some View {
         let content = Group { detailSurfaceContent }
 
@@ -130,6 +130,15 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
+        if let selectedTerminalID,
+           store.isAlternateScreen(surfaceID: selectedTerminalID),
+           displaySettings.showAltScreenNotice {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                AltScreenNoticeButton {
+                    displaySettings.showAltScreenNotice = false
+                }
+            }
+        }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
         }
@@ -147,7 +156,6 @@ struct WorkspaceDetailView: View {
             toolbarTitleLabel
         }
     }
-
     @ViewBuilder
     private var toolbarTitleLabel: some View {
         if isChatMode,
@@ -188,7 +196,6 @@ struct WorkspaceDetailView: View {
         detailContent()
         #endif
     }
-
     #if os(iOS)
     /// The browser pane shown when this workspace has an active browser surface.
     /// It carries its own navigation chrome, so it does not get the terminal's

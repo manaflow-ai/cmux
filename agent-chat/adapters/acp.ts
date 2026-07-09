@@ -20,7 +20,7 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       triggers: ["/"],
       options: fallbackOptions,
     },
-    async send(sess, prompt) {
+    async send(sess, prompt, generation?: number) {
       // ACP has no mid-turn steer and most agents reject overlapping
       // session/prompt calls, so serialize sends: a prompt sent while a turn
       // is in flight runs after that turn resolves.
@@ -34,10 +34,10 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
             sessionId: st.acpSessionId,
             prompt: [{ type: "text", text: prompt }],
           });
-          sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined });
+          sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined, generation } as any);
         } catch (err) {
           sess.emit({ kind: "error", message: truncate(String(err), 400) });
-          sess.emit({ kind: "done" });
+          sess.emit({ kind: "done", generation } as any);
         }
         if (sess.internal.acpTurn === turn) sess.setStatus("idle");
       });

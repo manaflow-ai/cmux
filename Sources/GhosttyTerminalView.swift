@@ -3571,6 +3571,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
+    var selectionTranslationHostView: NSView?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
@@ -5273,7 +5274,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return snapshot.string.isEmpty ? nil : snapshot.string
     }
 
-    private func readSelectionSnapshot(surface explicitSurface: ghostty_surface_t? = nil) -> SelectionSnapshot? {
+    func readSelectionSnapshot(surface explicitSurface: ghostty_surface_t? = nil) -> SelectionSnapshot? {
         guard let surface = explicitSurface ?? self.surface else { return nil }
 
         var text = ghostty_text_s()
@@ -5294,7 +5295,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
         )
     }
-
     private func visibleDocumentRectInScreenCoordinates() -> NSRect {
         let localRect = visibleRect
         let windowRect = convert(localRect, to: nil)
@@ -5444,12 +5444,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
-    private struct SelectionSnapshot {
+    struct SelectionSnapshot {
         let range: NSRange
         let string: String
         let topLeft: CGPoint
     }
-
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
     func setKeyTextAccumulatorForTesting(_ value: [String]?) {
@@ -7226,6 +7225,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            addTranslateSelectionMenuItem(to: menu, surface: surface)
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),

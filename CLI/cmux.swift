@@ -15,10 +15,13 @@ import Security
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    /// Structured v2 protocol error code when the failure came from a v2 error response.
+    let v2Code: String?
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
         self.message = message
         self.exitCode = exitCode
+        self.v2Code = v2Code
     }
 
     var description: String { message }
@@ -54,38 +57,11 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-enum AgentHookNotificationStatus: String, Codable {
-    case idle
-    case needsInput
-    case error
-}
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
     case error
-}
-
-/// Category tag the app uses to gate agent notifications by user config.
-/// Serialized into the `notify_target_async` payload's optional meta segment.
-enum AgentHookNotifyCategory: String {
-    case turnComplete = "turn-complete"
-    case needsPermission = "needs-permission"
-    case idleReminder = "idle-reminder"
-    case other
-}
-
-private struct AgentHookNotificationSummary {
-    let subtitle: String
-    let body: String
-    let status: AgentHookNotificationStatus?
-    let isFallback: Bool
-    /// Which user-facing notification setting gates this alert, decided by the
-    /// classifier alongside subtitle/status so "Permission" and "Waiting" cues
-    /// (both `.needsInput`) gate under their own settings. `nil` = ungated,
-    /// always deliver (errors, unclassified attention alerts, fallbacks).
-    var notifyCategory: AgentHookNotifyCategory? = nil
 }
 
 #if DEBUG
@@ -165,6 +141,7 @@ struct ClaudeHookSessionRecord: Codable {
     var lastNotificationStatus: AgentHookNotificationStatus?
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
+    var recentEmittedNotificationFingerprints: [String: TimeInterval]?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var activePromptTurnId: String?
@@ -1173,6 +1150,7 @@ final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
+            record.recentEmittedNotificationFingerprints = nil
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -1188,12 +1166,17 @@ final class ClaudeHookSessionStore {
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return false }
         return try withLockedState { state in
-            guard let record = state.sessions[normalized],
-                  record.lastEmittedNotificationFingerprint == normalizedFingerprint,
+            guard let record = state.sessions[normalized] else { return false }
+            let now = Date().timeIntervalSince1970
+            if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
+               now - emittedAt <= interval {
+                return true
+            }
+            guard record.lastEmittedNotificationFingerprint == normalizedFingerprint,
                   let emittedAt = record.lastEmittedNotificationAt else {
                 return false
             }
-            return Date().timeIntervalSince1970 - emittedAt <= interval
+            return now - emittedAt <= interval
         }
     }
 
@@ -1207,6 +1190,17 @@ final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
+            var recent = record.recentEmittedNotificationFingerprints ?? [:]
+            recent[normalizedFingerprint] = now
+            recent = recent.filter { now - $0.value <= 60 * 60 }
+            if recent.count > 16 {
+                let keep = recent.sorted { lhs, rhs in
+                    if lhs.value == rhs.value { return lhs.key < rhs.key }
+                    return lhs.value > rhs.value
+                }.prefix(16)
+                recent = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+            }
+            record.recentEmittedNotificationFingerprints = recent.isEmpty ? nil : recent
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -2627,7 +2621,8 @@ final class SocketClient {
                     action: action,
                     reason: reason,
                     details: safeV2Details(error["details"])
-                )
+                ),
+                v2Code: error["code"] as? String
             )
         }
 
@@ -3499,7 +3494,6 @@ struct CMUXCLI {
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
         }
-
         if command == "events" {
             try runEventsCommand(
                 commandArgs: commandArgs,
@@ -3527,7 +3521,7 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
-
+        try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -4421,7 +4415,9 @@ struct CMUXCLI {
         case "ssh-pty-attach":
             do {
                 try runSSHPTYAttach(commandArgs: commandArgs, client: client, explicitPassword: socketPasswordArg)
-            } catch let error as CLIError where error.exitCode == 253 && commandArgs.contains("--require-existing") {
+            } catch let error as CLIError
+                where error.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue &&
+                commandArgs.contains("--require-existing") {
                 let notice = String(
                     localized: "cli.sshPtyAttach.remoteSessionLostRespawn",
                     defaultValue: "[cmux] remote session was lost; starting a new shell."
@@ -6356,7 +6352,7 @@ struct CMUXCLI {
         }
         throw CLIError(message: "Surface index not found")
     }
-    private static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
+    static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
     }
@@ -8112,7 +8108,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -8201,11 +8197,13 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "loading":
+            try runWorkspaceLoading(commandArgs: rest, client: client, windowId: windowOverride, jsonOutput: jsonOutput)
         default:
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
                 ),
                 locale: .current,
                 sub
@@ -12259,6 +12257,7 @@ struct CMUXCLI {
     }
 
     private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
+        // Retryable 254|255 is owned by SSHPTYAttachExitCode; keep in sync with SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
         [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
@@ -12266,7 +12265,8 @@ struct CMUXCLI {
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
             "while :; do",
-            "  \(command)",
+            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
@@ -12340,6 +12340,7 @@ struct CMUXCLI {
         }
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
+        var wrapperWillRetrySameSurface = false
         var attachFinished = false
         var attachmentToken = ""
         defer {
@@ -12352,6 +12353,7 @@ struct CMUXCLI {
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
                     clearLocalSurface: !bridgeReachedReady && !sessionLostWillRespawn
+                        && !wrapperWillRetrySameSurface
                 )
             }
         }
@@ -12375,7 +12377,31 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
+            // Prefer the structured v2 error code over description matching so a
+            // message-format change cannot silently turn a retryable failure fatal.
+            let exitCode: SSHPTYAttachExitCode
+            if let cliError = error as? CLIError, let code = cliError.v2Code {
+                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                    code: code,
+                    message: cliError.message
+                )
+            } else {
+                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
+            }
+            if requireExisting && exitCode == .sessionNotFound {
+                // Match the bridge-status path below: keep surface tracking intact before respawn.
+                sessionLostWillRespawn = true
+            }
+            if exitCode.isWrapperRetryable && sshPTYAttachWrapperRetryPending() {
+                // The shell wrapper loop re-runs this attach on the same
+                // surface; keep it tracked instead of sending pty_attach_end.
+                // On the final attempt (or without the wrapper) cleanup runs.
+                wrapperWillRetrySameSurface = true
+            }
+            throw CLIError(
+                message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))",
+                exitCode: exitCode
+            )
         }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
@@ -12411,8 +12437,20 @@ struct CMUXCLI {
             // tracking intact across the respawn: sending pty_attach_end here
             // would untrack the surface and mark it ended while the
             // replacement shell is about to run on it.
-            if requireExisting, let cliError = error as? CLIError, cliError.exitCode == 253 {
+            if requireExisting,
+               let cliError = error as? CLIError,
+               cliError.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue {
                 sessionLostWillRespawn = true
+            }
+            if let cliError = error as? CLIError,
+               SSHPTYAttachExitCode(rawValue: cliError.exitCode)?.isWrapperRetryable == true,
+               sshPTYAttachWrapperRetryPending() {
+                // Transient pre-ready failure (TCP connect, handshake, ready
+                // wait): the shell wrapper loop re-runs this attach on the
+                // same surface; keep it tracked instead of sending
+                // pty_attach_end, which a successful retry cannot undo.
+                // On the final attempt (or without the wrapper) cleanup runs.
+                wrapperWillRetrySameSurface = true
             }
             if let connectedFD {
                 Darwin.close(connectedFD)
@@ -12492,38 +12530,6 @@ struct CMUXCLI {
         }
     }
 
-    private func cleanupFailedSSHPTYAttach(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String,
-        clearLocalSurface: Bool
-    ) {
-        let normalizedAttachmentToken = attachmentToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedAttachmentToken.isEmpty {
-            var detachParams: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": normalizedAttachmentToken,
-            ]
-            if let surfaceID {
-                detachParams["surface_id"] = surfaceID
-                detachParams["allow_moved_surface"] = true
-            }
-            _ = try? client.sendV2(method: "workspace.remote.pty_detach", params: detachParams)
-        }
-        guard clearLocalSurface else { return }
-        guard let surfaceID else { return }
-        _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceID,
-            "session_id": sessionID,
-        ])
-    }
-
     private func sshPTYBridgeReadErrorIsEOF(_ errnoValue: Int32) -> Bool {
         switch errnoValue {
         case ECONNRESET, ECONNABORTED, ENOTCONN:
@@ -12554,7 +12560,7 @@ struct CMUXCLI {
         } catch {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: 255
+                exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
 
@@ -12562,7 +12568,7 @@ struct CMUXCLI {
         if !errors.isEmpty {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
-                exitCode: 255
+                exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
 
@@ -12573,7 +12579,7 @@ struct CMUXCLI {
         if sessionStillRunning {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
-                exitCode: 254
+                exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning
             )
         }
 
@@ -12590,109 +12596,9 @@ struct CMUXCLI {
         } catch {
             throw CLIError(
                 message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: 255
+                exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
-    }
-
-    private func sshPTYBridgeParams(
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) -> [String: Any] {
-        var params: [String: Any] = [
-            "workspace_id": workspaceId,
-            "session_id": sessionID,
-            "attachment_id": attachmentID,
-            "command": command ?? "",
-            "require_existing": requireExisting,
-        ]
-        if let surfaceID {
-            params["surface_id"] = surfaceID
-            params["allow_moved_surface"] = true
-        }
-        return params
-    }
-
-    private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
-        let maxStatusBytes = 4096
-        var line = Data()
-        var byte = [UInt8](repeating: 0, count: 1)
-        while line.count < maxStatusBytes {
-            let count = Darwin.read(fd, &byte, 1)
-            if count > 0 {
-                if byte[0] == 0x0A {
-                    if let carriageIndex = line.lastIndex(of: 0x0D),
-                       carriageIndex == line.index(before: line.endIndex) {
-                        line.remove(at: carriageIndex)
-                    }
-                    guard let payload = try? JSONSerialization.jsonObject(with: line, options: []) as? [String: Any],
-                          let type = payload["type"] as? String else {
-                        throw CLIError(message: "ssh-pty-attach: invalid bridge status")
-                    }
-                    switch type {
-                    case "ready":
-                        return ((payload["attachment_token"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
-                    case "error":
-                        let message = ((payload["message"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? "remote PTY attach failed"
-                        let code = (payload["code"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        throw CLIError(
-                            message: "ssh-pty-attach: \(message)",
-                            exitCode: code == "pty_session_not_found" ? 253 : 1
-                        )
-                    default:
-                        throw CLIError(message: "ssh-pty-attach: invalid bridge status")
-                    }
-                }
-                line.append(byte[0])
-            } else if count == 0 {
-                throw CLIError(message: "ssh-pty-attach: bridge closed before ready")
-            } else if errno != EINTR {
-                throw CLIError(message: "ssh-pty-attach: bridge read failed")
-            }
-        }
-        throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
-    }
-
-    private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
-        guard host == "127.0.0.1" || host == "localhost" else {
-            throw CLIError(message: "ssh-pty-attach: bridge host must be loopback")
-        }
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw CLIError(message: "ssh-pty-attach: failed to create bridge socket")
-        }
-        do {
-            try configureCLISocketNoSIGPIPE(
-                fileDescriptor: fd,
-                failureMessage: "ssh-pty-attach: failed to disable SIGPIPE on bridge socket"
-            )
-        } catch {
-            Darwin.close(fd)
-            throw error
-        }
-        var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(UInt16(port).bigEndian)
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let result = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard result == 0 else {
-            Darwin.close(fd)
-            throw CLIError(message: "ssh-pty-attach: failed to connect to bridge")
-        }
-        return fd
     }
 
     private func cliStrictInt(_ value: Any?) -> Int? {
@@ -12718,7 +12624,10 @@ struct CMUXCLI {
                 } else if written < 0 && errno == EINTR {
                     continue
                 } else {
-                    throw CLIError(message: "ssh-pty-attach: bridge write failed")
+                    throw CLIError(
+                        message: "ssh-pty-attach: bridge write failed",
+                        exitCode: SSHPTYAttachExitCode.retryableTransient
+                    )
                 }
             }
         }
@@ -15881,12 +15790,11 @@ struct CMUXCLI {
                                       whose automatic reconnect paused because the host
                                       was unreachable
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
+              loading <on|off> [--id <name>] Toggle the workspace loading spinner.
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
-
             env/reconnect/disconnect accept a positional handle or --workspace
             <id|ref|index>, defaulting to the caller's workspace, then the
             selected one (of --window's window when given).
-
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
@@ -24347,7 +24255,7 @@ struct CMUXCLI {
                         title: title,
                         subtitle: completion.subtitle,
                         body: completion.body,
-                        meta: notifyMeta(.turnComplete, pending: hasPendingBackgroundWork)
+                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -24636,7 +24544,7 @@ struct CMUXCLI {
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory == .other ? nil : notifyMeta(notifyCategory, pending: notifyPending)
+                meta: notifyCategory.metaSegment(pending: notifyPending)
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -24937,7 +24845,7 @@ struct CMUXCLI {
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody,
-                        meta: notifyMeta(.needsPermission, pending: false)
+                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
                     )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
@@ -27010,7 +26918,7 @@ struct CMUXCLI {
         let extra = (object["extra"] as? [String: Any]) ?? [:]
         let signalParts = [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "hookEventName", "type", "kind"]),
-            firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
+            firstString(in: object, keys: ["notification_type", "notificationType", "matcher", "reason"]),
             firstString(in: nested, keys: ["type", "kind", "reason"]),
         ]
         let messageCandidates = [
@@ -27128,18 +27036,11 @@ struct CMUXCLI {
     }
 
     private func isGrokInternalSessionNotification(_ message: String) -> Bool {
-        let lowercasedMessage = message.lowercased()
-        return lowercasedMessage.hasPrefix("sessionnotification {")
-            || lowercasedMessage.contains("hookexecution {")
-            || lowercasedMessage.contains("event_name: user_prompt_submit")
-            || lowercasedMessage.contains(#""event_name":"user_prompt_submit""#)
+        AgentHookNotificationClassifier.isGrokInternalSessionNotification(message)
     }
 
     private func isGrokGenericTurnCompletion(_ message: String) -> Bool {
-        message.range(
-            of: #"^turn complete(?:d)? in \d+(?:\.\d+)?s\.?$"#,
-            options: [.regularExpression, .caseInsensitive]
-        ) != nil
+        AgentHookNotificationClassifier.isGrokGenericTurnCompletion(message)
     }
 
     private func latestGrokAssistantMessage(
@@ -27284,74 +27185,11 @@ struct CMUXCLI {
         message: String,
         isFallback: Bool
     ) -> AgentHookNotificationSummary {
-        let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty
-                ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
-                : message
-            return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
-                body: truncate(body, maxLength: 180),
-                status: .needsInput,
-                isFallback: isFallback,
-                notifyCategory: .needsPermission
-            )
-        }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
-            let body = message.isEmpty
-                ? String.localizedStringWithFormat(
-                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
-                    def.displayName
-                )
-                : message
-            return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
-                body: truncate(body, maxLength: 180),
-                status: .error,
-                isFallback: isFallback
-            )
-        }
-        if containsCompletionCue(lower) {
-            let body = message.isEmpty
-                ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
-                : message
-            return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
-                body: truncate(body, maxLength: 180),
-                status: .idle,
-                isFallback: isFallback,
-                notifyCategory: .turnComplete
-            )
-        }
-        if containsWaitingCue(lower) {
-            let body = message.isEmpty
-                ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
-                : message
-            return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
-                body: truncate(body, maxLength: 180),
-                status: .needsInput,
-                isFallback: isFallback,
-                notifyCategory: .idleReminder
-            )
-        }
-        if !message.isEmpty {
-            return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
-                body: truncate(message, maxLength: 180),
-                status: nil,
-                isFallback: isFallback
-            )
-        }
-        let body = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.body.needsAttention", defaultValue: "%@ needs your attention"),
-            def.displayName
-        )
-        return AgentHookNotificationSummary(
-            subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
-            body: body,
-            status: .needsInput,
-            isFallback: true
+        AgentHookNotificationClassifier.classify(
+            displayName: def.displayName,
+            signal: signal,
+            message: message,
+            isFallback: isFallback
         )
     }
 
@@ -27365,11 +27203,11 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
-        if containsCompletionCue(lower) {
+        if AgentHookNotificationClassifier.containsCompletionCue(lower) {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
-        if containsWaitingCue(lower) {
+        if AgentHookNotificationClassifier.containsWaitingCue(lower) {
             let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
@@ -27378,55 +27216,6 @@ struct CMUXCLI {
             return ("Attention", message)
         }
         return ("Attention", "Claude needs your attention")
-    }
-
-    private func containsCompletionCue(_ lowercasedText: String) -> Bool {
-        notificationCueTokens(lowercasedText).contains { token in
-            token == "done"
-                || token == "succeed"
-                || token == "succeeded"
-                || token.hasPrefix("complet")
-                || token.hasPrefix("finish")
-                || token.hasPrefix("success")
-        }
-    }
-
-    private func containsWaitingCue(_ lowercasedText: String) -> Bool {
-        let tokens = notificationCueTokens(lowercasedText)
-        for (index, token) in tokens.enumerated() {
-            let previous = index > 0 ? tokens[index - 1] : nil
-            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
-            if token == "idle" {
-                return true
-            }
-            if token == "wait" || token == "waiting" || token == "awaiting" {
-                return true
-            }
-            if token == "prompt", previous == "idle" || previous == "input" || previous == "user" {
-                return true
-            }
-            if token == "input" {
-                if previous == "need" || previous == "needs" || previous == "needed"
-                    || previous == "require" || previous == "requires" || previous == "required"
-                    || previous == "request" || previous == "requests" || previous == "requested"
-                    || previous == "wait" || previous == "waiting" || previous == "awaiting"
-                    || previous == "user" || previous == "your"
-                    || next == "needed" || next == "required" || next == "requested" {
-                    return true
-                }
-            }
-            if token == "question", lowercasedText.contains("?") || tokens.contains(where: {
-                $0 == "answer" || $0 == "respond" || $0 == "response" || $0 == "reply"
-                    || $0 == "choose" || $0 == "confirm" || $0 == "continue"
-            }) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func notificationCueTokens(_ lowercasedText: String) -> [Substring] {
-        lowercasedText.split { !$0.isLetter && !$0.isNumber }
     }
 
     private func sanitizeNotificationField(_ value: String) -> String {
@@ -27441,17 +27230,11 @@ struct CMUXCLI {
         meta: String? = nil
     ) -> String {
         let base = "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-        // `meta` is a structured, delimiter-safe tag (see `notifyMeta`): it has no
+        // `meta` is a structured, delimiter-safe tag: it has no
         // "|" or spaces, so it is NOT sanitized and rides as a 4th pipe segment.
         // Omitting it reproduces the exact 3-field payload every legacy caller sends.
         guard let meta, !meta.isEmpty else { return base }
         return base + "|" + meta
-    }
-
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. No "|" and no spaces,
-    /// so it survives the pipe-delimited payload and the app's strict `c=` guard.
-    private func notifyMeta(_ category: AgentHookNotifyCategory, pending: Bool) -> String {
-        "c=\(category.rawValue);p=\(pending ? 1 : 0)"
     }
 
     /// True when a Claude `Stop`/`Notification` payload reports unfinished
@@ -30486,7 +30269,7 @@ export default CMUXSessionRestore;
 
         let hookCwd = input.cwd
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
-            ?? normalizedHookValue(env["PWD"])
+            ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
@@ -30607,11 +30390,18 @@ export default CMUXSessionRestore;
                 sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
         }
-        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
-            guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
-                return nil
-            }
-            return "idle-turn"
+        func notificationDedupeFingerprint(
+            status: AgentHookNotificationStatus?,
+            category: AgentHookNotifyCategory,
+            body: String
+        ) -> String? {
+            AgentHookNotificationPolicy.dedupeFingerprint(
+                agentName: def.name,
+                sessionId: sessionId,
+                status: status,
+                category: category,
+                body: body
+            )
         }
         func hasActiveAntigravityBackgroundWork() -> Bool {
             def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
@@ -30838,7 +30628,9 @@ export default CMUXSessionRestore;
                         print("{}")
                         return
                     }
-                    try? store.clearNotificationEmission(sessionId: sessionId)
+                    if !AgentHookNotificationPolicy.preservesDedupeAcrossSessionStart(agentName: def.name) {
+                        try? store.clearNotificationEmission(sessionId: sessionId)
+                    }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -31394,7 +31186,11 @@ export default CMUXSessionRestore;
                 )
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
+            let notificationFingerprint = notificationDedupeFingerprint(
+                status: stopNotificationStatus,
+                category: stopNotificationStatus == .idle ? .turnComplete : .other,
+                body: body
+            )
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
                 || (input.object?["cmux_notification_routed"] as? Bool) == true
             // Antigravity's integration defines a stop with active background work
@@ -31425,7 +31221,7 @@ export default CMUXSessionRestore;
                 // setting covers every built-in agent, not just Claude. Error
                 // alerts stay untagged and always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
-                    ? notifyMeta(.turnComplete, pending: antigravityHasActiveBackgroundWork)
+                    ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
@@ -31653,14 +31449,15 @@ export default CMUXSessionRestore;
             if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
                 // Rebuilt from the stored session record: a stale .idle status is
                 // still a completion re-notification, so keep it under the
-                // "Agent Finished" gate. A stale .needsInput cannot distinguish
-                // permission from waiting, so it stays untagged (always deliver).
+                // "Agent Finished" gate. A stale non-idle status cannot
+                // distinguish permission from waiting; the fresh permission
+                // alert already delivered, so re-notifications gate as waiting.
                 summary = AgentHookNotificationSummary(
                     subtitle: mapped?.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
                     status: mapped?.lastNotificationStatus,
                     isFallback: false,
-                    notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : nil
+                    notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : .idleReminder
                 )
             }
             let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
@@ -31798,7 +31595,11 @@ export default CMUXSessionRestore;
                 }
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
+            let notificationFingerprint = notificationDedupeFingerprint(
+                status: summary.status,
+                category: summary.notifyCategory,
+                body: summary.body
+            )
             if shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag by the classifier's category so the app's agent notification
                 // settings cover every built-in agent: approval prompts gate under
@@ -31806,16 +31607,13 @@ export default CMUXSessionRestore;
                 // Waiting for Input", turn-boundary completions (grok and
                 // antigravity route them through this hook) under "Agent
                 // Finished". Errors and unclassified alerts stay untagged.
-                let notificationMeta: String? = summary.notifyCategory.map { category in
-                    // Completions AND waiting nags are both "pending" while
-                    // background work is live, so a fullyIdle=false Antigravity
-                    // waiting cue doesn't deliver a false "waiting for input".
-                    notifyMeta(
-                        category,
-                        pending: (category == .turnComplete || category == .idleReminder)
-                            && hasActiveAntigravityBackgroundWork()
-                    )
-                }
+                // Completions AND waiting nags are both "pending" while
+                // background work is live, so a fullyIdle=false Antigravity
+                // waiting cue doesn't deliver a false "waiting for input".
+                let notificationMeta = summary.notifyCategory.metaSegment(
+                    pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
+                        && hasActiveAntigravityBackgroundWork()
+                )
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG

@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -52,6 +53,9 @@ public protocol SettingsHostActions: AnyObject {
     /// "Open Config" row in the App section). The host owns the
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
+
+    /// Opens the user's workspace-layout action definitions for editing.
+    func customizeWorkspaceLayouts()
 
     /// Persists an explicit menu-bar-only preference change in the host app.
     ///
@@ -163,11 +167,21 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Applies the host-side OS `AppleLanguages` override for a changed app
+    /// language selection.
+    func applyLanguageOverride(_ language: AppLanguage)
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for package previews and tests without host layout editing.
+    func customizeWorkspaceLayouts() {}
+
+    /// Default no-op for package previews and tests without app-language ownership.
+    func applyLanguageOverride(_ language: AppLanguage) {}
 
     func openMobilePairingWindow() {}
 
