@@ -767,9 +767,11 @@
 		6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */; };
 		A50012F7 /* KeyboardShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F6 /* KeyboardShortcutRecorder.swift */; };
 		C0DE5A100000000000000001 /* KeyboardShortcutSavedLayoutTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */; };
+		4283FEFC /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F0CD0E /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F9 /* KeyboardShortcutSettingsControls.swift */; };
 		E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */; };
+		873A0000 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D07EF7 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */; };
 		A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */; };
 		A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */; };
 		D5671301D5671301D5671301 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */; };
@@ -2372,9 +2374,11 @@
 		6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutModifierHoldHintsSettingsFileTests.swift; sourceTree = "<group>"; };
 		A50012F6 /* KeyboardShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutRecorder.swift; sourceTree = "<group>"; };
 		C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSavedLayoutTemplateTests.swift; sourceTree = "<group>"; };
+		63F0CD0E /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift"; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
 		A50012F9 /* KeyboardShortcutSettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsControls.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
+		C6D07EF7 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+SectionParsers.swift"; sourceTree = "<group>"; };
 		A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/KeyboardShortcutSettingsFileStore+SidebarIndicators.swift"; sourceTree = "<group>"; };
 		A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+Template.swift"; sourceTree = "<group>"; };
 		D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
@@ -3671,6 +3675,7 @@
 				A50012F0 /* Backport.swift */,
 				BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */,
 				A50012F2 /* KeyboardShortcutSettings.swift */,
+				63F0CD0E /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */,
 				C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */,
 				C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */,
 				C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */,
@@ -3701,6 +3706,7 @@
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
 				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
 				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
+				C6D07EF7 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */,
 				A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */,
 				D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */,
 				A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */,
@@ -5740,8 +5746,10 @@
 				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
+				4283FEFC /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */,
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
+				873A0000 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift in Sources */,
 				A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */,
 				A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */,
 				D5671301D5671301D5671301 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift in Sources */,

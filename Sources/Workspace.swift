@@ -3834,31 +3834,6 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
-    private func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
-        case .terminal:
-            return SurfaceKind.terminal.rawValue
-        case .browser:
-            return SurfaceKind.browser.rawValue
-        case .markdown:
-            return SurfaceKind.markdown.rawValue
-        case .filePreview:
-            return SurfaceKind.filePreview.rawValue
-        case .rightSidebarTool:
-            return SurfaceKind.rightSidebarTool.rawValue
-        case .customSidebar:
-            return SurfaceKind.customSidebar.rawValue
-        case .agentSession:
-            return SurfaceKind.agentSession.rawValue
-        case .project:
-            return SurfaceKind.project.rawValue
-        case .extensionBrowser:
-            return SurfaceKind.extensionBrowser.rawValue
-        case .cloudVMLoading:
-            return SurfaceKind.cloudVMLoading.rawValue
-        }
-    }
-
     func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
         let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackTitle = trimmedFallback.isEmpty ? "Tab" : trimmedFallback
@@ -3888,9 +3863,6 @@ final class Workspace: Identifiable, ObservableObject {
         AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
     }
 
-    private func hasUnreadNotification(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
-    }
 
     private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
         let notificationStore = AppDelegate.shared?.notificationStore

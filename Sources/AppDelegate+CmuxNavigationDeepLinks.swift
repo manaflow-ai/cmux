@@ -2,6 +2,17 @@ import AppKit
 import Foundation
 
 extension AppDelegate {
+    #if DEBUG
+    /// Auth URL debug formatter extracted because `AppDelegate.swift` sits at
+    /// its file-length budget.
+    static func authURLDebugSummary(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name).joined(separator: ",") ?? ""
+        return "\(scheme):\(target.isEmpty ? "nil" : target):\(queryItems.isEmpty ? "none" : queryItems)"
+    }
+    #endif
+
     nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
         isManualReopen: Bool
     ) -> Bool {
