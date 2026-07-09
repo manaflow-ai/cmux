@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isProviderIdentityNotFoundError,
   isProviderNotFoundError,
+  isProviderSnapshotNotFoundError,
 } from "../services/vms/providerErrors";
 
 describe("provider error classification", () => {
@@ -13,6 +14,12 @@ describe("provider error classification", () => {
   test("keeps VM deletion errors in VM not-found classification", () => {
     expect(isProviderNotFoundError(new Error("VM does not exist"))).toBe(true);
     expect(isProviderNotFoundError(new Error("sandbox has been deleted"))).toBe(true);
+  });
+
+  test("recognizes snapshot missing errors without treating identity messages as snapshots", () => {
+    expect(isProviderSnapshotNotFoundError(new Error("snapshot does not exist"))).toBe(true);
+    expect(isProviderSnapshotNotFoundError(new Error("template was deleted"))).toBe(true);
+    expect(isProviderSnapshotNotFoundError(new Error("identity does not exist"))).toBe(false);
   });
 
   test("recognizes provider identity missing errors in nested response bodies", () => {

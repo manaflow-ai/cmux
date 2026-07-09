@@ -224,7 +224,7 @@ export type VmRepositoryShape = {
     readonly provider?: ProviderId;
     readonly imageId?: string;
     readonly metadata?: Record<string, unknown>;
-  }) => Effect.Effect<void, VmDatabaseError>;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -1556,8 +1556,8 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   recordUsageEvent: (input) =>
     dbEffect("recordUsageEvent", async () => {
       const db = cloudDb();
-      await db.transaction(async (tx) => {
-        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return false;
         await tx.insert(cloudVmUsageEvents).values({
           userId: input.userId,
           billingTeamId: input.billingTeamId ?? null,
@@ -1568,6 +1568,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           imageId: input.imageId,
           metadata: input.metadata ?? {},
         });
+        return true;
       });
     }),
   recordUsageEvents: (inputs) =>

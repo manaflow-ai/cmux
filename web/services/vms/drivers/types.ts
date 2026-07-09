@@ -114,6 +114,7 @@ export interface VMProvider {
   exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult>;
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
+  deleteSnapshot(snapshotId: string): Promise<void>;
   restore(snapshotId: string): Promise<VMHandle>;
   fork?(vmId: string): Promise<VMHandle>;
 

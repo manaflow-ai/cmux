@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
 import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms, subrouterTenants } from "../db/schema";
+import type { ProviderId } from "../services/vms/drivers";
 import {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
@@ -14,6 +15,8 @@ let providerlessProvisioningRows: Array<{ id: string }> = [];
 let providerlessProvisioningSelectsRemaining = 0;
 let providerlessCloudVmUpdateCount = 0;
 let workflowErrorsByProviderId = new Map<string, unknown>();
+let snapshotRows: Array<{ id: string; provider: ProviderId; snapshotId: string }> = [];
+let snapshotDeleteError: unknown = null;
 let subrouterTenantRows: Array<{ tenantId: string }> = [];
 let subrouterRevokeError: unknown = null;
 
@@ -22,13 +25,28 @@ type DestroyAccountOwnedVmWorkflow = {
   kind: "destroy-account-owned-vm";
   input: DestroyAccountOwnedVmInput;
 };
+type DeleteVmSnapshotInput = { provider: ProviderId; snapshotId: string };
+type DeleteVmSnapshotWorkflow = {
+  kind: "delete-vm-snapshot";
+  input: DeleteVmSnapshotInput;
+};
+type AccountDeletionTestWorkflow = DestroyAccountOwnedVmWorkflow | DeleteVmSnapshotWorkflow;
 
 const destroyAccountOwnedVm = mock((input: unknown): DestroyAccountOwnedVmWorkflow => ({
   kind: "destroy-account-owned-vm",
   input: input as DestroyAccountOwnedVmInput,
 }));
+const deleteVmSnapshot = mock((input: unknown): DeleteVmSnapshotWorkflow => ({
+  kind: "delete-vm-snapshot",
+  input: input as DeleteVmSnapshotInput,
+}));
 const runVmWorkflow = mock(async (workflow: unknown) => {
-  const vmWorkflow = workflow as DestroyAccountOwnedVmWorkflow;
+  const vmWorkflow = workflow as AccountDeletionTestWorkflow;
+  if (vmWorkflow.kind === "delete-vm-snapshot") {
+    calls.push(`delete-snapshot:${vmWorkflow.input.provider}:${vmWorkflow.input.snapshotId}`);
+    if (snapshotDeleteError) throw snapshotDeleteError;
+    return;
+  }
   const workflowError = workflowErrorsByProviderId.get(vmWorkflow.input.providerVmId);
   if (workflowError) {
     calls.push(`destroy-error:${vmWorkflow.input.userId}:${vmWorkflow.input.providerVmId}`);
@@ -45,9 +63,12 @@ beforeEach(() => {
   providerlessProvisioningSelectsRemaining = 1;
   providerlessCloudVmUpdateCount = 0;
   workflowErrorsByProviderId = new Map();
+  snapshotRows = [];
+  snapshotDeleteError = null;
   subrouterTenantRows = [];
   subrouterRevokeError = null;
   destroyAccountOwnedVm.mockClear();
+  deleteVmSnapshot.mockClear();
   runVmWorkflow.mockClear();
   deleteObject.mockClear();
 });
@@ -241,6 +262,43 @@ describe("account deletion cleanup", () => {
     expect(calls).not.toContain("transaction");
   });
 
+  test("deletes personal Cloud VM snapshots before local usage rows", async () => {
+    snapshotRows = [{
+      id: "00000000-0000-4000-8000-000000000201",
+      provider: "freestyle",
+      snapshotId: "snapshot-user-1",
+    }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("select-snapshot-usage-events");
+    expect(calls).toContain("delete-snapshot:freestyle:snapshot-user-1");
+    expect(calls).toContain("delete-snapshot-usage-events");
+    expect(calls.indexOf("delete-snapshot:freestyle:snapshot-user-1")).toBeLessThan(
+      calls.indexOf("delete-snapshot-usage-events"),
+    );
+    expect(calls.indexOf("delete-snapshot-usage-events")).toBeLessThan(calls.indexOf("transaction"));
+  });
+
+  test("fails closed when provider snapshot deletion fails", async () => {
+    snapshotRows = [{
+      id: "00000000-0000-4000-8000-000000000202",
+      provider: "freestyle",
+      snapshotId: "snapshot-user-1",
+    }];
+    snapshotDeleteError = new Error("provider snapshot delete failed");
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("provider snapshot delete failed");
+
+    expect(calls).toContain("delete-snapshot:freestyle:snapshot-user-1");
+    expect(calls).not.toContain("delete-snapshot-usage-events");
+    expect(calls).not.toContain("transaction");
+  });
+
   test("marks stale providerless provisioning VMs before claiming providerless rows", async () => {
     await deleteCmuxAccountData({
       userId: "user-1",
@@ -334,6 +392,7 @@ function fakeDb() {
       return updateBuilder();
     },
     delete: (table: unknown) => {
+      if (table === cloudVmUsageEvents) return writeBuilder("delete-snapshot-usage-events");
       if (table === subrouterTenants) return writeBuilder("delete-subrouter-tenant");
       return writeBuilder();
     },
@@ -364,6 +423,10 @@ function fakeDbSelectBuilder() {
       subrouterTenantRows = [];
       return selected;
     }
+    if (table === cloudVmUsageEvents && snapshotRows.length > 0) {
+      calls.push("select-snapshot-usage-events");
+      return snapshotRows.splice(0, 50);
+    }
     return [];
   };
   const builder = {
@@ -387,6 +450,7 @@ function fakeRuntime() {
     cloudDb: () => fakeDb() as unknown as ReturnType<typeof cloudDb>,
     deleteObject,
     destroyAccountOwnedVm,
+    deleteVmSnapshot,
     runVmWorkflow,
     revokeSubrouterTenant: async (tenantId: string) => {
       calls.push(`revoke-subrouter-tenant:${tenantId}`);

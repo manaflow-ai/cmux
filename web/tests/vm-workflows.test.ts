@@ -44,6 +44,7 @@ import {
   resetBaseVm,
   restoreVm,
   reconcileVmProviderStatuses,
+  snapshotVm,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -159,6 +160,45 @@ describe("VM Effect workflows", () => {
       vmId: vm.id,
       metadata: { commandLength: "echo preflight".length, exitCode: 7 },
     });
+  });
+
+  test("deletes a just-created snapshot when account deletion blocks usage recording", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000111",
+      userId: "user-workflow-snapshot-delete-race",
+      billingTeamId: null,
+      providerVmId: "provider-vm-snapshot-delete-race",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, recordUsageEventResult: false });
+    const deletedSnapshots: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () =>
+        Effect.succeed({
+          id: "snapshot-delete-race",
+          createdAt: Date.now(),
+        }),
+      deleteSnapshot: (_provider, snapshotId) =>
+        Effect.sync(() => {
+          deletedSnapshots.push(snapshotId);
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      snapshotVm({
+        userId: "user-workflow-snapshot-delete-race",
+        providerVmId: "provider-vm-snapshot-delete-race",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(usageEvents).toEqual([]);
+    expect(deletedSnapshots).toEqual(["snapshot-delete-race"]);
   });
 
   test("exec failure with running provider status propagates the original error without retry", async () => {
@@ -527,6 +567,7 @@ describe("VM Effect workflows", () => {
       recordUsageEvent: (event) =>
         Effect.sync(() => {
           usageEvents.push(event);
+          return true;
         }),
       recordUsageEvents: (events) =>
         Effect.sync(() => {
@@ -1593,7 +1634,7 @@ describe("VM Effect workflows", () => {
       upsertVmSession: () => Effect.fail(new Error("unused") as never),
       activeIdentityLeases: () => Effect.succeed([]),
       markLeasesRevoked: () => Effect.void,
-      recordUsageEvent: () => Effect.void,
+      recordUsageEvent: () => Effect.succeed(true),
       recordUsageEvents: () => {
         usageEventAttempts += 1;
         return Effect.fail(new VmDatabaseError({
@@ -4400,6 +4441,7 @@ function testWorkflowRepo(input: {
   readonly revokedLeaseIds?: string[];
   readonly leaseRevocationRetries?: LeaseRevocationRetry[];
   readonly observedStatuses?: ObservedStatusUpdate[];
+  readonly recordUsageEventResult?: boolean;
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
@@ -4494,7 +4536,9 @@ function testWorkflowRepo(input: {
       }),
     recordUsageEvent: (event) =>
       Effect.sync(() => {
-        input.usageEvents?.push(event);
+        const inserted = input.recordUsageEventResult ?? true;
+        if (inserted) input.usageEvents?.push(event);
+        return inserted;
       }),
     recordUsageEvents: (events) =>
       Effect.sync(() => {

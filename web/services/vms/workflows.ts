@@ -31,7 +31,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { maxActiveVmsForPlan } from "./entitlements";
-import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderIdentityNotFoundError, isProviderNotFoundError, isProviderSnapshotNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
@@ -251,7 +251,7 @@ export function createVm(input: {
             provider: input.provider,
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause) },
-          }),
+          }).pipe(Effect.asVoid),
         ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
       ),
     );
@@ -436,7 +436,7 @@ function finishBaseCreate(
             provider: input.provider,
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
-          }),
+          }).pipe(Effect.asVoid),
         ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
       ),
     );
@@ -499,7 +499,7 @@ function finishBaseCreate(
         generation: create.generation.generation,
         retainedProviderVmId: create.previousVm?.providerVmId ?? null,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
 
     return baseVmEntryFromRows(
       create.base,
@@ -546,7 +546,7 @@ function reopenBaseIfProviderDeleted(
               baseName: input.baseName ?? "base",
               generation: create.generation.generation,
             },
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -576,7 +576,7 @@ export function snapshotVm(input: {
         operation: "snapshot",
         cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
       })));
-    yield* repo.recordUsageEvent({
+    const recorded = yield* repo.recordUsageEvent({
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -586,8 +586,43 @@ export function snapshotVm(input: {
       imageId: vm.imageId,
       metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
     });
+    if (!recorded) {
+      yield* deleteProviderSnapshot(providers, vm.provider, snapshot.id);
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     return snapshot;
   });
+}
+
+export function deleteVmSnapshot(input: {
+  readonly provider: ProviderId;
+  readonly snapshotId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    yield* deleteProviderSnapshot(providers, input.provider, input.snapshotId);
+  });
+}
+
+function deleteProviderSnapshot(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  snapshotId: string,
+): Effect.Effect<void, VmProviderOperationError> {
+  const deleteSnapshot = providers.deleteSnapshot;
+  if (!deleteSnapshot) {
+    return Effect.fail(new VmProviderOperationError({
+      provider,
+      operation: `deleteSnapshot(${snapshotId})`,
+      cause: new Error("Cloud VM snapshot deletion is not supported by this provider gateway"),
+    }));
+  }
+  return deleteSnapshot(provider, snapshotId).pipe(
+    Effect.catchAll((err) => {
+      if (isProviderSnapshotNotFoundError(err.cause)) return Effect.void;
+      return Effect.fail(err);
+    }),
+  );
 }
 
 export function restoreVm(input: {
@@ -723,7 +758,7 @@ export function forkVm(input: {
               provider: source.provider,
               imageId: source.imageId,
               metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
-            }),
+            }).pipe(Effect.asVoid),
           ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
         ),
       );
@@ -782,7 +817,7 @@ export function forkVm(input: {
           forkProviderVmId: fork.providerVmId,
           idempotencyKeySet: !!input.idempotencyKey,
         },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
       return { snapshot: null, fork };
     }
 
@@ -818,7 +853,7 @@ export function forkVm(input: {
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
     return { snapshot, fork };
   });
 }
@@ -914,7 +949,7 @@ function reconcileObservedProviderStatus(
         provider: vm.provider,
         imageId: vm.imageId,
         metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
       return "destroyed" as const;
     }
     return "updated" as const;
@@ -1056,7 +1091,7 @@ function recordResumeUsageEvent(
     provider: vm.provider,
     imageId: vm.imageId,
     metadata: { source: resumeSource },
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
 }
 
 // Active-limit note: the control-plane-owned paused-row resume path is
@@ -1268,7 +1303,7 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
   });
 }
 
@@ -1300,7 +1335,7 @@ export function destroyAccountOwnedVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
   });
 }
 
@@ -1373,7 +1408,7 @@ export function execVm(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
     return result satisfies ExecResult;
   });
 }
@@ -1474,7 +1509,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
     const session = endpoint.transport === "websocket"
       ? yield* repo.upsertVmSession({
         vmId: vm.id,
@@ -1530,7 +1565,7 @@ export function openSshEndpoint(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
     return endpoint;
   });
 }
@@ -1680,7 +1715,7 @@ function recordCreditEvent(
       customerType: reservation.customerType,
       customerIdSet: !!reservation.customerId,
     },
-  });
+  }).pipe(Effect.asVoid);
 }
 
 function reserveCreateCredit(
@@ -1718,7 +1753,7 @@ function reserveCreateCredit(
               imageVersion: input.imageVersion ?? null,
               message: errorMessage(err),
             },
-          }).pipe(Effect.catchAll(() => Effect.void))
+          }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void))
         ),
       );
 
@@ -1757,7 +1792,7 @@ function reserveCreateCredit(
                   ? String((err as { _tag?: unknown })._tag)
                   : null,
               },
-            }),
+            }).pipe(Effect.asVoid),
           ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
         ),
       );
@@ -1856,7 +1891,7 @@ function recordCreateFailureEvent(
     provider: input.provider,
     imageId: input.image,
     metadata: { operation, message },
-  });
+  }).pipe(Effect.asVoid);
 }
 
 function creditUsageEvent(
@@ -1943,7 +1978,7 @@ function recordGrantEvent(
       customerType: grant.customerType,
       customerIdSet: !!grant.customerId,
     },
-  });
+  }).pipe(Effect.asVoid);
 }
 
 function refundCredit(

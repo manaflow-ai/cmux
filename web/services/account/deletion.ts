@@ -31,7 +31,8 @@ import {
   PRO_PLAN_ID,
 } from "../billing/pro";
 import { isStripeBillingConfigured, stripe } from "../billing/stripe";
-import { destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
+import type { ProviderId } from "../vms/drivers";
+import { deleteVmSnapshot, destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
 import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
 import {
@@ -47,6 +48,7 @@ import {
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const ACCOUNT_DELETION_JOB_STALE_MS = 60 * 60 * 1000;
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
+const ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE = 50;
 const VAULT_ACCOUNT_DELETION_BATCH_SIZE = 100;
 
 type AccountDeletionWorkflow = unknown;
@@ -57,6 +59,10 @@ type AccountDeletionRuntime = {
     readonly userId: string;
     readonly providerVmId: string;
   }) => AccountDeletionWorkflow;
+  readonly deleteVmSnapshot?: (input: {
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => AccountDeletionWorkflow;
   readonly runVmWorkflow: (workflow: AccountDeletionWorkflow) => Promise<unknown>;
   readonly revokeSubrouterTenant?: (tenantId: string) => Promise<void>;
 };
@@ -65,8 +71,9 @@ const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   cloudDb,
   deleteObject,
   destroyAccountOwnedVm: (input) => destroyAccountOwnedVm(input),
+  deleteVmSnapshot: (input) => deleteVmSnapshot(input),
   runVmWorkflow: (workflow) =>
-    runVmWorkflow(workflow as ReturnType<typeof destroyAccountOwnedVm>),
+    runVmWorkflow(workflow as Parameters<typeof runVmWorkflow>[0]),
   revokeSubrouterTenant: revokeSubrouterTenantFromEnv,
 };
 
@@ -362,6 +369,7 @@ export async function deleteCmuxAccountData(
   const anonymizedUserId = deletedAccountId(input.userId);
   await claimProviderlessAccountVms(input.userId, runtime);
   await destroyProviderBackedAccountVms(input.userId, runtime);
+  await deleteAccountVmSnapshots(input.userId, runtime);
   await deletePersonalSubrouterTenant(input.userId, runtime);
   await deleteAccountVaultObjects(input.userId, runtime);
 
@@ -388,16 +396,7 @@ export async function deleteCmuxAccountData(
       .where(eq(cloudVmNotificationEvents.userId, input.userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, input.userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, input.userId));
-    await tx.delete(cloudVmUsageEvents).where(or(
-      eq(cloudVmUsageEvents.billingTeamId, input.userId),
-      and(
-        eq(cloudVmUsageEvents.userId, input.userId),
-        or(
-          isNull(cloudVmUsageEvents.billingTeamId),
-          eq(cloudVmUsageEvents.billingTeamId, input.userId),
-        ),
-      ),
-    ));
+    await tx.delete(cloudVmUsageEvents).where(personalCloudVmUsageEvents(input.userId));
     await tx.update(cloudVmUsageEvents)
       .set({ userId: anonymizedUserId })
       .where(teamScopedUsageEventsCreatedByUser(input.userId));
@@ -587,6 +586,68 @@ function teamScopedUsageEventsCreatedByUser(userId: string) {
     isNotNull(cloudVmUsageEvents.billingTeamId),
     ne(cloudVmUsageEvents.billingTeamId, userId),
   );
+}
+
+function personalCloudVmUsageEvents(userId: string) {
+  return or(
+    eq(cloudVmUsageEvents.billingTeamId, userId),
+    and(
+      eq(cloudVmUsageEvents.userId, userId),
+      or(
+        isNull(cloudVmUsageEvents.billingTeamId),
+        eq(cloudVmUsageEvents.billingTeamId, userId),
+      ),
+    ),
+  );
+}
+
+async function deleteAccountVmSnapshots(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const buildWorkflow = runtime.deleteVmSnapshot ?? defaultAccountDeletionRuntime.deleteVmSnapshot;
+  if (!buildWorkflow) {
+    throw new Error("Cloud VM snapshot deletion is not configured");
+  }
+
+  for (;;) {
+    const snapshots = await accountVmSnapshotRows(userId, runtime);
+    if (snapshots.length === 0) return;
+    for (const snapshot of snapshots) {
+      await runtime.runVmWorkflow(buildWorkflow({
+        provider: snapshot.provider,
+        snapshotId: snapshot.snapshotId,
+      }));
+    }
+    await db.delete(cloudVmUsageEvents).where(inArray(cloudVmUsageEvents.id, snapshots.map((row) => row.id)));
+  }
+}
+
+async function accountVmSnapshotRows(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<readonly { readonly id: string; readonly provider: ProviderId; readonly snapshotId: string }[]> {
+  const db = runtime.cloudDb();
+  const rows = await db
+    .select({
+      id: cloudVmUsageEvents.id,
+      provider: cloudVmUsageEvents.provider,
+      snapshotId: sql<string | null>`${cloudVmUsageEvents.metadata}->>'snapshotId'`,
+    })
+    .from(cloudVmUsageEvents)
+    .where(and(
+      personalCloudVmUsageEvents(userId),
+      eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+      isNotNull(cloudVmUsageEvents.provider),
+      sql`${cloudVmUsageEvents.metadata}->>'snapshotId' is not null`,
+    ))
+    .limit(ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE);
+  return rows.flatMap((row) => {
+    const snapshotId = row.snapshotId?.trim();
+    if (!row.provider || !snapshotId) return [];
+    return [{ id: row.id, provider: row.provider, snapshotId }];
+  });
 }
 
 async function deleteAccountVaultObjects(

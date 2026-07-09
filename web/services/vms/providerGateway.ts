@@ -26,6 +26,7 @@ export type VmProviderGatewayShape = {
     vmId: string,
     name?: string,
   ) => Effect.Effect<SnapshotRef, VmProviderOperationError>;
+  readonly deleteSnapshot?: (provider: ProviderId, snapshotId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly restore?: (provider: ProviderId, snapshotId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly exec: (
@@ -79,6 +80,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
   snapshot: (provider, vmId, name) =>
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
+  deleteSnapshot: (provider, snapshotId) =>
+    providerEffect(provider, "deleteSnapshot", () => getProvider(provider).deleteSnapshot(snapshotId)),
   restore: (provider, snapshotId) =>
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId)),
   fork: (provider, vmId) =>

@@ -348,6 +348,26 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    await withVmSpan(
+      "cmux.vm.provider.delete_snapshot",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "delete_snapshot",
+        "cmux.snapshot.id": snapshotId,
+        "cmux.timeout_ms": DEFAULT_TIMEOUT_MS,
+      },
+      async () => {
+        try {
+          const fs = client(DEFAULT_TIMEOUT_MS);
+          await fs.vms.snapshots.delete({ snapshotId });
+        } catch (err) {
+          throw new ProviderError("freestyle", `deleteSnapshot(${snapshotId})`, err);
+        }
+      },
+    );
+  }
+
   async fork(vmId: string): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.fork",
