@@ -83,7 +83,13 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
         for entry in entries where entry.enabled {
             desired[entry.id] = entry
         }
-        for path in Self.environmentExtensionPaths() where desired[path] == nil {
+        // A settings entry for the same path — enabled or not — always wins
+        // over the env override, so a user's "disabled" toggle sticks and the
+        // same extension never loads twice under two different ids.
+        let standardizedSettingsPaths = Set(entries.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        for path in Self.environmentExtensionPaths() {
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard desired[path] == nil, !standardizedSettingsPaths.contains(standardized) else { continue }
             desired[path] = BrowserWebExtensionEntry(
                 id: path,
                 kind: path.hasSuffix(".appex") ? .safariAppExtension : .unpackedDirectory,
@@ -96,6 +102,11 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
             try? controller.unload(context)
             loadedByEntryID[entryID] = nil
             contexts.removeAll { $0 === context }
+            // Close any popout windows the now-unloaded extension had open
+            // (e.g. a Bitwarden unlock popout) instead of leaving orphans.
+            for popout in popouts where popout.extensionContext === context {
+                popout.closeFromExtensionOrUser()
+            }
 #if DEBUG
             cmuxDebugLog("browser.webext.unloaded id=\(entryID)")
 #endif

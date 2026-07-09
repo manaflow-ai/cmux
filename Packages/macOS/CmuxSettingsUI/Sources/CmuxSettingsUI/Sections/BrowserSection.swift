@@ -40,7 +40,6 @@ public struct BrowserSection: View {
     @State private var httpAllowlistLoaded: Bool = false
 
     @State private var webExtensions: JSONValueModel<[BrowserWebExtensionEntry]>
-    @State private var discoveredWebExtensions: [SettingsDiscoveredBrowserExtension] = []
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,

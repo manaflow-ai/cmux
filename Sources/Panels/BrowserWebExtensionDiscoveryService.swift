@@ -92,7 +92,9 @@ actor BrowserWebExtensionDiscoveryService {
         process.arguments = ["-m", "-p", "com.apple.Safari.web-extension", "-A", "-v"]
         let stdout = Pipe()
         process.standardOutput = stdout
-        process.standardError = Pipe()
+        // Discard rather than pipe stderr: an undrained pipe could block the
+        // child if it wrote enough diagnostics, hanging discovery.
+        process.standardError = FileHandle.nullDevice
         try process.run()
 
         var data = Data()
