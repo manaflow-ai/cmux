@@ -187,7 +187,7 @@ import Testing
 
     @MainActor
     @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
-        try withBrowserDisabled {
+        withBrowserDisabled {
             let didStart = AppDelegate().performNewAgentChatAction(
                 tabManager: TabManager(),
                 agentChat: .default,

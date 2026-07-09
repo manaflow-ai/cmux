@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import enum CmuxWorkspaces.CmuxSurfaceTabBarBuiltInAction
+import CmuxWindowing
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,6 +13,8 @@ import Testing
 /// Plus-button menu resolution: auto-append of workspace actions, opt-in/out,
 /// validation of workspaceCommand references, and de-duplication.
 struct CmuxConfigNewWorkspaceMenuTests {
+    @MainActor
+    private final class TestAppMenuHost: AppMenuHosting {}
 
     // MARK: - Store: plus-button menu auto-append
 
@@ -44,30 +47,35 @@ struct CmuxConfigNewWorkspaceMenuTests {
     }
 
     @MainActor
-    private func contextMenuActionIDs(_ menu: NSMenu) -> [String] {
-        menu.items.compactMap { item in
-            (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.id
+    private func plannedContextMenuActions(_ store: CmuxConfigStore) -> [CmuxResolvedConfigAction] {
+        let inputs: [NewWorkspaceContextMenuItemInput] = store.newWorkspaceContextMenuItems.enumerated().map { index, item in
+            switch item {
+            case .separator:
+                return .separator
+            case .action(let menuAction):
+                return .action(
+                    title: menuAction.title,
+                    tooltip: menuAction.tooltip,
+                    iconSourcePath: menuAction.iconSourcePath,
+                    actionIndex: index
+                )
+            }
+        }
+        let host = TestAppMenuHost()
+        let coordinator = AppMenuCoordinator(host: host)
+        let plan = coordinator.planNewWorkspaceContextMenu(items: inputs) ?? []
+        return plan.compactMap { planItem in
+            guard case .action(_, _, _, let actionIndex) = planItem,
+                  case .action(let item) = store.newWorkspaceContextMenuItems[actionIndex] else {
+                return nil
+            }
+            return item.action
         }
     }
 
     @MainActor
-    private func withNewWorkspaceContextMenu<T>(
-        store: CmuxConfigStore,
-        _ body: (NSMenu) throws -> T
-    ) throws -> T {
-        let appDelegate = AppDelegate()
-        let tabManager = TabManager()
-        let windowId = appDelegate.registerMainWindowContextForTesting(
-            tabManager: tabManager,
-            cmuxConfigStore: store
-        )
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
-        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(
-            context: context,
-            cmuxConfigStore: store
-        ))
-        return try body(menu)
+    private func plannedContextMenuActionIDs(_ store: CmuxConfigStore) -> [String] {
+        plannedContextMenuActions(store).map(\.id)
     }
 
     @MainActor
@@ -95,47 +103,23 @@ struct CmuxConfigNewWorkspaceMenuTests {
     }
 
     @MainActor
-    @Test func contextMenuIncludesBuiltInAgentChatActionBox() throws {
+    @Test func contextMenuPlanIncludesBuiltInAgentChatAction() throws {
         let (store, root) = try loadStore(globalJSON: "{}")
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let appDelegate = AppDelegate()
-        let tabManager = TabManager()
-        let windowId = appDelegate.registerMainWindowContextForTesting(
-            tabManager: tabManager,
-            cmuxConfigStore: store
-        )
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
-
-        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(
-            context: context,
-            cmuxConfigStore: store
-        ))
         #expect(!store.newWorkspaceContextMenuIsConfigured)
         #expect(store.newWorkspaceMenuSectionOrder == .cloudFirst)
-        let cloudOpenTitle = String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")
-        let cloudOpenIndex = try #require(menu.items.firstIndex { item in
-            !item.isSeparatorItem && item.title == cloudOpenTitle
-        })
-        let newWorkspaceIndex = try #require(menu.items.firstIndex { item in
-            (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.id
-                == CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID
-        })
-        let agentChatItem = try #require(menu.items.first { item in
-            (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.action == .builtIn(.newAgentChat)
-        })
-        let agentChatIndex = try #require(menu.items.firstIndex { $0 === agentChatItem })
-        let agentChatBox = try #require(agentChatItem.representedObject as? NewWorkspaceContextMenuActionBox)
+        let actions = plannedContextMenuActions(store)
+        let ids = actions.map(\.id)
+        let cloudOpenIndex = try #require(ids.firstIndex { $0 == CmuxSurfaceTabBarBuiltInAction.cloudVM.configID })
+        let newWorkspaceIndex = try #require(ids.firstIndex { $0 == CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID })
+        let agentChatIndex = try #require(ids.firstIndex { $0 == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID })
+        let agentChatAction = actions[agentChatIndex]
 
         #expect(cloudOpenIndex < newWorkspaceIndex)
         #expect(newWorkspaceIndex < agentChatIndex)
-        let target = try #require(agentChatItem.target as? AppDelegate)
-        #expect(target === appDelegate)
-        #expect(agentChatItem.action == Selector(("performNewWorkspaceContextMenuItem:")))
-        #expect(agentChatBox.windowId == windowId)
-        #expect(agentChatBox.action.id == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID)
-        #expect(agentChatBox.action.title == String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"))
+        #expect(agentChatAction.action == .builtIn(.newAgentChat))
+        #expect(agentChatAction.title == String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"))
     }
 
     @MainActor
@@ -153,7 +137,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         """)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
+        let ids = plannedContextMenuActionIDs(store)
         #expect(!ids.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
     }
 
@@ -171,7 +155,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         #expect(store.newWorkspaceContextMenuIsConfigured)
-        let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
+        let ids = plannedContextMenuActionIDs(store)
         #expect(ids.contains(CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
         #expect(!ids.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
     }
@@ -190,7 +174,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         #expect(store.newWorkspaceContextMenuIsConfigured)
-        let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
+        let ids = plannedContextMenuActionIDs(store)
         #expect(ids.filter { $0 == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID }.count == 1)
     }
 

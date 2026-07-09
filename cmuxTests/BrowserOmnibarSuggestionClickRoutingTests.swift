@@ -1,4 +1,6 @@
 import AppKit
+import CmuxBrowser
+import CmuxBrowserUI
 import SwiftUI
 import Testing
 
