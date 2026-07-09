@@ -747,7 +747,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
     /// renderer or the accessibility tree.
-    private var isDismantled = false
+    /// Internal for `GhosttySurfaceView+RenderRecovery.swift` recovery guards.
+    var isDismantled = false
     /// Whether the hidden terminal input should become first responder when the
     /// surface attaches to a window. Set to `false` to suppress autofocus after
     /// chrome actions (create workspace/terminal, switch terminal) so the
@@ -3725,14 +3726,16 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 }
 
-nonisolated private enum RenderPipelineRecoveryReplay {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.
+nonisolated enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
 
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
-nonisolated private struct PendingSurfaceOperation {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
+nonisolated struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -3741,17 +3744,19 @@ nonisolated private struct PendingSurfaceOperation {
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
 /// display-link deadline. A timeout skips only the diagnostic snapshot.
-nonisolated private struct PendingVisibleSnapshot {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
+nonisolated struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<String?, Never>
 }
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
-nonisolated private struct PendingCopyableTextRead {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
+nonisolated struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
-    let cancellation: SurfaceOperationCancellationToken
+    fileprivate let cancellation: SurfaceOperationCancellationToken
     let continuation: CheckedContinuation<String?, Never>
 
     func cancel() {
