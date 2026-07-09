@@ -5,6 +5,7 @@ import { notificationSendEvents } from "../../db/schema";
 import { withAccountDeletionUserMutationLock } from "../account/deletion";
 
 type NotificationDb = ReturnType<typeof cloudDb>;
+type NotificationWriteDb = Pick<NotificationDb, "delete" | "execute" | "insert" | "select">;
 
 const PUSH_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const PUSH_RATE_LIMIT_MAX_EVENTS = 60;
@@ -25,24 +26,32 @@ export async function recordPushSendOrThrow(
   deviceCount: number,
   now = new Date(),
 ): Promise<void> {
-  const windowStart = new Date(now.getTime() - PUSH_RATE_LIMIT_WINDOW_MS);
-
   await withAccountDeletionUserMutationLock(db, userId, async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 1))`);
-    await tx
-      .delete(notificationSendEvents)
-      .where(and(eq(notificationSendEvents.userId, userId), lt(notificationSendEvents.createdAt, windowStart)));
-
-    const [recent] = await tx
-      .select({ total: count() })
-      .from(notificationSendEvents)
-      .where(and(eq(notificationSendEvents.userId, userId), gte(notificationSendEvents.createdAt, windowStart)));
-
-    const recentCount = Number(recent?.total ?? 0);
-    if (recentCount >= PUSH_RATE_LIMIT_MAX_EVENTS) {
-      throw new PushRateLimitExceededError(Math.ceil(PUSH_RATE_LIMIT_WINDOW_MS / 1000));
-    }
-
-    await tx.insert(notificationSendEvents).values({ userId, deviceCount, createdAt: now });
+    await recordPushSendInTransactionOrThrow(tx, userId, deviceCount, now);
   });
+}
+
+export async function recordPushSendInTransactionOrThrow(
+  db: NotificationWriteDb,
+  userId: string,
+  deviceCount: number,
+  now = new Date(),
+): Promise<void> {
+  const windowStart = new Date(now.getTime() - PUSH_RATE_LIMIT_WINDOW_MS);
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 1))`);
+  await db
+    .delete(notificationSendEvents)
+    .where(and(eq(notificationSendEvents.userId, userId), lt(notificationSendEvents.createdAt, windowStart)));
+
+  const [recent] = await db
+    .select({ total: count() })
+    .from(notificationSendEvents)
+    .where(and(eq(notificationSendEvents.userId, userId), gte(notificationSendEvents.createdAt, windowStart)));
+
+  const recentCount = Number(recent?.total ?? 0);
+  if (recentCount >= PUSH_RATE_LIMIT_MAX_EVENTS) {
+    throw new PushRateLimitExceededError(Math.ceil(PUSH_RATE_LIMIT_WINDOW_MS / 1000));
+  }
+
+  await db.insert(notificationSendEvents).values({ userId, deviceCount, createdAt: now });
 }

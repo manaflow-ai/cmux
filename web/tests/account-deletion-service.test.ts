@@ -224,7 +224,7 @@ describe("account deletion cleanup", () => {
     await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
   });
 
-  test("does not block auth on completed tombstones", async () => {
+  test("blocks auth on completed tombstones", async () => {
     const runtime = {
       cloudDb: () => ({
         select: () => selectBuilder(() => [{
@@ -237,13 +237,26 @@ describe("account deletion cleanup", () => {
       runVmWorkflow,
     };
 
-    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
+    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(true);
   });
 
   test("blocks user mutations under the deletion lock when a tombstone appears", async () => {
     const db = fakeAccountDeletionMutationDb([{
       userIdHash: accountDeletionUserHash("user-1"),
       status: "pending",
+    }]);
+
+    await expect(withAccountDeletionUserMutationLock(db, "user-1", async () => {
+      calls.push("write-user-data");
+    })).rejects.toBeInstanceOf(AccountDeletionMutationBlockedError);
+
+    expect(calls).toEqual(["transaction", "lock-account-deletion"]);
+  });
+
+  test("blocks user mutations after account deletion completed", async () => {
+    const db = fakeAccountDeletionMutationDb([{
+      userIdHash: accountDeletionUserHash("user-1"),
+      status: "completed",
     }]);
 
     await expect(withAccountDeletionUserMutationLock(db, "user-1", async () => {
