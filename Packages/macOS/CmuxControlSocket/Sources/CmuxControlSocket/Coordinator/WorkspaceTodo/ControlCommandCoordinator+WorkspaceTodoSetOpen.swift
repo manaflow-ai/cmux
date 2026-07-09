@@ -81,6 +81,12 @@ extension ControlCommandCoordinator {
                 message: "items[\(index)].text must not be empty",
                 data: .object(["index": .int(Int64(index))])
             )
+        case .duplicateId(let index):
+            return .err(
+                code: "invalid_params",
+                message: "items[\(index)].id must not duplicate an earlier item",
+                data: .object(["index": .int(Int64(index))])
+            )
         case .tooManyItems(let count):
             return .err(
                 code: "invalid_params",

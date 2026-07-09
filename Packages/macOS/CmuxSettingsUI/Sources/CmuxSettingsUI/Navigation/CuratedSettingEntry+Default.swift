@@ -220,7 +220,7 @@ extension Array where Element == CuratedSettingEntry {
                     String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline"),
                 ].joined(separator: " "),
                 paths: ["sidebar.beta.workspaceTodos.checklistStyle"],
-                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style", defaultValue: "sidebar.beta.workspaceTodos.checklistStyle workspace todo checklist popover inline presentation style beta")
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style", defaultValue: "sidebar.beta.workspaceTodos.checklistStyle workspace todo todos task status checklist popover inline presentation style beta")
             ),
 
             // Automation

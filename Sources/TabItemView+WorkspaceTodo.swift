@@ -78,8 +78,12 @@ extension TabItemView {
     /// row's context-menu target set (the sidebar selection when this row is
     /// part of it, otherwise just this row).
     private func workspaceTodoTargetWorkspaces() -> [Workspace] {
+        let workspaceById = Dictionary(
+            tabManager.tabs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         contextMenuWorkspaceIds.compactMap { workspaceId in
-            tabManager.tabs.first(where: { $0.id == workspaceId })
+            workspaceById[workspaceId]
         }
     }
 

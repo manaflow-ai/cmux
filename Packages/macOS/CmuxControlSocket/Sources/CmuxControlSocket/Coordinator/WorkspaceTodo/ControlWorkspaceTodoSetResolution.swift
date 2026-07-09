@@ -33,6 +33,8 @@ public enum ControlWorkspaceTodoSetResolution: Sendable {
     case notFound
     /// An item's text was empty after trimming (0-based item index).
     case emptyText(index: Int)
+    /// An item repeated a non-nil id from an earlier item (0-based item index).
+    case duplicateId(index: Int)
     /// The incoming list exceeds the checklist cap.
     case tooManyItems(count: Int)
     /// A `state` value was not a known state (the string is echoed back).

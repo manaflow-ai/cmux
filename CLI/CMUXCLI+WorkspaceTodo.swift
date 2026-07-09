@@ -211,6 +211,9 @@ extension CMUXCLI {
         if let inline = rest.first(where: { !$0.hasPrefix("--") }) {
             raw = inline
         } else {
+            guard isatty(STDIN_FILENO) == 0 else {
+                throw CLIError(message: "Usage: cmux todo set '[{\"text\":\"...\",\"state\":\"pending\"}]' (or pipe the JSON on stdin)")
+            }
             var data = Data()
             while let line = readLine(strippingNewline: false) {
                 data.append(Data(line.utf8))

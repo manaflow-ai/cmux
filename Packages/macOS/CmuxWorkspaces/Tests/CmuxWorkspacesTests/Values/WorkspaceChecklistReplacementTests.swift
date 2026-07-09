@@ -88,6 +88,30 @@ import Testing
         #expect(items == [existing])
     }
 
+    @Test func replaceRejectsDuplicateMatchedIdAtomically() {
+        let existing = WorkspaceChecklistItem(text: "untouched")
+        var items = [existing]
+        let result = items.replaceChecklist(with: [
+            WorkspaceChecklistReplacementItem(id: existing.id, text: "first"),
+            WorkspaceChecklistReplacementItem(id: existing.id, text: "second"),
+        ])
+        #expect(result == .failure(.duplicateId(index: 1)))
+        #expect(items == [existing])
+    }
+
+    @Test func replaceRejectsDuplicateNewIdAtomically() {
+        let existing = WorkspaceChecklistItem(text: "untouched")
+        let newId = UUID()
+        var items = [existing]
+        let result = items.replaceChecklist(with: [
+            WorkspaceChecklistReplacementItem(id: newId, text: "first"),
+            WorkspaceChecklistReplacementItem(id: UUID(), text: "middle"),
+            WorkspaceChecklistReplacementItem(id: newId, text: "second"),
+        ])
+        #expect(result == .failure(.duplicateId(index: 2)))
+        #expect(items == [existing])
+    }
+
     @Test func replaceRejectsOverCapAtomically() {
         let existing = WorkspaceChecklistItem(text: "untouched")
         var items = [existing]

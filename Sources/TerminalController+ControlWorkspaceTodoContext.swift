@@ -425,6 +425,8 @@ extension TerminalController: ControlWorkspaceTodoContext {
             switch workspace.replaceChecklist(with: replacements) {
             case .failure(.emptyText(let index)):
                 return .emptyText(index: index)
+            case .failure(.duplicateId(let index)):
+                return .duplicateId(index: index)
             case .failure(.tooManyItems(let count)):
                 return .tooManyItems(count: count)
             case .success:
