@@ -108,7 +108,8 @@ final class BrowserWebExtensionSupport: NSObject, ObservableObject {
             id: "com.bitwarden.desktop.safari",
             kind: .safariAppExtension,
             path: Self.bitwardenAppexURL.path,
-            enabled: true
+            enabled: true,
+            displayName: "Bitwarden"
         )
         do {
             try await store.set([seeded], for: key)
