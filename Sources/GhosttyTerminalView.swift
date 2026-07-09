@@ -372,6 +372,15 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
+    /// The process-wide cache shared by visible inline-image controllers.
+    static let terminalInlineImageThumbnailCache = TerminalInlineImageThumbnailCache()
+
+    /// Bridges Ghostty's pre-parser PTY tee to post-parser inline-image scans.
+    static let terminalInlineImageOutputService = TerminalInlineImageOutputService(
+        scheduleTick: { GhosttyApp.shared.scheduleTick() },
+        retainTickDemand: { GhosttyApp.tickNotificationDemand.retain() }
+    )
+
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -9830,6 +9839,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        inlineImageController?.setVisibleInUI(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)

@@ -1377,6 +1377,7 @@
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
 		A76830000000000000000002 /* TerminalInlineImageAnnotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683000000000000000000D /* TerminalInlineImageAnnotation.swift */; };
 		A76830000000000000000003 /* TerminalInlineImageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683000000000000000000E /* TerminalInlineImageController.swift */; };
+		A76830000000000000000019 /* TerminalInlineImageOutputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000018 /* TerminalInlineImageOutputService.swift */; };
 		A76830000000000000000004 /* TerminalInlineImageOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683000000000000000000F /* TerminalInlineImageOverlayView.swift */; };
 		A7683000000000000000000B /* TerminalInlineImageReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000016 /* TerminalInlineImageReconcilerTests.swift */; };
 		A76830000000000000000005 /* TerminalInlineImageSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000010 /* TerminalInlineImageSettings.swift */; };
@@ -2970,6 +2971,7 @@
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
 		A7683000000000000000000D /* TerminalInlineImageAnnotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageAnnotation.swift; sourceTree = "<group>"; };
 		A7683000000000000000000E /* TerminalInlineImageController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageController.swift; sourceTree = "<group>"; };
+		A76830000000000000000018 /* TerminalInlineImageOutputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageOutputService.swift; sourceTree = "<group>"; };
 		A7683000000000000000000F /* TerminalInlineImageOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageOverlayView.swift; sourceTree = "<group>"; };
 		A76830000000000000000016 /* TerminalInlineImageReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageReconcilerTests.swift; sourceTree = "<group>"; };
 		A76830000000000000000010 /* TerminalInlineImageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageSettings.swift; sourceTree = "<group>"; };
@@ -3482,6 +3484,7 @@
 				A7683000000000000000000C /* GhosttySurfaceScrollView+InlineImages.swift */,
 				A7683000000000000000000D /* TerminalInlineImageAnnotation.swift */,
 				A7683000000000000000000E /* TerminalInlineImageController.swift */,
+				A76830000000000000000018 /* TerminalInlineImageOutputService.swift */,
 				A7683000000000000000000F /* TerminalInlineImageOverlayView.swift */,
 				A76830000000000000000010 /* TerminalInlineImageSettings.swift */,
 				A76830000000000000000011 /* TerminalInlineImageThumbnailCache.swift */,
@@ -6172,6 +6175,7 @@
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				A76830000000000000000002 /* TerminalInlineImageAnnotation.swift in Sources */,
 				A76830000000000000000003 /* TerminalInlineImageController.swift in Sources */,
+				A76830000000000000000019 /* TerminalInlineImageOutputService.swift in Sources */,
 				A76830000000000000000004 /* TerminalInlineImageOverlayView.swift in Sources */,
 				A76830000000000000000005 /* TerminalInlineImageSettings.swift in Sources */,
 				A76830000000000000000006 /* TerminalInlineImageThumbnailCache.swift in Sources */,
