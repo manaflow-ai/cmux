@@ -52,29 +52,16 @@ extension TerminalController {
         tabManager: TabManager
     ) -> ControlPaneListSnapshot {
         let snapshot = workspace.bonsplitController.layoutSnapshot()
-        let remotePanes = workspace.selectedRemoteTmuxControlPanes()
-        let panes = remotePanes.isEmpty
-            ? standardControlPaneSummaries(workspace: workspace, snapshot: snapshot)
-            : remotePanes.map { pane in
-                ControlPaneSummary(
-                    paneID: pane.paneID.id,
-                    isFocused: pane.isFocused,
-                    surfaceIDs: [pane.panel.id],
-                    selectedSurfaceID: pane.panel.id,
-                    pixelFrame: nil,
-                    gridSize: controlGridSize(panel: pane.panel)
-                )
-            }
         return ControlPaneListSnapshot(
             workspaceID: workspace.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
-            panes: panes,
+            panes: controlPaneSummaries(workspace: workspace, snapshot: snapshot),
             containerWidth: snapshot.containerFrame.width,
             containerHeight: snapshot.containerFrame.height
         )
     }
 
-    private func standardControlPaneSummaries(
+    private func controlPaneSummaries(
         workspace: Workspace,
         snapshot: LayoutSnapshot
     ) -> [ControlPaneSummary] {
@@ -83,25 +70,50 @@ extension TerminalController {
             snapshot.panes.map { ($0.paneId, $0.frame) },
             uniquingKeysWith: { first, _ in first }
         )
-        return workspace.bonsplitController.allPaneIds.map { paneID in
+        return workspace.bonsplitController.allPaneIds.flatMap { paneID -> [ControlPaneSummary] in
             let tabs = workspace.bonsplitController.tabs(inPane: paneID)
-            let surfaceIDs = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
-            let selectedSurfaceID = workspace.bonsplitController
+            let panelIDs = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedPanelID = workspace.bonsplitController
                 .selectedTab(inPane: paneID)
                 .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             let frame = geometryByPaneId[paneID.id.uuidString].map {
                 ControlPanePixelFrame(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
             }
-            return ControlPaneSummary(
+
+            var summaries = panelIDs.flatMap { containerPanelID -> [ControlPaneSummary] in
+                guard let mirror = workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID) else {
+                    return []
+                }
+                return mirror.controlPanes().map { pane in
+                    ControlPaneSummary(
+                        paneID: pane.paneID.id,
+                        isFocused: workspace.focusedPanelId == containerPanelID && pane.isFocused,
+                        surfaceIDs: [pane.panel.id],
+                        selectedSurfaceID: pane.panel.id,
+                        pixelFrame: nil,
+                        gridSize: controlGridSize(panel: pane.panel)
+                    )
+                }
+            }
+
+            let standardSurfaceIDs = panelIDs.filter {
+                workspace.remoteTmuxWindowMirror(forPanelId: $0) == nil
+            }
+            guard !standardSurfaceIDs.isEmpty else { return summaries }
+            let selectedStandardSurfaceID = selectedPanelID.flatMap { panelID in
+                workspace.remoteTmuxWindowMirror(forPanelId: panelID) == nil ? panelID : nil
+            }
+            summaries.append(ControlPaneSummary(
                 paneID: paneID.id,
-                isFocused: paneID == focusedPaneId,
-                surfaceIDs: surfaceIDs,
-                selectedSurfaceID: selectedSurfaceID,
+                isFocused: paneID == focusedPaneId && selectedStandardSurfaceID != nil,
+                surfaceIDs: standardSurfaceIDs,
+                selectedSurfaceID: selectedStandardSurfaceID,
                 pixelFrame: frame,
-                gridSize: selectedSurfaceID
+                gridSize: selectedStandardSurfaceID
                     .flatMap { workspace.terminalPanel(for: $0) }
                     .flatMap { controlGridSize(panel: $0) }
-            )
+            ))
+            return summaries
         }
     }
 
