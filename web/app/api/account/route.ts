@@ -538,7 +538,10 @@ async function resolveUserBillingForAccountDeletion(
       status: stripeSubscriptions.status,
     })
     .from(stripeSubscriptions)
-    .where(eq(stripeSubscriptions.stackUserId, userId));
+    .where(or(
+      eq(stripeSubscriptions.stackUserId, userId),
+      inArray(stripeSubscriptions.stackTeamId, deletionTeamIds),
+    ));
   const activeSubscriptions = subscriptionRows.filter((subscription) =>
     stripeSubscriptionBelongsToDeletingAccount(subscription, deletionTeamIds) &&
     stripeSubscriptionIsActive(subscription)
@@ -552,7 +555,10 @@ async function resolveUserBillingForAccountDeletion(
       stackTeamId: stripeCustomers.stackTeamId,
     })
     .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, userId));
+    .where(or(
+      eq(stripeCustomers.stackUserId, userId),
+      inArray(stripeCustomers.stackTeamId, deletionTeamIds),
+    ));
   const customers = customerRows.filter((customer) =>
     !customer.stackTeamId || deletionTeamIds.includes(customer.stackTeamId)
   );

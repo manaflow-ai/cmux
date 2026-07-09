@@ -366,47 +366,59 @@ export async function applySubscriptionUpdate(
   if (!stackUserId || stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
 
   const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-  const hasUserSubscription = await userStripeSubscriptionExists(db, {
-    subscriptionId: subscription.id,
+  const lockedResult = await withAccountDeletionUserLock(
+    db,
     stackUserId,
-  });
-  const isMetadataOnlyUserSubscription = !hasUserSubscription &&
-    !mappedStackUserId &&
-    metadataStackUserId === stackUserId;
+    async (tx): Promise<
+      | { skipped: true }
+      | { user: StackBillingUser; stackUserId: string; isActive: boolean }
+    > => {
+      const hasUserSubscription = await userStripeSubscriptionExists(tx, {
+        subscriptionId: subscription.id,
+        stackUserId,
+      });
+      const isMetadataOnlyUserSubscription = !hasUserSubscription &&
+        !mappedStackUserId &&
+        metadataStackUserId === stackUserId;
 
-  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db)) return { skipped: true };
-  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user && isMetadataOnlyUserSubscription) return { skipped: true };
-  if (!user) throw new Error(`Stack user not found for Stripe subscription update: ${stackUserId}`);
-  if (isAccountDeletionInProgress(user)) return { skipped: true };
+      if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx)) return { skipped: true };
+      const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+      if (!user && isMetadataOnlyUserSubscription) return { skipped: true };
+      if (!user) throw new Error(`Stack user not found for Stripe subscription update: ${stackUserId}`);
+      if (isAccountDeletionInProgress(user)) return { skipped: true };
 
-  if (hasUserSubscription) {
-    await updateExistingUserStripeSubscription(db, {
-      subscription,
-      customerId,
-      stackUserId,
-    });
-  } else {
-    await upsertStripeSubscription(db, {
-      subscription,
-      customerId,
-      stackUserId,
-      scope: "user",
-    });
-  }
+      if (hasUserSubscription) {
+        await updateExistingUserStripeSubscription(tx, {
+          subscription,
+          customerId,
+          stackUserId,
+        });
+      } else {
+        await upsertStripeSubscription(tx, {
+          subscription,
+          customerId,
+          stackUserId,
+          scope: "user",
+        });
+      }
+
+      return { user, stackUserId, isActive };
+    },
+  );
+  if ("skipped" in lockedResult) return { skipped: true };
 
   await syncStackUserMetadataWithAccountDeletionGuard({
     db,
-    stackUserId,
+    stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
     sync: async (freshUser) => {
       await syncProPlanMetadata(freshUser, isActive);
     },
   });
   if (!isActive) {
-    await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
+    await removeUserFromTestflightOnLapse(lockedResult.user, lockedResult.stackUserId, dependencies);
   }
-  return { scope: "user", stackUserId, isActive };
+  return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
 }
 
 function isAccountDeletionInProgress(user: StackBillingUser): boolean {

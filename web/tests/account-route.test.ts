@@ -213,6 +213,7 @@ const revokeTenant = mock(async (...args: unknown[]) => {
 let deletedTableCount = 0;
 let deletedTables: unknown[] = [];
 let deletedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
+let selectedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let tombstoneUpdates: unknown[] = [];
 let tombstoneCompleteError: unknown = null;
@@ -319,14 +320,26 @@ function chainableSelectResult(rows: unknown[]): SelectResult {
 }
 
 const mockDb = {
-  select: mock(() => ({
-    from: () => ({
-      where: () => chainableSelectResult(nextSelectResult()),
-      innerJoin: () => ({
-        where: () => chainableSelectResult(nextSelectResult()),
-      }),
-    }),
-  })),
+  select: mock(() => {
+    let selectedTable: unknown = null;
+    return {
+      from: (table: unknown) => {
+        selectedTable = table;
+        return {
+          where: (condition: unknown) => {
+            selectedWhere.push({ table: selectedTable, condition });
+            return chainableSelectResult(nextSelectResult());
+          },
+          innerJoin: () => ({
+            where: (condition: unknown) => {
+              selectedWhere.push({ table: selectedTable, condition });
+              return chainableSelectResult(nextSelectResult());
+            },
+          }),
+        };
+      },
+    };
+  }),
   delete: deleteRows,
   update: updateRows,
   transaction,
@@ -461,6 +474,7 @@ beforeEach(() => {
   deletedTableCount = 0;
   deletedTables = [];
   deletedWhere = [];
+  selectedWhere = [];
   updatedRows = [];
   tombstoneUpdates = [];
   tombstoneCompleteError = null;
@@ -672,6 +686,10 @@ describe("account deletion route", () => {
     });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active", "sub_team_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user", "cus_team"]);
+    const subscriptionSelect = selectedWhere.find((entry) => entry.table === stripeSubscriptions);
+    expect(conditionColumnNames(subscriptionSelect?.condition)).toContain("stack_team_id");
+    const customerSelect = selectedWhere.find((entry) => entry.table === stripeCustomers);
+    expect(conditionColumnNames(customerSelect?.condition)).toContain("stack_team_id");
     expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
     expect(transactionExecute).toHaveBeenCalledTimes(5);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);

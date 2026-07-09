@@ -922,6 +922,27 @@ describe("recordCheckoutCompletion", () => {
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
   });
 
+  test("skips user subscription webhooks when deletion starts before the locked write", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user after tombstone blocks subscription write");
+    });
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+    tombstoneSelectResults = [[{ status: "pending" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(updates.some((entry) => entry.table === stripeSubscriptions)).toBe(false);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("skips subscription metadata sync when deletion starts after webhook rows update", async () => {
     const staleUpdate = mock(async () => undefined);
     const deletingUpdate = mock(async () => undefined);
