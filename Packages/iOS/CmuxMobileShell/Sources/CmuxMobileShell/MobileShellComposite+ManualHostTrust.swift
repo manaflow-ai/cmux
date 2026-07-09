@@ -79,10 +79,16 @@ extension MobileShellComposite {
             clearManualHostTrustWarning()
             return .failed
         }
+        if case let .manual(_, _, _, _, _, ifStillCurrent) = pending,
+           ifStillCurrent?() == false {
+            clearManualHostTrustWarning()
+            return .superseded
+        }
         clearManualHostTrustWarning()
         await manualHostTrustStore.trust(warning.scope)
         switch pending {
         case let .manual(name, host, port, pairedMacDeviceID, recordsPairingAttempt, ifStillCurrent):
+            guard ifStillCurrent?() != false else { return .superseded }
             return await connectManualHost(
                 name: name,
                 host: host,

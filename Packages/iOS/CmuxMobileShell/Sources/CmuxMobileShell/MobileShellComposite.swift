@@ -1653,12 +1653,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .needsUserApproval
             }
         }
-        let attemptID: UUID
-        if recordsPairingAttempt {
-            attemptID = beginPairingAttempt(method: "manual")
-        } else {
-            attemptID = approvalAttemptID
-        }
+        let attemptID = recordsPairingAttempt
+            ? beginPairingAttempt(method: "manual")
+            : approvalAttemptID
         guard isCurrentPairingAttempt(attemptID) else { return .superseded }
         if !preservesActiveConnection {
             activeRoute = directRoute
@@ -1676,7 +1673,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .proceed: break
         }
         do {
+            guard ifStillCurrent?() != false else { return .superseded }
             let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
+            guard isCurrentPairingAttempt(attemptID), ifStillCurrent?() != false else { return .superseded }
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,

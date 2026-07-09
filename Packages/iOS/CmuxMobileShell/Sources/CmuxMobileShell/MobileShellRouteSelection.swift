@@ -61,11 +61,11 @@ struct MobileShellRouteSelection: Sendable {
             if let tailscaleIP = firstHostPort(where: { route in
                 guard route.kind == .tailscale,
                       case let .hostPort(host, _) = route.endpoint else { return false }
-                return isIPLiteralHost(host)
+                return routeAuthPolicy.routeAllowsStackAuth(route) && isIPLiteralHost(host)
             }) {
                 return tailscaleIP
             }
-            if let tailscale = firstHostPort(where: { $0.kind == .tailscale }) {
+            if let tailscale = firstHostPort(where: { $0.kind == .tailscale && routeAuthPolicy.routeAllowsStackAuth($0) }) {
                 return tailscale
             }
             if let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
