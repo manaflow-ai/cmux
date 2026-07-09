@@ -6745,7 +6745,8 @@ final class Workspace: Identifiable, ObservableObject {
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
         sourcePanelId: UUID?,
-        inheritedWorkingDirectory: String? = nil
+        inheritedWorkingDirectory: String? = nil,
+        inheritedWorkingDirectoryRequiresPromptIdle: Bool = false
     ) -> String? {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
@@ -6755,14 +6756,18 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
+            inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory, requiresPromptIdle: inheritedWorkingDirectoryRequiresPromptIdle),
             sourcePanelId.flatMap { panelDirectories[$0] },
-            inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory),
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
-    private func inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: UUID?, inheritedWorkingDirectory: String?) -> String? {
+    private func inheritedWorkingDirectoryForTerminalStartup(
+        sourcePanelId: UUID?,
+        inheritedWorkingDirectory: String?,
+        requiresPromptIdle: Bool = false
+    ) -> String? {
         guard let inherited = Self.normalizedTerminalWorkingDirectory(inheritedWorkingDirectory),
               let sourcePanelId,
               restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] == nil,
@@ -6770,8 +6775,7 @@ final class Workspace: Identifiable, ObservableObject {
               restoredAgentResumeStatesByPanelId[sourcePanelId] != .autoResumeCommandRunning,
               !isRemoteTerminalSurface(sourcePanelId),
               let terminalPanel = terminalPanel(for: sourcePanelId),
-              terminalPanel.surface.surface != nil,
-              !((terminalPanel.surface.initialCommand != nil || terminalPanel.surface.tmuxStartCommand != nil) &&
+              !((terminalPanel.surface.initialCommand != nil || terminalPanel.surface.tmuxStartCommand != nil || requiresPromptIdle) &&
                   panelShellActivityStates[sourcePanelId] != .promptIdle) else { return nil }
         return inherited
     }
@@ -7147,9 +7151,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Hold remote-command panes open after exit so startup errors remain visible
         // instead of Ghostty respawning a local login shell.
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: true)
         }
 #if DEBUG
         dlog(
@@ -7161,10 +7163,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-            inheritedWorkingDirectory: inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
+            inheritedWorkingDirectory: startupCommand == nil && inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
         )
+        inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
 
-        // Create the new terminal panel.
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
@@ -7443,17 +7445,19 @@ final class Workspace: Identifiable, ObservableObject {
             ? inheritedConfig?.workingDirectory
             : fallbackLiveWorkingDirectory
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: true)
         }
         let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: fallbackSourcePanelId,
-                inheritedWorkingDirectory: inheritedWorkingDirectory
+                inheritedWorkingDirectory: inheritedWorkingDirectory,
+                inheritedWorkingDirectoryRequiresPromptIdle: inheritedConfigSourcePanelId != fallbackSourcePanelId
             )
             : workingDirectory
+        if shouldInheritWorkingDirectoryFallback {
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
+        }
 
         // Restored panels reuse their persisted Ghostty surface id so session
         // bindings survive relaunch; callers only pass ids verified as free.
@@ -11088,9 +11092,7 @@ final class Workspace: Identifiable, ObservableObject {
             remoteStartupCommand: startupCommand
         )
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: true)
         }
 
         let newPanel = TerminalPanel(

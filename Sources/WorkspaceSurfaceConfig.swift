@@ -54,3 +54,21 @@ func cmuxInheritedSurfaceConfig(
 
     return config
 }
+
+extension Workspace {
+    nonisolated static func terminalStartupConfigTemplate(
+        _ inheritedConfig: CmuxSurfaceConfigTemplate?,
+        waitAfterCommand: Bool = false,
+        clearWorkingDirectory: Bool = false
+    ) -> CmuxSurfaceConfigTemplate? {
+        guard waitAfterCommand || inheritedConfig != nil else { return nil }
+        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        if waitAfterCommand {
+            template.waitAfterCommand = true
+        }
+        if clearWorkingDirectory {
+            template.workingDirectory = nil
+        }
+        return template
+    }
+}
