@@ -209,6 +209,11 @@ extension MobileShellComposite {
 
     /// Fails a stuck replay barrier open so live output can re-establish state.
     ///
+    /// Intact-surface barriers restore the pre-barrier delivered floor because
+    /// the local terminal still shows that content. Surface-reset paths call
+    /// ``rebaseTerminalReplayStaleFloor(surfaceID:)`` before failing open, so
+    /// they keep the erase-and-rebase behavior for a blank rebuilt surface.
+    ///
     /// Result invariant: no code path may leave a surface where live output is
     /// dropped indefinitely while no replay is in flight and no retry budget
     /// remains.
@@ -236,8 +241,7 @@ extension MobileShellComposite {
         terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
-        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")

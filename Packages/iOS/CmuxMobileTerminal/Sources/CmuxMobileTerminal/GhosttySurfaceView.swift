@@ -148,6 +148,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     static let visibleSnapshotTimeout: CFTimeInterval = 0.6
     static let copyableTextTimeout: CFTimeInterval = 2.0
     static let maxPendingSurfaceFrees = 4
+    // Timer-forced recovery may leak wedged libghostty surfaces, but only up to this hard cap.
+    static let maxForcedRecoveryPendingSurfaceFrees = 8
     var nextSurfaceOperationID: UInt64 = 0
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?

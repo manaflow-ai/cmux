@@ -77,8 +77,11 @@ extension GhosttySurfaceView {
         MobileDebugLog.anchormux(
             "render.recover.paused reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
         )
+        let wasAlreadyPaused = renderPipelineRecoveryPaused
         renderPipelineRecoveryPaused = true
-        renderPipelineRecoveryPausedAt = now
+        if !wasAlreadyPaused {
+            renderPipelineRecoveryPausedAt = now
+        }
         ensureRenderPipelineRecoveryResumeTimer()
         stopDisplayLink()
         _ = completePendingSurfaceOperations(returning: false)
@@ -95,12 +98,19 @@ extension GhosttySurfaceView {
               surface != nil else { return }
         let now = CACurrentMediaTime()
         let pausedElapsed = renderPipelineRecoveryPausedAt.map { now - $0 } ?? 0
-        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees
-                || pausedElapsed >= Self.renderPipelineRecoveryResumeInterval else {
+        let hasSoftFreeSlot = pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees
+        let reachedResumeDeadline = pausedElapsed >= Self.renderPipelineRecoveryResumeInterval
+        guard hasSoftFreeSlot || reachedResumeDeadline else {
+            return
+        }
+        guard hasSoftFreeSlot || pendingSurfaceFreeCount < Self.maxForcedRecoveryPendingSurfaceFrees else {
+            MobileDebugLog.anchormux(
+                "render.recover.resume_deferred pendingFrees=\(pendingSurfaceFreeCount)"
+            )
             return
         }
         MobileDebugLog.anchormux(
-            "render.recover.resuming pendingFrees=\(pendingSurfaceFreeCount)"
+            "render.recover.resuming pendingFrees=\(pendingSurfaceFreeCount) forced=\(!hasSoftFreeSlot)"
         )
         renderPipelineRecoveryPaused = false
         renderPipelineRecoveryPausedAt = nil
@@ -108,7 +118,8 @@ extension GhosttySurfaceView {
         let recovered = recoverRenderPipeline(
             reason: "free_drained",
             stalledMs: 0,
-            replay: .callerWillRequestReplay
+            replay: .callerWillRequestReplay,
+            allowSaturatedPendingFrees: !hasSoftFreeSlot
         )
         if recovered {
             delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
@@ -141,7 +152,8 @@ extension GhosttySurfaceView {
     func recoverRenderPipeline(
         reason: String,
         stalledMs: Int,
-        replay: RenderPipelineRecoveryReplay
+        replay: RenderPipelineRecoveryReplay,
+        allowSaturatedPendingFrees: Bool = false
     ) -> Bool {
         guard !isDismantled,
               surface != nil else {
@@ -150,7 +162,10 @@ extension GhosttySurfaceView {
         guard !renderPipelineRecoveryPaused else {
             return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
         }
-        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
+        let hasSoftFreeSlot = pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees
+        let canForceBoundedLeak = allowSaturatedPendingFrees
+            && pendingSurfaceFreeCount < Self.maxForcedRecoveryPendingSurfaceFrees
+        guard hasSoftFreeSlot || canForceBoundedLeak else {
             return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
         }
         if reason == "output_timeout" {

@@ -87,6 +87,90 @@ import Testing
 }
 
 @MainActor
+@Test func followUpCapFailOpenRestoresBaselineForPartialRenderGridDelta() async throws {
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplaySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 50,
+        text: "baseline-before-follow-up-cap",
+        full: true
+    ))
+    let baselineChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50)
+
+    await router.enqueueReplayRenderGrid(try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: 55,
+        text: "first-replay",
+        full: true
+    ))
+    let firstBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: firstBarrierToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
+    let firstReplayChunk = try #require(await iterator.next())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 56,
+        text: "delta-dropped-by-first-barrier",
+        full: false
+    ))
+    let firstDropRecorded = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(firstDropRecorded)
+    await router.enqueueReplayPayload(text: "follow-up-without-sequence", sequence: nil)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: firstReplayChunk.streamToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
+
+    let followUpChunk = try #require(await iterator.next())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 57,
+        text: "delta-dropped-by-follow-up-barrier",
+        full: false
+    ))
+    let followUpDropRecorded = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(followUpDropRecorded)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: followUpChunk.streamToken)
+
+    let failedOpenWithRestoredBaseline = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 55
+    }
+    #expect(failedOpenWithRestoredBaseline)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 60,
+        text: "partial-delta-after-follow-up-cap",
+        full: false
+    ))
+    let partialDeltaChunk = try #require(await iterator.next())
+    let partialDeltaText = try #require(String(data: partialDeltaChunk.data, encoding: .utf8))
+    #expect(partialDeltaText.contains("partial-delta-after-follow-up-cap"))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: partialDeltaChunk.streamToken)
+}
+
+@MainActor
 @Test func terminalReplayBarrierFailsOpenAfterDroppedOutputCap() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
