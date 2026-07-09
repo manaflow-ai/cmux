@@ -2,6 +2,15 @@ public import Foundation
 
 /// Records one locally-originated send attempt.
 public struct SendTicket: Codable, Hashable, Sendable, Identifiable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sessionID = "session_id"
+        case text
+        case attachmentCount = "attachment_count"
+        case state
+        case createdAt = "created_at"
+    }
+
     /// The stable ticket UUID.
     public let id: UUID
     /// The session this ticket belongs to.

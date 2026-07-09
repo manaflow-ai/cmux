@@ -8,7 +8,7 @@ public struct EntryContent: Codable, Hashable, Sendable {
     public let payload: EntryPayload
 
     private enum CodingKeys: String, CodingKey {
-        case contentHash
+        case contentHash = "content_hash"
         case payload
     }
 

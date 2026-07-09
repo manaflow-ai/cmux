@@ -2,6 +2,15 @@ import Foundation
 
 /// Records one question or permission ask awaiting user disposition.
 public struct PendingAsk: Codable, Hashable, Sendable, Identifiable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sessionID = "session_id"
+        case kind
+        case promptSummary = "prompt_summary"
+        case optionsCount = "options_count"
+        case state
+    }
+
     /// The stable ask identifier.
     public let id: String
     /// The session this ask belongs to.

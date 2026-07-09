@@ -2,6 +2,14 @@ import Foundation
 
 /// Captures one replaceable transcript entry value.
 public struct EntrySnapshot: Codable, Hashable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case journalID = "journal_id"
+        case seq
+        case kind
+        case content
+        case version
+    }
+
     /// The journal that owns this entry.
     public let journalID: JournalID
     /// The sequence number within the journal.

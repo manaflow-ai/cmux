@@ -51,7 +51,7 @@ import Testing
     }
 
     @Test func contentDecodesOldLogsWithMissingPayloadAsUnknown() throws {
-        let data = Data(#"{"contentHash":42}"#.utf8)
+        let data = Data(#"{"content_hash":42}"#.utf8)
         let decoded = try JSONDecoder().decode(EntryContent.self, from: data)
 
         #expect(decoded.contentHash == 42)

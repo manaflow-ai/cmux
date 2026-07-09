@@ -2,6 +2,20 @@ import Foundation
 
 /// Captures the replaceable replicated metadata for one agent session.
 public struct AgentSessionSnapshot: Codable, Hashable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case macDeviceID = "mac_device_id"
+        case kind
+        case phase
+        case tier
+        case surfaceID = "surface_id"
+        case cwd
+        case title
+        case workspaceName = "workspace_name"
+        case version
+        case lastActivityHint = "last_activity_hint"
+    }
+
     /// The session identifier, scoped by ``macDeviceID``.
     public let id: AgentSessionID
     /// The Mac that owns this session.

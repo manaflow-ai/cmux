@@ -33,6 +33,10 @@ import Testing
             let log = ReplicaReplayLog.decodeJSONL(data)
             #expect(log.skippedLineCount == 0)
             #expect(!log.records.isEmpty)
+            #expect(
+                String(decoding: try log.encodeJSONL(), as: UTF8.self)
+                    == String(decoding: data, as: UTF8.self)
+            )
 
             let directory = SessionDirectoryReplica(epoch: ReplicaEpoch(rawValue: "fixture"))
             let conversation = ConversationReplica(sessionID: ReplicaTestSupport.session, journalID: ReplicaTestSupport.journal, clock: ReplicaTestSupport.clock())
