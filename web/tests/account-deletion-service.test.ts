@@ -62,6 +62,7 @@ let stripeRemoteSubscriptionStatuses = new Map<string, string>();
 let stripeCustomerUpdates: Array<{ readonly id: string; readonly params: StripeUpdateParams }> = [];
 let stripeSubscriptionUpdates: Array<{ readonly id: string; readonly params: StripeUpdateParams }> = [];
 let stripeSubscriptionCancels: string[] = [];
+let stripeBillingConfigured = true;
 let vaultSnapshotRows: Array<{ id: string; objectKey: string }> = [];
 let vaultUploadGrantRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 let vaultUploadTombstoneRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
@@ -162,6 +163,7 @@ beforeEach(() => {
   stripeCustomerUpdates = [];
   stripeSubscriptionUpdates = [];
   stripeSubscriptionCancels = [];
+  stripeBillingConfigured = true;
   vaultSnapshotRows = [];
   vaultUploadGrantRows = [];
   vaultUploadTombstoneRows = [];
@@ -735,6 +737,27 @@ describe("account deletion cleanup", () => {
     expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
   });
 
+  test("preflights Stripe configuration before account deletion starts", async () => {
+    stripeBillingConfigured = false;
+    stripeSubscriptionRows = [{
+      id: "sub_user",
+      stackUserId: "user-1",
+      stackTeamId: null,
+      status: "active",
+      scope: "user",
+      plan: PRO_PLAN_ID,
+    }];
+
+    await expect(assertAccountDeletionCanStart({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("Stripe account deletion is not configured");
+
+    expect(calls).toEqual([]);
+    expect(stripeCustomerUpdates).toHaveLength(0);
+    expect(stripeSubscriptionUpdates).toHaveLength(0);
+    expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
+  });
+
   test("cancels personal Stripe subscriptions even when the local row status is stale", async () => {
     stripeSubscriptionRows = [{
       id: "sub_stale_local",
@@ -846,7 +869,7 @@ function fakeRuntime() {
       calls.push(`revoke-subrouter-tenant:${tenantId}`);
       if (subrouterRevokeError) throw subrouterRevokeError;
     },
-    isStripeBillingConfigured: () => true,
+    isStripeBillingConfigured: () => stripeBillingConfigured,
     stripeClient: fakeStripeClient,
   };
 }

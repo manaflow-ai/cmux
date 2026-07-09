@@ -441,11 +441,16 @@ export async function markAccountDeletionRetryPending(
 
 export async function assertAccountDeletionCanStart(
   input: AccountDeletionInput,
-  runtime: Pick<AccountDeletionRuntime, "cloudDb"> = defaultAccountDeletionRuntime,
+  runtime: Pick<AccountDeletionRuntime, "cloudDb" | "isStripeBillingConfigured"> = defaultAccountDeletionRuntime,
 ): Promise<void> {
   const scope = accountDeletionScope(input);
   const { customerRows, subscriptionRows } = await accountDeletionStripeBillingRows(scope, runtime);
   assertRetainedTeamBillingOwners(scope, customerRows, subscriptionRows);
+  const hasStripeBillingRows = customerRows.length > 0 || subscriptionRows.length > 0;
+  const isBillingConfigured = runtime.isStripeBillingConfigured ?? isStripeBillingConfigured;
+  if (hasStripeBillingRows && !isBillingConfigured()) {
+    throw new Error("Stripe account deletion is not configured");
+  }
 }
 
 export async function deleteCmuxAccountData(

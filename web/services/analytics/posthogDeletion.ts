@@ -1,4 +1,5 @@
 const POSTHOG_APP_HOST = (process.env.POSTHOG_APP_HOST ?? "https://us.posthog.com").replace(/\/$/, "");
+const DEFAULT_POSTHOG_DELETION_TIMEOUT_MS = 5_000;
 
 export function assertPostHogDeletionConfigured(): void {
   if (!postHogEnvironmentId() || !postHogPersonalApiKey()) {
@@ -17,18 +18,33 @@ export async function deletePostHogPersonData(
   }
   const deletionDistinctIds = normalizedDistinctIds([userId, ...distinctIds]);
 
-  const response = await fetch(`${POSTHOG_APP_HOST}/api/environments/${encodeURIComponent(environmentId)}/persons/bulk_delete/`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${personalApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      distinct_ids: deletionDistinctIds,
-      delete_events: true,
-      delete_recordings: true,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error("PostHog account deletion timed out"));
+  }, postHogDeletionTimeoutMs());
+  let response: Response;
+  try {
+    response = await fetch(`${POSTHOG_APP_HOST}/api/environments/${encodeURIComponent(environmentId)}/persons/bulk_delete/`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${personalApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        distinct_ids: deletionDistinctIds,
+        delete_events: true,
+        delete_recordings: true,
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("PostHog account deletion timed out", { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     throw new Error(`PostHog account deletion failed: ${response.status}`);
   }
@@ -46,6 +62,13 @@ function postHogPersonalApiKey(): string | null {
 function trimmedEnv(name: string): string | null {
   const value = process.env[name]?.trim();
   return value ? value : null;
+}
+
+function postHogDeletionTimeoutMs(): number {
+  const configured = Number(process.env.POSTHOG_DELETION_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_POSTHOG_DELETION_TIMEOUT_MS;
 }
 
 function normalizedDistinctIds(values: readonly string[]): string[] {

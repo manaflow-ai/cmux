@@ -5,6 +5,7 @@ const originalEnv = {
   POSTHOG_ENVIRONMENT_ID: process.env.POSTHOG_ENVIRONMENT_ID,
   POSTHOG_PROJECT_ID: process.env.POSTHOG_PROJECT_ID,
   POSTHOG_PERSONAL_API_KEY: process.env.POSTHOG_PERSONAL_API_KEY,
+  POSTHOG_DELETION_TIMEOUT_MS: process.env.POSTHOG_DELETION_TIMEOUT_MS,
 };
 
 const { assertPostHogDeletionConfigured, deletePostHogPersonData } = await import("../services/analytics/posthogDeletion");
@@ -14,6 +15,7 @@ afterEach(() => {
   restoreEnv("POSTHOG_ENVIRONMENT_ID", originalEnv.POSTHOG_ENVIRONMENT_ID);
   restoreEnv("POSTHOG_PROJECT_ID", originalEnv.POSTHOG_PROJECT_ID);
   restoreEnv("POSTHOG_PERSONAL_API_KEY", originalEnv.POSTHOG_PERSONAL_API_KEY);
+  restoreEnv("POSTHOG_DELETION_TIMEOUT_MS", originalEnv.POSTHOG_DELETION_TIMEOUT_MS);
 });
 
 describe("PostHog account deletion", () => {
@@ -117,6 +119,23 @@ describe("PostHog account deletion", () => {
       .rejects.toThrow("PostHog account deletion is not configured");
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when PostHog deletion times out", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    process.env.POSTHOG_DELETION_TIMEOUT_MS = "1";
+    globalThis.fetch = mock(async (...args: unknown[]) => {
+      const [, init] = args as [string | URL | Request, RequestInit | undefined];
+      await new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion timed out");
   });
 });
 
