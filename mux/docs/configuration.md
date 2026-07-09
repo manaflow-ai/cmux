@@ -40,6 +40,8 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 | --- | --- | --- | --- |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
+| `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
+| `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
@@ -93,6 +95,7 @@ The default launched profile is `~/Library/Application Support/cmux-mux/chrome-p
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
+| `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the sidebar plugin (keys forward to it; prefix returns) |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |

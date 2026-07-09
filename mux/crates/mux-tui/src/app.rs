@@ -2237,6 +2237,10 @@ impl App {
             self.sidebar_focused = self.sidebar_plugin_surface.is_some();
             return Ok(RenderAction::Draw);
         }
+        // Any click outside the plugin rect returns keyboard focus to the
+        // panes; otherwise typing would keep going to the plugin PTY after
+        // the user clicked into a pane.
+        self.sidebar_focused = false;
 
         if let Some(hit) = self.hit_at(x, y) {
             match hit {

@@ -457,8 +457,9 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `sidebar-plugin` |
+| CLI mapping | none (client-internal: issued by attach clients to obtain the sidebar plugin surface) |
 | status | implemented |
-| since | protocol 7 |
+| since | protocol 6 |
 
 Ensures the configured server-owned sidebar plugin PTY exists at the requested size and returns the surface id to render through `attach-surface`. This command does not install, build, or discover plugins; it only hosts the command already configured in server-side `mux.json`.
 

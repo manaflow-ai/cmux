@@ -119,7 +119,7 @@ with open(config_path, "w", encoding="utf-8") as f:
                     "command": [
                         "/bin/sh",
                         "-c",
-                        "printf 'SIDEBAR-MARKER\\n'; cat",
+                        "printf 'SIDEBAR-MARKER\\n'; awk '{print \"PLUGIN:\" $0; fflush()}'",
                     ]
                 },
             }
@@ -348,7 +348,7 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
-assert ident["data"]["protocol"] == 7, ident
+assert ident["data"]["protocol"] == 6, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
@@ -379,10 +379,17 @@ print("sidebar plugin marker rendered ok")
 os.write(fd, b"\x02S")
 drain(0.5)
 os.write(fd, b"plugin-echo-ok\r")
-wait_render_contains("plugin-echo-ok")
+# The plugin awk-prefixes forwarded lines, so this string can only appear if
+# prefix-S focused the plugin and keys were forwarded to its PTY (a shell
+# echo of the raw text would not carry the PLUGIN: prefix).
+wait_render_contains("PLUGIN:plugin-echo-ok")
 print("sidebar plugin focus and key echo ok")
 os.write(fd, b"\x02S")
 drain(0.5)
+# Focus must be back on the pane: run a shell command and require its output.
+os.write(fd, b"echo back-to-pane-$((40 + 2))\r")
+wait_render_contains("back-to-pane-42")
+print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]

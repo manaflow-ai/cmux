@@ -1,6 +1,6 @@
 # cmux-mux Programmability Contract
 
-This directory is the source of truth for the cmux-mux control protocol, the generated `cmux-mux` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 7, as defined by `mux-core/src/server.rs`.
+This directory is the source of truth for the cmux-mux control protocol, the generated `cmux-mux` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 6, as defined by `mux-core/src/server.rs`.
 
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
@@ -14,7 +14,7 @@ The spec version tracks the mux protocol version.
 | Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version |
 | Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
 
-Protocol v7 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
+Protocol v6 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
@@ -39,4 +39,4 @@ The generator must preserve the wire command names, parameter names, result shap
 
 ## Implemented Inventory
 
-Protocol v7 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+Protocol v6 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
