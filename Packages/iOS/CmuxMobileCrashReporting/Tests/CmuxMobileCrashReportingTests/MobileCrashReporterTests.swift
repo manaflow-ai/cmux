@@ -177,12 +177,11 @@ private struct FixedConsent: AnalyticsConsentProviding {
             var enabled = true
             var isTelemetryEnabled: Bool { enabled }
         }
-        final class Counter: @unchecked Sendable {
-            var closes = 0
-            var purges = 0
+        final class Recorder: @unchecked Sendable {
+            var sequence: [String] = []
         }
         let consent = ToggleConsent()
-        let counter = Counter()
+        let recorder = Recorder()
         let center = NotificationCenter()
 
         MobileCrashReporter.startIfEnabled(
@@ -192,24 +191,25 @@ private struct FixedConsent: AnalyticsConsentProviding {
             notificationCenter: center,
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in },
-            close: { counter.closes += 1 },
-            purgeCache: { counter.purges += 1 },
+            close: { recorder.sequence.append("close") },
+            purgeCache: { recorder.sequence.append("purge") },
             crash: {}
         )
 
         // Consent still on: defaults churn must not close the SDK.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(counter.closes == 0)
+        #expect(recorder.sequence.isEmpty)
 
         consent.enabled = false
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(counter.closes == 1)
-        #expect(counter.purges == 1)
+        // Purge precedes close so close's network flush cannot upload
+        // persisted opted-out data; the trailing purge removes anything the
+        // flush persisted.
+        #expect(recorder.sequence == ["purge", "close", "purge"])
 
         // The watcher disarms after firing; further churn is a no-op.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(counter.closes == 1)
-        #expect(counter.purges == 1)
+        #expect(recorder.sequence == ["purge", "close", "purge"])
     }
 
     @Test func beforeSendDropsEventsWhenConsentRevokedMidSession() throws {

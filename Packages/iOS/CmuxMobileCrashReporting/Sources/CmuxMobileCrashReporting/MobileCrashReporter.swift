@@ -110,6 +110,11 @@ public struct MobileCrashReporter {
             consent: consent,
             notificationCenter: notificationCenter,
             onRevoke: {
+                // Purge BEFORE close: close() flushes pending envelopes to the
+                // network, so persisted opted-out data must be gone first. The
+                // second purge removes anything close() persisted while
+                // draining its in-memory queue.
+                purgeCache()
                 close()
                 purgeCache()
             }
@@ -218,13 +223,16 @@ public struct MobileCrashReporter {
         }
     }
 
-    /// Deletes Sentry's on-disk envelope/report cache (`Caches/io.sentry`).
+    /// Deletes Sentry's on-disk stores: the envelope cache (`Caches/io.sentry`)
+    /// AND SentryCrash's raw report store (`Caches/SentryCrash/<bundle>`), which
+    /// holds crash reports before they are converted into envelopes.
     public static func purgeSentryCache() {
         guard let caches = FileManager.default.urls(
             for: .cachesDirectory,
             in: .userDomainMask
         ).first else { return }
         try? FileManager.default.removeItem(at: caches.appendingPathComponent("io.sentry"))
+        try? FileManager.default.removeItem(at: caches.appendingPathComponent("SentryCrash"))
     }
 
     static func isTestRun(environment: [String: String]) -> Bool {
