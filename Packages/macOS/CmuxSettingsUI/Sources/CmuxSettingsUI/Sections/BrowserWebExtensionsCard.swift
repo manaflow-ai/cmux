@@ -234,9 +234,12 @@ struct BrowserWebExtensionsCard: View {
             defaultValue: "Extension Already Added"
         )
         let displayName = entry.displayName ?? (entry.path as NSString).lastPathComponent
-        alert.informativeText = String(
-            localized: "settings.browser.webExtensions.duplicate.message",
-            defaultValue: "“\(displayName)” is already in the extensions list."
+        alert.informativeText = String.localizedStringWithFormat(
+            String(
+                localized: "settings.browser.webExtensions.duplicate.message",
+                defaultValue: "“%@” is already in the extensions list."
+            ),
+            displayName
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
