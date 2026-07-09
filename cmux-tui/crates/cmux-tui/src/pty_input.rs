@@ -1,10 +1,9 @@
-//! Off-loop PTY mouse forwarding for remote sessions.
+//! Ordered, off-loop PTY input forwarding for remote sessions.
 //!
-//! A remote `write_bytes` call waits for a control-socket response. Mouse
-//! motion must not perform that round trip on the UI thread, so remote events
-//! use this bounded worker. Consecutive motions on one surface are coalesced.
-//! When the queue is full, ordered events displace stale motion and releases
-//! are prioritized so an inner TUI is not left with a stuck button.
+//! Remote `write_bytes` waits for a control-socket response. All remote PTY
+//! bytes use this single lane so mouse and keyboard input stay ordered without
+//! blocking the UI. Motion is coalesced, and part of the bounded queue is
+//! reserved for releases so stale motion can never strand a pressed button.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
@@ -14,18 +13,25 @@ use cmux_tui_core::SurfaceId;
 use crate::session::SurfaceHandle;
 
 const QUEUE_CAPACITY: usize = 512;
+const RELEASE_RESERVE: usize = 16;
 
-pub struct PtyMouseInputEvent {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyInputKind {
+    Ordered,
+    Motion,
+    Release,
+}
+
+pub struct PtyInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
     pub bytes: Vec<u8>,
-    pub motion: bool,
-    pub release: bool,
+    pub kind: PtyInputKind,
 }
 
 #[derive(Default)]
 struct QueueState {
-    events: VecDeque<PtyMouseInputEvent>,
+    events: VecDeque<PtyInputEvent>,
     closed: bool,
 }
 
@@ -35,30 +41,31 @@ struct SharedQueue {
     ready: Condvar,
 }
 
-pub struct PtyMouseInputDispatcher {
+pub struct PtyInputDispatcher {
     queue: Arc<SharedQueue>,
 }
 
-impl PtyMouseInputDispatcher {
+impl PtyInputDispatcher {
     pub fn spawn() -> anyhow::Result<Self> {
         let queue = Arc::new(SharedQueue::default());
         let worker_queue = queue.clone();
         std::thread::Builder::new()
-            .name("mux-pty-mouse-input".into())
+            .name("mux-pty-input".into())
             .spawn(move || worker(worker_queue))?;
         Ok(Self { queue })
     }
 
-    pub fn enqueue(&self, event: PtyMouseInputEvent) {
+    pub fn enqueue(&self, event: PtyInputEvent) -> bool {
         let mut state = self.queue.state.lock().unwrap();
         if state.closed || !enqueue_bounded(&mut state.events, event, QUEUE_CAPACITY) {
-            return;
+            return false;
         }
         self.queue.ready.notify_one();
+        true
     }
 }
 
-impl Drop for PtyMouseInputDispatcher {
+impl Drop for PtyInputDispatcher {
     fn drop(&mut self) {
         let mut state = self.queue.state.lock().unwrap();
         state.closed = true;
@@ -67,26 +74,28 @@ impl Drop for PtyMouseInputDispatcher {
 }
 
 fn enqueue_bounded(
-    events: &mut VecDeque<PtyMouseInputEvent>,
-    event: PtyMouseInputEvent,
+    events: &mut VecDeque<PtyInputEvent>,
+    event: PtyInputEvent,
     capacity: usize,
 ) -> bool {
-    if event.motion
-        && events
-            .back()
-            .is_some_and(|previous| previous.motion && previous.surface_id == event.surface_id)
+    if event.kind == PtyInputKind::Motion
+        && events.back().is_some_and(|previous| {
+            previous.kind == PtyInputKind::Motion && previous.surface_id == event.surface_id
+        })
     {
         *events.back_mut().unwrap() = event;
         return true;
     }
 
-    if events.len() >= capacity {
-        if let Some(index) = events.iter().position(|queued| queued.motion) {
+    let reserve = RELEASE_RESERVE.min(capacity);
+    let limit = if event.kind == PtyInputKind::Release {
+        capacity
+    } else {
+        capacity.saturating_sub(reserve)
+    };
+    if events.len() >= limit {
+        if let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion) {
             events.remove(index);
-        } else if event.release {
-            // A release is the recovery edge for the inner application's
-            // pressed state, so keep the newest one under extreme saturation.
-            events.pop_front();
         } else {
             return false;
         }
@@ -115,21 +124,20 @@ fn worker(queue: Arc<SharedQueue>) {
 mod tests {
     use super::*;
 
-    fn event(surface_id: SurfaceId, bytes: u8, motion: bool, release: bool) -> PtyMouseInputEvent {
-        PtyMouseInputEvent {
+    fn event(surface_id: SurfaceId, bytes: u8, kind: PtyInputKind) -> PtyInputEvent {
+        PtyInputEvent {
             surface_id,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
             bytes: vec![bytes],
-            motion,
-            release,
+            kind,
         }
     }
 
     #[test]
     fn consecutive_motion_on_one_surface_keeps_latest() {
         let mut events = VecDeque::new();
-        assert!(enqueue_bounded(&mut events, event(1, 1, true, false), 4));
-        assert!(enqueue_bounded(&mut events, event(1, 2, true, false), 4));
+        assert!(enqueue_bounded(&mut events, event(1, 1, PtyInputKind::Motion), 32));
+        assert!(enqueue_bounded(&mut events, event(1, 2, PtyInputKind::Motion), 32));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].bytes, vec![2]);
     }
@@ -138,24 +146,26 @@ mod tests {
     fn ordered_events_and_other_surfaces_break_motion_coalescing() {
         let mut events = VecDeque::new();
         for item in [
-            event(1, 1, true, false),
-            event(1, 2, false, false),
-            event(1, 3, true, false),
-            event(2, 4, true, false),
+            event(1, 1, PtyInputKind::Motion),
+            event(1, 2, PtyInputKind::Ordered),
+            event(1, 3, PtyInputKind::Motion),
+            event(2, 4, PtyInputKind::Motion),
         ] {
-            assert!(enqueue_bounded(&mut events, item, 8));
+            assert!(enqueue_bounded(&mut events, item, 32));
         }
         assert_eq!(events.iter().map(|event| event.bytes[0]).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
     }
 
     #[test]
-    fn release_displaces_motion_when_queue_is_full() {
-        let mut events = VecDeque::from([
-            event(1, 1, false, false),
-            event(1, 2, true, false),
-            event(1, 3, false, false),
-        ]);
-        assert!(enqueue_bounded(&mut events, event(1, 4, false, true), 3));
-        assert_eq!(events.iter().map(|event| event.bytes[0]).collect::<Vec<_>>(), vec![1, 3, 4]);
+    fn release_uses_reserved_capacity_without_evicting_ordered_input() {
+        let mut events = VecDeque::new();
+        let ordered_limit = 20 - RELEASE_RESERVE;
+        for byte in 0..ordered_limit as u8 {
+            assert!(enqueue_bounded(&mut events, event(1, byte, PtyInputKind::Ordered), 20,));
+        }
+        assert!(!enqueue_bounded(&mut events, event(1, 99, PtyInputKind::Ordered), 20,));
+        assert!(enqueue_bounded(&mut events, event(1, 100, PtyInputKind::Release), 20,));
+        assert_eq!(events.front().unwrap().bytes, vec![0]);
+        assert_eq!(events.back().unwrap().bytes, vec![100]);
     }
 }

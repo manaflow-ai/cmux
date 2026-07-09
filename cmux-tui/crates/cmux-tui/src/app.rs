@@ -36,7 +36,7 @@ use ratatui::backend::CrosstermBackend;
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
-use crate::pty_input::{PtyMouseInputDispatcher, PtyMouseInputEvent};
+use crate::pty_input::{PtyInputDispatcher, PtyInputEvent, PtyInputKind};
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
@@ -377,8 +377,8 @@ enum Drag {
         surface: SurfaceId,
         content: Rect,
         button: MouseButton,
-        /// Extra presses observed while `button` remains the active owner.
-        ignored_buttons: u8,
+        position: (u16, u16),
+        modifiers: KeyModifiers,
     },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
@@ -432,7 +432,7 @@ pub struct App {
     /// Off-loop forwarder for browser input: CDP/socket round trips must
     /// never run on the event-loop thread (see `browser_input`).
     browser_input: BrowserInputDispatcher,
-    pty_mouse_input: PtyMouseInputDispatcher,
+    pty_input: PtyInputDispatcher,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -683,7 +683,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         pointer_shape: false,
         last_browser_hover: None,
         browser_input: BrowserInputDispatcher::spawn()?,
-        pty_mouse_input: PtyMouseInputDispatcher::spawn()?,
+        pty_input: PtyInputDispatcher::spawn()?,
         drag: None,
         encoder,
         mouse_encoder,
@@ -1516,20 +1516,26 @@ impl App {
             return;
         };
         let buffer = tab.name.clone().unwrap_or_default();
-        self.prompt = Some(Prompt::new("Rename tab", buffer, PromptTarget::Surface(tab.surface)));
+        let prompt = Prompt::new("Rename tab", buffer, PromptTarget::Surface(tab.surface));
+        self.cancel_pty_mouse_drag();
+        self.prompt = Some(prompt);
     }
 
     fn open_rename_workspace_prompt(&mut self) {
         let Some(ws) = self.tree.active_workspace() else { return };
-        self.prompt =
-            Some(Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id)));
+        let prompt =
+            Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id));
+        self.cancel_pty_mouse_drag();
+        self.prompt = Some(prompt);
     }
 
     fn open_rename_screen_prompt(&mut self) {
         let Some(ws) = self.tree.active_workspace() else { return };
         let Some(screen) = ws.active_screen_ref() else { return };
         let buffer = screen.name.clone().unwrap_or_default();
-        self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id)));
+        let prompt = Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id));
+        self.cancel_pty_mouse_drag();
+        self.prompt = Some(prompt);
     }
 
     fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
@@ -1813,7 +1819,7 @@ impl App {
             return;
         }
         let Some(input) = keys::key_input_from(key) else { return };
-        let Some(surface) = self.active_surface_handle() else { return };
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
@@ -1823,12 +1829,18 @@ impl App {
             return;
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            surface.write_bytes(&self.encode_buf);
+            let _ = self.write_pty_bytes(
+                surface_id,
+                surface,
+                self.encode_buf.clone(),
+                PtyInputKind::Ordered,
+            );
         }
     }
 
     fn forward_sidebar_key(&mut self, key: &KeyEvent) {
         let Some(input) = keys::key_input_from(key) else { return };
+        let Some(surface_id) = self.sidebar_plugin_surface else { return };
         let Some(surface) = self.sidebar_surface_handle() else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
@@ -1839,7 +1851,12 @@ impl App {
             return;
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            surface.write_bytes(&self.encode_buf);
+            let _ = self.write_pty_bytes(
+                surface_id,
+                surface,
+                self.encode_buf.clone(),
+                PtyInputKind::Ordered,
+            );
         }
     }
 
@@ -1908,13 +1925,19 @@ impl App {
             bytes.extend_from_slice(b"\x1b[200~");
             bytes.extend_from_slice(text.as_bytes());
             bytes.extend_from_slice(b"\x1b[201~");
-            surface.write_bytes(&bytes);
+            let _ = self.write_pty_bytes(surface_id, surface, bytes, PtyInputKind::Ordered);
         } else {
-            surface.write_bytes(text.as_bytes());
+            let _ = self.write_pty_bytes(
+                surface_id,
+                surface,
+                text.as_bytes().to_vec(),
+                PtyInputKind::Ordered,
+            );
         }
     }
 
     fn paste_sidebar(&mut self, text: &str) {
+        let Some(surface_id) = self.sidebar_plugin_surface else { return };
         let Some(surface) = self.sidebar_surface_handle() else { return };
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
             return;
@@ -1924,9 +1947,14 @@ impl App {
             bytes.extend_from_slice(b"\x1b[200~");
             bytes.extend_from_slice(text.as_bytes());
             bytes.extend_from_slice(b"\x1b[201~");
-            surface.write_bytes(&bytes);
+            let _ = self.write_pty_bytes(surface_id, surface, bytes, PtyInputKind::Ordered);
         } else {
-            surface.write_bytes(text.as_bytes());
+            let _ = self.write_pty_bytes(
+                surface_id,
+                surface,
+                text.as_bytes().to_vec(),
+                PtyInputKind::Ordered,
+            );
         }
     }
 
@@ -2021,12 +2049,10 @@ impl App {
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
-        if let MouseEventKind::Down(button) = mouse.kind {
-            let bit = Self::mouse_button_bit(button);
-            if let Some(Drag::PtyMouse { ignored_buttons, .. }) = &mut self.drag {
-                *ignored_buttons |= bit;
-                return Ok(RenderAction::None);
-            }
+        if matches!(mouse.kind, MouseEventKind::Down(_))
+            && matches!(self.drag, Some(Drag::PtyMouse { .. }))
+        {
+            return Ok(RenderAction::None);
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -2172,7 +2198,7 @@ impl App {
         self.session.focus_pane(area.pane);
         self.sidebar_focused = false;
         self.selection = None;
-        self.forward_pty_mouse_to_surface(
+        if !self.forward_pty_mouse_to_surface(
             area.surface,
             area.content,
             x,
@@ -2181,12 +2207,15 @@ impl App {
             Some(Self::ghostty_mouse_button(button)),
             modifiers,
             true,
-        );
+        ) {
+            return false;
+        }
         self.drag = Some(Drag::PtyMouse {
             surface: area.surface,
             content: area.content,
             button,
-            ignored_buttons: 0,
+            position: (x, y),
+            modifiers,
         });
         true
     }
@@ -2198,18 +2227,22 @@ impl App {
         reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
-        let Some(Drag::PtyMouse { surface, content, button: active_button, ignored_buttons }) =
-            self.drag
-        else {
+        let Some(Drag::PtyMouse { surface, content, button: active_button, .. }) = self.drag else {
             return false;
         };
-        if reported_button != active_button
-            && ignored_buttons & Self::mouse_button_bit(reported_button) != 0
-        {
+        if reported_button != active_button {
+            return true;
+        }
+        if self.menu.is_some() || self.prompt.is_some() {
+            self.cancel_pty_mouse_drag();
             return true;
         }
         let content = self.current_pty_content(surface).unwrap_or(content);
-        self.forward_pty_mouse_to_surface(
+        if let Some(Drag::PtyMouse { position, modifiers: stored_modifiers, .. }) = &mut self.drag {
+            *position = (x, y);
+            *stored_modifiers = modifiers;
+        }
+        let _ = self.forward_pty_mouse_to_surface(
             surface,
             content,
             x,
@@ -2229,21 +2262,15 @@ impl App {
         reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
-        let Some(Drag::PtyMouse { surface, content, button: active_button, ignored_buttons }) =
-            self.drag
-        else {
+        let Some(Drag::PtyMouse { surface, content, button: active_button, .. }) = self.drag else {
             return false;
         };
-        let reported_bit = Self::mouse_button_bit(reported_button);
-        if reported_button != active_button && ignored_buttons & reported_bit != 0 {
-            if let Some(Drag::PtyMouse { ignored_buttons, .. }) = &mut self.drag {
-                *ignored_buttons &= !reported_bit;
-            }
+        if reported_button != active_button {
             return true;
         }
         let content = self.current_pty_content(surface).unwrap_or(content);
         self.drag = None;
-        self.forward_pty_mouse_to_surface(
+        let _ = self.forward_pty_mouse_to_surface(
             surface,
             content,
             x,
@@ -2254,6 +2281,25 @@ impl App {
             false,
         );
         true
+    }
+
+    fn cancel_pty_mouse_drag(&mut self) {
+        let Some(Drag::PtyMouse { surface, content, button, position, modifiers }) = self.drag
+        else {
+            return;
+        };
+        let content = self.current_pty_content(surface).unwrap_or(content);
+        self.drag = None;
+        let _ = self.forward_pty_mouse_to_surface(
+            surface,
+            content,
+            position.0,
+            position.1,
+            MouseAction::Release,
+            Some(Self::ghostty_mouse_button(button)),
+            modifiers,
+            false,
+        );
     }
 
     fn forward_pty_mouse_at(
@@ -2284,8 +2330,7 @@ impl App {
             button,
             modifiers,
             any_button_pressed,
-        );
-        true
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2299,8 +2344,8 @@ impl App {
         button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
-    ) {
-        let Some(surface) = self.session.surface(surface_id) else { return };
+    ) -> bool {
+        let Some(surface) = self.session.surface(surface_id) else { return false };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
         let position = (
@@ -2325,20 +2370,31 @@ impl App {
             self.mouse_encoder.sync_from_terminal(terminal);
             self.mouse_encoder.encode(input, &mut self.encode_buf)
         }) else {
-            return;
+            return false;
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            if matches!(&surface, SurfaceHandle::Remote(_, _)) {
-                self.pty_mouse_input.enqueue(PtyMouseInputEvent {
-                    surface_id,
-                    surface,
-                    bytes: self.encode_buf.clone(),
-                    motion: action == MouseAction::Motion,
-                    release: action == MouseAction::Release,
-                });
-            } else {
-                surface.write_bytes(&self.encode_buf);
-            }
+            let kind = match action {
+                MouseAction::Press => PtyInputKind::Ordered,
+                MouseAction::Release => PtyInputKind::Release,
+                MouseAction::Motion => PtyInputKind::Motion,
+            };
+            return self.write_pty_bytes(surface_id, surface, self.encode_buf.clone(), kind);
+        }
+        false
+    }
+
+    fn write_pty_bytes(
+        &self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        bytes: Vec<u8>,
+        kind: PtyInputKind,
+    ) -> bool {
+        if matches!(&surface, SurfaceHandle::Remote(_, _)) {
+            self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind })
+        } else {
+            surface.write_bytes(&bytes);
+            true
         }
     }
 
@@ -2358,14 +2414,6 @@ impl App {
             MouseButton::Left => GhosttyMouseButton::Left,
             MouseButton::Right => GhosttyMouseButton::Right,
             MouseButton::Middle => GhosttyMouseButton::Middle,
-        }
-    }
-
-    fn mouse_button_bit(button: MouseButton) -> u8 {
-        match button {
-            MouseButton::Left => 1,
-            MouseButton::Right => 2,
-            MouseButton::Middle => 4,
         }
     }
 
@@ -3031,6 +3079,7 @@ impl App {
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
+        self.cancel_pty_mouse_drag();
         self.menu = None;
         self.omnibar = None;
         match self.hit_at(x, y) {
@@ -3145,7 +3194,7 @@ impl App {
             // Alt-screen apps without mouse support get arrow keys
             // (the usual alternate-scroll behavior).
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
-            surface.write_bytes(seq);
+            let _ = self.write_pty_bytes(surface_id, surface, seq.to_vec(), PtyInputKind::Ordered);
         } else {
             let _ = surface.scroll_delta(if down { 3 } else { -3 });
         }
@@ -3318,7 +3367,7 @@ mod tests {
 
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{Config, ScrollbarPosition};
-    use crate::pty_input::PtyMouseInputDispatcher;
+    use crate::pty_input::PtyInputDispatcher;
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
 
@@ -3435,12 +3484,6 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
 
-        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE))
-            .unwrap();
-        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
-        assert!(app.drag.is_none());
-
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         app.pane_areas[0].content.x += 3;
@@ -3457,6 +3500,14 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         app.pane_areas[0].content = content;
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
+            .unwrap();
+        app.open_rename_tab_prompt(Some(pane));
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
+        assert!(app.drag.is_none());
+        assert!(app.prompt.is_some());
+        app.prompt = None;
 
         app.encode_buf.clear();
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT))
@@ -3556,7 +3607,7 @@ mod tests {
             pointer_shape: false,
             last_browser_hover: None,
             browser_input: BrowserInputDispatcher::spawn().unwrap(),
-            pty_mouse_input: PtyMouseInputDispatcher::spawn().unwrap(),
+            pty_input: PtyInputDispatcher::spawn().unwrap(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),
