@@ -552,8 +552,9 @@ pub fn run(
     session_label: String,
     default_colors: mux_core::DefaultColors,
 ) -> anyhow::Result<()> {
-    let config = crate::config::load();
+    let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
+    config.apply_chrome_defaults(chrome);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
     // will actually render at (a post-spawn resize makes shells like zsh
@@ -848,7 +849,8 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        let config = crate::config::load();
+        let mut config = crate::config::load();
+        config.apply_chrome_defaults(self.chrome);
         self.session.apply_config(&config);
         self.config = config;
     }

@@ -131,6 +131,8 @@ pub enum ChromeMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChromeTheme {
+    pub selection_bg: Color,
+    pub selection_fg: Option<Color>,
     pub menu_bg: Color,
     pub menu_fg: Color,
     pub menu_border: Color,
@@ -181,6 +183,8 @@ pub struct ChromeTheme {
 impl ChromeTheme {
     pub fn dark() -> Self {
         Self {
+            selection_bg: Color::Rgb(0x3a, 0x3a, 0x3a),
+            selection_fg: None,
             menu_bg: Color::Indexed(237),
             menu_fg: Color::Indexed(252),
             menu_border: Color::Indexed(244),
@@ -231,6 +235,8 @@ impl ChromeTheme {
 
     pub fn light() -> Self {
         Self {
+            selection_bg: Color::Rgb(0xcc, 0xdd, 0xf5),
+            selection_fg: None,
             menu_bg: Color::Indexed(254),
             menu_fg: Color::Indexed(236),
             menu_border: Color::Indexed(246),
@@ -800,10 +806,20 @@ pub struct Config {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ThemeOverrides {
+    pub selection: bool,
     pub sidebar_active_bg: bool,
     pub tab_bg: bool,
     pub border_active: bool,
     pub border_inactive: bool,
+}
+
+impl Config {
+    pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
+        if !self.theme_overrides.selection {
+            self.theme.selection_bg = chrome.selection_bg;
+            self.theme.selection_fg = chrome.selection_fg;
+        }
+    }
 }
 
 /// Load the config: defaults, overlaid with the user's Ghostty selection
@@ -814,6 +830,10 @@ pub fn load() -> Config {
     if let Some((bg, fg)) = ghostty_selection_colors() {
         if let Some(bg) = bg {
             config.theme.selection_bg = bg;
+            config.theme_overrides.selection = true;
+        }
+        if fg.is_some() {
+            config.theme_overrides.selection = true;
         }
         config.theme.selection_fg = fg;
     }
@@ -825,13 +845,18 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.selection_background.as_ref().and_then(ColorValue::to_color) {
         config.theme.selection_bg = c;
+        config.theme_overrides.selection = true;
     }
     match t.selection_foreground.as_ref() {
         None => {}
-        Some(None) => config.theme.selection_fg = None,
+        Some(None) => {
+            config.theme.selection_fg = None;
+            config.theme_overrides.selection = true;
+        }
         Some(Some(c)) => {
             if let Some(color) = c.to_color() {
                 config.theme.selection_fg = Some(color);
+                config.theme_overrides.selection = true;
             }
         }
     }
@@ -1021,11 +1046,19 @@ fn ghostty_selection_colors() -> Option<(Option<Color>, Option<Color>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::sync::Mutex;
 
     /// `CMUX_MUX_CONFIG` is process-global state; tests that set it must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn restore_env_var(key: &str, value: Option<OsString>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
 
     #[test]
     fn parses_hex_and_indexed_colors() {
@@ -1047,6 +1080,8 @@ mod tests {
     #[test]
     fn dark_chrome_matches_legacy_indices() {
         let chrome = ChromeTheme::dark();
+        assert_eq!(chrome.selection_bg, Color::Rgb(0x3a, 0x3a, 0x3a));
+        assert_eq!(chrome.selection_fg, None);
         assert_eq!(chrome.menu_bg, Color::Indexed(237));
         assert_eq!(chrome.menu_selected_bg, Color::Indexed(242));
         assert_eq!(chrome.prompt_bg, Color::Indexed(236));
@@ -1059,6 +1094,63 @@ mod tests {
         assert_eq!(chrome.omnibar_edit_bg, Color::Indexed(236));
         assert_eq!(chrome.border_fg, Color::Indexed(238));
         assert_eq!(chrome.scrollbar_thumb_active_fg, Color::Indexed(252));
+    }
+
+    #[test]
+    fn light_chrome_replaces_default_selection() {
+        let mut config = Config::default();
+        config.apply_chrome_defaults(ChromeTheme::light());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0xcc, 0xdd, 0xf5));
+        assert_eq!(config.theme.selection_fg, None);
+    }
+
+    #[test]
+    fn mux_json_selection_survives_light_chrome_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-test-selection-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{"theme": {"selection_background": "#112233", "selection_foreground": "#ddeeff"}}"##,
+        )
+        .unwrap();
+        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        let mut config = load();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        let _ = std::fs::remove_file(&path);
+        config.apply_chrome_defaults(ChromeTheme::light());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xdd, 0xee, 0xff)));
+    }
+
+    #[test]
+    fn ghostty_selection_survives_light_chrome_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir =
+            std::env::temp_dir().join(format!("mux-ghostty-selection-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "selection-background = #445566\nselection-foreground = #abcdef\n",
+        )
+        .unwrap();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        std::env::set_var("XDG_CONFIG_HOME", &dir);
+
+        let mut config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        config.apply_chrome_defaults(ChromeTheme::light());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xab, 0xcd, 0xef)));
     }
 
     #[test]
@@ -1152,6 +1244,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
         assert_eq!(config.chrome, ChromeMode::Dark);
+        assert!(config.theme_overrides.selection);
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
         assert_eq!(config.theme.sidebar_active_bg, Color::Rgb(0x20, 0x20, 0x20));
         assert_eq!(config.theme.tab_bg, Color::Indexed(44));
