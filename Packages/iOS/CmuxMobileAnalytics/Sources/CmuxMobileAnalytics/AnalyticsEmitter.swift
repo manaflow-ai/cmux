@@ -141,6 +141,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         continuation.yield(.event(name: event, properties: properties, timestamp: now()))
     }
 
+    /// Updates the current user identity and sends an identify call when telemetry consent allows it.
     public nonisolated func identify(
         userId: String?,
         alias: String?,
