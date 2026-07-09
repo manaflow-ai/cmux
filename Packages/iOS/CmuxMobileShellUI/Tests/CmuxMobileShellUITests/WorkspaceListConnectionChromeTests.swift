@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import SwiftUI
 import Testing
@@ -81,10 +82,11 @@ import Testing
             wrapWorkspaceTitles: false,
             selectWorkspace: { _ in },
             createWorkspace: {},
-            macSelection: binding(initialValue: .all)
+            macSelection: binding(initialValue: .all),
+            telemetryConsentStore: telemetryConsentStore()
         )
 
-        #expect(view.connectionChrome == .macStatusRow)
+        #expect(view.connectionChrome == WorkspaceListConnectionChrome.macStatusRow)
     }
 
     private func chrome(
@@ -108,6 +110,12 @@ import Testing
         return Binding(
             get: { value },
             set: { value = $0 }
+        )
+    }
+
+    private func telemetryConsentStore() -> MobileTelemetryConsentStore {
+        MobileTelemetryConsentStore(
+            defaults: UserDefaults(suiteName: "WorkspaceListConnectionChromeTests.telemetry.\(UUID().uuidString)")!
         )
     }
 }
