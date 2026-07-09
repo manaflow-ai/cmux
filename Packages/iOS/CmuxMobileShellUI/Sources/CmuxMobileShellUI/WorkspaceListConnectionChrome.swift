@@ -15,22 +15,21 @@ enum WorkspaceListConnectionChrome: Equatable {
 
     /// Chooses exactly one connection surface when store recovery and Mac status
     /// updates overlap during the same real connection drop.
-    static func chrome(
+    init(
         hasStore: Bool,
         connectionRequiresReauth: Bool,
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
         connectionStatus: MobileMacConnectionStatus
-    ) -> WorkspaceListConnectionChrome {
+    ) {
         if hasStore && connectionRequiresReauth {
-            return .recoveryBanner
+            self = .recoveryBanner
+        } else if connectionStatus != .connected {
+            self = .macStatusRow
+        } else if hasStore && (connectionRecoveryFailed || isRecoveringConnection) {
+            self = .recoveryBanner
+        } else {
+            self = .none
         }
-        if connectionStatus != .connected {
-            return .macStatusRow
-        }
-        if hasStore && (connectionRecoveryFailed || isRecoveringConnection) {
-            return .recoveryBanner
-        }
-        return .none
     }
 }

@@ -479,7 +479,7 @@ struct WorkspaceListView: View {
     #endif
 
     var connectionChrome: WorkspaceListConnectionChrome {
-        WorkspaceListConnectionChrome.chrome(
+        WorkspaceListConnectionChrome(
             hasStore: store != nil,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,

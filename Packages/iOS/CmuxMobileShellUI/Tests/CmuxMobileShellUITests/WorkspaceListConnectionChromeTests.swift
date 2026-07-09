@@ -94,7 +94,7 @@ import Testing
         isRecoveringConnection: Bool = false,
         connectionStatus: MobileMacConnectionStatus
     ) -> WorkspaceListConnectionChrome {
-        WorkspaceListConnectionChrome.chrome(
+        WorkspaceListConnectionChrome(
             hasStore: hasStore,
             connectionRequiresReauth: connectionRequiresReauth,
             connectionRecoveryFailed: connectionRecoveryFailed,
