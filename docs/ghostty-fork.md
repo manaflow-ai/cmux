@@ -12,10 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `870ed36f9`. It combines the previous cmux pin
+Current cmux pinned fork head: `4117298e4`. It combines the previous cmux pin
 `dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09). Published via
-https://github.com/manaflow-ai/ghostty/pull/96.
+`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
+render-grid preserved-page OOM fix. Published via
+https://github.com/manaflow-ai/ghostty/pull/96 and
+https://github.com/manaflow-ai/ghostty/pull/99.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -51,7 +53,9 @@ https://github.com/manaflow-ai/ghostty/pull/96.
 4. `src/apprt/embedded.zig`: render-grid JSON snapshots now decode compressed
    nodes through `pagePreservingState`, reuse one temporary decode per page,
    and leave the original scrollback compressed. This prevents iOS snapshot
-   streaming from undoing desktop memory savings.
+   streaming from undoing desktop memory savings. Replacement pages are
+   acquired before the current page is released, so OOM leaves one valid owner
+   for the scope defer instead of double-freeing the prior decode.
 5. Fork CI keeps the `ubuntu-latest` aggregate-test fallback and skips
    upstream-only Vouch jobs outside `ghostty-org/ghostty`.
 
@@ -59,14 +63,15 @@ Verified with Zig 0.15.2: compression and libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, and tagged cmux reload `gcmp`.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-870ed36f9623377b41e03bbebdb034ccb8a80fa3-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-4117298e4bc198ce0ae8f522357e3121e98a9a2b-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `dd726a9a6`, carrying the iOS external renderer-drain
-mode and IOSurface detach fixes on top of `a78fe53ef`. The fork's prior `main`
-head was `cc31d54ee`, which merged upstream through `d560c645`; both histories
-are ancestors of `870ed36f9`.
+The previous cmux pin was `870ed36f9`, the initial compression merge before the
+preserved-page OOM ownership fix. Its previous cmux parent was `dd726a9a6`,
+carrying the iOS external renderer-drain mode and IOSurface detach fixes on top
+of `a78fe53ef`. The fork's prior `main` head was `cc31d54ee`, which merged
+upstream through `d560c645`; both histories are ancestors of `4117298e4`.
 
 ### Earlier pin
 
