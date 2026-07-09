@@ -3829,10 +3829,13 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
                 self.isMainFrameProvisionalNavigationActive = false
-                self.navigationDelegate?.clearAttemptedRequest()
+                if isRestoreBookkeepingNavigation {
+                    self.navigationDelegate?.clearAttemptedRequest()
+                }
                 self.refreshBackgroundAppearance()
-                if self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation) {
+                if isRestoreBookkeepingNavigation {
                     self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
                 }
             }

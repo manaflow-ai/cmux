@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -211,6 +212,42 @@ private final class BrowserDiscardRestorePolicyCancelAlert: NSAlert {
 
 @MainActor
 struct BrowserDiscardRestorePolicyCancelTests {
+    @Test func staleRestoreCancelDoesNotClearCurrentAttemptedRequest() throws {
+        let staleURL = try #require(URL(string: "https://example.com/cmux-issue-7504-stale"))
+        let currentURL = try #require(URL(string: "https://example.com/cmux-issue-7504-current"))
+        let staleNavigation = WKNavigation()
+        let currentNavigation = WKNavigation()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: staleURL.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.current")
+        panel.pendingDiscardRestoreNavigation = currentNavigation
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: currentURL))
+
+        panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, staleNavigation)
+
+        #expect(panel.navigationDelegate?.lastAttemptedURL == currentURL)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == true)
+
+        panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, currentNavigation)
+
+        #expect(panel.navigationDelegate?.lastAttemptedURL == nil)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+    }
+
     @Test func cancelledInsecureHTTPPromptCompletesDiscardRestore() throws {
         let url = try #require(URL(string: "http://example.com/cmux-issue-7504-insecure-prompt"))
         let panel = BrowserPanel(
