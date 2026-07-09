@@ -3118,10 +3118,10 @@ final class BrowserPortalAnchorView: NSView {
     // One-shot DispatchSourceTimer bridges WebKit's synchronous window-close
     // callback to a bounded redock deadline.
     @ObservationIgnored var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
-    var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
+    @ObservationIgnored var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
     @ObservationIgnored var detachedDeveloperToolsWindowDismissalTasks: [Task<Void, Never>] = []
     @ObservationIgnored var developerToolsDockControlNormalizationTask: Task<Void, Never>?
-    var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
+    @ObservationIgnored var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
     var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
     private var browserThemeMode: BrowserThemeMode
 
