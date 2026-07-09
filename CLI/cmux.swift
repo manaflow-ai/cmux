@@ -4296,18 +4296,18 @@ struct CMUXCLI {
             print(response)
 
         case "focus-window":
-            guard let target = optionValue(commandArgs, name: "--window") else {
+            guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
                 throw CLIError(message: "focus-window requires --window")
             }
-            let response = try sendV1Command("focus_window \(target)", client: client)
-            print(response)
+            let payload = try client.sendV2(method: "window.focus", params: ["window_id": windowID])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: []))
 
         case "close-window":
-            guard let target = optionValue(commandArgs, name: "--window") else {
+            guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try sendV1Command("close_window \(target)", client: client)
-            print(response)
+            let payload = try client.sendV2(method: "window.close", params: ["window_id": windowID])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: []))
 
         case "move-workspace-to-window":
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
