@@ -12,6 +12,7 @@ mod cli;
 mod config;
 mod host_colors;
 mod keys;
+mod plugin_manager;
 mod session;
 mod ui;
 
@@ -47,6 +48,7 @@ USAGE:
   cmux-mux [OPTIONS]           Start a session (TUI + control socket)
   cmux-mux attach [OPTIONS]    Attach to an existing session's socket
   cmux-mux <verb> [OPTIONS]    Run one control-socket command
+  cmux-mux plugin <subcommand> Manage sidebar plugins locally
 
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
@@ -85,6 +87,15 @@ CLI VERBS
   select-workspace, move-tab, move-workspace, scroll-surface,
   subscribe, attach-surface, wait-for, run, send-key, copy, ids,
   notify, list-agents, report-agent
+
+PLUGIN VERBS (local; no socket protocol command)
+  plugin install <git-url> [--name <name>] [--force]
+  plugin list [--json]
+  plugin use <name>
+  plugin use --builtin
+  plugin disable
+  plugin update <name>
+  plugin remove <name>
 ";
 
 struct Args {
@@ -149,7 +160,7 @@ fn main() {
     install_signal_handlers();
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
-        print!("{USAGE}");
+        cli::print_help(USAGE);
         std::process::exit(0);
     }
     if cli::is_cli_invocation(&raw_args) {
