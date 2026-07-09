@@ -98,6 +98,7 @@ final class AgentHibernationController {
 
     private struct InFlightTeardown { let requestID: UUID }
     struct PostTeardownRestoreTask { let requestID: UUID; let task: Task<Void, Never> }
+    struct PostSnapshotValidationIndexTask { let requestID: UUID; let startSequence: UInt64; let task: Task<RestorableAgentSessionIndex, Never> }
 
     struct UnableToProtectMarker { let fingerprint: String; let lastActivityAt: TimeInterval; let retryAfter: TimeInterval }
 
@@ -113,8 +114,8 @@ final class AgentHibernationController {
     var teardownValidationGeneration: UInt64 = 0
     var unableToProtectByPanel: [AgentHibernationPanelKey: UnableToProtectMarker] = [:]
     var postTeardownRestoreTasksByPanel: [AgentHibernationPanelKey: PostTeardownRestoreTask] = [:]
-    var postSnapshotValidationIndexRequestID: UUID?
-    var postSnapshotValidationIndexTask: Task<RestorableAgentSessionIndex, Never>?
+    var postSnapshotValidationIndexSequence: UInt64 = 0
+    var postSnapshotValidationIndexTask: PostSnapshotValidationIndexTask?
     private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]

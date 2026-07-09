@@ -15,11 +15,7 @@ enum AgentHibernationTranscriptGuard {
     }
 
     private struct HookStoreFileMirror: Decodable {
-        struct Record: Decodable {
-            let sessionId: String?
-            let transcriptPath: String?
-        }
-
+        struct Record: Decodable { let sessionId: String?; let transcriptPath: String? }
         let sessions: [String: Record]?
     }
 
@@ -73,18 +69,32 @@ enum AgentHibernationTranscriptGuard {
         }
 
         var candidates: [String] = []
-        if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
-            candidates.append(recordedPath)
+        var seenCandidates: Set<String> = []
+        func appendCandidate(_ path: String) {
+            let standardized = (path as NSString).standardizingPath
+            guard seenCandidates.insert(standardized).inserted,
+                  isRegularFile(atPath: path, fileManager: fileManager) else { return }
+            candidates.append(path)
         }
 
-        if let workingDirectory = normalized(agent.workingDirectory) {
-            for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
-                let projectRoot = ((configRoot as NSString).appendingPathComponent("projects") as NSString)
+        if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+            appendCandidate(recordedPath)
+        }
+
+        for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+            if let workingDirectory = normalized(agent.workingDirectory) {
+                let projectRoot = (projectsRoot as NSString)
                     .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
                 for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
-                    if isRegularFile(atPath: candidate, fileManager: fileManager) {
-                        candidates.append(candidate)
-                    }
+                    appendCandidate(candidate)
+                }
+            }
+            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
+            for projectDir in projectDirs.sorted() {
+                let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
+                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                    appendCandidate(candidate)
                 }
             }
         }
@@ -239,9 +249,7 @@ enum AgentHibernationTranscriptGuard {
 
     private static func transcriptCandidates(projectRoot: String, sessionId: String) -> [String] {
         let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-        let nestedPath = (((projectRoot as NSString).appendingPathComponent(sessionId) as NSString)
-            .appendingPathComponent("messages") as NSString)
-            .appendingPathComponent("\(sessionId).jsonl")
+        let nestedPath = (((projectRoot as NSString).appendingPathComponent(sessionId) as NSString).appendingPathComponent("messages") as NSString).appendingPathComponent("\(sessionId).jsonl")
         return [directPath, nestedPath]
     }
 
@@ -300,13 +308,7 @@ enum AgentHibernationTranscriptGuard {
     ) -> [String] {
         if let override = normalized(agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) {
             let expanded = expandTilde(in: override, homeDirectory: homeDirectory)
-            return [
-                ClaudeConfigDirectoryPath.preferredPath(
-                    expanded,
-                    fileManager: fileManager,
-                    homeDirectory: homeDirectory
-                ),
-            ]
+            return [ClaudeConfigDirectoryPath.preferredPath(expanded, fileManager: fileManager, homeDirectory: homeDirectory)]
         }
 
         var roots: [String] = []
@@ -327,12 +329,10 @@ enum AgentHibernationTranscriptGuard {
             }
         }
         appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
-        appendRoot(
-            ClaudeConfigDirectoryPath.preferredPath(
-                (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
-                fileManager: fileManager,
-                homeDirectory: homeDirectory
-            )
+        appendRoot(ClaudeConfigDirectoryPath.preferredPath(
+            (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
+            fileManager: fileManager,
+            homeDirectory: homeDirectory)
         )
         return roots
     }
@@ -483,11 +483,8 @@ enum AgentHibernationTranscriptGuard {
     }
 
     private static func normalized(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private static func expandTilde(in path: String, homeDirectory: String) -> String {

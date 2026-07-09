@@ -186,6 +186,33 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @MainActor
+    @Test
+    func postSnapshotValidationDoesNotReuseTaskStartedBeforeSnapshotPoint() {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+
+        let staleRequestID = UUID()
+        let staleTask = Task<RestorableAgentSessionIndex, Never> {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            return .empty
+        }
+        controller.postSnapshotValidationIndexSequence = 1
+        controller.postSnapshotValidationIndexTask = AgentHibernationController.PostSnapshotValidationIndexTask(
+            requestID: staleRequestID,
+            startSequence: 1,
+            task: staleTask
+        )
+        controller.postSnapshotValidationIndexSequence = 2
+
+        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: 2)
+
+        #expect(controller.postSnapshotValidationIndexTask?.requestID != staleRequestID)
+        #expect(controller.postSnapshotValidationIndexTask?.startSequence == 2)
+    }
+
+    @MainActor
     private func resetSharedHibernationState(_ controller: AgentHibernationController) {
         controller.activityByPanel.removeAll(keepingCapacity: false)
         controller.terminalInputByPanel.removeAll(keepingCapacity: false)
@@ -193,7 +220,8 @@ struct AgentHibernationPlannerSwiftTests {
         controller.teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
         controller.unableToProtectByPanel.removeAll(keepingCapacity: false)
         controller.cancelPostTeardownRestoreTasks()
-        controller.postSnapshotValidationIndexRequestID = nil
+        controller.postSnapshotValidationIndexTask?.task.cancel()
+        controller.postSnapshotValidationIndexSequence = 0
         controller.postSnapshotValidationIndexTask = nil
     }
 }

@@ -34,7 +34,10 @@ extension AgentHibernationController {
                     try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
                 }
             }
-            let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask().value
+            let postSnapshotSequence = markPostSnapshotValidationPoint()
+            let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
+                minimumStartSequence: postSnapshotSequence
+            ).value
             let currentAgent = record.workspace.restorableAgentForHibernation(
                 panelId: record.key.panelId,
                 index: postSnapshotIndex
@@ -120,18 +123,29 @@ extension AgentHibernationController {
         postTeardownRestoreTasksByPanel[key] = PostTeardownRestoreTask(requestID: requestID, task: task)
     }
 
-    func sharedPostSnapshotValidationIndexTask() -> Task<RestorableAgentSessionIndex, Never> {
-        if let task = postSnapshotValidationIndexTask { return task }
+    func markPostSnapshotValidationPoint() -> UInt64 {
+        postSnapshotValidationIndexSequence = postSnapshotValidationIndexSequence &+ 1
+        return postSnapshotValidationIndexSequence
+    }
+
+    func sharedPostSnapshotValidationIndexTask(minimumStartSequence: UInt64) -> Task<RestorableAgentSessionIndex, Never> {
+        if let inFlight = postSnapshotValidationIndexTask,
+           inFlight.startSequence >= minimumStartSequence {
+            return inFlight.task
+        }
         let requestID = UUID()
-        postSnapshotValidationIndexRequestID = requestID
+        let startSequence = postSnapshotValidationIndexSequence
         let task = Task.detached(priority: .utility) {
             await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
         }
-        postSnapshotValidationIndexTask = task
+        postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
+            requestID: requestID,
+            startSequence: startSequence,
+            task: task
+        )
         Task { @MainActor in
             _ = await task.value
-            guard self.postSnapshotValidationIndexRequestID == requestID else { return }
-            self.postSnapshotValidationIndexRequestID = nil
+            guard self.postSnapshotValidationIndexTask?.requestID == requestID else { return }
             self.postSnapshotValidationIndexTask = nil
         }
         return task

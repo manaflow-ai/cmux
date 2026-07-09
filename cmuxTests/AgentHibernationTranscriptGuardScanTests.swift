@@ -227,6 +227,29 @@ struct AgentHibernationTranscriptGuardScanTests {
         #expect((try? FileManager.default.contentsOfDirectory(atPath: snapshots.path))?.isEmpty != false)
     }
 
+    @Test
+    func resolveTranscriptPathFallsBackToAnyClaudeProjectWhenWorkingDirectoryMissingOrDrifted() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let missingCwdSession = "any-project-missing-cwd"
+        let missingCwdTranscript = transcriptURL(home: home, cwd: "/tmp/original", sessionId: missingCwdSession)
+        let driftedSession = "any-project-drifted-cwd"
+        let driftedTranscript = transcriptURL(home: home, cwd: "/tmp/actual", sessionId: driftedSession)
+        let content = #"{"type":"user","message":{"content":"before"}}"# + "\n"
+        try writeFile(content, to: missingCwdTranscript)
+        try writeFile(content, to: driftedTranscript)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: missingCwdSession, workingDirectory: nil),
+            homeDirectory: home.path
+        ) == missingCwdTranscript.path)
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: driftedSession, workingDirectory: "/tmp/drifted"),
+            homeDirectory: home.path
+        ) == driftedTranscript.path)
+    }
+
     private var metadataStub: String {
         [
             #"{"type":"last-prompt","prompt":"continue"}"#,
