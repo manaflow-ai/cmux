@@ -26,11 +26,11 @@ public struct LanguageSettingsStore: Sendable {
     /// Creates a store reading and writing the given defaults suite.
     ///
     /// Pass `domainName` for any non-`.standard` suite so ownership checks
-    /// read only that suite's persistent domain; without it, reads fall back
-    /// to the defaults search list, which inherits `NSGlobalDomain` values.
-    public init(defaults: UserDefaults, domainName: String? = nil) {
+    /// read only that suite's persistent domain; it defaults to the main
+    /// bundle identifier, which matches the `.standard` suite's app domain.
+    public init(defaults: UserDefaults, domainName: String? = Bundle.main.bundleIdentifier) {
         self.defaults = defaults
-        self.domainName = domainName ?? (defaults === UserDefaults.standard ? Bundle.main.bundleIdentifier : nil)
+        self.domainName = domainName
     }
 
     /// The persisted language choice; unrecognized stored values read as
