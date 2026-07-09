@@ -12,6 +12,7 @@ import { cloudDb } from "@/db/client";
 import { stripeSubscriptions } from "@/db/schema";
 import { ACTIVE_STRIPE_PRO_STATUSES, TEAM_PLAN_ID } from "@/services/billing/pro";
 import { resolveBillingTeam } from "@/services/billing/teamResolution";
+import { locales } from "@/i18n/routing";
 import { captureBillingError } from "@/services/errors";
 
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
@@ -367,8 +368,16 @@ function teamDisplayName(team: StackTeam): string {
   return team.displayName ?? team.name ?? "cmux Team";
 }
 
+function safeLocale(locale: string): string {
+  // The locale comes from untrusted request JSON and is interpolated into the
+  // invite/callback URL path. Without validation a value like "//evil.com" or
+  // "..%2f" would resolve to an off-origin host, letting a member send
+  // cmux-branded invite emails pointing anywhere. Only allow supported locales.
+  return (locales as readonly string[]).includes(locale) ? locale : "en";
+}
+
 function acceptBaseUrl(request: Request, locale: string): string {
-  const url = new URL(`/${locale}/dashboard/team/accept`, request.url);
+  const url = new URL(`/${safeLocale(locale)}/dashboard/team/accept`, request.url);
   return url.toString();
 }
 

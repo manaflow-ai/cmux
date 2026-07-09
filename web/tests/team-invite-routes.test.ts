@@ -121,6 +121,22 @@ describe("team invite routes", () => {
     expect(emailSend).toHaveBeenCalled();
   });
 
+  test("neutralizes an off-origin locale so invite URLs stay on-origin", async () => {
+    const response = await inviteRoute.POST(request("/api/team/invite", {
+      email: "ada@example.com",
+      locale: "//evil.com",
+    }));
+    const body = await response.json() as { acceptUrl: string };
+
+    expect(response.status).toBe(200);
+    expect(new URL(body.acceptUrl).origin).toBe("https://cmux.test");
+    expect(body.acceptUrl).toContain("/en/dashboard/team/accept");
+    expect(sendTeamInvitation).toHaveBeenCalledWith({
+      email: "ada@example.com",
+      callbackUrl: "https://cmux.test/en/dashboard/team/accept",
+    });
+  });
+
   test("rejects non-members before creating an invitation", async () => {
     members = [{ id: "other", primaryEmail: "other@example.com" }];
 
