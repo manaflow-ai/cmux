@@ -47,6 +47,7 @@ import {
 
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const ACCOUNT_DELETION_JOB_STALE_MS = 60 * 60 * 1000;
+const ACCOUNT_DELETION_POSTHOG_POLL_MS = 60 * 1000;
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 const ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE = 50;
 const ACCOUNT_VM_LEASE_REVOKE_BATCH_SIZE = 50;
@@ -144,6 +145,8 @@ type AccountDeletionStoredScope = {
 export type AccountDeletionStatus =
   | "pending"
   | "in_progress"
+  | "posthog_delete_pending"
+  | "posthog_delete_in_progress"
   | "stack_delete_pending"
   | "stack_delete_in_progress"
   | "completed"
@@ -373,6 +376,7 @@ export async function claimAccountDeletionProcessing(
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
   const staleBefore = new Date(Date.now() - ACCOUNT_DELETION_JOB_STALE_MS);
+  const postHogStaleBefore = new Date(Date.now() - ACCOUNT_DELETION_POSTHOG_POLL_MS);
 
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
@@ -389,13 +393,17 @@ export async function claimAccountDeletionProcessing(
       .limit(1);
     if (!existing || existing.status === "completed") return null;
     if (existing.status === "in_progress" && existing.updatedAt > staleBefore) return null;
+    if (existing.status === "posthog_delete_pending" && existing.updatedAt > postHogStaleBefore) return null;
+    if (existing.status === "posthog_delete_in_progress" && existing.updatedAt > postHogStaleBefore) return null;
     if (existing.status === "stack_delete_in_progress" && existing.updatedAt > staleBefore) return null;
 
     const now = new Date();
     const processingStatus =
       existing.status === "stack_delete_pending" || existing.status === "stack_delete_in_progress"
         ? "stack_delete_in_progress"
-        : "in_progress";
+        : existing.status === "posthog_delete_pending" || existing.status === "posthog_delete_in_progress"
+          ? "posthog_delete_in_progress"
+          : "in_progress";
     const [claimed] = await tx
       .update(accountDeletionTombstones)
       .set({
@@ -424,6 +432,7 @@ export async function listPendingAccountDeletionJobs(
   const db = runtime.cloudDb();
   const limit = Math.max(1, Math.min(input.limit ?? 5, 25));
   const staleBefore = new Date(Date.now() - ACCOUNT_DELETION_JOB_STALE_MS);
+  const postHogStaleBefore = new Date(Date.now() - ACCOUNT_DELETION_POSTHOG_POLL_MS);
   const rows = await db
     .select({
       userId: accountDeletionTombstones.userId,
@@ -437,6 +446,14 @@ export async function listPendingAccountDeletionJobs(
       or(
         eq(accountDeletionTombstones.status, "pending"),
         eq(accountDeletionTombstones.status, "stack_delete_pending"),
+        and(
+          eq(accountDeletionTombstones.status, "posthog_delete_pending"),
+          lt(accountDeletionTombstones.updatedAt, postHogStaleBefore),
+        ),
+        and(
+          eq(accountDeletionTombstones.status, "posthog_delete_in_progress"),
+          lt(accountDeletionTombstones.updatedAt, postHogStaleBefore),
+        ),
         and(
           eq(accountDeletionTombstones.status, "stack_delete_in_progress"),
           lt(accountDeletionTombstones.updatedAt, staleBefore),
@@ -534,6 +551,29 @@ function retainedTeamBillingOwnersFromUnknown(value: unknown): readonly Retained
     const owner = entry as { readonly stackTeamId?: unknown; readonly stackUserId?: unknown };
     if (typeof owner.stackTeamId !== "string" || typeof owner.stackUserId !== "string") return [];
     return [{ stackTeamId: owner.stackTeamId, stackUserId: owner.stackUserId }];
+  });
+}
+
+export async function markAccountDeletionPostHogDeletePending(
+  input: AccountDeletionInput & { readonly error?: unknown },
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    await tx
+      .update(accountDeletionTombstones)
+      .set({
+        userId: input.userId,
+        status: "posthog_delete_pending",
+        updatedAt: now,
+        errorMessage: input.error ? accountDeletionErrorMessage(input.error) : null,
+      })
+      .where(and(
+        eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)),
+        ne(accountDeletionTombstones.status, "completed"),
+      ));
   });
 }
 

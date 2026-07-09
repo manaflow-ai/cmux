@@ -60,6 +60,61 @@ describe("account deletion processor", () => {
     ]);
   });
 
+  test("keeps account deletion pending while PostHog deletion is queued", async () => {
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      deletePostHogPersonData: async (userId, distinctIds) => {
+        calls.push(`posthog:${userId}:${distinctIds.join(",")}`);
+        return "pending";
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "cleanup:user-1",
+      "list-analytics-identities:user-1",
+      "posthog:user-1:user-1,anon-1",
+      "posthog-delete-pending:user-1",
+    ]);
+  });
+
+  test("resumes Stack deletion after pending PostHog deletion completes", async () => {
+    claimResult = accountDeletionJob("posthog_delete_pending");
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies());
+
+    expect(result).toBe("processed");
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "posthog-status",
+      "delete-analytics-identities:user-1",
+      "stack-delete-pending:user-1",
+      "stack-delete:user-1",
+      "completed:user-1",
+    ]);
+  });
+
+  test("does not remove local aliases while PostHog deletion is still pending", async () => {
+    claimResult = accountDeletionJob("posthog_delete_pending");
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      isPostHogPersonDataDeletionComplete: async () => {
+        calls.push("posthog-status");
+        return false;
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "posthog-status",
+      "posthog-delete-pending:user-1",
+    ]);
+  });
+
   test("passes owned team ids and retained shared-team billing owners into cmux cleanup", async () => {
     const personalTeam = stackTeam("team-personal", ["user-1"]);
     const sharedTeam = stackTeam("team-shared", ["user-1", "user-3", "user-2"]);
@@ -572,6 +627,11 @@ function dependencies(
     },
     deletePostHogPersonData: async (userId, distinctIds) => {
       calls.push(`posthog:${userId}:${distinctIds.join(",")}`);
+      return "completed";
+    },
+    isPostHogPersonDataDeletionComplete: async () => {
+      calls.push("posthog-status");
+      return true;
     },
     listPostHogDeletionDistinctIds: async ({ userId }) => {
       calls.push(`list-analytics-identities:${userId}`);
@@ -596,6 +656,11 @@ function dependencies(
     },
     markAccountDeletionFailed: async ({ userId, error }) => {
       calls.push(`failed:${userId}:${error instanceof Error ? error.message : "unknown"}`);
+    },
+    markAccountDeletionPostHogDeletePending: async ({ userId, error }) => {
+      calls.push(error
+        ? `posthog-delete-pending:${userId}:${error instanceof Error ? error.message : "unknown"}`
+        : `posthog-delete-pending:${userId}`);
     },
     markAccountDeletionRetryPending: async ({ userId, error }) => {
       calls.push(`retry-pending:${userId}:${error instanceof Error ? error.message : "unknown"}`);

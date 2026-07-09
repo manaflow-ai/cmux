@@ -3,7 +3,10 @@ import {
   deleteIOSAnalyticsIdentities,
   listPostHogDeletionDistinctIds,
 } from "../analytics/iosAnalyticsIdentities";
-import { deletePostHogPersonData } from "../analytics/posthogDeletion";
+import {
+  deletePostHogPersonData,
+  isPostHogPersonDataDeletionComplete,
+} from "../analytics/posthogDeletion";
 import {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
@@ -13,6 +16,7 @@ import {
   listPendingAccountDeletionJobs,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
+  markAccountDeletionPostHogDeletePending,
   markAccountDeletionRetryPending,
   markAccountDeletionStackDeletePending,
   AccountDeletionNonRetryableError,
@@ -59,12 +63,16 @@ export type AccountDeletionProcessorDependencies = {
   readonly deletePostHogPersonData: (
     userId: string,
     distinctIds: readonly string[],
-  ) => Promise<void>;
+  ) => Promise<"completed" | "pending">;
+  readonly isPostHogPersonDataDeletionComplete: () => Promise<boolean>;
   readonly listPostHogDeletionDistinctIds: (input: { readonly userId: string }) => Promise<readonly string[]>;
   readonly loadStackUser: (userId: string) => Promise<StackAccountDeletionUser | null>;
   readonly markAccountDeletionCompleted: (input: { readonly userId: string }) => Promise<void>;
   readonly markAccountDeletionFailed: (
     input: { readonly userId: string; readonly error: unknown },
+  ) => Promise<void>;
+  readonly markAccountDeletionPostHogDeletePending: (
+    input: { readonly userId: string; readonly error?: unknown },
   ) => Promise<void>;
   readonly markAccountDeletionRetryPending: (
     input: { readonly userId: string; readonly error: unknown },
@@ -89,11 +97,13 @@ const defaultAccountDeletionProcessorDependencies: AccountDeletionProcessorDepen
   deleteCmuxAccountData,
   deleteIOSAnalyticsIdentities,
   deletePostHogPersonData,
+  isPostHogPersonDataDeletionComplete,
   listPostHogDeletionDistinctIds,
   loadStackUser: async (userId) =>
     await getStackServerApp().getUser(userId) as StackAccountDeletionUser | null,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
+  markAccountDeletionPostHogDeletePending,
   markAccountDeletionRetryPending,
   markAccountDeletionStackDeletePending,
   listPendingAccountDeletionJobs,
@@ -108,24 +118,36 @@ export async function processAccountDeletionForUser(
 
   let stackDeletePending =
     claimedJob.status === "stack_delete_pending" || claimedJob.status === "stack_delete_in_progress";
+  let postHogDeletePending =
+    claimedJob.status === "posthog_delete_pending" || claimedJob.status === "posthog_delete_in_progress";
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
-      const teamScope = claimedJob.teamScopeStored
-        ? {
-          ownedTeamIds: claimedJob.ownedTeamIds,
-          retainedTeamBillingOwners: claimedJob.retainedTeamBillingOwners,
+      if (!postHogDeletePending) {
+        const teamScope = claimedJob.teamScopeStored
+          ? {
+            ownedTeamIds: claimedJob.ownedTeamIds,
+            retainedTeamBillingOwners: claimedJob.retainedTeamBillingOwners,
+          }
+          : user
+            ? await accountDeletionTeamScopeForUser(user)
+            : accountDeletionTeamScopeUnavailable();
+        await dependencies.deleteCmuxAccountData({
+          userId: input.userId,
+          ownedTeamIds: teamScope.ownedTeamIds,
+          retainedTeamBillingOwners: teamScope.retainedTeamBillingOwners,
+        });
+        const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
+        const postHogDeletion = await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
+        if (postHogDeletion === "pending") {
+          postHogDeletePending = true;
+          await dependencies.markAccountDeletionPostHogDeletePending({ userId: input.userId });
+          return "processed";
         }
-        : user
-          ? await accountDeletionTeamScopeForUser(user)
-          : accountDeletionTeamScopeUnavailable();
-      await dependencies.deleteCmuxAccountData({
-        userId: input.userId,
-        ownedTeamIds: teamScope.ownedTeamIds,
-        retainedTeamBillingOwners: teamScope.retainedTeamBillingOwners,
-      });
-      const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
-      await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
+      } else if (!await dependencies.isPostHogPersonDataDeletionComplete()) {
+        await dependencies.markAccountDeletionPostHogDeletePending({ userId: input.userId });
+        return "processed";
+      }
       await dependencies.deleteIOSAnalyticsIdentities({ userId: input.userId });
       await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId });
       stackDeletePending = true;
@@ -138,6 +160,8 @@ export async function processAccountDeletionForUser(
   } catch (error) {
     if (stackDeletePending) {
       await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId, error });
+    } else if (postHogDeletePending) {
+      await dependencies.markAccountDeletionPostHogDeletePending({ userId: input.userId, error });
     } else if (error instanceof AccountDeletionNonRetryableError) {
       await dependencies.markAccountDeletionFailed({ userId: input.userId, error });
     } else {

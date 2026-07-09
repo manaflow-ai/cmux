@@ -84,7 +84,7 @@ export const accountDeletionTombstones = pgTable(
   {
     userIdHash: text("user_id_hash").primaryKey(),
     userId: text("user_id"),
-    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "failed">().notNull().default("pending"),
+    status: text("status").$type<"pending" | "in_progress" | "posthog_delete_pending" | "posthog_delete_in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "failed">().notNull().default("pending"),
     scope: jsonb("scope").$type<{
       readonly ownedTeamIds: readonly string[];
       readonly retainedTeamBillingOwners: readonly {

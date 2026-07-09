@@ -8,7 +8,11 @@ const originalEnv = {
   POSTHOG_DELETION_TIMEOUT_MS: process.env.POSTHOG_DELETION_TIMEOUT_MS,
 };
 
-const { assertPostHogDeletionConfigured, deletePostHogPersonData } = await import("../services/analytics/posthogDeletion");
+const {
+  assertPostHogDeletionConfigured,
+  deletePostHogPersonData,
+  isPostHogPersonDataDeletionComplete,
+} = await import("../services/analytics/posthogDeletion");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -30,7 +34,8 @@ describe("PostHog account deletion", () => {
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
 
-    await deletePostHogPersonData("stack-user-1", ["anon-1", "stack-user-1"]);
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1", "stack-user-1"]))
+      .resolves.toBe("completed");
 
     expect(requests).toHaveLength(1);
     expect(requests[0].url).toBe("https://us.posthog.com/api/environments/env-123/persons/bulk_delete/");
@@ -68,7 +73,60 @@ describe("PostHog account deletion", () => {
     ) as unknown as typeof fetch;
 
     await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
-      .resolves.toBeUndefined();
+      .resolves.toBe("completed");
+  });
+
+  test("keeps deletion pending when PostHog queues event or recording deletion", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({
+        deletion_errors: [],
+        events_queued_for_deletion: true,
+        recordings_queued_for_deletion: false,
+      }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .resolves.toBe("pending");
+  });
+
+  test("polls PostHog deletion status before completing account deletion", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    const requests: string[] = [];
+    globalThis.fetch = mock(async (...args: unknown[]) => {
+      const [url] = args as [string | URL | Request, RequestInit | undefined];
+      requests.push(String(url));
+      return new Response(JSON.stringify({ count: 1, results: [{ id: "job-1" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(isPostHogPersonDataDeletionComplete()).resolves.toBe(false);
+    expect(requests).toEqual([
+      "https://us.posthog.com/api/environments/env-123/persons/deletion_status/?status=pending&limit=1",
+    ]);
+  });
+
+  test("treats empty PostHog deletion status as complete", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({ count: 0, results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    ) as unknown as typeof fetch;
+
+    await expect(isPostHogPersonDataDeletionComplete()).resolves.toBe(true);
   });
 
   test("fails closed when PostHog reports missing permissions", async () => {
