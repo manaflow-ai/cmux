@@ -53,6 +53,9 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Opens the user's workspace-layout action definitions for editing.
+    func customizeWorkspaceLayouts()
+
     /// Persists an explicit menu-bar-only preference change in the host app.
     ///
     /// The host pairs the visible `app.menuBarOnly` setting with any hidden
@@ -168,6 +171,9 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for package previews and tests without host layout editing.
+    func customizeWorkspaceLayouts() {}
 
     func openMobilePairingWindow() {}
 
