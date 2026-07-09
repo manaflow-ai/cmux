@@ -144,4 +144,48 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(!changed)
         #expect(workspace.panelTitles[panelId] == "explicit tmux name")
     }
+
+    @Test func tmuxTitlesRemainAuthoritativeOverTerminalTitleIngress() throws {
+        let (_, workspace, manager) = makeMirror(sessionName: "work", title: "work")
+        let panelId = try #require(workspace.focusedPanelId)
+        let surface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        manager.selectedTabId = workspace.id
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+        manager.refreshWindowTitle()
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: surface,
+            userInfo: GhosttyTitleChange(
+                tabId: workspace.id,
+                surfaceId: panelId,
+                title: "/Users/austinwang"
+            ).userInfo
+        )
+        manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+        #expect(window.title == "work")
+
+        manager.focusedSurfaceTitleDidChange(tabId: workspace.id)
+
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+        #expect(window.title == "work")
+    }
 }
