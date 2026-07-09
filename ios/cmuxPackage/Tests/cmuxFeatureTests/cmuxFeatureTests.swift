@@ -2399,13 +2399,9 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     collector.mount(store: store, surfaceID: "live-terminal")
-    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
-    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
+    let currentSnapshotText = terminalSnapshotReplacementText("current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 1 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
@@ -2415,10 +2411,7 @@ final class TerminalOutputCollector {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    #expect(collector.lines == [
-        oldGridText,
-        currentGridText,
-    ])
+    #expect(collector.lines == [currentSnapshotText])
     collector.unmount()
 }
 
@@ -2890,6 +2883,10 @@ private func terminalRenderGridReplacementText(seq: UInt64, text: String) throws
         text: text
     )
     return try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
+}
+
+private func terminalSnapshotReplacementText(_ text: String) -> String {
+    "\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J" + text
 }
 
 private func terminalRenderGridStyledReplacementText(seq: UInt64, text: String) throws -> String {
