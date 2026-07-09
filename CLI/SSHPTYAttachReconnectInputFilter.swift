@@ -78,6 +78,9 @@ final class SSHPTYAttachReconnectInputFilter {
                 Darwin.close(stopSignalFDs[1])
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
+            // Read ends can close mid-write: writers get EPIPE, never SIGPIPE.
+            _ = fcntl(stopSignalFDs[1], F_SETNOSIGPIPE, 1)
+            _ = fcntl(stopAcknowledgementFDs[1], F_SETNOSIGPIPE, 1)
             filterControl = SSHPTYAttachReconnectInputFilterControl(
                 stopSignalWriteFD: stopSignalFDs[1],
                 stopAcknowledgementReadFD: stopAcknowledgementFDs[0]
