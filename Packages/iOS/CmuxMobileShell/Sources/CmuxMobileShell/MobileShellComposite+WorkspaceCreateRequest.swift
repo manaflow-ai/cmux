@@ -97,13 +97,21 @@ extension MobileShellComposite {
             }
             return .success(())
         } catch {
-            guard generation == connectionGeneration, !Task.isCancelled else { return .success(()) }
-            if disconnectForAuthorizationFailureIfNeeded(error) {
-                return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
-            }
-            markMacConnectionUnavailableIfNeeded(after: error)
-            if appliesOperationalError {
-                applyOperationalError(error)
+            // The caller cancelled (e.g. the composer sheet was dismissed): the
+            // result is dropped anyway, so don't fabricate a failure.
+            guard !Task.isCancelled else { return .success(()) }
+            // A stale operation (connection replaced mid-flight) must not mutate
+            // the NEW connection's state, but it must still report failure:
+            // mapping it to success lets the task composer dismiss and persist
+            // last-used defaults for a workspace that was never created.
+            if generation == connectionGeneration {
+                if disconnectForAuthorizationFailureIfNeeded(error) {
+                    return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+                }
+                markMacConnectionUnavailableIfNeeded(after: error)
+                if appliesOperationalError {
+                    applyOperationalError(error)
+                }
             }
             if let connectionError = error as? MobileShellConnectionError {
                 switch connectionError {
