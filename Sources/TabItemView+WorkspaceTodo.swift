@@ -82,7 +82,7 @@ extension TabItemView {
             tabManager.tabs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        contextMenuWorkspaceIds.compactMap { workspaceId in
+        return contextMenuWorkspaceIds.compactMap { workspaceId in
             workspaceById[workspaceId]
         }
     }
