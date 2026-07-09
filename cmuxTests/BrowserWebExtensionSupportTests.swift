@@ -105,6 +105,33 @@ struct BrowserWebExtensionSupportTests {
     }
 
     @Test
+    func reconciliationKeepsLoadedSafariExtensionWhenResourceRootMatches() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
+        let resourcePath = BrowserWebExtensionEntry.standardizedSafariAppExtensionResourceRootPath(appexPath)
+        let plan = planner.plan(
+            settingsEntries: [
+                BrowserWebExtensionEntry(
+                    id: "com.bitwarden.desktop.safari",
+                    kind: .safariAppExtension,
+                    path: appexPath,
+                    enabled: true
+                ),
+            ],
+            environmentPaths: [],
+            loadedEntries: [
+                BrowserWebExtensionReconciliationPlanner.LoadedEntry(
+                    id: "com.bitwarden.desktop.safari",
+                    standardizedPath: resourcePath
+                ),
+            ]
+        )
+
+        #expect(plan.unloadEntryIDs.isEmpty)
+        #expect(plan.loadEntries.isEmpty)
+    }
+
+    @Test
     func reconciliationDeduplicatesRepeatedEnvironmentPaths() {
         let planner = BrowserWebExtensionReconciliationPlanner()
         let extensionPath = "/tmp/cmux-web-extensions/../cmux-web-extensions/Example"
