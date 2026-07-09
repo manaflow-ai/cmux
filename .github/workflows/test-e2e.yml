@@ -179,10 +179,17 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
+      - name: Install tmux
+        run: |
+          if ! command -v tmux >/dev/null 2>&1; then
+            brew install --quiet tmux
+          fi
+          tmux -V
+
       - name: Install ffmpeg
         if: ${{ inputs.record_video }}
         run: |
-          brew install --quiet ffmpeg tmux
+          brew install --quiet ffmpeg
           FFMPEG_PATH=$(which ffmpeg)
           echo "ffmpeg: $FFMPEG_PATH"
           ffmpeg -version | head -1

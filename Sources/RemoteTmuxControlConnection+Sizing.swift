@@ -170,18 +170,17 @@ extension RemoteTmuxControlConnection {
         // size of a window that already matches it (the no-op-push case this
         // kick exists for).
         let sessionSize = lastClientSize
-        let perWindowNoOp: (windowId: Int, columns: Int, rows: Int)? = lastWindowSizes
-            .compactMap { id, size -> (Int, Int, Int)? in
+        let perWindowNoOps: [(windowId: Int, columns: Int, rows: Int)] = lastWindowSizes
+            .compactMap { id, size -> (windowId: Int, columns: Int, rows: Int)? in
                 guard let window = windowsByID[id],
                       window.width == size.0, window.height == size.1 else { return nil }
-                return (id, size.0, size.1)
+                return (windowId: id, columns: size.0, rows: size.1)
             }
-            .first
-            .map { (windowId: $0.0, columns: $0.1, rows: $0.2) }
-        guard sessionSize != nil || perWindowNoOp != nil else { return }
+            .sorted { $0.windowId < $1.windowId }
+        guard sessionSize != nil || !perWindowNoOps.isEmpty else { return }
         if let size = sessionSize {
             if size.rows <= 2 {
-                if perWindowNoOp == nil {
+                if perWindowNoOps.isEmpty {
                     pendingAttachRedrawKick = false
                     return
                 }
@@ -196,7 +195,7 @@ extension RemoteTmuxControlConnection {
                     #if DEBUG
                     cmuxDebugLog("remote.size.kick skip=windowSizeDiffers target=\(size.columns)x\(size.rows)")
                     #endif
-                    if perWindowNoOp == nil { pendingAttachRedrawKick = false }
+                    if perWindowNoOps.isEmpty { pendingAttachRedrawKick = false }
                 } else {
                     pendingAttachRedrawKick = false
                     #if DEBUG
@@ -228,33 +227,45 @@ extension RemoteTmuxControlConnection {
                 }
             }
         }
-        guard let kick = perWindowNoOp, kick.rows > 2 else {
+        let kicks = perWindowNoOps.filter { $0.rows > 2 }
+        guard !kicks.isEmpty else {
             pendingAttachRedrawKick = false
             return
         }
         pendingAttachRedrawKick = false
         #if DEBUG
-        cmuxDebugLog("remote.size.kick @\(kick.windowId) shrink to \(kick.columns)x\(kick.rows - 1)")
+        let kickList = kicks.map { "@\($0.windowId)" }.joined(separator: ",")
+        cmuxDebugLog("remote.size.kick windows=\(kickList)")
         #endif
         attachRedrawKickTask?.cancel()
         attachRedrawKickTask = Task { @MainActor [weak self] in
             guard let self, self.connectionState == .connected else { return }
-            // Bail if a newer push targeted this window meanwhile — it was a real
-            // size change and already delivered the SIGWINCH.
-            guard let current = self.lastWindowSizes[kick.windowId],
-                  current == (kick.columns, kick.rows) else { return }
-            self.sendPerWindowSize(windowId: kick.windowId, columns: kick.columns, rows: kick.rows - 1)
+            // Skip any window that got a newer size meanwhile — that was a real
+            // size change and already delivered the SIGWINCH for that window.
+            let liveKicks = kicks.filter { kick in
+                guard let current = self.lastWindowSizes[kick.windowId] else { return false }
+                return current == (kick.columns, kick.rows)
+            }
+            guard !liveKicks.isEmpty else { return }
+            for kick in liveKicks {
+                #if DEBUG
+                cmuxDebugLog("remote.size.kick @\(kick.windowId) shrink to \(kick.columns)x\(kick.rows - 1)")
+                #endif
+                self.sendPerWindowSize(windowId: kick.windowId, columns: kick.columns, rows: kick.rows - 1)
+            }
             do {
                 try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
             } catch {
                 return
             }
             guard self.connectionState == .connected else { return }
-            let restore = self.lastWindowSizes[kick.windowId] ?? (kick.columns, kick.rows)
-            #if DEBUG
-            cmuxDebugLog("remote.size.kick @\(kick.windowId) restore to \(restore.0)x\(restore.1)")
-            #endif
-            self.sendPerWindowSize(windowId: kick.windowId, columns: restore.0, rows: restore.1)
+            for kick in liveKicks {
+                guard let restore = self.lastWindowSizes[kick.windowId] else { continue }
+                #if DEBUG
+                cmuxDebugLog("remote.size.kick @\(kick.windowId) restore to \(restore.0)x\(restore.1)")
+                #endif
+                self.sendPerWindowSize(windowId: kick.windowId, columns: restore.0, rows: restore.1)
+            }
         }
     }
 }

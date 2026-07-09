@@ -57,13 +57,12 @@ final class RemoteTmuxWindowMirror {
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
 
-    /// Only the VISIBLE tab's mirror is a sizing writer. Tabs stay mounted
-    /// across selection (keepAllAlive), so a hidden mirror still receives
-    /// geometry callbacks — but its container reports collapsed/stale sizes
-    /// while hidden, and pushing from those resizes the remote window
-    /// underneath the visible state. The view keeps this current; hidden
-    /// mirrors send nothing and push once on becoming visible.
-    @ObservationIgnored var isVisibleForSizing = true
+    /// Only the visible tab's mirror writes after its initial claim. Tabs stay
+    /// mounted across selection, so a hidden mirror still receives geometry
+    /// callbacks — but its container reports collapsed/stale sizes while hidden.
+    /// The view keeps this current; before it appears, default-hidden prevents
+    /// early surface callbacks from treating an unselected mirror as visible.
+    @ObservationIgnored var isVisibleForSizing = false
 
     /// ``TerminalPanel`` per tmux pane id. Not observation-tracked: the view
     /// re-reads it whenever ``layout`` (which IS tracked) changes, and the two

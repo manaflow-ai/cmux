@@ -54,6 +54,9 @@ struct RemoteTmuxWindowMirrorView: View {
         }
         .onAppear {
             mirror.isVisibleForSizing = isVisibleInUI
+            if isVisibleInUI {
+                pushClientSize(pointSize: containerSize)
+            }
         }
         .onChange(of: isVisibleInUI) { _, visible in
             mirror.isVisibleForSizing = visible
@@ -76,6 +79,7 @@ struct RemoteTmuxWindowMirrorView: View {
     /// the surface's first grid-resize report (wired in the mirror's
     /// reconcile) re-runs it the moment constants exist.
     private func pushClientSize(pointSize: CGSize) {
+        mirror.isVisibleForSizing = isVisibleInUI
         guard pointSize.width > 0, pointSize.height > 0 else { return }
         mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
         _ = mirror.updateClientSize()

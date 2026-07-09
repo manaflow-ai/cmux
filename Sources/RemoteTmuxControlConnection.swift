@@ -689,19 +689,27 @@ final class RemoteTmuxControlConnection {
         teardownProcessHandles()
     }
 
-    /// Cancels every scheduled follow-up (reconnect, debounced size send, redraw
+    /// Cancels every scheduled follow-up (reconnect, debounced size sends, redraw
     /// kick) and the deferred post-attach work. Shared by deliberate teardown
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
         failPendingActivityQueries()
         reconnectTask?.cancel()
         reconnectTask = nil
+        cancelSizingFollowUps()
+        pendingPostAttachAction = nil
+    }
+
+    private func cancelSizingFollowUps() {
         clientSizeDebounceTask?.cancel()
         clientSizeDebounceTask = nil
+        for task in windowSizeDebounceTasks.values {
+            task.cancel()
+        }
+        windowSizeDebounceTasks.removeAll()
         attachRedrawKickTask?.cancel()
         attachRedrawKickTask = nil
         pendingAttachRedrawKick = false
-        pendingPostAttachAction = nil
     }
 
     /// Tears down the current spawn's process and I/O handles WITHOUT changing
@@ -817,6 +825,8 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
+        cancelSizingFollowUps()
+        pendingPostAttachAction = nil
         teardownProcessHandles()
         reconnectAttemptCount = 0
         connectionState = .reconnecting
