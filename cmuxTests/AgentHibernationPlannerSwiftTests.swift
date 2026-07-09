@@ -211,6 +211,7 @@ struct AgentHibernationPlannerSwiftTests {
 
         #expect(controller.postSnapshotValidationIndexTask?.requestID != staleRequestID)
         #expect(controller.postSnapshotValidationIndexTask?.startSequence == 2)
+        #expect(staleTask.isCancelled)
     }
 
     @MainActor

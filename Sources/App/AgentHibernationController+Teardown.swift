@@ -8,6 +8,8 @@ extension AgentHibernationRecord {
 }
 
 extension AgentHibernationController {
+    private static let maxConcurrentTeardownSnapshotTasks = 2
+
     struct ConfirmedTeardownRequest {
         let record: AgentHibernationRecord
         let confirmationFingerprint: String
@@ -137,14 +139,24 @@ extension AgentHibernationController {
             of: (AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownSnapshotOutcome).self,
             returning: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome].self
         ) { group in
-            for (key, agent) in agents {
+            var nextAgentIndex = 0
+            let initialTaskCount = min(Self.maxConcurrentTeardownSnapshotTasks, agents.count)
+            for _ in 0..<initialTaskCount {
+                let (key, agent) = agents[nextAgentIndex]
+                nextAgentIndex += 1
                 group.addTask(priority: .utility) {
                     (key, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent))
                 }
             }
             var outcomes: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] = [:]
-            for await (key, outcome) in group {
+            while let (key, outcome) = await group.next() {
                 outcomes[key] = outcome
+                guard nextAgentIndex < agents.count else { continue }
+                let (nextKey, nextAgent) = agents[nextAgentIndex]
+                nextAgentIndex += 1
+                group.addTask(priority: .utility) {
+                    (nextKey, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: nextAgent))
+                }
             }
             return outcomes
         }
@@ -186,9 +198,11 @@ extension AgentHibernationController {
     }
 
     func sharedPostSnapshotValidationIndexTask(minimumStartSequence: UInt64) -> Task<RestorableAgentSessionIndex, Never> {
-        if let inFlight = postSnapshotValidationIndexTask,
-           inFlight.startSequence >= minimumStartSequence {
-            return inFlight.task
+        if let inFlight = postSnapshotValidationIndexTask {
+            if inFlight.startSequence >= minimumStartSequence {
+                return inFlight.task
+            }
+            inFlight.task.cancel()
         }
         let requestID = UUID()
         let startSequence = postSnapshotValidationIndexSequence
