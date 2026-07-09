@@ -22,6 +22,7 @@ import {
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
   hasAccountDeletionTombstone,
+  isStackAccountDeletionBlocked,
   withAccountDeletionUserMutationLock,
 } from "../services/account/deletion";
 import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../services/billing/pro";
@@ -67,6 +68,7 @@ let snapshotRows: Array<{
   snapshotId: string | null;
   createdAt?: Date;
 }> = [];
+let execPendingRows: Array<{ id: string }> = [];
 let snapshotDeleteError: unknown = null;
 let identityLeaseRows: Array<{ id: string; provider: ProviderId; providerIdentityHandle: string | null }> = [];
 let identityLeaseRevokeError: unknown = null;
@@ -174,6 +176,7 @@ beforeEach(() => {
   providerlessCloudVmUpdateCount = 0;
   workflowErrorsByProviderId = new Map();
   snapshotRows = [];
+  execPendingRows = [];
   snapshotDeleteError = null;
   identityLeaseRows = [];
   identityLeaseRevokeError = null;
@@ -235,6 +238,25 @@ describe("account deletion cleanup", () => {
     };
 
     await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
+  });
+
+  test("does not block auth on stale Stack metadata after a failed tombstone", async () => {
+    const runtime = {
+      cloudDb: () => ({
+        select: () => selectBuilder(() => [{
+          userIdHash: accountDeletionUserHash("user-1"),
+          status: "failed",
+        }]),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(isStackAccountDeletionBlocked({
+      id: "user-1",
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+    }, runtime)).resolves.toBe(false);
   });
 
   test("blocks auth on completed tombstones", async () => {
@@ -602,6 +624,20 @@ describe("account deletion cleanup", () => {
     expect(calls.indexOf("mark-identity-leases-revoked")).toBeLessThan(
       calls.indexOf("destroy:user-1:provider-vm-with-many-leases"),
     );
+  });
+
+  test("waits for in-flight VM exec reservations before destroying provider-backed VMs", async () => {
+    execPendingRows = [{ id: "exec-pending" }];
+    providerBackedVmBatches = [
+      [providerBackedVm("provider-vm-with-exec")],
+    ];
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("Cloud VM account deletion cleanup is waiting for an in-flight exec to settle");
+
+    expect(calls).toContain("select-exec-usage-events");
+    expect(calls).not.toContain("destroy:user-1:provider-vm-with-exec");
   });
 
   test("marks blank VM identity lease handles without retrying forever", async () => {
@@ -1049,7 +1085,7 @@ function fakeAccountDeletionMutationDb(rows: Array<{ userIdHash: string; status:
 
 function fakeDb() {
   return {
-    select: () => fakeDbSelectBuilder(),
+    select: (selection?: unknown) => fakeDbSelectBuilder(selection),
     update: (table: unknown) => {
       if (table === cloudVms) {
         providerlessCloudVmUpdateCount += 1;
@@ -1074,7 +1110,7 @@ function fakeDb() {
   };
 }
 
-function fakeDbSelectBuilder() {
+function fakeDbSelectBuilder(selection?: unknown) {
   let table: unknown = null;
   const rows = () => {
     if (table === cloudVms) {
@@ -1092,9 +1128,15 @@ function fakeDbSelectBuilder() {
       calls.push("select-subrouter-tenant");
       return subrouterTenantRows.splice(0, 1);
     }
-    if (table === cloudVmUsageEvents && snapshotRows.length > 0) {
-      calls.push("select-snapshot-usage-events");
-      return snapshotRows.splice(0, 50);
+    if (table === cloudVmUsageEvents) {
+      if (isExecPendingUsageEventSelection(selection)) {
+        if (execPendingRows.length > 0) calls.push("select-exec-usage-events");
+        return execPendingRows.splice(0, 1);
+      }
+      if (snapshotRows.length > 0) {
+        calls.push("select-snapshot-usage-events");
+        return snapshotRows.splice(0, 50);
+      }
     }
     if (table === cloudVmLeases && identityLeaseRows.length > 0) {
       calls.push("select-identity-leases");
@@ -1123,6 +1165,13 @@ function fakeDbSelectBuilder() {
     ) => Promise.resolve(rows()).then(resolve, reject),
   };
   return builder;
+}
+
+function isExecPendingUsageEventSelection(selection: unknown): boolean {
+  return !!selection &&
+    typeof selection === "object" &&
+    !Array.isArray(selection) &&
+    !("eventType" in selection);
 }
 
 function fakeRuntime() {

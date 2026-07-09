@@ -19,6 +19,7 @@ import {
 } from "./billingGateway";
 import {
   VmBillingError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
@@ -1442,23 +1443,54 @@ export function execVm(input: {
       input.providerVmId,
       "exec",
     );
-    yield* repo.assertAccountMutationAllowed({
-      userId: input.userId,
-      provider: vm.provider,
-    });
-    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
-      timeoutMs: input.timeoutMs,
-    });
-    yield* repo.recordUsageEvent({
+    const commandLength = input.command.length;
+    const execUsageEventId = yield* repo.reserveExecUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
       vmId: vm.id,
-      eventType: "vm.exec",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+      commandLength,
+    });
+    if (!execUsageEventId) {
+      return yield* Effect.fail(new VmCreateDisabledError({
+        provider: vm.provider,
+        reason: "Account deletion is in progress.",
+      }));
+    }
+    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
+      timeoutMs: input.timeoutMs,
+    }).pipe(
+      Effect.tapError(() =>
+        repo.deleteExecUsageEvent({
+          eventId: execUsageEventId,
+          userId: input.userId,
+        }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+    const completed = yield* repo.completeExecUsageEvent({
+      eventId: execUsageEventId,
+      userId: input.userId,
+      commandLength,
+      exitCode: result.exitCode,
+    }).pipe(
+      Effect.catchAll(() =>
+        repo.deleteExecUsageEvent({
+          eventId: execUsageEventId,
+          userId: input.userId,
+        }).pipe(
+          Effect.catchAll(() => Effect.void),
+          Effect.as(false),
+        )
+      ),
+    );
+    if (!completed) {
+      yield* repo.deleteExecUsageEvent({
+        eventId: execUsageEventId,
+        userId: input.userId,
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
     return result satisfies ExecResult;
   });
 }

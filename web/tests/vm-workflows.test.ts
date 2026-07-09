@@ -554,11 +554,7 @@ describe("VM Effect workflows", () => {
     const repo = testWorkflowRepo({
       vm,
       usageEvents,
-      assertAccountMutationAllowed: () =>
-        Effect.fail(new VmCreateDisabledError({
-          provider: "freestyle",
-          reason: "Account deletion is in progress.",
-        })),
+      reserveExecUsageEventResult: null,
     });
     let execCalls = 0;
     const provider: VmProviderGatewayShape = {
@@ -581,6 +577,37 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBeInstanceOf(VmCreateDisabledError);
     expect(execCalls).toBe(0);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("exec deletes the pending usage event when provider command fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000119",
+      userId: "user-workflow-exec-provider-fails",
+      providerVmId: "provider-vm-exec-provider-fails",
+      provider: "freestyle",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const deletedExecUsageEventIds: string[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, deletedExecUsageEventIds });
+    const providerError = providerOperationError("exec", "provider exec failed");
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () => Effect.fail(providerError),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-provider-fails",
+        providerVmId: "provider-vm-exec-provider-fails",
+        command: "false",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(providerError);
+    expect(deletedExecUsageEventIds).toEqual(["exec-usage-event"]);
     expect(usageEvents).toEqual([]);
   });
 
@@ -2078,6 +2105,9 @@ describe("VM Effect workflows", () => {
         reserveSnapshotUsageEvent: () => Effect.fail(new Error("unused") as never),
         completeSnapshotUsageEvent: () => Effect.fail(new Error("unused") as never),
         deleteSnapshotUsageEvent: () => Effect.fail(new Error("unused") as never),
+        reserveExecUsageEvent: () => Effect.fail(new Error("unused") as never),
+        completeExecUsageEvent: () => Effect.fail(new Error("unused") as never),
+        deleteExecUsageEvent: () => Effect.fail(new Error("unused") as never),
         recordUsageEvent: () => Effect.succeed(true),
         recordUsageEvents: () => {
         usageEventAttempts += 1;
@@ -4959,6 +4989,11 @@ function testWorkflowRepo(input: {
 	    readonly snapshotReservations?: Array<Parameters<VmRepositoryShape["reserveSnapshotUsageEvent"]>[0] & { id: string }>;
     readonly completedSnapshots?: Parameters<VmRepositoryShape["completeSnapshotUsageEvent"]>[0][];
     readonly deletedSnapshotUsageEventIds?: string[];
+    readonly reserveExecUsageEventResult?: string | null;
+    readonly execReservations?: Array<Parameters<VmRepositoryShape["reserveExecUsageEvent"]>[0] & { id: string }>;
+    readonly completeExecUsageEventResult?: boolean;
+    readonly completedExecUsageEvents?: Parameters<VmRepositoryShape["completeExecUsageEvent"]>[0][];
+    readonly deletedExecUsageEventIds?: string[];
     readonly callOrder?: string[];
     readonly recordLease?: VmRepositoryShape["recordLease"];
     readonly assertAccountMutationAllowed?: VmRepositoryShape["assertAccountMutationAllowed"];
@@ -4968,6 +5003,7 @@ function testWorkflowRepo(input: {
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
 }): VmRepositoryShape {
+  const execReservationsById = new Map<string, Parameters<VmRepositoryShape["reserveExecUsageEvent"]>[0]>();
   return {
     listUserVms: () => Effect.succeed([]),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
@@ -5091,6 +5127,44 @@ function testWorkflowRepo(input: {
       deleteSnapshotUsageEvent: (event) =>
         Effect.sync(() => {
           input.deletedSnapshotUsageEventIds?.push(event.eventId);
+        }),
+      reserveExecUsageEvent: (event) =>
+        Effect.sync(() => {
+          const id = input.reserveExecUsageEventResult === undefined
+            ? "exec-usage-event"
+            : input.reserveExecUsageEventResult;
+          if (id) {
+            execReservationsById.set(id, event);
+            input.execReservations?.push({ id, ...event });
+          }
+          return id;
+        }),
+      completeExecUsageEvent: (event) =>
+        Effect.sync(() => {
+          const completed = input.completeExecUsageEventResult ?? true;
+          if (completed) {
+            input.completedExecUsageEvents?.push(event);
+            const reservation = execReservationsById.get(event.eventId);
+            input.usageEvents?.push({
+              userId: reservation?.userId ?? event.userId,
+              billingTeamId: reservation?.billingTeamId,
+              billingPlanId: reservation?.billingPlanId,
+              vmId: reservation?.vmId,
+              eventType: "vm.exec",
+              provider: reservation?.provider,
+              imageId: reservation?.imageId,
+              metadata: {
+                commandLength: event.commandLength,
+                exitCode: event.exitCode,
+              },
+            });
+          }
+          return completed;
+        }),
+      deleteExecUsageEvent: (event) =>
+        Effect.sync(() => {
+          input.deletedExecUsageEventIds?.push(event.eventId);
+          execReservationsById.delete(event.eventId);
         }),
       recordUsageEvent: (event) =>
         Effect.sync(() => {

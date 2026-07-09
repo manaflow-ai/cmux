@@ -242,6 +242,25 @@ export type VmRepositoryShape = {
     readonly eventId: string;
     readonly userId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly reserveExecUsageEvent: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly billingPlanId?: string | null;
+    readonly vmId?: string | null;
+    readonly provider: ProviderId;
+    readonly imageId?: string;
+    readonly commandLength: number;
+  }) => Effect.Effect<string | null, VmDatabaseError>;
+  readonly completeExecUsageEvent: (input: {
+    readonly eventId: string;
+    readonly userId: string;
+    readonly commandLength: number;
+    readonly exitCode: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly deleteExecUsageEvent: (input: {
+    readonly eventId: string;
+    readonly userId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -1676,6 +1695,67 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             eq(cloudVmUsageEvents.id, input.eventId),
             eq(cloudVmUsageEvents.userId, input.userId),
             eq(cloudVmUsageEvents.eventType, "vm.snapshot.pending"),
+          ));
+      });
+    }),
+
+  reserveExecUsageEvent: (input) =>
+    dbEffect("reserveExecUsageEvent", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return null;
+        const [event] = await tx
+          .insert(cloudVmUsageEvents)
+          .values({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId ?? null,
+            billingPlanId: input.billingPlanId ?? null,
+            vmId: input.vmId ?? null,
+            eventType: "vm.exec.pending",
+            provider: input.provider,
+            imageId: input.imageId,
+            metadata: { commandLength: input.commandLength },
+          })
+          .returning({ id: cloudVmUsageEvents.id });
+        return event?.id ?? null;
+      });
+    }),
+
+  completeExecUsageEvent: (input) =>
+    dbEffect("completeExecUsageEvent", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        const [updated] = await tx
+          .update(cloudVmUsageEvents)
+          .set({
+            eventType: "vm.exec",
+            metadata: {
+              commandLength: input.commandLength,
+              exitCode: input.exitCode,
+            },
+          })
+          .where(and(
+            eq(cloudVmUsageEvents.id, input.eventId),
+            eq(cloudVmUsageEvents.userId, input.userId),
+            eq(cloudVmUsageEvents.eventType, "vm.exec.pending"),
+          ))
+          .returning({ id: cloudVmUsageEvents.id });
+        return !!updated;
+      });
+    }),
+
+  deleteExecUsageEvent: (input) =>
+    dbEffect("deleteExecUsageEvent", async () => {
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        await tx
+          .delete(cloudVmUsageEvents)
+          .where(and(
+            eq(cloudVmUsageEvents.id, input.eventId),
+            eq(cloudVmUsageEvents.userId, input.userId),
+            eq(cloudVmUsageEvents.eventType, "vm.exec.pending"),
           ));
       });
     }),

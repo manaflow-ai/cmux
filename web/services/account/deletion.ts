@@ -201,15 +201,30 @@ export async function isStackAccountDeletionBlocked(
   user: StackAccountDeletionBlockUser,
   runtime?: AccountDeletionTombstoneRuntime,
 ): Promise<boolean> {
-  if (isStackAccountDeletionInProgress(user.clientReadOnlyMetadata)) return true;
-  if (!runtime && !isAccountDeletionTombstoneStoreConfigured()) return false;
-  return await hasAccountDeletionTombstone({ userId: user.id }, runtime ?? defaultAccountDeletionRuntime);
+  const metadataBlocked = isStackAccountDeletionInProgress(user.clientReadOnlyMetadata);
+  if (!runtime && !isAccountDeletionTombstoneStoreConfigured()) return metadataBlocked;
+  let tombstoneStatus: string | null;
+  try {
+    tombstoneStatus = await accountDeletionTombstoneStatus({ userId: user.id }, runtime ?? defaultAccountDeletionRuntime);
+  } catch (error) {
+    if (metadataBlocked) return true;
+    throw error;
+  }
+  return tombstoneStatus ? isBlockingAccountDeletionStatus(tombstoneStatus) : metadataBlocked;
 }
 
 export async function hasAccountDeletionTombstone(
   input: AccountDeletionInput,
   runtime: AccountDeletionTombstoneRuntime = defaultAccountDeletionRuntime,
 ): Promise<boolean> {
+  const status = await accountDeletionTombstoneStatus(input, runtime);
+  return status ? isBlockingAccountDeletionStatus(status) : false;
+}
+
+async function accountDeletionTombstoneStatus(
+  input: AccountDeletionInput,
+  runtime: AccountDeletionTombstoneRuntime,
+): Promise<string | null> {
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
   const [row] = await db
@@ -220,7 +235,7 @@ export async function hasAccountDeletionTombstone(
     .from(accountDeletionTombstones)
     .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
     .limit(1);
-  return row?.userIdHash === userIdHash && isBlockingAccountDeletionStatus(row.status);
+  return row?.userIdHash === userIdHash ? row.status : null;
 }
 
 export async function withAccountDeletionUserMutationLock<T>(
@@ -517,6 +532,7 @@ export async function deleteCmuxAccountData(
   const anonymizedUserId = deletedAccountId(input.userId);
   await claimProviderlessAccountVms(scope, runtime);
   await revokeAccountVmIdentityLeases(scope, runtime);
+  await assertNoInFlightAccountVmExecs(scope, runtime);
   await destroyProviderBackedAccountVms(scope, runtime);
   await deleteAccountVmSnapshots(scope, runtime);
   await deletePersonalSubrouterTenants(scope, runtime);
@@ -809,6 +825,24 @@ async function destroyProviderBackedAccountVms(
   if (remaining.length > 0) {
     if (lastWorkflowError) throw lastWorkflowError;
     throw new Error("Cloud VM account deletion cleanup did not settle");
+  }
+}
+
+async function assertNoInFlightAccountVmExecs(
+  scope: AccountDeletionScope,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const [inFlightExec] = await db
+    .select({ id: cloudVmUsageEvents.id })
+    .from(cloudVmUsageEvents)
+    .where(and(
+      accountOwnedCloudVmUsageEvents(scope),
+      eq(cloudVmUsageEvents.eventType, "vm.exec.pending"),
+    ))
+    .limit(1);
+  if (inFlightExec) {
+    throw new Error("Cloud VM account deletion cleanup is waiting for an in-flight exec to settle");
   }
 }
 
