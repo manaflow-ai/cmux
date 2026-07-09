@@ -25,14 +25,20 @@ extension AgentHibernationController {
             let snapshotOutcome = await Task.detached(priority: .utility) {
                 AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
             }.value
+            let postSnapshotIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            let currentAgent = record.workspace.restorableAgentForHibernation(
+                panelId: record.key.panelId,
+                index: postSnapshotIndex
+            )
             // Re-validate: the pane must still be exactly as confirmed. Any activity,
             // scrollback change, visibility/protection change, hibernation disable,
             // hibernation, or surface loss during the hop aborts; the regular 30s
             // tick will re-arm if still idle.
-            // Live-process state is not re-scanned here: a full index reload costs
-            // 350ms-1.8s; new agents bump lifecycle/input hooks checked below.
             guard AgentHibernationTrackingGate.isEnabled(),
                   record.isStillOwnedByOriginalWorkspace,
+                  !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
+                  TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
+                      TabManager.restorableAgentSnapshotFingerprint(record.agent),
                   !record.terminalPanel.isAgentHibernated,
                   record.terminalPanel.surface.hasLiveSurface,
                   AppDelegate.shared?.agentHibernationPanelIsProtected(
