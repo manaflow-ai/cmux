@@ -33,6 +33,10 @@ struct BrowserWebExtensionsCardStateTests {
         #expect(state.effectiveEntries(observed: observed) == observed)
         #expect(state.hasWriteError)
 
+        let externallyUpdated = [entry(id: "external")]
+        state.reconcileObservedEntries(externallyUpdated)
+        #expect(!state.hasWriteError)
+
         state.beginWrite(entries: pending, writeID: 3)
         #expect(!state.hasWriteError)
     }
