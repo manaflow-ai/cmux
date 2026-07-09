@@ -89,7 +89,9 @@ enum AgentChatThemeSync {
 
     @MainActor
     static func start() {
-        guard isEnabled else { return }
+        // Observers install unconditionally (they're nearly free) so a
+        // runtime flag flip starts syncing without a relaunch; the actual
+        // pushes gate on the flag inside syncNow/scheduleDebouncedSync.
         let shouldInstall = agentChatThemeSyncState.withLock { state in
             guard !state.observersInstalled else { return false }
             state.observersInstalled = true
