@@ -160,8 +160,14 @@ struct BrowserWebExtensionsCard: View {
 
     private func add(_ entry: BrowserWebExtensionEntry) {
         var entries = model.current
-        guard !entries.contains(where: { $0.id == entry.id }) else { return }
-        guard !entries.contains(where: { standardizedPath($0.path) == standardizedPath(entry.path) }) else { return }
+        guard !entries.contains(where: { $0.id == entry.id }) else {
+            presentDuplicateExtensionAlert(for: entry)
+            return
+        }
+        guard !entries.contains(where: { standardizedPath($0.path) == standardizedPath(entry.path) }) else {
+            presentDuplicateExtensionAlert(for: entry)
+            return
+        }
         entries.append(entry)
         model.set(entries)
     }
@@ -217,6 +223,25 @@ struct BrowserWebExtensionsCard: View {
                 defaultValue: "“%@” is not an unpacked web extension. Choose a folder with manifest.json at its root."
             ),
             url.lastPathComponent
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    private func presentDuplicateExtensionAlert(for entry: BrowserWebExtensionEntry) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "settings.browser.webExtensions.duplicate.title",
+            defaultValue: "Extension Already Added"
+        )
+        let displayName = entry.displayName ?? (entry.path as NSString).lastPathComponent
+        alert.informativeText = String(
+            format: String(
+                localized: "settings.browser.webExtensions.duplicate.message",
+                defaultValue: "“%@” is already in the extensions list."
+            ),
+            displayName
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
