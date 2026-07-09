@@ -5,11 +5,14 @@ import Testing
 @Suite(.serialized)
 struct CLIWindowHandleRoutingTests {
     @Test func closeWindowResolvesTypedHandleThroughV2() throws {
-        try assertTypedHandleRoutes(command: "close-window", expectedMethod: "window.close")
+        try assertTypedHandleRoutes(command: "close-window", expectedMutation: .v2(method: "window.close"))
     }
 
-    @Test func focusWindowResolvesTypedHandleThroughV2() throws {
-        try assertTypedHandleRoutes(command: "focus-window", expectedMethod: "window.focus")
+    @Test func focusWindowResolvesTypedHandleBeforeLegacyMutation() throws {
+        try assertTypedHandleRoutes(
+            command: "focus-window",
+            expectedMutation: .v1(line: "focus_window \(Self.targetWindowID)")
+        )
     }
 
     @Test func closeWindowRejectsMalformedTypedHandleBeforeMutation() throws {
@@ -39,7 +42,7 @@ struct CLIWindowHandleRoutingTests {
         #expect(server.receivedLinesSnapshot().isEmpty)
     }
 
-    private func assertTypedHandleRoutes(command: String, expectedMethod: String) throws {
+    private func assertTypedHandleRoutes(command: String, expectedMutation: ExpectedMutation) throws {
         let socketPath = Self.makeSocketPath(command)
         let server = try CLIWindowCommandMockServer(
             socketPath: socketPath,
@@ -59,11 +62,20 @@ struct CLIWindowHandleRoutingTests {
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "OK")
 
-        let requests = try server.requestObjects()
-        #expect(requests.compactMap { $0["method"] as? String } == ["window.list", expectedMethod])
-        let mutation = try #require(requests.last)
-        let params = try #require(mutation["params"] as? [String: Any])
-        #expect(params["window_id"] as? String == Self.targetWindowID)
+        switch expectedMutation {
+        case let .v2(method):
+            let requests = try server.requestObjects()
+            #expect(requests.compactMap { $0["method"] as? String } == ["window.list", method])
+            let mutation = try #require(requests.last)
+            let params = try #require(mutation["params"] as? [String: Any])
+            #expect(params["window_id"] as? String == Self.targetWindowID)
+        case let .v1(line):
+            let receivedLines = server.receivedLinesSnapshot()
+            #expect(receivedLines.count == 2)
+            #expect(receivedLines.last == line)
+            let requests = try server.requestObjects()
+            #expect(requests.compactMap { $0["method"] as? String } == ["window.list"])
+        }
     }
 
     private static func runCLI(arguments: [String], socketPath: String) throws -> ProcessResult {
@@ -132,6 +144,11 @@ struct CLIWindowHandleRoutingTests {
     private static let targetWindowRef = "window:2"
 
     private final class BundleToken {}
+
+    private enum ExpectedMutation {
+        case v1(line: String)
+        case v2(method: String)
+    }
 
     private struct ProcessResult {
         let status: Int32

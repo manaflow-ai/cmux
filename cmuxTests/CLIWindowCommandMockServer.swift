@@ -140,6 +140,10 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     }
 
     private func response(for line: String) -> String {
+        if line == "focus_window \(targetWindowID)" {
+            return "OK"
+        }
+
         guard let data = line.data(using: .utf8),
               let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let id = request["id"] as? String,
@@ -160,7 +164,7 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
                     ]],
                 ]
             )
-        case "window.close", "window.focus":
+        case "window.close":
             return v2Response(
                 id: id,
                 ok: true,
