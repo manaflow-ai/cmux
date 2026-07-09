@@ -28,9 +28,11 @@ struct BrowserWebExtensionsCardState {
     }
 
     mutating func reconcileObservedEntries(_ entries: [BrowserWebExtensionEntry]) {
-        guard entries == pendingEntries else { return }
-        pendingEntries = nil
-        pendingWriteID = nil
+        if entries == pendingEntries {
+            pendingEntries = nil
+            pendingWriteID = nil
+        }
+        hasWriteError = false
     }
 
     mutating func reconcileWriteResult(completedWriteID: UInt64, failed: Bool) {
