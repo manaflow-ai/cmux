@@ -9,6 +9,9 @@ extension AppDelegate {
             guard seenManagers.insert(identifier).inserted else { continue }
             context.tabManager.syncTerminalTabAgentIconAssetsForAllWorkspaces()
         }
+        for dockStore in DockSplitStore.liveStores {
+            dockStore.syncTerminalTabAgentIconAssetsForAllTerminalPanels()
+        }
     }
 }
 

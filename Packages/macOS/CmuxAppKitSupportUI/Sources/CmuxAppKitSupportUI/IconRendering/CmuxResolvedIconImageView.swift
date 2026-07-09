@@ -6,6 +6,7 @@ public final class CmuxResolvedIconImageView: NSView {
     private let imageView = NSImageView(frame: .zero)
     private let renderer = CmuxResolvedIconRenderer()
     private var request: CmuxResolvedIconRequest?
+    private var renderKey: RenderKey?
 
     /// The last rendered image, exposed for callers that need to inspect the AppKit result.
     public var renderedImage: NSImage? {
@@ -38,24 +39,28 @@ public final class CmuxResolvedIconImageView: NSView {
     public func apply(_ request: CmuxResolvedIconRequest?) {
         self.request = request
         updateAccessibilityDescription(request?.accessibilityDescription)
-        render()
+        renderIfNeeded(force: false)
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        render()
+        renderIfNeeded(force: true)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        render()
+        renderIfNeeded(force: false)
     }
 
-    private func render() {
+    private func renderIfNeeded(force: Bool) {
         guard let request else {
+            renderKey = nil
             imageView.image = nil
             return
         }
+        let nextKey = RenderKey(request: request, appearance: effectiveAppearance)
+        guard force || renderKey != nextKey else { return }
+        renderKey = nextKey
         imageView.image = renderer.image(for: request, appearance: effectiveAppearance)
         imageView.contentTintColor = nil
     }
@@ -69,5 +74,34 @@ public final class CmuxResolvedIconImageView: NSView {
         imageView.setAccessibilityElement(true)
         imageView.setAccessibilityRole(.image)
         imageView.setAccessibilityLabel(description)
+    }
+
+    private struct RenderKey: Equatable {
+        let source: String
+        let width: CGFloat
+        let height: CGFloat
+        let tint: String?
+        let symbolWeight: CGFloat
+        let appearanceName: String
+
+        init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
+            self.source = Self.sourceKey(request.source)
+            self.width = request.size.width
+            self.height = request.size.height
+            self.tint = request.tintColor.map(String.init(describing:))
+            self.symbolWeight = request.symbolWeight.rawValue
+            self.appearanceName = appearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? appearance.name.rawValue
+        }
+
+        private static func sourceKey(_ source: CmuxResolvedIconSource) -> String {
+            switch source {
+            case .systemSymbol(let name, let accessibilityDescription):
+                "symbol:\(name):\(accessibilityDescription ?? "")"
+            case .asset(let name, let bundle):
+                "asset:\(name):\(bundle.bundleIdentifier ?? bundle.bundlePath)"
+            case .image(let image):
+                "image:\(ObjectIdentifier(image).hashValue):\(image.size.width):\(image.size.height)"
+            }
+        }
     }
 }

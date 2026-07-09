@@ -6,10 +6,13 @@ enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
     private static let minimumRasterPointSize: CGFloat = 1
+    private static let negativeRenderabilityRetryInterval: TimeInterval = 60
     private static let renderabilityCacheLimit = 512
     private static let appKitImageCacheLimit = 256
     @MainActor
     private static var renderabilityCache: [String: Bool] = [:]
+    @MainActor
+    private static var renderabilityCacheTimestamps: [String: Date] = [:]
     @MainActor
     private static var renderabilityCacheInsertionOrder: [String] = []
     @MainActor
@@ -59,13 +62,41 @@ enum RenderableSystemSymbol {
     @MainActor
     static func isRenderable(_ symbol: String) -> Bool {
         if let cached = renderabilityCache[symbol] {
-            return cached
+            if cached || !shouldRetryNegativeRenderability(symbol) {
+                return cached
+            }
+            removeCachedRenderability(for: symbol)
         }
         let resolved = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
-        if resolved {
-            cacheRenderability(true, for: symbol)
-        }
+        cacheRenderability(resolved, for: symbol)
         return resolved
+    }
+
+    @MainActor
+    private static func shouldRetryNegativeRenderability(_ symbol: String, now: Date = Date()) -> Bool {
+        guard renderabilityCache[symbol] == false,
+              let timestamp = renderabilityCacheTimestamps[symbol] else {
+            return false
+        }
+        return now.timeIntervalSince(timestamp) >= negativeRenderabilityRetryInterval
+    }
+
+    @MainActor
+    private static func removeCachedRenderability(for symbol: String) {
+        renderabilityCache.removeValue(forKey: symbol)
+        renderabilityCacheTimestamps.removeValue(forKey: symbol)
+        renderabilityCacheInsertionOrder.removeAll { $0 == symbol }
+    }
+
+    @MainActor
+    private static func cachedRenderability(_ symbol: String) -> Bool? {
+        if let cached = renderabilityCache[symbol] {
+            if cached || !shouldRetryNegativeRenderability(symbol) {
+                return cached
+            }
+            removeCachedRenderability(for: symbol)
+        }
+        return nil
     }
 
     static func clampedRasterPointSize(_ pointSize: CGFloat) -> CGFloat {
@@ -103,7 +134,11 @@ enum RenderableSystemSymbol {
         if let cached = appKitImageCache[cacheKey] {
             return cached
         }
+        if cachedRenderability(systemName) == false {
+            return nil
+        }
         guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
+            cacheRenderability(false, for: systemName)
             return nil
         }
         cacheRenderability(true, for: systemName)
@@ -130,9 +165,11 @@ enum RenderableSystemSymbol {
             renderabilityCacheInsertionOrder.append(symbol)
         }
         renderabilityCache[symbol] = isRenderable
+        renderabilityCacheTimestamps[symbol] = Date()
         while renderabilityCacheInsertionOrder.count > renderabilityCacheLimit {
             let evictedSymbol = renderabilityCacheInsertionOrder.removeFirst()
             renderabilityCache.removeValue(forKey: evictedSymbol)
+            renderabilityCacheTimestamps.removeValue(forKey: evictedSymbol)
         }
     }
 
@@ -164,6 +201,7 @@ enum RenderableSystemSymbol {
     @MainActor
     static func resetRenderabilityCacheForTesting() {
         renderabilityCache.removeAll()
+        renderabilityCacheTimestamps.removeAll()
         renderabilityCacheInsertionOrder.removeAll()
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
@@ -171,7 +209,7 @@ enum RenderableSystemSymbol {
 
     @MainActor
     static func cachedRenderabilityForTesting(_ symbol: String) -> Bool? {
-        renderabilityCache[symbol]
+        cachedRenderability(symbol)
     }
     #endif
 }

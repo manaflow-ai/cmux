@@ -447,4 +447,18 @@ extension DockSplitStore {
             appearance: NSApplication.shared.effectiveAppearance
         )
     }
+
+    func syncTerminalTabAgentIconAssetsForAllTerminalPanels() {
+        for (panelId, panel) in panels where panel is TerminalPanel {
+            guard let tabId = surfaceId(forPanelId: panelId),
+                  let existing = bonsplitController.tab(tabId) else {
+                continue
+            }
+            let payload = terminalTabAgentIconPayload(forPanelId: panelId)
+            guard existing.iconImageData != payload.imageData || existing.iconAsset != payload.assetName else {
+                continue
+            }
+            bonsplitController.updateTab(tabId, iconImageData: .some(payload.imageData), iconAsset: .some(payload.assetName))
+        }
+    }
 }

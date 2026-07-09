@@ -350,17 +350,17 @@ extension TextBoxInputContainer {
     @ViewBuilder
     func submitButtonActionImage(_ action: TextBoxSubmitAction, canSend: Bool) -> some View {
         let iconOpacity = canSend ? 0.86 : 0.76
-        if let assetName = resolvedSubmitActionAssetName(for: action) {
-            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
+        if let image = submitActionNSImage(for: action) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
                 .opacity(iconOpacity)
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize
                 )
-        } else if let image = submitActionNSImage(for: action) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
+        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
+            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
                 .opacity(iconOpacity)
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
@@ -379,16 +379,16 @@ extension TextBoxInputContainer {
 
     @ViewBuilder
     func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
-        if let assetName = resolvedSubmitActionAssetName(for: action) {
-            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
+        if let image = submitActionNSImage(for: action) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize
                 )
-        } else if let image = submitActionNSImage(for: action) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
+        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
+            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize

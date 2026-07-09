@@ -2,41 +2,74 @@ import AppKit
 
 @MainActor
 final class ResolvedIconAppearanceObserver {
-    static let shared = ResolvedIconAppearanceObserver()
+    struct Environment {
+        let isApplicationFinishedLaunching: () -> Bool
+        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> NSKeyValueObservation?
+        let addDidFinishLaunchingObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let removeObserver: (NSObjectProtocol) -> Void
+        let syncResolvedIcons: () -> Void
 
+        static func live() -> Self {
+            Self(
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
+                startEffectiveAppearanceObservation: { handler in
+                    NSApplication.shared.observe(\.effectiveAppearance, options: []) { _, _ in
+                        Task { @MainActor in
+                            handler()
+                        }
+                    }
+                },
+                addDidFinishLaunchingObserver: { handler in
+                    NotificationCenter.default.addObserver(
+                        forName: NSApplication.didFinishLaunchingNotification,
+                        object: nil,
+                        queue: .main
+                    ) { _ in
+                        handler()
+                    }
+                },
+                removeObserver: { observer in
+                    NotificationCenter.default.removeObserver(observer)
+                },
+                syncResolvedIcons: {
+                    AppDelegate.shared?.syncResolvedIconImagesForCurrentAppearance()
+                }
+            )
+        }
+    }
+
+    private let environment: Environment
     private var observation: NSKeyValueObservation?
     private var launchObserver: NSObjectProtocol?
     private var hasDeferredStartPending = false
 
-    private init() {}
+    init(environment: Environment = .live()) {
+        self.environment = environment
+    }
 
     func startObserving() {
-        if !AppIconLaunchState.isApplicationFinishedLaunching() {
+        if !environment.isApplicationFinishedLaunching() {
             deferStartUntilLaunchIfNeeded()
             return
         }
         cancelDeferredStart()
         syncNow()
         guard observation == nil else { return }
-        observation = NSApplication.shared.observe(\.effectiveAppearance, options: []) { _, _ in
-            Task { @MainActor in
-                ResolvedIconAppearanceObserver.shared.syncNow()
-            }
+        observation = environment.startEffectiveAppearanceObservation { [weak self] in
+            self?.syncNow()
         }
     }
 
     func syncNow() {
-        AppDelegate.shared?.syncResolvedIconImagesForCurrentAppearance()
+        environment.syncResolvedIcons()
     }
 
     private func deferStartUntilLaunchIfNeeded() {
         hasDeferredStartPending = true
         guard launchObserver == nil else { return }
-        launchObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didFinishLaunchingNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        launchObserver = environment.addDidFinishLaunchingObserver { [weak self] in
             guard let self, self.hasDeferredStartPending else { return }
             self.cancelDeferredStart()
             self.startObserving()
@@ -46,7 +79,7 @@ final class ResolvedIconAppearanceObserver {
     private func cancelDeferredStart() {
         hasDeferredStartPending = false
         if let launchObserver {
-            NotificationCenter.default.removeObserver(launchObserver)
+            environment.removeObserver(launchObserver)
             self.launchObserver = nil
         }
     }

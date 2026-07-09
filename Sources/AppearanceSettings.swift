@@ -32,18 +32,15 @@ enum AppearanceSettings {
     struct LiveApplyEnvironment {
         let setApplicationAppearance: (NSAppearance?) -> Void
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
-        let synchronizeResolvedIconImagesWithAppearance: () -> Void
         let systemAppearance: () -> NSAppearance?
 
         init(
             setApplicationAppearance: @escaping (NSAppearance?) -> Void,
             synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
-            synchronizeResolvedIconImagesWithAppearance: @escaping () -> Void = {},
             systemAppearance: @escaping () -> NSAppearance?
         ) {
             self.setApplicationAppearance = setApplicationAppearance
             self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
-            self.synchronizeResolvedIconImagesWithAppearance = synchronizeResolvedIconImagesWithAppearance
             self.systemAppearance = systemAppearance
         }
 
@@ -70,9 +67,6 @@ enum AppearanceSettings {
             },
             synchronizeTerminalThemeWithAppearance: { appearance, source in
                 GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
-            },
-            synchronizeResolvedIconImagesWithAppearance: {
-                ResolvedIconAppearanceObserver.shared.startObserving()
             },
             systemAppearance: {
                 AppearanceSettings.systemNSAppearance()
@@ -208,7 +202,6 @@ enum AppearanceSettings {
         if synchronizeTerminalTheme {
             environment.synchronizeTerminalThemeWithAppearance(appearance, source)
         }
-        environment.synchronizeResolvedIconImagesWithAppearance()
         return normalized
     }
 
