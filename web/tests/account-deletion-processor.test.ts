@@ -81,6 +81,29 @@ describe("account deletion processor", () => {
     expect(calls).toContain("cleanup:user-1:owned=team-personal:retained=team-shared->user-2");
   });
 
+  test("uses the listed Stack team when selectedTeam cannot list members", async () => {
+    const sharedTeam = stackTeam("team-shared", ["user-1", "user-3", "user-2"]);
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          selectedTeam: { id: "team-shared" },
+          listTeams: async () => [sharedTeam],
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toContain("cleanup:user-1:retained=team-shared->user-2");
+  });
+
   test("pages through Stack teams before selecting owned-team cleanup scope", async () => {
     const firstPageTeam = stackTeam("team-shared", ["user-1", "user-2"]);
     const secondPageTeam = stackTeam("team-personal-page-2", ["user-1"]);

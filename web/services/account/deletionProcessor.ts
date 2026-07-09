@@ -248,14 +248,15 @@ function stackTeamFromUnknown(value: unknown): StackAccountDeletionTeam | null {
 function uniqueStackTeams(
   values: readonly (StackAccountDeletionTeam | null)[],
 ): readonly StackAccountDeletionTeam[] {
-  const teams: StackAccountDeletionTeam[] = [];
-  const seen = new Set<string>();
+  const teams = new Map<string, StackAccountDeletionTeam>();
   for (const team of values) {
-    if (!team || seen.has(team.id)) continue;
-    seen.add(team.id);
-    teams.push(team);
+    if (!team) continue;
+    const existing = teams.get(team.id);
+    if (!existing || (typeof existing.listUsers !== "function" && typeof team.listUsers === "function")) {
+      teams.set(team.id, team);
+    }
   }
-  return teams;
+  return [...teams.values()];
 }
 
 function uniqueStrings(values: readonly string[]): readonly string[] {
