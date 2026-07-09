@@ -1,6 +1,6 @@
 import Foundation
 
-enum JSONValue: Codable, Hashable, Sendable {
+package enum JSONValue: Codable, Hashable, Sendable {
     case null
     case bool(Bool)
     case number(Double)
@@ -8,7 +8,7 @@ enum JSONValue: Codable, Hashable, Sendable {
     case array([JSONValue])
     case object([String: JSONValue])
 
-    init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             self = .null
@@ -27,7 +27,7 @@ enum JSONValue: Codable, Hashable, Sendable {
         }
     }
 
-    func encode(to encoder: any Encoder) throws {
+    package func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .null:
@@ -45,35 +45,35 @@ enum JSONValue: Codable, Hashable, Sendable {
         }
     }
 
-    var string: String? {
+    package var string: String? {
         if case .string(let value) = self {
             return value
         }
         return nil
     }
 
-    var object: [String: JSONValue]? {
+    package var object: [String: JSONValue]? {
         if case .object(let value) = self {
             return value
         }
         return nil
     }
 
-    var array: [JSONValue]? {
+    package var array: [JSONValue]? {
         if case .array(let value) = self {
             return value
         }
         return nil
     }
 
-    var bool: Bool? {
+    package var bool: Bool? {
         if case .bool(let value) = self {
             return value
         }
         return nil
     }
 
-    func textFragments() -> [String] {
+    package func textFragments() -> [String] {
         switch self {
         case .string(let value):
             [value]

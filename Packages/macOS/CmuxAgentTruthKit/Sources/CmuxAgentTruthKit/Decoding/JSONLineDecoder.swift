@@ -1,10 +1,10 @@
 import Foundation
 
-struct JSONLineDecoder {
-    init() {
+package struct JSONLineDecoder {
+    package init() {
     }
 
-    func decode(_ line: String) -> JSONValue? {
+    package func decode(_ line: String) -> JSONValue? {
         guard let data = line.data(using: .utf8) else {
             return nil
         }
