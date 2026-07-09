@@ -52,6 +52,25 @@ describe("iOS analytics route", () => {
     expect(forwardToPostHog).toHaveBeenCalled();
   });
 
+  test("persists authenticated identify aliases even when the client distinct id is stale", async () => {
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "stale-install-id",
+        properties: {
+          "$anon_distinct_id": "55555555-5555-4555-8555-555555555555",
+        },
+      }],
+    }), dependencies());
+
+    expect(response.status).toBe(200);
+    expect(recordIOSAnalyticsIdentities).toHaveBeenCalledWith({
+      userId: "stack-user-1",
+      anonymousIds: ["55555555-5555-4555-8555-555555555555"],
+    });
+    expect(forwardToPostHog).toHaveBeenCalled();
+  });
+
   test("does not persist identify mappings when PostHog forwarding fails", async () => {
     forwardToPostHog.mockResolvedValue({ ok: false, status: 502 });
 

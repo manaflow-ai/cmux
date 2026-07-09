@@ -109,7 +109,7 @@ export async function postAnalyticsEvents(
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
   if (user) {
-    const anonymousIds = trustedIdentifyAnonymousIds(accepted, user.id);
+    const anonymousIds = identifyAnonymousIds(accepted);
     if (anonymousIds.length > 0) {
       await dependencies.recordIOSAnalyticsIdentities({
         userId: user.id,
@@ -154,10 +154,10 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   };
 }
 
-function trustedIdentifyAnonymousIds(events: readonly IncomingEvent[], userId: string): string[] {
+function identifyAnonymousIds(events: readonly IncomingEvent[]): string[] {
   const ids: string[] = [];
   for (const event of events) {
-    if (event.event !== "$identify" || event.distinctID !== userId) continue;
+    if (event.event !== "$identify") continue;
     const anonymousId = event.properties.$anon_distinct_id;
     if (typeof anonymousId === "string") ids.push(anonymousId);
   }

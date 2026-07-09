@@ -629,7 +629,10 @@ async function cancelStripeAccountBilling(
   const customerRows = await db
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, userId));
+    .where(and(
+      eq(stripeCustomers.stackUserId, userId),
+      isNull(stripeCustomers.stackTeamId),
+    ));
   const subscriptionRows = await db
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
