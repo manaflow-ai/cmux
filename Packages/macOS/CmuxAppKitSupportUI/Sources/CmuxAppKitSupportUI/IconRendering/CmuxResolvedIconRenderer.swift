@@ -4,6 +4,8 @@ public import Foundation
 /// Renders small AppKit icons after resolving asset variants, template masks, and dynamic colors.
 @MainActor
 public final class CmuxResolvedIconRenderer {
+    private let rasterScale: CGFloat = 2
+
     /// Creates an icon renderer.
     public init() {}
 
@@ -16,14 +18,16 @@ public final class CmuxResolvedIconRenderer {
         guard let imageSize = normalizedSize(request.size) else {
             return nil
         }
-        let output = NSImage(size: imageSize)
-        var didDraw = false
+        var output: NSImage?
         appearance.performAsCurrentDrawingAppearance {
-            guard let sourceImage = resolvedSourceImage(for: request) else {
+            guard let sourceImage = resolvedSourceImage(for: request),
+                  let bitmap = bitmapRepresentation(size: imageSize) else {
                 return
             }
-            output.lockFocus()
-            defer { output.unlockFocus() }
+            bitmap.size = imageSize
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            defer { NSGraphicsContext.restoreGraphicsState() }
 
             NSColor.clear.setFill()
             NSRect(origin: .zero, size: imageSize).fill()
@@ -43,9 +47,11 @@ public final class CmuxResolvedIconRenderer {
                 tintColor.setFill()
                 NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
             }
-            didDraw = true
+            let rendered = NSImage(size: imageSize)
+            rendered.addRepresentation(bitmap)
+            output = rendered
         }
-        guard didDraw else {
+        guard let output else {
             return nil
         }
         output.isTemplate = false
@@ -86,12 +92,31 @@ public final class CmuxResolvedIconRenderer {
             }
             return copiedImage(image)
         case .image(let image):
+            image.recache()
             return copiedImage(image)
         }
     }
 
     private func copiedImage(_ image: NSImage) -> NSImage {
-        (image.copy() as? NSImage) ?? image
+        let copy = (image.copy() as? NSImage) ?? image
+        copy.cacheMode = .never
+        copy.recache()
+        return copy
+    }
+
+    private func bitmapRepresentation(size: NSSize) -> NSBitmapImageRep? {
+        NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: max(1, Int(ceil(size.width * rasterScale))),
+            pixelsHigh: max(1, Int(ceil(size.height * rasterScale))),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
     }
 
     private func normalizedSize(_ size: NSSize) -> NSSize? {

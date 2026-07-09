@@ -93,6 +93,7 @@ import Testing
         let firstImage = try #require(renderedImage(in: view))
         let firstPixel = try #require(centerPixelColor(in: firstImage))
         #expect(firstPixel.redComponent > firstPixel.blueComponent)
+        prewarmImageCache(sourceImage)
 
         fill(representation, color: .systemBlue)
         view.apply(request)
@@ -153,6 +154,28 @@ import Testing
 
     private func renderedImage(in view: CmuxResolvedIconImageView) -> NSImage? {
         view.subviews.compactMap { ($0 as? NSImageView)?.image }.first
+    }
+
+    private func prewarmImageCache(_ image: NSImage) {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 16,
+            pixelsHigh: 16,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return
+        }
+        bitmap.size = NSSize(width: 16, height: 16)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        image.draw(in: NSRect(x: 0, y: 0, width: 16, height: 16))
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func centerPixelColor(in image: NSImage) -> NSColor? {
