@@ -4,11 +4,15 @@
 static bool cmux_test_needs_confirm_quit = false;
 static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
+static uint64_t cmux_test_occlusion_call_count = 0;
+static bool cmux_test_last_occlusion_visible = false;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
+    cmux_test_occlusion_call_count = 0;
+    cmux_test_last_occlusion_visible = false;
 }
 
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name) {
@@ -57,7 +61,11 @@ void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}
-void ghostty_surface_set_occlusion(void) {}
+void ghostty_surface_set_occlusion(void *surface, bool visible) {
+    (void)surface;
+    cmux_test_occlusion_call_count += 1;
+    cmux_test_last_occlusion_visible = visible;
+}
 void ghostty_surface_set_renderer_realized(void) {}
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
@@ -69,4 +77,12 @@ ghostty_string_s ghostty_surface_tty_name(void *surface) {
         return (ghostty_string_s){0};
     }
     return (ghostty_string_s){.ptr = cmux_test_tty_name, .len = strlen(cmux_test_tty_name), .sentinel = false};
+}
+
+uint64_t cmux_test_ghostty_surface_set_occlusion_call_count(void) {
+    return cmux_test_occlusion_call_count;
+}
+
+bool cmux_test_ghostty_surface_last_occlusion_visible(void) {
+    return cmux_test_last_occlusion_visible;
 }
