@@ -2408,7 +2408,10 @@ final class TerminalOutputCollector {
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where !collector.lines.contains(currentGridText) {
+    // The request-count waits only prove the second replay was REQUESTED; its
+    // response still has to round-trip and deliver. The slower CI iPad leg
+    // regularly needs more than the file's usual 200ms here.
+    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
