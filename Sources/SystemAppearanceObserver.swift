@@ -80,6 +80,7 @@ final class SystemAppearanceObserver {
 #if DEBUG
         cmuxDebugLog("systemAppearance.observer.change prefersDark=\(prefersDark)")
 #endif
+        environment.synchronizeTerminalTheme()
         environment.postSystemAppearanceDidChange()
     }
 }

@@ -36,10 +36,12 @@ extension SystemAppearanceObserver {
                     }
                 },
                 synchronizeTerminalTheme: {
-                    GhosttyApp.shared.synchronizeThemeWithAppearance(
-                        NSApp?.effectiveAppearance,
-                        source: "systemAppearanceObserver"
-                    )
+                    MainActor.assumeIsolated {
+                        GhosttyApp.shared.synchronizeThemeWithAppearance(
+                            NSApp?.effectiveAppearance,
+                            source: "systemAppearanceObserver"
+                        )
+                    }
                 },
                 postSystemAppearanceDidChange: {
                     NotificationCenter.default.post(name: .systemAppearanceDidChange, object: nil)
