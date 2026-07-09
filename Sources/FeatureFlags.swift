@@ -45,6 +45,7 @@ final class CmuxFeatureFlags {
     private static let cloudVMUIDefault = false
     #endif
     private static let agentChatUIDefault = false
+    private static let sidebarWorkspaceAgentSpinnerDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -114,6 +115,23 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: Self.agentChatUIDefault
             ),
+
+            // FLAG(key: sidebar-workspace-agent-spinner-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the coding-agent activity spinner in workspace rows. Hidden
+            // by default while multi-agent lifecycle edge cases are investigated.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-workspace-agent-spinner-experiment",
+                title: String(
+                    localized: "featureFlags.sidebarWorkspaceAgentSpinner.title",
+                    defaultValue: "Workspace agent spinner"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.sidebarWorkspaceAgentSpinner.description",
+                    defaultValue: "Shows a spinner in workspace rows while coding agents are running."
+                ),
+                defaultWhenUnavailable: Self.sidebarWorkspaceAgentSpinnerDefault
+            ),
         ]
     }
 
@@ -131,6 +149,10 @@ final class CmuxFeatureFlags {
 
     var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[3])
+    }
+
+    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
+        effectiveValue(for: Self.allFlags[4])
     }
 
     @ObservationIgnored
