@@ -10,28 +10,6 @@ extension RemoteTmuxControlConnection {
         )
     }
 
-    /// A layout the module has PARSED but not yet PUBLISHED: the layout
-    /// string's leaf rects are wrong under `pane-border-status` (tmux
-    /// publishes the pre-title tree), so raw trees are quarantined here and
-    /// enter `windowsByID` only patched with list-panes rects — observers
-    /// can never see string geometry, structurally.
-    struct PendingLayout {
-        var node: RemoteTmuxLayoutNode
-        var visibleNode: RemoteTmuxLayoutNode?
-        var zoomed: Bool
-        var name: String
-        /// Bumped per stored layout; a rects reply for an older generation
-        /// is stale and discarded (a fresh fetch is already in flight or
-        /// queued via `dirty`).
-        var generation: Int
-        /// A newer layout arrived while a rects fetch was in flight: send
-        /// ONE follow-up fetch when the in-flight reply lands (coalescing —
-        /// a resize storm must not queue a fetch per event).
-        var dirty = false
-        var inFlight = false
-        var retriesRemaining = 1
-    }
-
     /// Window ids from a topology population that started with NO published
     /// windows (first attach, reconnect reseed into an empty table), still
     /// awaiting their rects reply. While non-nil, verified windows accumulate
@@ -68,7 +46,7 @@ extension RemoteTmuxControlConnection {
         zoomed: Bool,
         name: String
     ) {
-        var pending = pendingLayouts[windowId] ?? PendingLayout(
+        var pending = pendingLayouts[windowId] ?? RemoteTmuxPendingLayout(
             node: node, visibleNode: visibleNode, zoomed: zoomed, name: name, generation: 0
         )
         pending.node = node

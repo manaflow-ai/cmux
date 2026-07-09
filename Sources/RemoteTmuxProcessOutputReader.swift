@@ -110,14 +110,10 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
-    private enum ReadResult: Equatable {
-        case published
-        case interrupted
-        case wouldBlock
-        case ended
-    }
-
-    private func readAndPublish(from fileDescriptor: Int32, byteCount: Int) -> ReadResult {
+    private func readAndPublish(
+        from fileDescriptor: Int32,
+        byteCount: Int
+    ) -> RemoteTmuxPipeReadResult {
         var buffer = [UInt8](repeating: 0, count: max(1, byteCount))
         let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
             Darwin.read(fileDescriptor, rawBuffer.baseAddress, rawBuffer.count)

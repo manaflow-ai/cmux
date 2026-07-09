@@ -65,7 +65,7 @@ final class RemoteTmuxControlConnection {
     /// only the active-pane dot on top of that).
     var windowTitleRowsVisible: [Int: Bool] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
-    var pendingLayouts: [Int: PendingLayout] = [:]
+    var pendingLayouts: [Int: RemoteTmuxPendingLayout] = [:]
     /// Window ids in the initial atomic topology publication batch.
     var initialBatchAwaiting: Set<Int>?
     /// Verified initial windows staged until the atomic batch is complete.
