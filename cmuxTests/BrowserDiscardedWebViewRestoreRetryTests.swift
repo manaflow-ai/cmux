@@ -304,8 +304,8 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         ))
         panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
         panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
-        panel.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
 
+        panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal)
         panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
 
         let payload = panel.webViewLifecycleTopPayload()
@@ -313,6 +313,35 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         #expect(payload["restore_pending"] as? Bool == false)
         #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
         #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
+    @Test func unknownCancellationAfterClearedAttemptedURLKeepsRestoreRetryable() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-issue-7504-policy-cancel.html"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
+        panel.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+
+        panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == true)
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
     }
 
     @Test func markDiscardedResetsStalePendingRestoreNavigation() {

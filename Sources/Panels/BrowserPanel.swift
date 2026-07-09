@@ -3791,20 +3791,24 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.restoreFindStateAfterNavigation(replaySearch: false)
             }
         }
+        navigationDelegate.didCancelNavigationPolicy = { [weak self] webView, cancellationKind in
+            MainActor.assumeIsolated {
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                switch cancellationKind {
+                case .terminal:
+                    self.hasCommittedDocumentSinceWebViewReplacement = true
+                    self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_policy_cancelled")
+                }
+            }
+        }
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                let didPolicyClearAttemptedRequest = self.navigationDelegate?.lastAttemptedURL == nil
                 self.navigationDelegate?.clearAttemptedRequest()
                 self.refreshBackgroundAppearance()
                 if self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation) {
-                    if didPolicyClearAttemptedRequest {
-                        self.hasCommittedDocumentSinceWebViewReplacement = true
-                        self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_policy_cancelled")
-                    } else {
-                        self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
-                    }
+                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
                 }
             }
         }

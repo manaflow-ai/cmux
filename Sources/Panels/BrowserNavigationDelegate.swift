@@ -3,6 +3,7 @@ import Foundation
 import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    enum PolicyCancellationKind { case terminal }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
@@ -10,6 +11,7 @@ import WebKit
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
@@ -22,8 +24,7 @@ import WebKit
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
-    /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
-    /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
+    /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
@@ -280,6 +281,7 @@ import WebKit
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
+            if opened { reportTerminalPolicyCancellation(for: navigationAction, in: webView) }
             decisionHandler(opened ? .cancel : .allow)
             return
         }
@@ -304,8 +306,6 @@ import WebKit
             return
         }
 
-        // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
-        // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
@@ -318,6 +318,7 @@ import WebKit
                 },
                 presentAlert: presentAlert
             )
+            reportTerminalPolicyCancellation(for: navigationAction, in: webView)
             decisionHandler(.cancel)
             return
         }
@@ -353,13 +354,11 @@ import WebKit
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
             openRequestInNewTab(navigationAction.request)
+            reportTerminalPolicyCancellation(for: navigationAction, in: webView)
             decisionHandler(.cancel)
             return
         }
 
-        // target=_blank link navigations should open in a new tab.
-        // Scripted popups (navigationType == .other) are handled in
-        // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
         if navigationAction.targetFrame == nil,
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
@@ -411,6 +410,10 @@ import WebKit
             return false
         }
         return true
+    }
+
+    private func reportTerminalPolicyCancellation(for navigationAction: WKNavigationAction, in webView: WKWebView) {
+        if navigationAction.targetFrame?.isMainFrame == true { didCancelNavigationPolicy?(webView, .terminal) }
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {
@@ -487,9 +490,6 @@ import WebKit
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
 
-        // Only classify HTTP(S) responses as downloads. Subframes are eligible
-        // only for explicit attachment/force-download MIME decisions; the
-        // resolver keeps cannot-show MIME fallback scoped to main-frame loads.
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
