@@ -162,11 +162,13 @@ final class BrowserPaneDropTargetView: NSView {
 
         if fileDropDisposition(sender) == .forwardToPage {
             let webView = preparedFileDropWebView ?? activeFileDropWebView ?? webViewForFileDropDelivery(at: location)
-            if let webView = webView as? WKWebView {
-                BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
-            }
             let handled = webView?.performDragOperation(sender) ?? false
             if handled {
+                // Arm the fallback guard only for delivered drops; WebKit resolves the
+                // fallback navigation asynchronously, so it still sees the record.
+                if let webView = webView as? WKWebView {
+                    BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
+                }
                 performedFileDropWebView = webView
                 focusBrowserPanelAfterSuccessfulFileDrop(context: dropContext)
             } else {
