@@ -335,6 +335,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$LANE" == "prod" ]]; then
+  LANE="appstore"
+fi
+
 # Per-lane on-device display name. Empty keeps the xcconfig default
 # (Release.xcconfig = "cmux BETA"); the appstore lane overrides it to "cmux" so
 # the public build ships with the clean brand name while beta stays "cmux BETA".
@@ -344,7 +348,7 @@ case "$LANE" in
     PROVISIONING_PROFILE_NAME="${IOS_BETA_PROVISIONING_PROFILE_NAME:-cmux Beta Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     ;;
-  appstore|prod)
+  appstore)
     # Public App Store build. Distinct bundle id (clean reverse-DNS of cmux.com)
     # and a dedicated App Store distribution profile, so it ships side-by-side
     # with the beta channel. Keep com.cmux.app in lockstep with the APNs route
@@ -360,12 +364,12 @@ case "$LANE" in
     ;;
 esac
 
-if [[ "$LANE" == "appstore" || "$LANE" == "prod" ]] && [[ "$EXTERNAL_TESTING" -eq 1 ]]; then
+if [[ "$LANE" == "appstore" && "$EXTERNAL_TESTING" -eq 1 ]]; then
   echo "error: --external is TestFlight-only and cannot be used with --lane appstore" >&2
   exit 2
 fi
 
-if [[ "$LANE" == "appstore" || "$LANE" == "prod" ]] && [[ "$AUTO_VERSION" -eq 1 ]]; then
+if [[ "$LANE" == "appstore" && "$AUTO_VERSION" -eq 1 ]]; then
   echo "error: --auto-version is beta-only. Set ios/Config/Shared.xcconfig MARKETING_VERSION intentionally before an App Store upload." >&2
   exit 2
 fi
