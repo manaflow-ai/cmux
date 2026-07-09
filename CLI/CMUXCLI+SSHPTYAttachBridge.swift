@@ -1,6 +1,12 @@
 import Darwin
 import Foundation
 
+extension CLIError {
+    init(message: String, exitCode: SSHPTYAttachExitCode) {
+        self.init(message: message, exitCode: exitCode.rawValue)
+    }
+}
+
 extension CMUXCLI {
     func cleanupFailedSSHPTYAttach(
         client: SocketClient,

@@ -7,20 +7,20 @@ import Foundation
 /// and `CMUXCLI.sshPTYAttachRetryLoopLines`; keep those shell contracts in sync
 /// with this taxonomy. The classifier patterns mirror
 /// `userFacingRemotePTYErrorMessage` in `CLI/CMUXCLI+RemotePTYErrors.swift`.
-nonisolated enum SSHPTYAttachExitCode {
-    static let fatal: Int32 = 1
-    static let sessionNotFound: Int32 = 253
-    static let bridgeClosedSessionRunning: Int32 = 254
-    static let retryableTransient: Int32 = 255
+nonisolated enum SSHPTYAttachExitCode: Int32 {
+    case fatal = 1
+    case sessionNotFound = 253
+    case bridgeClosedSessionRunning = 254
+    case retryableTransient = 255
 
-    static func classifyBridgeEstablishmentFailure(_ rawDescription: String) -> Int32 {
+    static func classifyBridgeEstablishmentFailure(_ rawDescription: String) -> SSHPTYAttachExitCode {
         classifyNormalized(rawDescription.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
 
-    static func classifyBridgeEstablishmentFailure(code: String?, message: String) -> Int32 {
+    static func classifyBridgeEstablishmentFailure(code: String?, message: String) -> SSHPTYAttachExitCode {
         let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalizedCode == "pty_session_not_found" {
-            return sessionNotFound
+            return .sessionNotFound
         }
         let rawDescription = [normalizedCode, message]
             .compactMap { $0 }
@@ -28,12 +28,12 @@ nonisolated enum SSHPTYAttachExitCode {
         return classifyBridgeEstablishmentFailure(rawDescription)
     }
 
-    private static func classifyNormalized(_ description: String) -> Int32 {
+    private static func classifyNormalized(_ description: String) -> SSHPTYAttachExitCode {
         if description.contains("pty_session_not_found") ||
             ((description.contains("persistent ssh pty session") ||
               description.contains("persistent pty session")) &&
              description.contains("not running")) {
-            return sessionNotFound
+            return .sessionNotFound
         }
 
         if description.contains("timed out") ||
@@ -46,9 +46,9 @@ nonisolated enum SSHPTYAttachExitCode {
             description.contains("pty input queue is full") ||
             description.contains("connection refused") ||
             description.contains("connection reset") {
-            return retryableTransient
+            return .retryableTransient
         }
 
-        return fatal
+        return .fatal
     }
 }

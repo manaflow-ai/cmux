@@ -15,10 +15,13 @@ import Security
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    /// Structured v2 protocol error code when the failure came from a v2 error response.
+    let v2Code: String?
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
         self.message = message
         self.exitCode = exitCode
+        self.v2Code = v2Code
     }
 
     var description: String { message }
@@ -2618,7 +2621,8 @@ final class SocketClient {
                     action: action,
                     reason: reason,
                     details: safeV2Details(error["details"])
-                )
+                ),
+                v2Code: error["code"] as? String
             )
         }
 
@@ -4412,7 +4416,7 @@ struct CMUXCLI {
             do {
                 try runSSHPTYAttach(commandArgs: commandArgs, client: client, explicitPassword: socketPasswordArg)
             } catch let error as CLIError
-                where error.exitCode == SSHPTYAttachExitCode.sessionNotFound &&
+                where error.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue &&
                 commandArgs.contains("--require-existing") {
                 let notice = String(
                     localized: "cli.sshPtyAttach.remoteSessionLostRespawn",
@@ -12370,8 +12374,18 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            let exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
-            if requireExisting && exitCode == SSHPTYAttachExitCode.sessionNotFound {
+            // Prefer the structured v2 error code over description matching so a
+            // message-format change cannot silently turn a retryable failure fatal.
+            let exitCode: SSHPTYAttachExitCode
+            if let cliError = error as? CLIError, let code = cliError.v2Code {
+                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                    code: code,
+                    message: cliError.message
+                )
+            } else {
+                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
+            }
+            if requireExisting && exitCode == .sessionNotFound {
                 // Match the bridge-status path below: keep surface tracking intact before respawn.
                 sessionLostWillRespawn = true
             }
@@ -12416,7 +12430,7 @@ struct CMUXCLI {
             // replacement shell is about to run on it.
             if requireExisting,
                let cliError = error as? CLIError,
-               cliError.exitCode == SSHPTYAttachExitCode.sessionNotFound {
+               cliError.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue {
                 sessionLostWillRespawn = true
             }
             if let connectedFD {
