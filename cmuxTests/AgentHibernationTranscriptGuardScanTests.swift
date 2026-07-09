@@ -328,16 +328,16 @@ struct AgentHibernationTranscriptGuardScanTests {
     }
 
     @Test
-    func resolveTranscriptPathFailsClosedOnDuplicateAnyProjectFallbackCandidates() throws {
+    func resolveTranscriptPathFailsClosedOnAnyProjectDirectAndWorkflowCandidates() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
-        let sessionId = "duplicate-any-project"
-        let firstTranscript = transcriptURL(home: home, cwd: "/tmp/first", sessionId: sessionId)
-        let secondTranscript = transcriptURL(home: home, cwd: "/tmp/second", sessionId: sessionId)
-        try writeFile(#"{"type":"user","message":{"content":"first"}}"# + "\n", to: firstTranscript)
-        try writeFile(#"{"type":"user","message":{"content":"second"}}"# + "\n", to: secondTranscript)
+        let sessionId = "ambiguous-any-project"
+        let staleDirect = transcriptURL(home: home, cwd: "/tmp/stale", sessionId: sessionId)
+        let liveWorkflow = workflowTranscriptURL(home: home, cwd: "/tmp/live", containerSessionId: "workflow", sessionId: sessionId)
+        try writeFile(#"{"type":"user","message":{"content":"stale"}}"# + "\n", to: staleDirect)
+        try writeFile(#"{"type":"user","message":{"content":"live"}}"# + "\n", to: liveWorkflow)
 
         #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
             agent: agent(sessionId: sessionId, workingDirectory: nil),

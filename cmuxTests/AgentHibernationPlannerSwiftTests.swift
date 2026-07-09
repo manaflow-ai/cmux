@@ -78,7 +78,7 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
-    func panelActivityCancelsPendingPostTeardownRestoreTask() {
+    func panelActivityKeepsPendingPostTeardownRestoreTaskAlive() {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()
         defer { AgentHibernationTrackingGate.setEnabled(wasEnabled) }
@@ -95,8 +95,8 @@ struct AgentHibernationPlannerSwiftTests {
 
         controller.recordTerminalFocus(workspaceId: key.workspaceId, panelId: key.panelId)
 
-        #expect(controller.postTeardownRestoreTasksByPanel[key] == nil)
-        #expect(task.isCancelled)
+        #expect(controller.postTeardownRestoreTasksByPanel[key] != nil)
+        #expect(task.isCancelled == false)
     }
 
     @MainActor

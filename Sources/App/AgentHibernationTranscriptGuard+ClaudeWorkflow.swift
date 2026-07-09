@@ -64,33 +64,22 @@ extension AgentHibernationTranscriptGuard {
             if workflowResolution.shouldStop { return workflowResolution.path }
         }
 
-        var directFallbackCandidates: [String] = []
+        var fallbackCandidates: [String] = []
         for configRoot in configRoots {
             let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
             guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
             for projectDir in projectDirs.sorted() {
                 let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
                 for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
-                    appendCandidate(candidate, to: &directFallbackCandidates)
+                    appendCandidate(candidate, to: &fallbackCandidates)
                 }
-            }
-        }
-        let directFallbackResolution = resolve(directFallbackCandidates, requireUniqueConversation: true)
-        if directFallbackResolution.shouldStop { return directFallbackResolution.path }
-
-        var workflowFallbackCandidates: [String] = []
-        for configRoot in configRoots {
-            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
-            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
-            for projectDir in projectDirs.sorted() {
-                let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
                 for candidate in workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
-                    appendCandidate(candidate, to: &workflowFallbackCandidates)
+                    appendCandidate(candidate, to: &fallbackCandidates)
                 }
             }
         }
-        let workflowFallbackResolution = resolve(workflowFallbackCandidates, requireUniqueConversation: true)
-        if workflowFallbackResolution.shouldStop { return workflowFallbackResolution.path }
+        let fallbackResolution = resolve(fallbackCandidates, requireUniqueConversation: true)
+        if fallbackResolution.shouldStop { return fallbackResolution.path }
         return metadataOnlyCandidate
     }
 

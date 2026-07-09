@@ -106,7 +106,6 @@ final class AgentHibernationController {
         bumpTeardownValidationEpoch(key)
         confirmations.removeValue(forKey: key)
         unableToProtectByPanel.removeValue(forKey: key)
-        cancelPostTeardownRestoreTask(key)
         return key
     }
 
