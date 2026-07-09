@@ -1,4 +1,5 @@
 import CmuxCore
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxRemoteWorkspace
@@ -42,6 +43,43 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         #expect(tunnel.queue.sync { tunnel.ptyLifecycleRegistry.generations[key] == nil })
         #expect(tunnel.queue.sync { tunnel.ptyLifecycleRegistry.retiredKeys.contains(key) })
         #expect(rpc.closedSessionIDs == [key.sessionID])
+    }
+
+    @Test("cleanup waits for a creating attach before closing the remote PTY")
+    func cleanupWaitsForCreatingAttach() throws {
+        let rpc = TestPTYLifecycleRPCClient(delaysAttach: true)
+        let tunnel = makeTunnel(rpc: rpc)
+        defer {
+            rpc.releaseAttach()
+            tunnel.stop()
+        }
+        let endpoint = try tunnel.startPTYBridge(
+            sessionID: "late-session",
+            lifecycleID: "late-lifecycle",
+            attachmentID: "surface",
+            command: "exec shell",
+            requireExisting: false
+        )
+        let fd = try connect(endpoint)
+        defer { Darwin.close(fd) }
+        try writeAll(fd, Data("{\"token\":\"\(endpoint.token)\",\"cols\":80,\"rows\":24}\n".utf8))
+        #expect(rpc.waitForAttachStart() == .success)
+
+        let cleanupFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { cleanupFinished.signal() }
+            try? tunnel.closePTY(sessionID: endpoint.sessionID)
+        }
+
+        // Socket EOF is the real signal that cleanup stopped the bridge and
+        // reached its attach-completion join.
+        #expect(try readToEOF(fd) == 0)
+        #expect(rpc.waitForCloseStart(timeout: .now()) == .timedOut)
+
+        rpc.releaseAttach()
+        #expect(rpc.waitForCloseStart(timeout: .now() + 2) == .success)
+        #expect(cleanupFinished.wait(timeout: .now() + 2) == .success)
+        #expect(rpc.closedSessionIDs == [endpoint.sessionID])
     }
 
     @Test("acknowledged closed generations remain tombstoned against stale retry")
@@ -327,5 +365,49 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         )
         tunnel.queue.sync { tunnel.ptyRPCClient = rpc }
         return tunnel
+    }
+
+    private func connect(_ endpoint: RemotePTYBridgeServer.Endpoint) throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = UInt16(endpoint.port).bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr(endpoint.host))
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard result == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+        }
+        return fd
+    }
+
+    private func writeAll(_ fd: Int32, _ data: Data) throws {
+        try data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count {
+                let count = Darwin.write(fd, base.advanced(by: offset), bytes.count - offset)
+                if count > 0 { offset += count }
+                else if count < 0, errno == EINTR { continue }
+                else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+            }
+        }
+    }
+
+    private func readToEOF(_ fd: Int32) throws -> Int {
+        var byte: UInt8 = 0
+        while true {
+            let count = Darwin.read(fd, &byte, 1)
+            if count == 0 { return 0 }
+            if count < 0, errno == EINTR { continue }
+            if count < 0 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        }
     }
 }

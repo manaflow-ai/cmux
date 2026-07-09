@@ -66,8 +66,8 @@ extension RemoteDaemonProxyTunnel {
 
     /// Intentionally closes a remote PTY and gates every known logical attach generation first.
     public func closePTY(sessionID: String) throws {
-        try queue.sync {
-            guard let ptyRPCClient, !isStopped else {
+        let preparation = try queue.sync {
+            guard ptyRPCClient != nil, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
@@ -76,17 +76,30 @@ extension RemoteDaemonProxyTunnel {
             let matchingServers = ptyBridgeServers.values.filter {
                 $0.lifecycleKey.sessionID == RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: "").sessionID
             }
-            for record in matchingServers {
-                record.server.stop()
+            return (previous: previous, matchingServers: matchingServers)
+        }
+
+        // The public close operation is synchronous. Join in-flight attach
+        // RPCs on this caller thread, never on the tunnel/bridge/RPC queues
+        // that must deliver their completion signals.
+        for record in preparation.matchingServers {
+            record.server.stopAndWaitForAttachCompletion()
+        }
+        try queue.sync {
+            guard let ptyRPCClient, !isStopped else {
+                ptyLifecycleRegistry.completeIntentionalClose(preparation.previous)
+                throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
             }
             do {
                 try ptyRPCClient.closePTY(sessionID: sessionID)
-                ptyLifecycleRegistry.completeIntentionalClose(previous)
+                ptyLifecycleRegistry.completeIntentionalClose(preparation.previous)
             } catch {
                 if Self.ptyCloseWasDefinitivelyRejected(error) {
-                    ptyLifecycleRegistry.rollbackIntentionalClose(previous)
+                    ptyLifecycleRegistry.rollbackIntentionalClose(preparation.previous)
                 } else {
-                    ptyLifecycleRegistry.completeIntentionalClose(previous)
+                    ptyLifecycleRegistry.completeIntentionalClose(preparation.previous)
                 }
                 throw error
             }

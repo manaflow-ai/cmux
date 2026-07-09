@@ -3680,7 +3680,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(
-            initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && initialScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
             initialScript
         )
         XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialScript)
@@ -3706,7 +3706,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(
-            terminalStartupScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && terminalStartupScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
             terminalStartupScript
         )
         XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, terminalStartupScript)

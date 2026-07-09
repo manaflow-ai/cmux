@@ -61,6 +61,8 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     private var session: Session?
     private var isStopped = false
     private var authenticatedClient = false
+    private var didReportStop = false
+    private var stopWaiters: [() -> Void] = []
     private var unusedBridgeTimeoutTask: Task<Void, Never>?
 
     /// Creates a bridge server for one remote PTY attachment.
@@ -171,6 +173,26 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         }
     }
 
+    /// Stops the bridge and joins any attach RPC already in flight.
+    ///
+    /// The join preserves the synchronous PTY-close contract: callers can
+    /// safely issue `pty.close` after this returns without a delayed
+    /// `requireExisting: false` attach recreating the session afterward.
+    /// This method must be called from outside the bridge and RPC queues so
+    /// those queues remain free to deliver the attach completion.
+    func stopAndWaitForAttachCompletion() {
+        let stopped = DispatchSemaphore(value: 0)
+        let shouldWait = queue.sync {
+            stopLocked()
+            guard !didReportStop else { return false }
+            stopWaiters.append { stopped.signal() }
+            return true
+        }
+        if shouldWait {
+            stopped.wait()
+        }
+    }
+
     /// Stops synchronously so a tunnel replacement can preserve the final disposition.
     func stopAndWaitForDisposition() -> RemotePTYBridgeStopDisposition {
         queue.sync {
@@ -204,7 +226,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             strings: strings,
             clock: clock,
             onAuthenticated: { [weak self] in self?.authenticatedClient = true },
-            onClose: { [weak self] in self?.stopLocked() }
+            onClose: { [weak self] in self?.sessionDidCloseLocked() }
         )
         self.session = session
         session.start()
@@ -233,10 +255,30 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         listener?.stateUpdateHandler = nil
         listener?.cancel()
         listener = nil
-        let activeSession = session
+        session?.stop()
+        if session == nil {
+            reportStopLocked()
+        }
+    }
+
+    private func sessionDidCloseLocked() {
         session = nil
-        activeSession?.stop()
+        if isStopped {
+            reportStopLocked()
+        } else {
+            stopLocked()
+        }
+    }
+
+    private func reportStopLocked() {
+        guard !didReportStop else { return }
+        didReportStop = true
         onStop(authenticatedClient ? .acceptedClient : .unused)
+        let waiters = stopWaiters
+        stopWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter()
+        }
     }
 
     private static func makeLoopbackListener() throws -> NWListener {

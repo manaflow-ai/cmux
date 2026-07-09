@@ -5,16 +5,37 @@ import Foundation
 /// Thread-safe PTY lifecycle RPC fake for tunnel ownership tests.
 final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked Sendable {
     private let lock = NSLock()
+    private let delaysAttach: Bool
+    private let attachStarted = DispatchSemaphore(value: 0)
+    private let attachRelease = DispatchSemaphore(value: 0)
+    private let closeStarted = DispatchSemaphore(value: 0)
     private var _closedSessionIDs: [String] = []
     private var _closeError: (any Error)?
+
+    init(delaysAttach: Bool = false) {
+        self.delaysAttach = delaysAttach
+    }
 
     var closedSessionIDs: [String] { lock.withLock { _closedSessionIDs } }
 
     func failClose(with error: any Error) { lock.withLock { _closeError = error } }
 
+    func waitForAttachStart() -> DispatchTimeoutResult {
+        attachStarted.wait(timeout: .now() + 2)
+    }
+
+    func releaseAttach() {
+        attachRelease.signal()
+    }
+
+    func waitForCloseStart(timeout: DispatchTime) -> DispatchTimeoutResult {
+        closeStarted.wait(timeout: timeout)
+    }
+
     func listPTY() throws -> [[String: Any]] { [] }
 
     func closePTY(sessionID: String) throws {
+        closeStarted.signal()
         let error = lock.withLock {
             _closedSessionIDs.append(sessionID)
             return _closeError
@@ -43,7 +64,11 @@ final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked S
         queue: DispatchQueue,
         onEvent: @escaping (RemotePTYBridgeEvent) -> Void
     ) throws -> RemotePTYBridgeAttachment {
-        RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "token")
+        if delaysAttach {
+            attachStarted.signal()
+            attachRelease.wait()
+        }
+        return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "token")
     }
 
     func writePTY(

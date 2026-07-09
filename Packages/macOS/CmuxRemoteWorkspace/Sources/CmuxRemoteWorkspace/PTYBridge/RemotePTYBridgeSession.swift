@@ -210,13 +210,14 @@ extension RemotePTYBridgeServer {
         }
 
         private func finishAttach(_ result: Result<RemotePTYBridgeAttachment, any Error>) {
+            isAttaching = false
             guard !isClosed else {
                 if case .success(let remoteAttachment) = result {
                     detachRemoteAttachment(remoteAttachment)
                 }
+                onClose()
                 return
             }
-            isAttaching = false
             do {
                 let remoteAttachment = try result.get()
                 self.remoteAttachment = remoteAttachment
@@ -406,7 +407,6 @@ extension RemotePTYBridgeServer {
             isClosed = true
             handshakeTimeoutTask?.cancel()
             handshakeTimeoutTask = nil
-            isAttaching = false
             pendingInputBeforeAttach.removeAll(keepingCapacity: false)
             inputFlow.reset()
             pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
@@ -432,6 +432,9 @@ extension RemotePTYBridgeServer {
                 return
             }
             connection.cancel()
+            if isAttaching {
+                return
+            }
             onClose()
         }
 
