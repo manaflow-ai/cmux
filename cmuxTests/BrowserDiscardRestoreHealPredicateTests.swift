@@ -147,6 +147,27 @@ struct BrowserDiscardRestoreHealPredicateTests {
             intentURL: intentURL
         ))
 
+        #expect(BrowserPanel.isQueuedRemoteRestoreInFlight(
+            isDiscardedForMemory: true,
+            hasPendingRemoteNavigation: true,
+            forceRestartPendingRestore: false
+        ))
+        #expect(!BrowserPanel.isQueuedRemoteRestoreInFlight(
+            isDiscardedForMemory: true,
+            hasPendingRemoteNavigation: true,
+            forceRestartPendingRestore: true
+        ))
+        #expect(!BrowserPanel.isQueuedRemoteRestoreInFlight(
+            isDiscardedForMemory: false,
+            hasPendingRemoteNavigation: true,
+            forceRestartPendingRestore: false
+        ))
+        #expect(!BrowserPanel.isQueuedRemoteRestoreInFlight(
+            isDiscardedForMemory: true,
+            hasPendingRemoteNavigation: false,
+            forceRestartPendingRestore: false
+        ))
+
         #expect(BrowserPanel.isRestoreStalled(
             isRestoreNavigationPending: true,
             isWebViewLoading: false,

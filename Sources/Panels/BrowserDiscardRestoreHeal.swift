@@ -73,6 +73,14 @@ extension BrowserPanel {
         // must not restart a stopped load; explicit reload is the override.
         guard !userStoppedLoadSinceWebViewReplacement else { return false }
 
+        if Self.isQueuedRemoteRestoreInFlight(
+            isDiscardedForMemory: hiddenWebViewDiscardManager.isDiscardedForMemory,
+            hasPendingRemoteNavigation: hasPendingRemoteNavigation,
+            forceRestartPendingRestore: forceRestartPendingRestore
+        ) {
+            return true
+        }
+
         let restoreURL = restoredHistoryCurrentURL ?? currentURL
         guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
             return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
@@ -200,6 +208,21 @@ extension BrowserPanel {
         guard !isShowingErrorPage else { return false }
         guard let intentURL else { return false }
         return !isAboutBlankURL(intentURL)
+    }
+
+    /// Whether a discarded pane's restore is already queued waiting for the
+    /// remote workspace proxy endpoint. A queued remote restore never enters
+    /// performNavigation, so isRestoreNavigationPending stays false; without
+    /// this check every later restore touch would re-run the restore closure
+    /// and re-queue the navigation instead of treating the queue as in-flight.
+    /// An explicit reload (force) still restarts the queued restore.
+    nonisolated static func isQueuedRemoteRestoreInFlight(
+        isDiscardedForMemory: Bool,
+        hasPendingRemoteNavigation: Bool,
+        forceRestartPendingRestore: Bool
+    ) -> Bool {
+        guard isDiscardedForMemory, hasPendingRemoteNavigation else { return false }
+        return !forceRestartPendingRestore
     }
 
     nonisolated static func isRestoreStalled(
