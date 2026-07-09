@@ -6,6 +6,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customColorHex: String?
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
+        let activeCodingAgentCount: Int
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -15,7 +16,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: isPinned,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity
+            mediaActivity: mediaActivity,
+            activeCodingAgentCount: activeCodingAgentCount
         )
     }
 
@@ -37,6 +39,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            // The loading spinner is a leading row glyph like mediaActivity, so
+            // it also updates immediately while the context menu is open.
+            activeCodingAgentCount: snapshot.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -99,6 +104,9 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
                 deferredPointerHoveringWhileContextMenu = hovering
             }
             isPointerHovering = false
+            return
+        }
+        if deferredPointerHoveringWhileContextMenu == nil, isPointerHovering == hovering {
             return
         }
         deferredPointerHoveringWhileContextMenu = nil

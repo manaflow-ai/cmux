@@ -1,0 +1,738 @@
+//! Remote session client: JSON-lines control socket plus locally
+//! mirrored surface terminals (VT replay + live stream).
+
+use std::collections::HashMap;
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use base64::Engine;
+use ghostty_vt::{Callbacks, RenderState, Terminal};
+use mux_core::{
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId,
+    SurfaceKind, platform::transport,
+};
+use serde_json::{Value, json};
+
+use super::tree::{TreeView, parse_tree};
+
+const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
+#[derive(Clone)]
+struct RemoteBrowserFrame {
+    frame: BrowserFrame,
+}
+
+#[derive(Clone)]
+struct RemoteBrowserState {
+    url: Option<String>,
+    title: Option<String>,
+    source: Option<BrowserSource>,
+    status: BrowserStatus,
+    frames_stalled: bool,
+    live_since: Option<Instant>,
+    last_frame_at: Option<Instant>,
+    frame: Option<RemoteBrowserFrame>,
+}
+
+impl Default for RemoteBrowserState {
+    fn default() -> Self {
+        Self {
+            url: None,
+            title: None,
+            source: None,
+            status: BrowserStatus::Starting,
+            frames_stalled: false,
+            live_since: None,
+            last_frame_at: None,
+            frame: None,
+        }
+    }
+}
+
+/// A surface mirrored from a remote session.
+pub struct RemoteSurface {
+    pub id: SurfaceId,
+    pub kind: SurfaceKind,
+    pub term: Mutex<Terminal>,
+    pub dirty: AtomicBool,
+    server_size: Mutex<(u16, u16)>,
+    asserted_size: Mutex<Option<(u16, u16)>>,
+    browser: Mutex<RemoteBrowserState>,
+}
+
+impl RemoteSurface {
+    pub(super) fn set_server_size(&self, cols: u16, rows: u16) {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        *self.server_size.lock().unwrap() = (cols, rows);
+    }
+
+    /// Apply an ordered attach-stream resize marker to the mirror terminal.
+    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        self.set_server_size(cols, rows);
+        let mut term = self.term.lock().unwrap();
+        if let Some(replay) = replay
+            && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
+        {
+            fresh.vt_write(replay);
+            *term = fresh;
+            return;
+        }
+        let _ = term.resize(cols, rows, 8, 16);
+    }
+
+    pub(super) fn server_size(&self) -> (u16, u16) {
+        *self.server_size.lock().unwrap()
+    }
+
+    pub(super) fn asserted_size(&self) -> Option<(u16, u16)> {
+        *self.asserted_size.lock().unwrap()
+    }
+
+    pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
+        *self.asserted_size.lock().unwrap() = Some(size);
+    }
+
+    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            browser.frame.as_ref().map(|frame| frame.frame.clone())
+        }
+    }
+
+    pub fn browser_url(&self) -> Option<String> {
+        self.browser.lock().unwrap().url.clone()
+    }
+
+    pub fn browser_status(&self) -> BrowserStatus {
+        self.browser.lock().unwrap().status.clone()
+    }
+
+    pub fn browser_frames_stalled(&self) -> bool {
+        let browser = self.browser.lock().unwrap();
+        if !matches!(browser.status, BrowserStatus::Live) {
+            return false;
+        }
+        if browser.frames_stalled {
+            return true;
+        }
+        if browser.source == Some(BrowserSource::Launched) {
+            return false;
+        }
+        let Some(since) = browser.last_frame_at.or(browser.live_since) else {
+            return false;
+        };
+        Instant::now().saturating_duration_since(since) > Duration::from_secs(2)
+    }
+
+    fn update_browser_source(&self, source: Option<BrowserSource>) {
+        self.browser.lock().unwrap().source = source;
+    }
+
+    fn update_browser_state(&self, value: &Value) {
+        let mut browser = self.browser.lock().unwrap();
+        let previous_status = browser.status.clone();
+        browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
+        browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
+        browser.status = match value.get("status").and_then(|v| v.as_str()) {
+            Some("failed") => BrowserStatus::Failed(
+                value.get("error").and_then(|v| v.as_str()).unwrap_or("browser failed").to_string(),
+            ),
+            Some("live") => BrowserStatus::Live,
+            _ => BrowserStatus::Starting,
+        };
+        browser.frames_stalled =
+            value.get("frames_stalled").and_then(|v| v.as_bool()).unwrap_or(false);
+        if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
+            browser.live_since = Some(Instant::now());
+        }
+        if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
+            browser.last_frame_at = Some(Instant::now());
+            browser.frame = Some(frame);
+        }
+    }
+
+    fn update_browser_frame(&self, value: &Value) {
+        if let Some(frame) = parse_browser_frame(value) {
+            let mut browser = self.browser.lock().unwrap();
+            browser.status = BrowserStatus::Live;
+            browser.frames_stalled = false;
+            browser.live_since.get_or_insert_with(Instant::now);
+            browser.last_frame_at = Some(Instant::now());
+            browser.frame = Some(frame);
+        }
+    }
+}
+
+pub struct RemoteSession {
+    writer: Mutex<Box<dyn transport::Stream>>,
+    pending: Mutex<HashMap<u64, Sender<Value>>>,
+    next_id: AtomicU64,
+    surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
+    tree: Mutex<TreeView>,
+    tree_stale: AtomicBool,
+    subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
+}
+
+impl RemoteSession {
+    pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
+        let stream = transport::connect(path).map_err(|e| {
+            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+        })?;
+        let read_half = stream.try_clone_box()?;
+        let session = Arc::new(RemoteSession {
+            writer: Mutex::new(stream),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            surfaces: Mutex::new(HashMap::new()),
+            tree: Mutex::new(TreeView::default()),
+            tree_stale: AtomicBool::new(true),
+            subscribers: Mutex::new(Vec::new()),
+            frame_logs: Mutex::new(HashMap::new()),
+        });
+
+        let reader_session = Arc::downgrade(&session);
+        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+            let reader = BufReader::new(read_half);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+                let Some(session) = reader_session.upgrade() else { break };
+                session.handle_line(value);
+            }
+            // Connection lost: tell the app to quit.
+            if let Some(session) = reader_session.upgrade() {
+                session.emit(MuxEvent::Empty);
+            }
+        })?;
+
+        // Identify (validates the endpoint) and subscribe to events.
+        let ident = session.request(json!({"cmd": "identify"}))?;
+        if ident.get("app").and_then(|v| v.as_str()) != Some("cmux-mux") {
+            anyhow::bail!("socket endpoint is not a cmux-mux session");
+        }
+        let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
+        if protocol != SUPPORTED_PROTOCOL_VERSION {
+            anyhow::bail!(
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
+            );
+        }
+        session.request(json!({"cmd": "subscribe"}))?;
+        Ok(session)
+    }
+
+    fn emit(&self, event: MuxEvent) {
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    pub fn subscribe(&self) -> Receiver<MuxEvent> {
+        let (tx, rx) = channel();
+        self.subscribers.lock().unwrap().push(tx);
+        rx
+    }
+
+    fn handle_line(self: &Arc<Self>, value: Value) {
+        let surface_id = || value.get("surface").and_then(|v| v.as_u64());
+        match value.get("event").and_then(|v| v.as_str()) {
+            None => {
+                // Response: route to the waiting request.
+                let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
+                if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
+                    let _ = tx.send(value);
+                }
+            }
+            Some("vt-state") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
+                let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data) else {
+                    return;
+                };
+                self.log_frame(
+                    id,
+                    format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
+                );
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.apply_stream_resize(cols, rows, None);
+                    let mut term = surface.term.lock().unwrap();
+                    term.vt_write(&replay);
+                    drop(term);
+                    surface.dirty.store(true, Ordering::Release);
+                }
+                self.emit(MuxEvent::SurfaceOutput(id));
+            }
+            Some("surface-resized") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+            }
+            Some("output") => {
+                let Some(id) = surface_id() else { return };
+                let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
+                let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
+                    return;
+                };
+                self.log_frame(id, format!("output bytes={}", bytes.len()));
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.term.lock().unwrap().vt_write(&bytes);
+                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                        self.emit(MuxEvent::SurfaceOutput(id));
+                    }
+                }
+            }
+            Some("resized") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let replay = value
+                    .get("data")
+                    .and_then(|v| v.as_str())
+                    .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
+                self.log_frame(
+                    id,
+                    format!(
+                        "resized cols={cols} rows={rows} bytes={}",
+                        replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
+                    ),
+                );
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.apply_stream_resize(cols, rows, replay.as_deref());
+                    surface.dirty.store(true, Ordering::Release);
+                    self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+                    self.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            Some("browser-state") => {
+                let Some(id) = surface_id() else { return };
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                    let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                    surface.apply_stream_resize(cols, rows, None);
+                    surface.update_browser_state(&value);
+                    surface.dirty.store(true, Ordering::Release);
+                }
+                self.emit(MuxEvent::TitleChanged(id));
+                self.emit(MuxEvent::SurfaceOutput(id));
+            }
+            Some("frame") => {
+                let Some(id) = surface_id() else { return };
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.update_browser_frame(&value);
+                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                        self.emit(MuxEvent::SurfaceOutput(id));
+                    }
+                }
+            }
+            Some("detached") => {
+                if let Some(id) = surface_id() {
+                    self.surfaces.lock().unwrap().remove(&id);
+                    self.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            Some("tree-changed") => {
+                self.tree_stale.store(true, Ordering::Release);
+                self.emit(MuxEvent::TreeChanged);
+            }
+            Some("layout-changed") => {
+                self.tree_stale.store(true, Ordering::Release);
+                if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
+                    self.emit(MuxEvent::LayoutChanged(screen));
+                } else {
+                    self.emit(MuxEvent::TreeChanged);
+                }
+            }
+            Some("surface-exited") => {
+                if let Some(id) = surface_id() {
+                    self.tree_stale.store(true, Ordering::Release);
+                    self.emit(MuxEvent::SurfaceExited(id));
+                }
+            }
+            Some("title-changed") => {
+                if let Some(id) = surface_id() {
+                    self.tree_stale.store(true, Ordering::Release);
+                    self.emit(MuxEvent::TitleChanged(id));
+                }
+            }
+            Some("bell") => {
+                if let Some(id) = surface_id() {
+                    self.emit(MuxEvent::Bell(id));
+                }
+            }
+            Some("notification") => {
+                self.tree_stale.store(true, Ordering::Release);
+                self.emit(MuxEvent::TreeChanged);
+            }
+            Some("status") => {
+                if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+                    self.emit(MuxEvent::Status(message.to_string()));
+                }
+            }
+            Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
+            Some("window-title-requested") => {
+                if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
+                    self.emit(MuxEvent::WindowTitleRequested(title.to_string()));
+                }
+            }
+            Some("scroll-changed") => {
+                if let (Some(surface), Some(offset), Some(at_bottom)) = (
+                    surface_id(),
+                    value.get("offset").and_then(|v| v.as_u64()),
+                    value.get("at_bottom").and_then(|v| v.as_bool()),
+                ) {
+                    self.emit(MuxEvent::ScrollChanged { surface, offset, at_bottom });
+                }
+            }
+            Some("empty") => self.emit(MuxEvent::Empty),
+            Some(_) => {}
+        }
+    }
+
+    fn log_frame(&self, surface: SurfaceId, line: String) {
+        if std::env::var_os("CMUX_MUX_DEBUG_MIRROR_DUMP").is_none() {
+            return;
+        }
+        self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
+    }
+
+    pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        cmd["id"] = json!(id);
+        let mut line = serde_json::to_vec(&cmd)?;
+        line.push(b'\n');
+
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(id, tx);
+        if let Err(err) = self.writer.lock().unwrap().write_all(&line) {
+            self.pending.lock().unwrap().remove(&id);
+            return Err(err.into());
+        }
+
+        let response = match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(response) => response,
+            Err(_) => {
+                // Drop the pending entry so a half-open session does not
+                // accumulate abandoned senders (and a late response is
+                // not delivered to a receiver nobody holds).
+                self.pending.lock().unwrap().remove(&id);
+                anyhow::bail!("session did not respond")
+            }
+        };
+        if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+            Ok(response.get("data").cloned().unwrap_or(Value::Null))
+        } else {
+            let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+            anyhow::bail!("{error}")
+        }
+    }
+
+    pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
+    }
+
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+        let _ = self.request(json!({
+            "cmd": "set-cell-pixels",
+            "width_px": width_px,
+            "height_px": height_px,
+        }));
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
+        if colors.fg.is_none() && colors.bg.is_none() {
+            return Ok(());
+        }
+        let mut cmd = json!({"cmd": "set-default-colors"});
+        if let Some(fg) = colors.fg {
+            cmd["fg"] = json!(hex_color(fg));
+        }
+        if let Some(bg) = colors.bg {
+            cmd["bg"] = json!(hex_color(bg));
+        }
+        self.request(cmd).map(|_| ())
+    }
+
+    pub fn supports_browser_attach(&self) -> bool {
+        true
+    }
+
+    /// Mirror for a surface, attaching on first use. When a size is
+    /// provided, the caller's immediately following `resize` sends the
+    /// server resize after the attach tap is installed, so the resize
+    /// marker and any shell WINCH redraw bytes stay ordered in-stream.
+    pub fn ensure_surface(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        size: Option<(u16, u16)>,
+    ) -> Option<Arc<RemoteSurface>> {
+        if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
+            return Some(surface.clone());
+        }
+        let (kind, source) = {
+            let tree = self.tree.lock().unwrap();
+            (tree.surface_kind(id), browser_source_from_tree(&tree, id))
+        };
+        let (cols, rows) = size.unwrap_or((80, 24));
+        let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
+        let surface = Arc::new(RemoteSurface {
+            id,
+            kind,
+            term: Mutex::new(term),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((cols, rows)),
+            asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        surface.update_browser_source(source);
+        self.surfaces.lock().unwrap().insert(id, surface.clone());
+        // The vt-state event that follows fills the mirror.
+        if self.request(json!({"cmd": "attach-surface", "surface": id})).is_err() {
+            self.surfaces.lock().unwrap().remove(&id);
+            return None;
+        }
+        Some(surface)
+    }
+
+    pub fn drop_surface(&self, id: SurfaceId) {
+        self.surfaces.lock().unwrap().remove(&id);
+    }
+
+    pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
+        self.tree.lock().unwrap().surface_kind(id)
+    }
+
+    pub fn tree(&self) -> anyhow::Result<TreeView> {
+        if !self.tree_stale.swap(false, Ordering::AcqRel) {
+            return Ok(self.tree.lock().unwrap().clone());
+        }
+        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+            Ok(data) => data,
+            Err(e) => {
+                // Retry next frame rather than caching a bad tree.
+                self.tree_stale.store(true, Ordering::Release);
+                return Err(e);
+            }
+        };
+        let tree = parse_tree(&data);
+        *self.tree.lock().unwrap() = tree.clone();
+        let surfaces = self.surfaces.lock().unwrap().clone();
+        for (id, surface) in surfaces {
+            surface.update_browser_source(browser_source_from_tree(&tree, id));
+        }
+        Ok(tree)
+    }
+}
+
+impl Drop for RemoteSession {
+    fn drop(&mut self) {
+        let Ok(dir) = std::env::var("CMUX_MUX_DEBUG_MIRROR_DUMP") else {
+            return;
+        };
+        let _ = fs::create_dir_all(&dir);
+        let logs = self.frame_logs.lock().unwrap();
+        for surface in self.surfaces.lock().unwrap().values() {
+            let path = Path::new(&dir).join(format!("mirror-{}.txt", surface.id));
+            let _ = fs::write(path, dump_mirror(surface));
+            let frames = Path::new(&dir).join(format!("frames-{}.log", surface.id));
+            let text = logs.get(&surface.id).map(|lines| lines.join("\n")).unwrap_or_default();
+            let _ = fs::write(frames, format!("{text}\n"));
+        }
+    }
+}
+
+fn dump_mirror(surface: &RemoteSurface) -> String {
+    let mut out = String::new();
+    let mut term = surface.term.lock().unwrap();
+    let cols = term.cols();
+    let rows = term.rows();
+    let scrollbar = term.scrollbar();
+    let offset = scrollbar.map(|sb| sb.offset).unwrap_or(0);
+    let total = scrollbar.map(|sb| sb.total).unwrap_or(rows as u64);
+    out.push_str(&format!(
+        "surface={} kind={:?} cols={} rows={} scrollback_offset={} scrollback_total={}\n",
+        surface.id, surface.kind, cols, rows, offset, total
+    ));
+
+    let Ok(mut rs) = RenderState::new() else {
+        return out;
+    };
+    if rs.update(&mut term).is_err() {
+        return out;
+    }
+    let _ = rs.walk_rows(|row, _, cells| {
+        let mut line = String::new();
+        let mut inverse = false;
+        for cell in cells {
+            if cell.inverse && !inverse {
+                line.push('\u{ab}');
+                inverse = true;
+            } else if !cell.inverse && inverse {
+                line.push('\u{bb}');
+                inverse = false;
+            }
+            if cell.text.is_empty() {
+                line.push(' ');
+            } else {
+                line.push_str(&cell.text);
+            }
+        }
+        if inverse {
+            line.push('\u{bb}');
+        }
+        out.push_str(&format!("{row:03}: {line}\n"));
+    });
+    out
+}
+
+fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .find(|tab| tab.surface == id)
+        .and_then(|tab| tab.browser_source)
+}
+
+fn hex_color(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
+fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
+    let data_b64 = value.get("data")?.as_str()?.to_string();
+    let seq = value.get("seq")?.as_u64()?;
+    let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    Some(RemoteBrowserFrame {
+        frame: BrowserFrame {
+            session_id: String::new(),
+            data_b64,
+            css_width: width,
+            css_height: height,
+            seq,
+        },
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
+
+    use ghostty_vt::{Callbacks, Terminal};
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn browser_state_without_frame_keeps_cached_frame() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((10, 5)),
+            asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "Zmlyc3Q=",
+        }));
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+        }));
+
+        let frame = surface.browser_frame().expect("cached frame");
+        assert_eq!(frame.seq, 9);
+        assert_eq!(frame.data_b64, "Zmlyc3Q=");
+        assert_eq!(surface.browser_url().as_deref(), Some("https://next.test"));
+    }
+
+    #[test]
+    fn resize_replay_replaces_mirror_with_server_truth_without_duplication() {
+        let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for i in 0..12 {
+            server.vt_write(format!("srv{i:02}\r\n").as_bytes());
+        }
+        server.resize(8, 4, 8, 16).unwrap();
+        let server_text = server.plain_text().unwrap();
+        let server_oldest = server.selection_text_absolute((0, 0), (4, 0)).unwrap();
+        assert_eq!(server_oldest, "srv00");
+        let replay = server.vt_replay().unwrap();
+
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((20, 6)),
+            asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        {
+            let mut mirror = surface.term.lock().unwrap();
+            mirror.vt_write(b"mirror-only\r\nstate\r\n");
+        }
+
+        surface.apply_stream_resize(8, 4, Some(&replay));
+        let scrollback_rows = {
+            let mut mirror = surface.term.lock().unwrap();
+            assert_eq!(mirror.plain_text().unwrap(), server_text);
+            assert_eq!(mirror.selection_text_absolute((0, 0), (4, 0)).unwrap(), server_oldest);
+            mirror.scrollback_rows()
+        };
+
+        surface.apply_stream_resize(8, 4, Some(&replay));
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.plain_text().unwrap(), server_text);
+        assert_eq!(mirror.scrollback_rows(), scrollback_rows);
+    }
+
+    #[test]
+    fn ordered_resize_replay_recovers_from_stale_initial_replay() {
+        let mut server = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
+        server.vt_write(b"\x1b[7m%\x1b[0m");
+        let stale_replay = server.vt_replay().unwrap();
+
+        server.resize(10, 3, 8, 16).unwrap();
+        let resize_replay = server.vt_replay().unwrap();
+        let prompt = b"\r\x1b[Klawrence";
+        server.vt_write(prompt);
+        let server_text = server.plain_text().unwrap();
+        assert!(server_text.lines().next().unwrap_or_default().contains("lawrence"));
+
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((12, 3)),
+            asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.apply_stream_resize(12, 3, None);
+        surface.term.lock().unwrap().vt_write(&stale_replay);
+        surface.apply_stream_resize(10, 3, Some(&resize_replay));
+        let mut mirror = surface.term.lock().unwrap();
+        mirror.vt_write(prompt);
+
+        assert_eq!(mirror.plain_text().unwrap(), server_text);
+    }
+}

@@ -4,16 +4,22 @@
     "chat.attachment.image": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bild"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild"
           }
         },
         "es": {
@@ -32,12 +38,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Immagine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画像"
           }
         },
         "ko": {
@@ -93,16 +93,22 @@
     "chat.bubble.copy": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopieren"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Copy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieren"
           }
         },
         "es": {
@@ -121,12 +127,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Copia"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コピー"
           }
         },
         "ko": {
@@ -182,13 +182,19 @@
     "chat.chip.ctrl_c": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Ctrl-C"
           }
         },
-        "en": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl-C"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Ctrl-C"
@@ -207,12 +213,6 @@
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ctrl-C"
-          }
-        },
-        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "Ctrl-C"
@@ -271,13 +271,19 @@
     "chat.chip.esc": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Esc"
           }
         },
-        "en": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Esc"
@@ -296,12 +302,6 @@
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "Esc"
@@ -360,16 +360,22 @@
     "chat.chip.stop": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stopp"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp"
           }
         },
         "es": {
@@ -388,12 +394,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止"
           }
         },
         "ko": {
@@ -449,13 +449,19 @@
     "chat.chip.terminal": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Terminal"
           }
         },
-        "en": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Terminal"
@@ -477,12 +483,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナル"
           }
         },
         "ko": {
@@ -535,19 +535,42 @@
         }
       }
     },
+    "chat.code_block.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code block"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードブロック"
+          }
+        }
+      }
+    },
     "chat.code.language.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@-Code"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ コード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-Code"
           }
         },
         "es": {
@@ -566,12 +589,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codice %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ コード"
           }
         },
         "ko": {
@@ -627,16 +644,22 @@
     "chat.composer.attach.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anhang hinzufügen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Add attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付を追加"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang hinzufügen"
           }
         },
         "es": {
@@ -655,12 +678,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiungi allegato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付を追加"
           }
         },
         "ko": {
@@ -716,16 +733,22 @@
     "chat.composer.attachment.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anhang %lld"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Attachment %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang %lld"
           }
         },
         "es": {
@@ -744,12 +767,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Allegato %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイル %lld"
           }
         },
         "ko": {
@@ -805,16 +822,22 @@
     "chat.composer.open_terminal": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal öffnen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Open terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal öffnen"
           }
         },
         "es": {
@@ -833,12 +856,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apri terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルを開く"
           }
         },
         "ko": {
@@ -894,16 +911,22 @@
     "chat.composer.placeholder": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nachricht %@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Message %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@にメッセージ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht %@"
           }
         },
         "es": {
@@ -922,12 +945,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Messaggio %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@にメッセージ"
           }
         },
         "ko": {
@@ -983,16 +1000,22 @@
     "chat.composer.placeholder.terminal": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "❯ Befehl"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "❯ command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "❯ コマンド"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "❯ Befehl"
           }
         },
         "es": {
@@ -1011,12 +1034,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "❯ comando"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "❯ コマンド"
           }
         },
         "ko": {
@@ -1072,16 +1089,22 @@
     "chat.composer.remove_attachment.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anhang %lld entfernen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Remove attachment %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル %lld を削除"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang %lld entfernen"
           }
         },
         "es": {
@@ -1100,12 +1123,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rimuovi allegato %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイル %lld を削除"
           }
         },
         "ko": {
@@ -1161,16 +1178,22 @@
     "chat.composer.send.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Senden"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
           }
         },
         "es": {
@@ -1189,12 +1212,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Invia"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信"
           }
         },
         "ko": {
@@ -1250,16 +1267,22 @@
     "chat.composer.session_ended": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzung beendet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Session ended"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが終了しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung beendet"
           }
         },
         "es": {
@@ -1278,12 +1301,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessione terminata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッションが終了しました"
           }
         },
         "ko": {
@@ -1339,16 +1356,22 @@
     "chat.composer.stop.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stopp"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp"
           }
         },
         "es": {
@@ -1367,12 +1390,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止"
           }
         },
         "ko": {
@@ -1425,19 +1442,433 @@
         }
       }
     },
+    "chat.detail.code.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード"
+          }
+        }
+      }
+    },
+    "chat.detail.code.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Block"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードブロック"
+          }
+        }
+      }
+    },
+    "chat.detail.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
+          }
+        }
+      }
+    },
+    "chat.detail.copy_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてコピー"
+          }
+        }
+      }
+    },
+    "chat.detail.diff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分"
+          }
+        }
+      }
+    },
+    "chat.detail.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "chat.detail.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No details available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細はありません"
+          }
+        }
+      }
+    },
+    "chat.detail.file.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ - %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（%@）"
+          }
+        }
+      }
+    },
+    "chat.detail.file.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Change"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル変更"
+          }
+        }
+      }
+    },
+    "chat.detail.operation.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "chat.detail.operation.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
+          }
+        }
+      }
+    },
+    "chat.detail.operation.write": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き込み"
+          }
+        }
+      }
+    },
+    "chat.detail.output": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力"
+          }
+        }
+      }
+    },
+    "chat.detail.show.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a sheet with the full block content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック全体を表示するシートを開きます"
+          }
+        }
+      }
+    },
+    "chat.detail.status.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        }
+      }
+    },
+    "chat.detail.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        }
+      }
+    },
+    "chat.detail.status.succeeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Succeeded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功"
+          }
+        }
+      }
+    },
+    "chat.detail.terminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル出力"
+          }
+        }
+      }
+    },
+    "chat.detail.thought.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推論"
+          }
+        }
+      }
+    },
+    "chat.detail.tool.input": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力"
+          }
+        }
+      }
+    },
+    "chat.detail.tool.output": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力"
+          }
+        }
+      }
+    },
+    "chat.detail.tool.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ - %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（%@）"
+          }
+        }
+      }
+    },
+    "chat.detail.tool.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概要"
+          }
+        }
+      }
+    },
+    "chat.detail.tool.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール詳細"
+          }
+        }
+      }
+    },
     "chat.diff.added.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hinzugefügt: %@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Added: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzugefügt: %@"
           }
         },
         "es": {
@@ -1456,12 +1887,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiunto: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加: %@"
           }
         },
         "ko": {
@@ -1517,16 +1942,22 @@
     "chat.diff.hunk.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abschnitt: %@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Section: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セクション: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt: %@"
           }
         },
         "es": {
@@ -1545,12 +1976,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sezione: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セクション: %@"
           }
         },
         "ko": {
@@ -1606,16 +2031,22 @@
     "chat.diff.removed.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entfernt: %@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Removed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernt: %@"
           }
         },
         "es": {
@@ -1634,12 +2065,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rimosso: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除: %@"
           }
         },
         "ko": {
@@ -1692,19 +2117,76 @@
         }
       }
     },
+    "chat.file_edit.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル編集"
+          }
+        }
+      }
+    },
+    "chat.file_edit.additions.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "additions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
+    "chat.file_edit.deletions.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "deletions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
     "chat.header.reconnecting": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbindung wird wiederhergestellt…"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird wiederhergestellt…"
           }
         },
         "es": {
@@ -1723,12 +2205,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "riconnessione…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再接続中…"
           }
         },
         "ko": {
@@ -1784,16 +2260,22 @@
     "chat.header.state.ended": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "beendet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "ended"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "beendet"
           }
         },
         "es": {
@@ -1812,12 +2294,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "terminata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終了"
           }
         },
         "ko": {
@@ -1873,16 +2349,22 @@
     "chat.header.state.idle": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "inaktiv"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inaktiv"
           }
         },
         "es": {
@@ -1901,12 +2383,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "inattiva"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待機中"
           }
         },
         "ko": {
@@ -1962,16 +2438,22 @@
     "chat.header.state.needs_input": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eingabe erforderlich"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingabe erforderlich"
           }
         },
         "es": {
@@ -1990,12 +2472,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "richiede input"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力待ち"
           }
         },
         "ko": {
@@ -2051,16 +2527,22 @@
     "chat.header.state.working": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "arbeitet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "working"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "arbeitet"
           }
         },
         "es": {
@@ -2079,12 +2561,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "in elaborazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作業中"
           }
         },
         "ko": {
@@ -2140,16 +2616,22 @@
     "chat.history.truncated": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ältere Verläufe befinden sich auf dem Mac"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Earlier history is on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これより前の履歴はMac側にあります"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ältere Verläufe befinden sich auf dem Mac"
           }
         },
         "es": {
@@ -2168,12 +2650,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "La cronologia precedente è sul tuo Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "これより前の履歴はMac側にあります"
           }
         },
         "ko": {
@@ -2229,16 +2705,22 @@
     "chat.open_terminal.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal öffnen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Open terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal öffnen"
           }
         },
         "es": {
@@ -2257,12 +2739,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apri terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルを開く"
           }
         },
         "ko": {
@@ -2318,16 +2794,22 @@
     "chat.pending.attachments.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld Anhänge"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld attachments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の添付ファイル"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Anhänge"
           }
         },
         "es": {
@@ -2346,12 +2828,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld allegati"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld件の添付ファイル"
           }
         },
         "ko": {
@@ -2407,16 +2883,22 @@
     "chat.pending.cancel": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abbrechen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
           }
         },
         "es": {
@@ -2435,12 +2917,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Annulla"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
           }
         },
         "ko": {
@@ -2496,16 +2972,22 @@
     "chat.pending.delivered.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zugestellt"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Delivered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugestellt"
           }
         },
         "es": {
@@ -2524,12 +3006,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Consegnato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信済み"
           }
         },
         "ko": {
@@ -2585,16 +3061,22 @@
     "chat.pending.discard": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwerfen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Discard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破棄"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen"
           }
         },
         "es": {
@@ -2613,12 +3095,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scarta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "破棄"
           }
         },
         "ko": {
@@ -2674,16 +3150,22 @@
     "chat.pending.failed.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Senden fehlgeschlagen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Failed to send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信に失敗しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden fehlgeschlagen"
           }
         },
         "es": {
@@ -2702,12 +3184,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Invio fallito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信に失敗しました"
           }
         },
         "ko": {
@@ -2763,16 +3239,22 @@
     "chat.pending.queued.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wartet bis der Agent frei ist"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Queued until the agent is free"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが空くまで送信待ち"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet bis der Agent frei ist"
           }
         },
         "es": {
@@ -2791,12 +3273,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "In coda finché l'agente è libero"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが空くまで送信待ち"
           }
         },
         "ko": {
@@ -2852,16 +3328,22 @@
     "chat.pending.retry": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wiederholen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederholen"
           }
         },
         "es": {
@@ -2880,12 +3362,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
           }
         },
         "ko": {
@@ -2941,16 +3417,22 @@
     "chat.pending.sending.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird gesendet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Sending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gesendet"
           }
         },
         "es": {
@@ -2969,12 +3451,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Invio in corso"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信中"
           }
         },
         "ko": {
@@ -3030,16 +3506,22 @@
     "chat.permission.approve": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmigen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Approve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genehmigen"
           }
         },
         "es": {
@@ -3058,12 +3540,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Approva"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可"
           }
         },
         "ko": {
@@ -3119,16 +3595,22 @@
     "chat.permission.approved": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmigt"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Approved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genehmigt"
           }
         },
         "es": {
@@ -3147,12 +3629,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Approvato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可済み"
           }
         },
         "ko": {
@@ -3208,16 +3684,22 @@
     "chat.permission.denied": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abgelehnt"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgelehnt"
           }
         },
         "es": {
@@ -3236,12 +3718,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Negato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒否済み"
           }
         },
         "ko": {
@@ -3297,16 +3773,22 @@
     "chat.permission.deny": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ablehnen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Deny"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablehnen"
           }
         },
         "es": {
@@ -3325,12 +3807,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nega"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒否"
           }
         },
         "ko": {
@@ -3386,16 +3862,22 @@
     "chat.permission.expired": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abgelaufen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Expired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限切れ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgelaufen"
           }
         },
         "es": {
@@ -3414,12 +3896,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scaduto"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "期限切れ"
           }
         },
         "ko": {
@@ -3475,16 +3951,22 @@
     "chat.row.collapse.hint": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Doppeltippen zum Einklappen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Double tap to collapse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルタップで折りたたむ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppeltippen zum Einklappen"
           }
         },
         "es": {
@@ -3503,12 +3985,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Doppio tocco per comprimere"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダブルタップで折りたたむ"
           }
         },
         "ko": {
@@ -3564,16 +4040,22 @@
     "chat.row.collapsed.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eingeklappt"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Collapsed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたみ済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeklappt"
           }
         },
         "es": {
@@ -3592,12 +4074,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Compresso"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "折りたたみ済み"
           }
         },
         "ko": {
@@ -3653,16 +4129,22 @@
     "chat.row.expand.hint": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Doppeltippen zum Ausklappen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Double tap to expand"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルタップで展開"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppeltippen zum Ausklappen"
           }
         },
         "es": {
@@ -3681,12 +4163,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Doppio tocco per espandere"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダブルタップで展開"
           }
         },
         "ko": {
@@ -3742,16 +4218,22 @@
     "chat.row.expanded.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ausgeklappt"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Expanded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeklappt"
           }
         },
         "es": {
@@ -3770,12 +4252,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Espanso"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "展開済み"
           }
         },
         "ko": {
@@ -3831,16 +4307,22 @@
     "chat.scroll_to_bottom.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zur neuesten Nachricht scrollen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Scroll to latest message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新メッセージへスクロール"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur neuesten Nachricht scrollen"
           }
         },
         "es": {
@@ -3859,12 +4341,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scorri all'ultimo messaggio"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最新メッセージへスクロール"
           }
         },
         "ko": {
@@ -3920,16 +4396,22 @@
     "chat.status.context_compacted": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontext komprimiert"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Context compacted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストを圧縮しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontext komprimiert"
           }
         },
         "es": {
@@ -3948,12 +4430,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Contesto compattato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンテキストを圧縮しました"
           }
         },
         "ko": {
@@ -4009,16 +4485,22 @@
     "chat.status.interrupted": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unterbrochen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Interrupted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中断されました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterbrochen"
           }
         },
         "es": {
@@ -4037,12 +4519,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Interrotto"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中断されました"
           }
         },
         "ko": {
@@ -4098,16 +4574,22 @@
     "chat.status.session_ended": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzung beendet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Session ended"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション終了"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung beendet"
           }
         },
         "es": {
@@ -4126,12 +4608,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessione terminata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション終了"
           }
         },
         "ko": {
@@ -4187,16 +4663,22 @@
     "chat.status.session_started": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzung gestartet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Session started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション開始"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung gestartet"
           }
         },
         "es": {
@@ -4215,12 +4697,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessione avviata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション開始"
           }
         },
         "ko": {
@@ -4276,16 +4752,22 @@
     "chat.terminal.collapse.action": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weniger Ausgabe anzeigen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Show less output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力を折りたたむ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger Ausgabe anzeigen"
           }
         },
         "es": {
@@ -4304,12 +4786,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mostra meno output"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "出力を折りたたむ"
           }
         },
         "ko": {
@@ -4365,16 +4841,22 @@
     "chat.terminal.command.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Befehl %@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Command %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl %@"
           }
         },
         "es": {
@@ -4393,12 +4875,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Comando %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンド%@"
           }
         },
         "ko": {
@@ -4454,16 +4930,22 @@
     "chat.terminal.expand.action": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesamte Ausgabe anzeigen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Show all output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての出力を表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesamte Ausgabe anzeigen"
           }
         },
         "es": {
@@ -4482,12 +4964,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mostra tutto l'output"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべての出力を表示"
           }
         },
         "ko": {
@@ -4543,16 +5019,22 @@
     "chat.terminal.failed.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Befehl %@, fehlgeschlagen, Exit-Code %lld"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Command %@, failed, exit code %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド%@、失敗、終了コード%lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl %@, fehlgeschlagen, Exit-Code %lld"
           }
         },
         "es": {
@@ -4571,12 +5053,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Comando %@, fallito, codice di uscita %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンド%@、失敗、終了コード%lld"
           }
         },
         "ko": {
@@ -4632,16 +5108,22 @@
     "chat.terminal.interactive": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Interaktives Programm – volles Terminal öffnen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Interactive program — open the full terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インタラクティブプログラム — フルターミナルを開く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interaktives Programm – volles Terminal öffnen"
           }
         },
         "es": {
@@ -4660,12 +5142,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Programma interattivo — apri il terminale completo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インタラクティブプログラム — フルターミナルを開く"
           }
         },
         "ko": {
@@ -4721,16 +5197,22 @@
     "chat.terminal.interactive.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ist ein interaktives Programm. Volles Terminal öffnen."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ is an interactive program. Open the full terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@はインタラクティブプログラムです。フルターミナルを開いてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist ein interaktives Programm. Volles Terminal öffnen."
           }
         },
         "es": {
@@ -4749,12 +5231,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ è un programma interattivo. Apri il terminale completo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@はインタラクティブプログラムです。フルターミナルを開いてください。"
           }
         },
         "ko": {
@@ -4810,16 +5286,22 @@
     "chat.terminal.more_lines": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⋯ %lld weitere Zeilen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "⋯ %lld more lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ 残り%lld行"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ %lld weitere Zeilen"
           }
         },
         "es": {
@@ -4838,12 +5320,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "⋯ %lld righe in più"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⋯ 残り%lld行"
           }
         },
         "ko": {
@@ -4899,16 +5375,22 @@
     "chat.terminal.open_in_terminal": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Im Terminal öffnen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Open in terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで開く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Terminal öffnen"
           }
         },
         "es": {
@@ -4927,12 +5409,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apri nel terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルで開く"
           }
         },
         "ko": {
@@ -4988,16 +5464,22 @@
     "chat.terminal.running": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "läuft"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "läuft"
           }
         },
         "es": {
@@ -5016,12 +5498,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "in esecuzione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中"
           }
         },
         "ko": {
@@ -5077,16 +5553,22 @@
     "chat.terminal.running.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Befehl %@, läuft"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Command %@, running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド%@、実行中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl %@, läuft"
           }
         },
         "es": {
@@ -5105,12 +5587,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Comando %@, in esecuzione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンド%@、実行中"
           }
         },
         "ko": {
@@ -5166,16 +5642,22 @@
     "chat.terminal.succeeded.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Befehl %@, erfolgreich"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Command %@, succeeded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド%@、成功"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl %@, erfolgreich"
           }
         },
         "es": {
@@ -5194,12 +5676,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Comando %@, riuscito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンド%@、成功"
           }
         },
         "ko": {
@@ -5255,16 +5731,22 @@
     "chat.thought.title": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gedanke"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Thought"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedanke"
           }
         },
         "es": {
@@ -5283,12 +5765,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pensiero"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "思考"
           }
         },
         "ko": {
@@ -5344,16 +5820,22 @@
     "chat.tool.failed.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehlgeschlagen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagen"
           }
         },
         "es": {
@@ -5372,12 +5854,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fallito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗"
           }
         },
         "ko": {
@@ -5430,19 +5906,42 @@
         }
       }
     },
+    "chat.tool.running.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        }
+      }
+    },
     "chat.tool.succeeded.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erfolgreich"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Succeeded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfolgreich"
           }
         },
         "es": {
@@ -5461,12 +5960,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Riuscito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "成功"
           }
         },
         "ko": {
@@ -5522,16 +6015,22 @@
     "chat.tool.truncated": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⋯ gekürzt"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "⋯ truncated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ 省略"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ gekürzt"
           }
         },
         "es": {
@@ -5550,12 +6049,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "⋯ troncato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⋯ 省略"
           }
         },
         "ko": {
@@ -5611,16 +6104,22 @@
     "chat.transcript.empty": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine Nachrichten"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No messages yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだメッセージはありません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Nachrichten"
           }
         },
         "es": {
@@ -5639,12 +6138,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nessun messaggio ancora"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだメッセージはありません"
           }
         },
         "ko": {
@@ -5700,16 +6193,22 @@
     "chat.transcript.load_failed": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieses Gespräch konnte nicht geladen werden"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Couldn't load this conversation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話を読み込めませんでした"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Gespräch konnte nicht geladen werden"
           }
         },
         "es": {
@@ -5728,12 +6227,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile caricare questa conversazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この会話を読み込めませんでした"
           }
         },
         "ko": {
@@ -5789,16 +6282,22 @@
     "chat.transcript.retry": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wiederholen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederholen"
           }
         },
         "es": {
@@ -5817,12 +6316,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
           }
         },
         "ko": {
@@ -5878,16 +6371,22 @@
     "chat.typing.accessibility": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent arbeitet"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Agent is working"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが作業中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent arbeitet"
           }
         },
         "es": {
@@ -5906,12 +6405,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "L'agente sta lavorando"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが作業中"
           }
         },
         "ko": {
@@ -5967,16 +6460,22 @@
     "chat.unread_separator": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungelesene Nachrichten"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unread messages"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読メッセージ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungelesene Nachrichten"
           }
         },
         "es": {
@@ -5995,12 +6494,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Messaggi non letti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読メッセージ"
           }
         },
         "ko": {
@@ -6056,16 +6549,22 @@
     "chat.unsupported": {
       "extractionState": "manual",
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht unterstützte Nachricht (%@)"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unsupported message (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応のメッセージ（%@）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht unterstützte Nachricht (%@)"
           }
         },
         "es": {
@@ -6084,12 +6583,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Messaggio non supportato (%@)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未対応のメッセージ（%@）"
           }
         },
         "ko": {

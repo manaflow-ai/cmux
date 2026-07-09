@@ -99,6 +99,8 @@ public struct WorkspaceListLayoutPreviewView: View {
     public var body: some View {
         if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
             WorkspaceDetailCreateDelayedTerminalPreviewView()
+        } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
+            WorkspaceDetailDelayedTerminalPreviewView()
         } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
             WorkspaceDetailDelayedTerminalPreviewView()
         } else {

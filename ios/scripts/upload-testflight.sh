@@ -13,7 +13,7 @@ set -euo pipefail
 # automatic pre-upload gate) so the two paths can't drift.
 verify_ipa_aps_environment_production() {
   local ipa="$1"
-  local workdir app ent aps rc
+  local workdir app ent aps apple_sign_in
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
     echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
@@ -38,16 +38,50 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
-  # PlistBuddy exits non-zero (and prints to stdout) when the key is absent, so
-  # capture rc and require an exact "production" match.
-  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null)"
-  rc=$?
-  if [[ $rc -ne 0 || "$aps" != "production" ]]; then
+  # PlistBuddy exits non-zero when a key is absent; tolerate that read and then
+  # require exact entitlement values so the error explains the missing capability.
+  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
+  if [[ "$aps" != "production" ]]; then
     echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
+  apple_sign_in="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
+  if [[ "$apple_sign_in" != "Default" ]]; then
+    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $app" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  rm -rf "$workdir"
+  return 0
+}
+
+verify_app_store_ipa_has_no_external_purchase_links() {
+  local ipa="$1"
+  local workdir app matches
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify App Store review links: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify App Store review links: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition' "$app" 2>/dev/null || true)"
+  if [[ -n "$matches" ]]; then
+    echo "error: App Store IPA contains an external Founders Edition purchase/enrollment link; refusing to upload" >&2
+    printf '%s\n' "$matches" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
   rm -rf "$workdir"
   return 0
 }
@@ -60,7 +94,8 @@ Usage:
                                   [--archive-path <path>] [--export-only]
 
 Archives cmux iOS, exports an App Store Connect IPA, and uploads it to
-TestFlight. The default lane is beta:
+App Store Connect. The default lane is beta and preserves the existing
+TestFlight behavior:
 
   beta     bundle id: dev.cmux.app.beta   profile: cmux Beta Distribution  name: "cmux BETA"
   appstore bundle id: com.cmux.app        profile: cmux Distribution       name: "cmux"
@@ -104,8 +139,10 @@ or:
   APPLE_PROVIDER_PUBLIC_ID
 
 Options:
-  --lane <beta|appstore>    Distribution lane. beta (default) = dev.cmux.app.beta;
-                            appstore/prod = com.cmux.app (public App Store record).
+  --lane <beta|appstore>    Distribution lane. beta is the existing TestFlight
+                            path. appstore/prod uploads the com.cmux.app
+                            production App Store build and skips TestFlight
+                            notes/group assignment.
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
                             Self-healed up to (App Store Connect max + 1) if it
                             would not be the highest build (TestFlight only offers
@@ -123,7 +160,14 @@ Options:
                             groups (e.g. "cmux beta") instantly but can never
                             be added to an external group. External-eligible
                             builds must pass Apple Beta App Review (~24h) before
-                            external testers can install. Also set via
+                            external testers can install the first build of a new
+                            MARKETING_VERSION. With ASC API-key auth, the script
+                            also assigns the processed build to the selected
+                            external beta group (single external group by
+                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            and auto-submits a new MARKETING_VERSION for Beta App
+                            Review when Apple reports READY_FOR_BETA_SUBMISSION.
+                            Also set via
                             CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
@@ -136,8 +180,8 @@ Options:
                             iOS-affecting commits in <base>..HEAD instead of the
                             ios/CHANGELOG.md top entry (used by the every-2h beta
                             lane so each build's notes reflect what changed since
-                            the previous beta). Skips the changelog preflight and
-                            version-match guard.
+                            the previous beta for the selected audience). Skips
+                            the changelog preflight and version-match guard.
   --auto-version            Stamp the build's MARKETING_VERSION at archive time
                             (no repo commit) to the next patch above the last
                             iOS release (newest ios-v<X.Y.Z> tag, else the
@@ -190,10 +234,19 @@ SIGNING="manual"
 # Default 0 keeps the historical internal-only behavior (fast dogfood, no Apple
 # review). Set to 1 by --external or CMUX_TESTFLIGHT_EXTERNAL=1 to drop the
 # testFlightInternalTestingOnly flag so the build can be added to an external
-# group; such builds then require a one-time Apple Beta App Review per version.
+# group; such builds then require a one-time Apple Beta App Review per
+# MARKETING_VERSION.
 EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
+fi
+# Whether this invocation should assign an uploaded external build to the
+# external beta group itself. The scheduled GitHub Actions lane disables this and
+# runs assignment in a separate post-upload job so a distribution failure cannot
+# cause duplicate uploads of the same SHA on the next schedule.
+ASSIGN_EXTERNAL_GROUP=1
+if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
+  ASSIGN_EXTERNAL_GROUP=0
 fi
 # After a successful upload, push the top ios/CHANGELOG.md entry to the build's
 # TestFlight "What to Test" so testers see what changed instead of an opaque
@@ -204,11 +257,11 @@ if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
 fi
 # --notes-from-range <base>: auto-generate the "What to Test" notes from the
 # iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
-# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta lane
-# so each build's notes reflect what actually changed since the previous beta. When
-# set, the changelog preflight + version-match guard are skipped (the notes no
-# longer come from the changelog, and --auto-version stamps a version the changelog
-# would not match).
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta
+# lane so each build's notes reflect what actually changed since the previous
+# beta for whichever audience is being shipped. When set, the changelog
+# preflight + version-match guard are skipped (the notes no longer come from the
+# changelog, and --auto-version stamps a version the changelog would not match).
 NOTES_RANGE_BASE=""
 # --auto-version: stamp the build's MARKETING_VERSION at archive time (no repo
 # commit-back, mirroring the timestamp build number) to the next patch above the
@@ -285,20 +338,20 @@ done
 # Per-lane on-device display name. Empty keeps the xcconfig default
 # (Release.xcconfig = "cmux BETA"); the appstore lane overrides it to "cmux" so
 # the public build ships with the clean brand name while beta stays "cmux BETA".
-PRODUCT_DISPLAY_NAME_OVERRIDE=""
 case "$LANE" in
   beta)
     PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.beta"
     PROVISIONING_PROFILE_NAME="${IOS_BETA_PROVISIONING_PROFILE_NAME:-cmux Beta Distribution}"
+    PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     ;;
   appstore|prod)
     # Public App Store build. Distinct bundle id (clean reverse-DNS of cmux.com)
     # and a dedicated App Store distribution profile, so it ships side-by-side
     # with the beta channel. Keep com.cmux.app in lockstep with the APNs route
     # policy (web/services/apns/routePolicy.ts) and MobileBuildType.
-    PRODUCT_BUNDLE_IDENTIFIER="com.cmux.app"
-    PROVISIONING_PROFILE_NAME="${IOS_PROD_PROVISIONING_PROFILE_NAME:-cmux Distribution}"
-    PRODUCT_DISPLAY_NAME_OVERRIDE="cmux"
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-${IOS_PROD_BUNDLE_ID:-com.cmux.app}}"
+    PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-${IOS_PROD_PROVISIONING_PROFILE_NAME:-cmux Distribution}}"
+    PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-${IOS_PROD_DISPLAY_NAME:-cmux}}"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -307,11 +360,14 @@ case "$LANE" in
     ;;
 esac
 
-# Built once, injected into both archive invocations. Empty array = no override
-# (xcconfig display name wins).
-DISPLAY_NAME_ARGS=()
-if [[ -n "$PRODUCT_DISPLAY_NAME_OVERRIDE" ]]; then
-  DISPLAY_NAME_ARGS=( "PRODUCT_DISPLAY_NAME=$PRODUCT_DISPLAY_NAME_OVERRIDE" )
+if [[ "$LANE" == "appstore" || "$LANE" == "prod" ]] && [[ "$EXTERNAL_TESTING" -eq 1 ]]; then
+  echo "error: --external is TestFlight-only and cannot be used with --lane appstore" >&2
+  exit 2
+fi
+
+if [[ "$LANE" == "appstore" || "$LANE" == "prod" ]] && [[ "$AUTO_VERSION" -eq 1 ]]; then
+  echo "error: --auto-version is beta-only. Set ios/Config/Shared.xcconfig MARKETING_VERSION intentionally before an App Store upload." >&2
+  exit 2
 fi
 
 case "$SIGNING" in
@@ -415,7 +471,7 @@ fi
 # where the actual marketing version is known. Skipped when there is no upload to
 # annotate (--export-only), notes are turned off (--skip-notes), or notes come from
 # a commit range (range-notes mode) rather than the changelog.
-if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
     echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
     exit 1
@@ -544,7 +600,7 @@ if [[ -n "${CMUX_BUILD_NUMBER_OUT_FILE:-}" ]]; then
   printf '%s\n' "$SHIPPED_BUILD_NUMBER" > "$CMUX_BUILD_NUMBER_OUT_FILE"
 fi
 
-OUT_DIR="${CMUX_IOS_UPLOAD_DIR:-/tmp/cmux-ios-testflight-$BUILD_NUMBER}"
+OUT_DIR="${CMUX_IOS_UPLOAD_DIR:-/tmp/cmux-ios-$LANE-$BUILD_NUMBER}"
 DERIVED_DATA="$OUT_DIR/DerivedData"
 EXPORT_PATH="$OUT_DIR/export"
 EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
@@ -578,9 +634,9 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       "${XCODE_AUTH_ARGS[@]}" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
-      "${DISPLAY_NAME_ARGS[@]}" \
+      PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-      "${MARKETING_VERSION_ARGS[@]}" \
+      ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
       CODE_SIGN_IDENTITY="Apple Distribution" \
@@ -601,9 +657,9 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -derivedDataPath "$DERIVED_DATA" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
-      "${DISPLAY_NAME_ARGS[@]}" \
+      PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-      "${MARKETING_VERSION_ARGS[@]}" \
+      ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -616,6 +672,12 @@ else
   fi
 fi
 
+ARCHIVE_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
+  echo "error: archive bundle id is '$ARCHIVE_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
+  exit 1
+fi
+
 # Now that the archive exists, its marketing version (CFBundleShortVersionString)
 # is the version testers will see. Re-run the notes preflight WITH that version so
 # a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
@@ -625,7 +687,7 @@ fi
 # Skipped in range-notes mode: the notes come from the commit range, not the
 # changelog, and --auto-version intentionally stamps a version the changelog would
 # not match.
-if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   ARCHIVE_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
@@ -648,13 +710,15 @@ plutil -insert method -string app-store-connect "$EXPORT_OPTIONS"
 plutil -insert destination -string export "$EXPORT_OPTIONS"
 plutil -insert teamID -string "$DEVELOPMENT_TEAM" "$EXPORT_OPTIONS"
 plutil -insert manageAppVersionAndBuildNumber -bool NO "$EXPORT_OPTIONS"
-if [[ "$EXTERNAL_TESTING" == "1" ]]; then
-  # External-eligible: omit/clear the internal-only restriction so the build can
-  # be added to an external group (after Apple Beta App Review).
-  plutil -insert testFlightInternalTestingOnly -bool NO "$EXPORT_OPTIONS"
-  echo "note: --external set; build will be eligible for external TestFlight testers (requires Apple Beta App Review per version)." >&2
-else
-  plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
+if [[ "$LANE" == "beta" ]]; then
+  if [[ "$EXTERNAL_TESTING" == "1" ]]; then
+    # External-eligible: omit/clear the internal-only restriction so the build can
+    # be added to an external group (after Apple Beta App Review).
+    plutil -insert testFlightInternalTestingOnly -bool NO "$EXPORT_OPTIONS"
+    echo "note: --external set; build will be eligible for external TestFlight testers (requires Apple Beta App Review per version)." >&2
+  else
+    plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
+  fi
 fi
 plutil -insert uploadSymbols -bool YES "$EXPORT_OPTIONS"
 if [[ "$SIGNING" == "automatic" ]]; then
@@ -864,6 +928,13 @@ fi
 
 echo "IPA_PATH=$IPA_PATH"
 
+if [[ "$LANE" == "appstore" ]]; then
+  if ! verify_app_store_ipa_has_no_external_purchase_links "$IPA_PATH"; then
+    exit 1
+  fi
+  echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
+fi
+
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
 fi
@@ -903,7 +974,7 @@ elif [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APP
     | tee "$OUT_DIR/upload.log"
 else
   cat >&2 <<EOF
-error: missing TestFlight upload credentials.
+error: missing App Store Connect upload credentials.
 
 Set ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH, or set
 APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID. You can
@@ -922,10 +993,12 @@ fi
 # API needs the ASC API key (JWT); the Apple ID upload path has no key, so notes are
 # only attempted when the ASC API creds are present.
 #
-# Audience: --external uses the curated External block; the default internal cut uses
-# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that actually
-# shipped (post-guard, or the reused archive's embedded version).
-if [[ "$SKIP_NOTES" -eq 1 ]]; then
+# Audience: --external uses the External audience; the default internal cut uses
+# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
+# actually shipped (post-guard, or the reused archive's embedded version).
+if [[ "$LANE" != "beta" ]]; then
+  echo "note: lane '$LANE' is not a TestFlight lane; skipping TestFlight What to Test notes" >&2
+elif [[ "$SKIP_NOTES" -eq 1 ]]; then
   echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
 elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
   echo "note: no ASC API key (JWT) available; skipping TestFlight What to Test notes (set ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH, or run ios/scripts/set-testflight-notes.sh later)" >&2
@@ -981,4 +1054,25 @@ else
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
   fi
+fi
+
+# --external means "ship to founders", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the app's
+# external beta group so external testers actually receive it, and create the
+# Beta App Review submission when Apple requires one for a new
+# MARKETING_VERSION. This is fatal: a red CI/upload is preferable to claiming
+# the external lane tracked main when the build never reached the founders lane.
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
+    exit 0
+  fi
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+    ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
+    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
+    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
+    python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
+      --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+      --build-number "$SHIPPED_BUILD_NUMBER"
 fi

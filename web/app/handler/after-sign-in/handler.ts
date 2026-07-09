@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  DEFAULT_NATIVE_CALLBACK_SCHEME,
+  isAllowedNativeReturnTo,
+} from "../../lib/native-callback";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 
-const NATIVE_SCHEME = "cmux://";
-const NATIVE_SCHEMES = new Set(["cmux", "cmux-nightly"]);
 const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
 const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
+const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
 type AfterSignInMessages = {
   title: string;
@@ -36,7 +39,9 @@ type StackAuthUserLike = {
 };
 
 type StackServerAppLike = {
-  getUser: (options: { or: "return-null" }) => Promise<StackAuthUserLike | null>;
+  getUser: (options: {
+    or: "return-null" | typeof ANONYMOUS_IF_EXISTS;
+  }) => Promise<StackAuthUserLike | null>;
 } | null;
 
 type AfterSignInHandlerDependencies = {
@@ -44,42 +49,6 @@ type AfterSignInHandlerDependencies = {
   stackServerApp: StackServerAppLike;
   getCookieStore: () => Promise<CookieStore>;
 };
-
-function isLocalRequest(request: NextRequest): boolean {
-  const hostHeader = request.headers.get("host");
-  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
-}
-
-function localAllowedNativeSchemes(): Set<string> {
-  const values = [
-    process.env.CMUX_AUTH_CALLBACK_SCHEME,
-    process.env.CMUX_ALLOWED_NATIVE_CALLBACK_SCHEMES,
-    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES,
-  ];
-  const schemes = new Set<string>();
-  for (const value of values) {
-    for (const raw of value?.split(/[\s,]+/) ?? []) {
-      const scheme = raw.trim().replace(/:\/\/.*$/, "").replace(/:$/, "");
-      if (/^cmux-dev-[a-z0-9-]+$/.test(scheme)) schemes.add(scheme);
-    }
-  }
-  return schemes;
-}
-
-function isAllowedNativeReturnTo(href: string, request: NextRequest): boolean {
-  try {
-    const url = new URL(href);
-    if (url.hostname !== "auth-callback") return false;
-    if (url.pathname !== "" && url.pathname !== "/") return false;
-    const scheme = url.protocol.replace(":", "");
-    if (NATIVE_SCHEMES.has(scheme)) return true;
-    if (scheme === "cmux-dev") return isLocalRequest(request);
-    return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
-  } catch {
-    return false;
-  }
-}
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -139,14 +108,14 @@ function buildNativeHref(
   accessCookie: string | undefined
 ): string | null {
   if (!refreshToken || !accessCookie) return baseHref;
-  const href = baseHref ?? `${NATIVE_SCHEME}auth-callback`;
+  const href = baseHref ?? `${DEFAULT_NATIVE_CALLBACK_SCHEME}://auth-callback`;
   try {
     const url = new URL(href);
     url.searchParams.set("stack_refresh", refreshToken);
     url.searchParams.set("stack_access", accessCookie);
     return url.toString();
   } catch {
-    return `${NATIVE_SCHEME}auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
+    return `${DEFAULT_NATIVE_CALLBACK_SCHEME}://auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
   }
 }
 
@@ -352,7 +321,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     let accessCookie = decodeCookieValue(rawAccessCookie);
 
     try {
-      const user = await authApp.getUser({ or: "return-null" });
+      const user =
+        (await authApp.getUser({ or: "return-null" })) ??
+        (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
       if (user) {
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
         const tokens = await session.getTokens();
