@@ -123,6 +123,75 @@ def check_timing_weighted_packing() -> int:
     return 0
 
 
+def check_separated_suites_never_share_a_shard() -> int:
+    """The app-host-crasher suite and its victim must land on different shards."""
+    import json
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        for name in (
+            "HeavyTests",
+            "DeltaTests",
+            "BrowserDeveloperToolsVisibilityPersistenceTests",
+            "BrowserSessionHistoryRestoreTests",
+        ):
+            (test_root / f"{name}.swift").write_text(
+                f"""
+final class {name}: XCTestCase {{
+    func testOne() {{}}
+    func testTwo() {{}}
+}}
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+        # Weights chosen so plain min-weight packing would put both separated
+        # suites into the same (light) bucket: Heavy takes shard 1, Delta and
+        # both separated suites would all fall into shard 2.
+        manifest = tmp_root / "timings.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "default_test_ms": 200,
+                    "suites": {
+                        "HeavyTests": 600000,
+                        "DeltaTests": 400,
+                        "BrowserDeveloperToolsVisibilityPersistenceTests": 300,
+                        "BrowserSessionHistoryRestoreTests": 200,
+                    },
+                    "methods": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        shards = [
+            run_shard(tmp_root, shard, tmp_root / f"separated-{shard}.args", manifest)
+            for shard in (1, 2)
+        ]
+
+    crasher = "-only-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests"
+    victim = "-only-testing:cmuxTests/BrowserSessionHistoryRestoreTests"
+    placement = {
+        selector: [index for index, lines in enumerate(shards) if selector in lines]
+        for selector in (crasher, victim)
+    }
+    for selector, indexes in placement.items():
+        if len(indexes) != 1:
+            print(f"FAIL: {selector} should be assigned exactly once, got shards {indexes}")
+            return 1
+    if placement[crasher] == placement[victim]:
+        print(
+            "FAIL: separated suites shared a shard: "
+            f"crasher={placement[crasher]} victim={placement[victim]}"
+        )
+        return 1
+    print("PASS: separated suites are packed onto different shards")
+    return 0
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
@@ -169,6 +238,10 @@ def main() -> int:
         print("FAIL: large suite should be method-sharded, not selected as a whole suite")
         return 1
 
+    repo_separated_placement: dict[str, list[int]] = {
+        "-only-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests": [],
+        "-only-testing:cmuxTests/BrowserSessionHistoryRestoreTests": [],
+    }
     with tempfile.TemporaryDirectory() as tmp:
         output = Path(tmp) / "repo-shard.args"
         for shard in range(1, 5):
@@ -202,8 +275,19 @@ def main() -> int:
                 if focused_selector in shard_selectors:
                     print(f"FAIL: focused gate selector should not be folded into shard: {focused_selector}")
                     return 1
+            for separated_selector, placements in repo_separated_placement.items():
+                if separated_selector in shard_selectors:
+                    placements.append(shard)
+
+    placements = list(repo_separated_placement.values())
+    if any(len(shards) != 1 for shards in placements) or placements[0] == placements[1]:
+        print(f"FAIL: repo packing must separate crasher/victim suites, got {repo_separated_placement}")
+        return 1
 
     if (rc := check_timing_weighted_packing()) != 0:
+        return rc
+
+    if (rc := check_separated_suites_never_share_a_shard()) != 0:
         return rc
 
     print("PASS: cmuxTests sharding covers extension methods and leaves focused gates explicit")
