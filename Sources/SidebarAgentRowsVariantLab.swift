@@ -213,13 +213,20 @@ struct SidebarGlobalAgentsSection: View {
     @ObservedObject private var store = SidebarAgentRowsVariantStore.shared
 
     private func focus(workspaceId: UUID, panelId: UUID) {
+        if AppDelegate.shared?.notificationNavigation.open(
+            tabId: workspaceId,
+            surfaceId: panelId,
+            notificationId: nil
+        ) == true {
+            return
+        }
         guard let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
         tabManager.selectedTabId = workspaceId
         tab.focusPanel(panelId)
     }
 
     var body: some View {
-        if store.variant == .globalSection {
+        if CmuxFeatureFlags.shared.isSidebarAgentRowsEnabled, store.variant == .globalSection {
             let groups = tabManager.tabs.compactMap { tab -> (workspaceId: UUID, title: String, rows: [SidebarAgentStatusRow])? in
                 let rows = tab.sidebarAgentStatusRows()
                 guard !rows.isEmpty else { return nil }

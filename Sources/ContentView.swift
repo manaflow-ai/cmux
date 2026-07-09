@@ -13363,6 +13363,16 @@ struct TabItemView: View, Equatable {
     // workspace card's own selection background and border.
     @ObservedObject private var agentRowsVariantStore = SidebarAgentRowsVariantStore.shared
 
+    /// Feature-flag gate for the whole per-agent rows surface (rows, graphite
+    /// card styling, lab variants). Off = the pre-feature status pills.
+    private var agentRowsFeatureEnabled: Bool {
+        CmuxFeatureFlags.shared.isSidebarAgentRowsEnabled
+    }
+
+    private var usesGraphiteVariant: Bool {
+        agentRowsFeatureEnabled && agentRowsVariantStore.variant == .graphite
+    }
+
     private var isActive: Bool {
         observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
@@ -13381,7 +13391,7 @@ struct TabItemView: View, Equatable {
         // selection color), borderless. The foreground helper below
         // auto-contrasts on it. Dies with the variant lab once a final design
         // ships.
-        if agentRowsVariantStore.variant == .graphite {
+        if usesGraphiteVariant {
             return graphiteSelectionFillNSColor
         }
         return sidebarSelectedWorkspaceBackgroundNSColor(
@@ -13439,8 +13449,18 @@ struct TabItemView: View, Equatable {
                 fontScale: fontScale,
                 onFocus: { updateSelection() },
                 onFocusPanel: { panelId in
-                    updateSelection()
-                    tab.focusPanel(panelId)
+                    // The notification-jump path owns cross-workspace focus:
+                    // plain updateSelection + focusPanel loses to the
+                    // workspace's own focus restoration when the workspace
+                    // was not already selected.
+                    if AppDelegate.shared?.notificationNavigation.open(
+                        tabId: tab.id,
+                        surfaceId: panelId,
+                        notificationId: nil
+                    ) != true {
+                        updateSelection()
+                        tab.focusPanel(panelId)
+                    }
                 }
             )
         }
@@ -13502,7 +13522,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeBorderLineWidth: CGFloat {
-        if agentRowsVariantStore.variant == .graphite {
+        if usesGraphiteVariant {
             return 0
         }
         switch activeTabIndicatorStyle {
@@ -13515,7 +13535,7 @@ struct TabItemView: View, Equatable {
 
     private var activeBorderColor: Color {
         guard isActive else { return .clear }
-        if agentRowsVariantStore.variant == .graphite {
+        if usesGraphiteVariant {
             return .clear
         }
         switch activeTabIndicatorStyle {
@@ -14626,7 +14646,7 @@ struct TabItemView: View, Equatable {
     private var backgroundColor: Color {
         // Debug lab "graphite" prototype v2: dark tint of the workspace's
         // own color. Dies with the variant lab once a final design ships.
-        if agentRowsVariantStore.variant == .graphite, isActive {
+        if usesGraphiteVariant, isActive {
             return Color(nsColor: graphiteSelectionFillNSColor)
         }
         let style = sidebarWorkspaceRowBackgroundStyle(
@@ -14928,7 +14948,9 @@ struct TabItemView: View, Equatable {
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
-        let agentStatusRows = detailVisibility.showsMetadata ? tab.sidebarAgentStatusRows() : []
+        let agentStatusRows = detailVisibility.showsMetadata && CmuxFeatureFlags.shared.isSidebarAgentRowsEnabled
+            ? tab.sidebarAgentStatusRows()
+            : []
         let agentRowStatusKeys = Set(agentStatusRows.map(\.statusKey))
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
