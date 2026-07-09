@@ -61,10 +61,14 @@ export async function deleteAccountWithDependencies(
   const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });
 
   if (deletion.status !== "completed") {
-    await dependencies.markStackUserDeletionInProgress(user);
-  }
-
-  if (deletion.status !== "completed") {
+    try {
+      await dependencies.markStackUserDeletionInProgress(user);
+    } catch (error) {
+      console.error("[account-deletion] Stack metadata mark failed after enqueue", {
+        userIdHash: deletion.userIdHash,
+        error,
+      });
+    }
     dependencies.scheduleAfterResponse(async () => {
       try {
         await dependencies.processAccountDeletionForUser({ userId: user.id });

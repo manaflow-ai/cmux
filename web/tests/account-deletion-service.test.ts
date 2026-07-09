@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
-import { cloudVmLeases, cloudVmSessions } from "../db/schema";
+import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms } from "../db/schema";
 import { deleteCmuxAccountData, hasAccountDeletionTombstone } from "../services/account/deletion";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 
@@ -80,6 +80,9 @@ describe("account deletion cleanup", () => {
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
     expect(calls).toContain("delete-cloud-vm-sessions");
     expect(calls).toContain("delete-cloud-vm-leases");
+    expect(calls).toContain("delete-personal-cloud-vms");
+    expect(calls).toContain("anonymize-team-cloud-vms");
+    expect(calls).toContain("anonymize-team-cloud-vm-usage-events");
   });
 
   test("rechecks when a provider-backed VM disappears during account deletion", async () => {
@@ -176,10 +179,15 @@ function fakeTransaction() {
       calls.push("lock-account-deletion");
       return [];
     },
-    update: () => updateBuilder(),
+    update: (table: unknown) => {
+      if (table === cloudVms) return updateBuilder("anonymize-team-cloud-vms");
+      if (table === cloudVmUsageEvents) return updateBuilder("anonymize-team-cloud-vm-usage-events");
+      return updateBuilder();
+    },
     delete: (table: unknown) => {
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
       if (table === cloudVmLeases) return writeBuilder("delete-cloud-vm-leases");
+      if (table === cloudVms) return writeBuilder("delete-personal-cloud-vms");
       return writeBuilder();
     },
   };

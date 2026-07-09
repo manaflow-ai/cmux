@@ -9,6 +9,7 @@ let stackUserMetadata: unknown = {};
 let postHogPreflightError: Error | null = null;
 let enqueueStatus: "pending" | "in_progress" | "completed" | "failed" = "pending";
 let enqueueError: Error | null = null;
+let markStackError: Error | null = null;
 const assertPostHogDeletionConfigured = mock(() => {
   calls.push("posthog-preflight");
   if (postHogPreflightError) throw postHogPreflightError;
@@ -16,6 +17,7 @@ const assertPostHogDeletionConfigured = mock(() => {
 type NativeTokenStore = { accessToken: string; refreshToken: string };
 const markStackUserDeletionInProgress = mock(async (user) => {
   calls.push("mark-deleting");
+  if (markStackError) throw markStackError;
   await realMarkStackUserDeletionInProgress(
     user as Parameters<typeof realMarkStackUserDeletionInProgress>[0],
   );
@@ -76,6 +78,7 @@ beforeEach(() => {
   postHogPreflightError = null;
   enqueueStatus = "pending";
   enqueueError = null;
+  markStackError = null;
   assertPostHogDeletionConfigured.mockClear();
   markStackUserDeletionInProgress.mockClear();
   enqueueAccountDeletion.mockClear();
@@ -179,6 +182,41 @@ describe("account deletion route", () => {
     expect(processAccountDeletionForUser).not.toHaveBeenCalled();
     expect(scheduledCallbacks).toHaveLength(0);
     expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  test("returns accepted and schedules cleanup when Stack metadata marking fails after enqueue", async () => {
+    markStackError = new Error("Stack metadata unavailable");
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await deleteAccount(
+        new Request("https://cmux.test/api/account/deletion", {
+          method: "DELETE",
+          headers: {
+            authorization: "Bearer access-1",
+            "x-stack-refresh-token": "refresh-1",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(202);
+      expect(await response.json()).toEqual({ ok: true, status: "pending" });
+      expect(calls).toEqual(["posthog-preflight", "enqueue", "mark-deleting", "schedule"]);
+      expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(false);
+      expect(scheduledCallbacks).toHaveLength(1);
+      expect(consoleError).toHaveBeenCalledWith(
+        "[account-deletion] Stack metadata mark failed after enqueue",
+        expect.objectContaining({ userIdHash: "hash-user-1", error: markStackError }),
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    await scheduledCallbacks[0]();
+
+    expect(processAccountDeletionForUser).toHaveBeenCalledWith({ userId: "user-1" });
   });
 
   test("does not delete the Stack user when PostHog deletion is not configured", async () => {

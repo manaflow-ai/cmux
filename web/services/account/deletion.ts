@@ -332,9 +332,18 @@ export async function deleteCmuxAccountData(
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, input.userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, input.userId));
     await tx.delete(cloudVmUsageEvents).where(or(
-      eq(cloudVmUsageEvents.userId, input.userId),
       eq(cloudVmUsageEvents.billingTeamId, input.userId),
+      and(
+        eq(cloudVmUsageEvents.userId, input.userId),
+        or(
+          isNull(cloudVmUsageEvents.billingTeamId),
+          eq(cloudVmUsageEvents.billingTeamId, input.userId),
+        ),
+      ),
     ));
+    await tx.update(cloudVmUsageEvents)
+      .set({ userId: anonymizedUserId })
+      .where(teamScopedUsageEventsCreatedByUser(input.userId));
     await tx.delete(cloudVmBaseEvents).where(eq(cloudVmBaseEvents.userId, input.userId));
     await tx.delete(cloudVmBillingGrants).where(and(
       eq(cloudVmBillingGrants.billingCustomerType, "user"),
@@ -344,7 +353,10 @@ export async function deleteCmuxAccountData(
       eq(cloudVmBases.scopeType, "user"),
       eq(cloudVmBases.scopeId, input.userId),
     ));
-    await tx.delete(cloudVms).where(eq(cloudVms.userId, input.userId));
+    await tx.delete(cloudVms).where(personalCloudVmRows(input.userId));
+    await tx.update(cloudVms)
+      .set({ userId: anonymizedUserId, updatedAt: now })
+      .where(teamScopedCloudVmRowsCreatedByUser(input.userId));
 
     await tx.update(cloudVmBases)
       .set({ createdByUserId: anonymizedUserId, updatedAt: now })
@@ -391,6 +403,7 @@ async function claimProviderlessAccountVms(
     })
     .where(and(
       eq(cloudVms.userId, userId),
+      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
       ne(cloudVms.status, "destroyed"),
       isNull(cloudVms.providerVmId),
     ));
@@ -433,9 +446,33 @@ async function providerBackedAccountVms(
     .from(cloudVms)
     .where(and(
       eq(cloudVms.userId, userId),
+      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
       ne(cloudVms.status, "destroyed"),
       isNotNull(cloudVms.providerVmId),
     ));
+}
+
+function personalCloudVmRows(userId: string) {
+  return and(
+    eq(cloudVms.userId, userId),
+    or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
+  );
+}
+
+function teamScopedCloudVmRowsCreatedByUser(userId: string) {
+  return and(
+    eq(cloudVms.userId, userId),
+    isNotNull(cloudVms.billingTeamId),
+    ne(cloudVms.billingTeamId, userId),
+  );
+}
+
+function teamScopedUsageEventsCreatedByUser(userId: string) {
+  return and(
+    eq(cloudVmUsageEvents.userId, userId),
+    isNotNull(cloudVmUsageEvents.billingTeamId),
+    ne(cloudVmUsageEvents.billingTeamId, userId),
+  );
 }
 
 async function deleteAccountVaultObjects(
