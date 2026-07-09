@@ -89,6 +89,7 @@ export async function processAccountDeletionForUser(
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
+      if (!user) throw new Error("Stack user unavailable for account deletion");
       const ownedTeamIds = user ? await accountDeletionOwnedTeamIds(user) : [];
       await dependencies.deleteCmuxAccountData({ userId: input.userId, ownedTeamIds });
       const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });

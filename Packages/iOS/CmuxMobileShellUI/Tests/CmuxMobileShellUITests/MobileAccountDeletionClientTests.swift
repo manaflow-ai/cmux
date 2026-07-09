@@ -29,4 +29,13 @@ import Testing
             )
         }
     }
+
+    @Test func parserTreatsFailedWorkflowAsWorkflowFailure() {
+        #expect(throws: MobileAccountDeletionError.workflowFailed) {
+            _ = try MobileAccountDeletionResponseParser().deletionResult(
+                statusCode: 200,
+                data: Data(#"{"ok":true,"status":"failed"}"#.utf8)
+            )
+        }
+    }
 }

@@ -4098,6 +4098,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountFailedWorkflowMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account deletion cleanup failed before it finished. Try again later or contact founders@manaflow.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント削除のクリーンアップが完了前に失敗しました。しばらくしてからもう一度お試しください。失敗が続く場合は founders@manaflow.com までお問い合わせください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountFailedTitle": {
       "extractionState": "manual",
       "localizations": {

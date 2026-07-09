@@ -49,7 +49,13 @@ export async function deleteAccountWithDependencies(
   const tokenStore = nativeTokenStore(request);
   if (!tokenStore) return unauthorized();
 
-  const user = await dependencies.getUser(tokenStore);
+  let user: StackAccountDeletionRouteUser | null;
+  try {
+    user = await dependencies.getUser(tokenStore);
+  } catch (error) {
+    console.error("[account-deletion] Stack user lookup failed", { error });
+    return jsonResponse({ error: "deletion_unavailable" }, 503);
+  }
   if (!user) return unauthorized();
 
   const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });

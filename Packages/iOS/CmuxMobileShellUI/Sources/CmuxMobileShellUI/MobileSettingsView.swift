@@ -52,7 +52,7 @@ struct MobileSettingsView: View {
         self.store = store
         self.telemetryConsentStore = telemetryConsentStore
         self.accountDeletionClient = accountDeletionClient
-        _productAnalyticsEnabled = State(initialValue: telemetryConsentStore.isEnabled)
+        _productAnalyticsEnabled = State(initialValue: false)
     }
 
     var body: some View {
@@ -446,6 +446,11 @@ struct MobileSettingsView: View {
             return L10n.string(
                 "mobile.settings.deleteAccountFailedRejectedMessage",
                 defaultValue: "The server rejected the deletion request. Try again later or contact founders@manaflow.com."
+            )
+        case .workflowFailed:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedWorkflowMessage",
+                defaultValue: "Account deletion cleanup failed before it finished. Try again later or contact founders@manaflow.com."
             )
         case .invalidURL, .invalidResponse:
             return L10n.string(

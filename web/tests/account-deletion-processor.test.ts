@@ -145,6 +145,60 @@ describe("account deletion processor", () => {
     ]);
   });
 
+  test("keeps missing Stack users retryable before cleanup runs", async () => {
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          return null;
+        },
+      })),
+    ).rejects.toThrow("Stack user unavailable for account deletion");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "retry-pending:user-1:Stack user unavailable for account deletion",
+    ]);
+  });
+
+  test("completes Stack-delete retries when the Stack user is already gone", async () => {
+    claimResult = "stack_delete_pending";
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return null;
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "completed:user-1",
+    ]);
+  });
+
+  test("keeps Stack-delete retries retryable when user lookup fails", async () => {
+    claimResult = "stack_delete_pending";
+
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          throw new Error("Stack lookup failed");
+        },
+      })),
+    ).rejects.toThrow("Stack lookup failed");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "stack-delete-pending:user-1:Stack lookup failed",
+    ]);
+  });
+
   test("records a retryable failure when Stack deletion fails after completion is marked", async () => {
     stackDeleteError = new Error("Stack delete failed");
 

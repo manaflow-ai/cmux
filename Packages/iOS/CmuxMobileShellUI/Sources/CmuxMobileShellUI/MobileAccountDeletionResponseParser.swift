@@ -18,7 +18,7 @@ struct MobileAccountDeletionResponseParser: Sendable {
             case .pending, .inProgress, .stackDeletePending, .stackDeleteInProgress:
                 return .accepted(status)
             case .failed:
-                throw MobileAccountDeletionError.rejected(statusCode: statusCode)
+                throw MobileAccountDeletionError.workflowFailed
             }
         } catch let error as MobileAccountDeletionError {
             throw error

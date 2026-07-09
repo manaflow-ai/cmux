@@ -13,4 +13,7 @@ public enum MobileAccountDeletionError: Error, Equatable, Sendable {
 
     /// The deletion endpoint returned a non-success HTTP status code.
     case rejected(statusCode: Int)
+
+    /// The endpoint succeeded, but the asynchronous deletion workflow failed.
+    case workflowFailed
 }
