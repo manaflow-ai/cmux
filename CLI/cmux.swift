@@ -12272,8 +12272,7 @@ struct CMUXCLI {
             "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
             "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for SSH PTY attach.' >&2; exit 1; fi",
             "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
-            // Stable across this wrapper's child retries, fresh for an explicit new attach.
-            "cmux_ssh_attach_lifecycle_id=\"${CMUX_SURFACE_ID:-attach}-$$\"",
+            "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
         ] + sshPTYAttachRetryLoopLines(command: attachCommand)).joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(script))"
     }
@@ -12613,11 +12612,19 @@ struct CMUXCLI {
               !surfaceId.isEmpty else {
             throw CLIError(message: "ssh-session-end requires --surface or CMUX_SURFACE_ID")
         }
-        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
+        let sessionID = Self.normalizedEnvValue(optionValue(commandArgs, name: "--session-id"))
+        let lifecycleID = Self.normalizedEnvValue(optionValue(commandArgs, name: "--lifecycle-id"))
+        var params: [String: Any] = [
             "workspace_id": workspaceId,
             "surface_id": surfaceId,
             "relay_port": relayPort,
-        ])
+            "lifecycle_only": commandArgs.contains("--lifecycle-only"),
+        ]
+        if let sessionID, let lifecycleID {
+            params["session_id"] = sessionID
+            params["lifecycle_id"] = lifecycleID
+        }
+        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: params)
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {

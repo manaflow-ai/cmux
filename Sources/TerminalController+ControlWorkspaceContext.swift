@@ -714,13 +714,17 @@ extension TerminalController: ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        relayPort: Int
+        relayPort: Int,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
-        workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        workspace.acknowledgeRemotePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID)
+        if !lifecycleOnly { workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort) }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,

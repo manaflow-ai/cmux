@@ -57,6 +57,43 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         }
     }
 
+    @Test("wrapper end retires a generation while tunnel replacement is pending")
+    func wrapperEndRetiresReplacementSnapshot() throws {
+        let provider = FakeTunnelProvider()
+        let clock = ManualRetryClock()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: clock)
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        let fatalError = try #require(provider.fatalErrorCallback(at: 0))
+        fatalError("transport died")
+        #expect(clock.waitForSleeps(1))
+
+        try broker.acknowledgePTYLifecycle(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation"
+        )
+        clock.fireOldestSleep()
+        let deadline = Date().addingTimeInterval(5.0)
+        while provider.tunnels.count < 2 && Date() < deadline { usleep(10_000) }
+
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
+    }
+
     @Test("forced local proxy port is used verbatim")
     func forcedLocalProxyPort() throws {
         let provider = FakeTunnelProvider()

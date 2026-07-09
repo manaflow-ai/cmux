@@ -5,6 +5,15 @@ import Testing
 
 @Suite("RemoteDaemonProxyTunnel PTY lifecycle", .serialized)
 struct RemoteDaemonProxyTunnelPTYBridgeTests {
+    @Test("session IDs remain exact while UUID lifecycle IDs canonicalize")
+    func lifecycleKeyNormalizationKeepsSessionIdentity() {
+        let uppercaseUUID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        let key = RemotePTYLifecycleKey(sessionID: " \(uppercaseUUID) ", lifecycleID: uppercaseUUID)
+
+        #expect(key.sessionID == uppercaseUUID)
+        #expect(key.lifecycleID == uppercaseUUID.lowercased())
+    }
+
     @Test("cleanup during a reconnect gap blocks both bridge start modes")
     func cleanupDuringReconnectGapBlocksRespawn() throws {
         let rpc = TestPTYLifecycleRPCClient()
@@ -131,6 +140,22 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         #expect(throws: RemotePTYLifecycleError.intentionallyClosed) {
             try registry.registerBridge(key: keys[3], attachmentID: "attachment", bridgeID: UUID())
         }
+    }
+
+    @Test("wrapper-end acknowledgment frees an accepted generation slot")
+    func wrapperEndAcknowledgmentFreesCapacity() throws {
+        var registry = RemotePTYLifecycleRegistry(generationCapacity: 1, retiredCapacity: 1)
+        let ended = RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "ended")
+        let replacement = RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "replacement")
+        let bridgeID = UUID()
+        try registry.registerBridge(key: ended, attachmentID: "surface", bridgeID: bridgeID)
+        registry.bridgeStopped(key: ended, bridgeID: bridgeID, disposition: .acceptedClient)
+
+        registry.acknowledge(ended)
+        try registry.registerBridge(key: replacement, attachmentID: "surface", bridgeID: UUID())
+
+        #expect(registry.generations[ended] == nil)
+        #expect(registry.generations[replacement] != nil)
     }
 
     @Test("tunnel teardown clears active generations and retired tombstones")

@@ -78,6 +78,21 @@ extension RemoteSessionCoordinator {
         }
     }
 
+    /// Retires a generation on the coordinator queue when its owning terminal wrapper ends.
+    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {
+        let sessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lifecycleID = lifecycleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionID.isEmpty, !lifecycleID.isEmpty else { return }
+        queue.async { [weak self] in
+            guard let self, !self.isStopping else { return }
+            try? self.proxyBroker.acknowledgePTYLifecycle(
+                configuration: self.configuration,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID
+            )
+        }
+    }
+
     /// Starts a loopback PTY bridge for a persistent session, optionally
     /// parking the request until the daemon/proxy are ready
     /// (`waitForReady`); returns the bridge's loopback endpoint.

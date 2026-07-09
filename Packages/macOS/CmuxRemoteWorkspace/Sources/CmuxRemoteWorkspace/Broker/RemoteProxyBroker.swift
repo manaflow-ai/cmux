@@ -133,14 +133,30 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    /// Retires one logical PTY attach generation after CLI reconciliation.
+    /// Retires one logical PTY attach generation in either the live tunnel or
+    /// the snapshot retained while an automatic replacement is pending.
     public func acknowledgePTYLifecycle(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
         lifecycleID: String
     ) throws {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            tunnel.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+        try queue.sync {
+            let key = Self.transportKey(for: configuration)
+            guard let entry = entries[key] else {
+                throw NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            if let tunnel = entry.tunnel {
+                tunnel.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+            } else if var snapshot = entry.ptyLifecycleSnapshot {
+                snapshot.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                entry.ptyLifecycleSnapshot = snapshot
+            } else {
+                throw NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
         }
     }
 

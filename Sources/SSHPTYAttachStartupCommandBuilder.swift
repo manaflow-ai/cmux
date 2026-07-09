@@ -34,8 +34,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         if let foregroundAuth {
             lines += foregroundAuthLines(foregroundAuth)
         }
-        // The wrapper PID is stable across child retries and changes for an explicit new attach.
-        lines.append("cmux_ssh_attach_lifecycle_id=\"${CMUX_SURFACE_ID:-attach}-$$\"")
+        lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandB64Flag = normalized(remoteCommand).map {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"

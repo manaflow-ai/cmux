@@ -1,6 +1,6 @@
 /// Opaque lifecycle state retained by the broker while it replaces a failed tunnel.
 public struct RemotePTYLifecycleSnapshot: Sendable {
-    let registry: RemotePTYLifecycleRegistry
+    var registry: RemotePTYLifecycleRegistry
 
     /// Creates an empty snapshot for tunnel implementations without PTY lifecycle state.
     public init() {
@@ -9,5 +9,9 @@ public struct RemotePTYLifecycleSnapshot: Sendable {
 
     init(registry: RemotePTYLifecycleRegistry) {
         self.registry = registry
+    }
+
+    mutating func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
+        registry.acknowledge(RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
     }
 }

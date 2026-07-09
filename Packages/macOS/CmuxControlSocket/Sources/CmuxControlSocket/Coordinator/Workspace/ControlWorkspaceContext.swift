@@ -276,10 +276,16 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - workspaceID: The workspace id.
     ///   - surfaceID: The surface id.
     ///   - relayPort: The validated relay port.
+    ///   - sessionID: The persistent PTY session, when this wrapper owns one.
+    ///   - lifecycleID: The wrapper-owned PTY lifecycle generation, when present.
+    ///   - lifecycleOnly: Whether to retire the generation without ending the shared terminal session.
     /// - Returns: The session-end resolution.
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int
+        relayPort: Int,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution
 }

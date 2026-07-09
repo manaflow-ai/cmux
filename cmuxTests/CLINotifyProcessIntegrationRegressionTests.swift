@@ -3668,7 +3668,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
         XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
         XCTAssertTrue(initialScript.contains("--wait"), initialScript)
-        XCTAssertTrue(initialScript.contains("ssh-session-end"), initialScript)
+        XCTAssertTrue(initialScript.contains("ssh-session-end") && initialScript.contains("--lifecycle-only"), initialScript)
         XCTAssertTrue(initialScript.contains("CMUX_WORKSPACE_ID"), initialScript)
         XCTAssertTrue(initialScript.contains("CMUX_SURFACE_ID"), initialScript)
         XCTAssertTrue(
@@ -3683,7 +3683,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
             initialScript
         )
-        XCTAssertTrue(initialScript.contains("cmux_ssh_pty_lifecycle_id=\"$cmux_ssh_pty_surface_id-$$\""), initialScript)
+        XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialScript)
+        XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
+        XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
@@ -3692,7 +3694,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, initialScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
-        XCTAssertTrue(terminalStartupScript.contains("ssh-session-end"), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("ssh-session-end") && terminalStartupScript.contains("--lifecycle-only"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("CMUX_WORKSPACE_ID"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("CMUX_SURFACE_ID"), terminalStartupScript)
         XCTAssertTrue(
@@ -3707,7 +3709,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
             terminalStartupScript
         )
-        XCTAssertTrue(terminalStartupScript.contains("cmux_ssh_pty_lifecycle_id=\"$cmux_ssh_pty_surface_id-$$\""), terminalStartupScript)
+        XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
@@ -4629,6 +4633,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("254|255"), initialCommand)
+            XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialCommand)
             return self.v2Response(
                 id: id,
                 ok: true,

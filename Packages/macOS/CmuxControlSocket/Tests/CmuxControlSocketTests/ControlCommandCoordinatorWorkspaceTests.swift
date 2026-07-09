@@ -165,4 +165,35 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(message == "Invalid placement")
         #expect(context.addWorkspaceToGroupCall == nil)
     }
+
+    @Test func terminalSessionEndForwardsLifecycleRetirementIntent() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        let lifecycleID = "11111111-2222-3333-4444-555555555555"
+        context.terminalSessionEndResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object([:])
+        )
+
+        guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_end", [
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
+            "relay_port": .int(64_007),
+            "session_id": .string(sessionID),
+            "lifecycle_id": .string(lifecycleID),
+            "lifecycle_only": .bool(true),
+        ])) else {
+            Issue.record("unexpected terminal_session_end result")
+            return
+        }
+
+        #expect(context.terminalSessionEndCall?.workspaceID == workspaceID)
+        #expect(context.terminalSessionEndCall?.surfaceID == surfaceID)
+        #expect(context.terminalSessionEndCall?.sessionID == sessionID)
+        #expect(context.terminalSessionEndCall?.lifecycleID == lifecycleID)
+        #expect(context.terminalSessionEndCall?.lifecycleOnly == true)
+    }
 }
