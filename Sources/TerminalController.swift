@@ -407,41 +407,6 @@ class TerminalController {
     nonisolated func activeSocketPath(preferredPath: String) -> String {
         socketServer.activeSocketPath(preferredPath: preferredPath)
     }
-
-    nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
-        !currentSocketCommandFocusAllowanceStack().isEmpty
-    }
-
-    nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
-        allowsInAppFocusMutationsForActiveSocketCommand()
-    }
-
-    private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
-        currentSocketCommandFocusAllowanceStack().last ?? false
-    }
-
-    private func socketCommandAllowsInAppFocusMutations() -> Bool {
-        Self.allowsInAppFocusMutationsForActiveSocketCommand()
-    }
-
-    func v2FocusAllowed(requested: Bool = true) -> Bool {
-        requested && socketCommandAllowsInAppFocusMutations()
-    }
-
-    func v2MaybeFocusWindow(for tabManager: TabManager) {
-        guard socketCommandAllowsInAppFocusMutations(),
-              let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
-        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-        setActiveTabManager(tabManager)
-    }
-
-    func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
-        guard socketCommandAllowsInAppFocusMutations() else { return }
-        if tabManager.selectedTabId != workspace.id {
-            tabManager.selectWorkspace(workspace)
-        }
-    }
-
     private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
@@ -499,7 +464,7 @@ class TerminalController {
         return body()
     }
 
-    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
+    nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
         Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
     }
 

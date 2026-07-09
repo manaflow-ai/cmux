@@ -2820,7 +2820,7 @@ struct CMUXCLI {
         let key: String
     }
 
-    private static func normalizedEnvValue(_ value: String?) -> String? {
+    static func normalizedEnvValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
@@ -2968,12 +2968,12 @@ struct CMUXCLI {
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
-    private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
-    private static let rightSidebarNotesEnabledDefaultsKey = "rightSidebar.beta.notes.enabled"
-    private static let rightSidebarFeedEnabledDefaultsKey = "rightSidebar.beta.feed.enabled"
-    private static let rightSidebarDockEnabledDefaultsKey = "rightSidebar.beta.dock.enabled"
+    static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    static let rightSidebarNotesEnabledDefaultsKey = "rightSidebar.beta.notes.enabled"
+    static let rightSidebarFeedEnabledDefaultsKey = "rightSidebar.beta.feed.enabled"
+    static let rightSidebarDockEnabledDefaultsKey = "rightSidebar.beta.dock.enabled"
 
-    private static func containingAppBundleIdentifier() -> String? {
+    static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
 
@@ -2982,121 +2982,6 @@ struct CMUXCLI {
         ?? containingAppBundleIdentifier()
         ?? defaultBrowserSettingsDomain
     }
-
-    private static func appDefaultsCandidates(environment: [String: String] = ProcessInfo.processInfo.environment) -> [UserDefaults] {
-        var candidates: [UserDefaults] = []
-        if let bundleId = normalizedEnvValue(environment["CMUX_BUNDLE_ID"]),
-           let defaults = UserDefaults(suiteName: bundleId) {
-            candidates.append(defaults)
-        }
-        if let bundleId = containingAppBundleIdentifier(),
-           let defaults = UserDefaults(suiteName: bundleId) {
-            candidates.append(defaults)
-        }
-        // A CLI launched from PATH or automation has no CMUX_BUNDLE_ID and is
-        // not inside the .app bundle; without the release app's suite it would
-        // fall through to the CLI's own empty `.standard` domain and report
-        // app-enabled beta modes as unavailable (mirrors browserSettingsDomain).
-        if let defaults = UserDefaults(suiteName: defaultBrowserSettingsDomain) {
-            candidates.append(defaults)
-        }
-        candidates.append(.standard)
-        return candidates
-    }
-
-    private static func betaFeatureEnabled(
-        key: String,
-        defaultValue: Bool = false,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        for defaults in appDefaultsCandidates(environment: environment) {
-            if defaults.object(forKey: key) != nil {
-                return defaults.bool(forKey: key)
-            }
-        }
-        return defaultValue
-    }
-
-    static func availableRightSidebarModeTokens(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> [String] {
-        var tokens = ["files", "find", "vault", "sessions"]
-        if betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) {
-            tokens.append("notes")
-        }
-        if betaFeatureEnabled(key: rightSidebarFeedEnabledDefaultsKey, environment: environment) {
-            tokens.append("feed")
-        }
-        if betaFeatureEnabled(key: rightSidebarDockEnabledDefaultsKey, environment: environment) {
-            tokens.append("dock")
-        }
-        return tokens
-    }
-
-    private static func rightSidebarUsage(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
-        let modes = availableRightSidebarModeTokens(environment: environment).joined(separator: "|")
-        let template = String(localized: "cli.rightSidebar.usage.template", defaultValue: """
-            Usage: cmux right-sidebar <command> [flags]
-
-            Control the right sidebar from the CLI.
-
-            Commands:
-              toggle                         Toggle right sidebar visibility
-              show                           Show the right sidebar
-              hide                           Hide the right sidebar
-              focus                          Focus the current right sidebar mode
-              set <%@>
-                                             Show, switch mode, and focus
-              mode                           Print {"visible":bool,"mode":string}
-              %@
-                                             Alias for show + set + focus
-
-            Flags:
-              --workspace <id|ref|index>     Target the window containing a workspace
-              --window <id|ref|index>        Target a window
-              --no-focus                     With set, switch mode without moving focus
-
-            Examples:
-              cmux right-sidebar toggle
-              cmux right-sidebar set find
-              cmux right-sidebar set vault --no-focus
-              cmux right-sidebar mode
-        """)
-        return String(format: template, modes, modes)
-    }
-
-    private static func noteGlobalUsage(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
-        guard betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) else {
-            return ""
-        }
-        return String(localized: "cli.note.globalUsage", defaultValue: """
-          note new [--slug <name>] [--attach <none|workspace|surface|terminal>] [--title <text>] [--direction <dir>] [--focus <true|false>]
-          note open <slug> [--attach <none|workspace|surface|terminal>] [--direction <dir>] [--focus <true|false>]
-          note list [--json]                                                     (list notes in the project)
-          note here [--json]                                                     (print the note resolved for the calling surface)
-          note path <slug>                                                       (print absolute path for a note slug)
-          note read <slug>                                                       (print note content)
-          note write <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
-          note append <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
-          note rm <slug>                                                         (delete a note file)
-          """)
-    }
-
-    // Presentation flags are global, but command option values can also look like flags.
-    private static let commandOptionsWithValues: Set<String> = [
-        "--action", "--after-workspace", "--agent", "--amount", "--arch",
-        "--attr", "--before-workspace", "--body", "--color", "--command",
-        "--config", "--create", "--cwd", "--description", "--direction", "--domain",
-        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
-        "--function", "--id", "--image", "--index", "--key", "--kind",
-        "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
-        "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
-        "--provider", "--relay-port", "--script", "--selector", "--session",
-        "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
-        "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
-        "--turn", "--type", "--url", "--url-contains", "--value", "--window",
-        "--workspace", "--checkpoint", "--checkpoint-id",
-    ]
 
     private func parsePresentationOptions(
         _ commandArgs: [String]
@@ -5465,7 +5350,7 @@ struct CMUXCLI {
     /// Validates a `cmux markdown open --font-size <points>` value. The viewer
     /// clamps the rendered size to 8...96 points, so reject anything outside
     /// that range here instead of silently clamping the user's input.
-    private func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
+    func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let size = Double(trimmed), size >= 8, size <= 96 else {
             throw CLIError(message: "--font-size must be a number between 8 and 96")
@@ -5521,113 +5406,6 @@ struct CMUXCLI {
 
     // MARK: - Markdown Commands
 
-    private func runMarkdownCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        var args = commandArgs
-
-        // Parse routing flags
-        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
-        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
-        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
-        let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
-        let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
-        let (fontSizeOpt, argsAfterFontSize) = parseOption(argsAfterFocus, name: "--font-size")
-        args = argsAfterFontSize
-
-        let fontSize = try fontSizeOpt.map(parseMarkdownViewerFontSize)
-
-        // Determine subcommand. Explicit "open" is supported, otherwise treat
-        // a single positional argument as shorthand path.
-        let subArgs: [String]
-        if let first = args.first, first.lowercased() == "open" {
-            subArgs = Array(args.dropFirst())
-        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
-            subArgs = [first]
-        } else {
-            // Allow path-like first tokens (e.g. plan.md) with trailing args
-            // so we can surface specific trailing-arg/flag errors below.
-            if let first = args.first, first.hasPrefix("-") {
-                throw CLIError(
-                    message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
-                )
-            } else if let first = args.first, looksLikePath(first) || first.contains(".") {
-                subArgs = args
-            } else if let first = args.first {
-                throw CLIError(message: "Unknown markdown subcommand: \(first). Usage: cmux markdown open <path>")
-            } else {
-                subArgs = []
-            }
-        }
-
-        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
-            throw CLIError(message: "markdown open requires a file path. Usage: cmux markdown open <path>")
-        }
-        let trailingArgs = Array(subArgs.dropFirst())
-        if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
-            throw CLIError(
-                message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
-            )
-        }
-        if let extraArg = trailingArgs.first {
-            throw CLIError(
-                message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
-            )
-        }
-
-        let absolutePath = resolvePath(rawPath)
-
-        // Build params
-        let direction = directionOpt ?? "right"
-        var params: [String: Any] = ["path": absolutePath, "direction": direction]
-        if let fontSize {
-            params["font_size"] = fontSize
-        }
-        if let surfaceRaw = surfaceOpt {
-            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
-                params["surface_id"] = surface
-            }
-        }
-        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-        if let workspaceRaw {
-            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-                params["workspace_id"] = workspace
-            }
-        }
-        if let windowRaw = windowOpt {
-            if let window = try normalizeWindowHandle(windowRaw, client: client) {
-                params["window_id"] = window
-            }
-        }
-        try applyFocusOption(focusOpt, defaultValue: false, to: &params)
-
-        let payload = try client.sendV2(method: "markdown.open", params: params)
-
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
-            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
-            let filePath = (payload["path"] as? String) ?? absolutePath
-            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
-        }
-    }
-
-    // MARK: - Note Commands
-
-    /// Subcommand dispatcher for `cmux note <verb>`. Verbs:
-    ///   new   — create (if missing), optionally attach, and open a project note
-    ///   open  — open an existing slug (error if missing)
-    ///   list  — list all notes in the project
-    ///   path  — print the absolute path for a slug
-    ///   read  — print note content
-    ///   write — replace note content
     ///   append — append note content
     ///   rm    — delete the note file
     private func runNoteCommand(
@@ -6179,7 +5957,7 @@ struct CMUXCLI {
     }
 
     /// Returns true if the argument looks like a filesystem path rather than a CLI command.
-    private func looksLikePath(_ arg: String) -> Bool {
+    func looksLikePath(_ arg: String) -> Bool {
         if arg == "." || arg == ".." { return true }
         if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
         if arg.contains("/") { return true }
@@ -7945,498 +7723,12 @@ struct CMUXCLI {
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
-    private enum WorkspaceRenameCommandMode {
+    enum WorkspaceRenameCommandMode {
         case legacy
         case namespace
     }
 
-    private func runWorkspaceListCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?
-    ) throws {
-        var params: [String: Any] = [:]
-        try applyWindowOrCallerContext(
-            to: &params,
-            client: client,
-            windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
-        )
-        let payload = try client.sendV2(method: "workspace.list", params: params)
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
-            if workspaces.isEmpty {
-                print("No workspaces")
-            } else {
-                for ws in workspaces {
-                    let selected = (ws["selected"] as? Bool) == true
-                    let handle = textHandle(ws, idFormat: idFormat)
-                    let title = (ws["title"] as? String) ?? ""
-                    let remoteTag: String = {
-                        guard let remote = ws["remote"] as? [String: Any],
-                              (remote["enabled"] as? Bool) == true else {
-                            return ""
-                        }
-                        let transport = (remote["transport"] as? String) ?? "remote"
-                        let state = (remote["state"] as? String) ?? "unknown"
-                        return "  [\(transport):\(state)]"
-                    }()
-                    let prefix = selected ? "* " : "  "
-                    let selTag = selected ? "  [selected]" : ""
-                    let titlePart = title.isEmpty ? "" : "  \(title)"
-                    print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(selTag)")
-                }
-            }
-        }
-    }
 
-    private func runWorkspaceCreateCommand(
-        commandName: String,
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?,
-        honorJSONOutput: Bool
-    ) throws {
-        let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
-        let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-        let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-        let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
-        let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
-        let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
-        let (groupOpt, rem7) = parseOption(rem6, name: "--group")
-        let (groupPlacementOpt, rem8) = parseOption(rem7, name: "--group-placement")
-        let (groupReferenceOpt, rem9) = parseOption(rem8, name: "--group-reference")
-        let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem9)
-        if remaining.last == "--env" {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.create.error.envRequiresValue",
-                    defaultValue: "%@: --env requires KEY=VALUE"
-                ),
-                locale: .current,
-                commandName
-            ))
-        }
-        if remaining.last == "--env-file" {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.create.error.envFileRequiresValue",
-                    defaultValue: "%@: --env-file requires <path>"
-                ),
-                locale: .current,
-                commandName
-            ))
-        }
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.create.error.unknownFlag",
-                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --group <id|ref>, --group-placement <afterCurrent|top|end>, --group-reference <workspace>"
-                ),
-                locale: .current,
-                commandName,
-                unknown
-            ))
-        }
-        var params: [String: Any] = [:]
-        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
-        if let cwdOpt {
-            params["cwd"] = resolvePath(cwdOpt)
-        }
-        if let nameOpt { params["title"] = nameOpt }
-        if let descriptionOpt { params["description"] = descriptionOpt }
-        if let groupOpt { params["group_id"] = groupOpt }
-        if let groupPlacementOpt { params["group_placement"] = groupPlacementOpt }
-        if let groupReferenceOpt { params["group_reference_workspace_id"] = groupReferenceOpt }
-        let workspaceEnv = try buildWorkspaceEnvironment(envFiles: envFiles, envPairs: envPairs, commandName: commandName)
-        if !workspaceEnv.isEmpty {
-            params["workspace_env"] = workspaceEnv
-        }
-        if let layoutOpt {
-            guard let layoutData = layoutOpt.data(using: .utf8),
-                  let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) as? [String: Any] else {
-                throw CLIError(message: "\(commandName): --layout value must be a valid JSON object")
-            }
-            params["layout"] = layoutObj
-        }
-        try applyFocusOption(focusOpt, defaultValue: false, to: &params)
-        let response = try client.sendV2(method: "workspace.create", params: params)
-        let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        if jsonOutput && honorJSONOutput {
-            print(jsonString(formatIDs(response, mode: idFormat)))
-        } else {
-            print("OK \(wsId)")
-        }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
-            let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = [
-                "text": text,
-                "workspace_id": wsId
-            ]
-            _ = try client.sendV2(method: "surface.send_text", params: sendParams)
-        }
-    }
-
-    /// Parses repeatable `--env KEY=VALUE` / `--env=KEY=VALUE` and
-    /// `--env-file PATH` / `--env-file=PATH` flags out of `args`, returning the
-    /// ordered env-file paths, the ordered `KEY=VALUE` pairs, and the remaining
-    /// unparsed args. Files are applied before pairs by the builder so an explicit
-    /// `--env` overrides a value from a file.
-    func parseWorkspaceEnvOptions(
-        _ args: [String]
-    ) -> (envFiles: [String], envPairs: [String], remaining: [String]) {
-        var envFiles: [String] = []
-        var envPairs: [String] = []
-        var remaining: [String] = []
-        var skipNext = false
-        var pastTerminator = false
-        for (idx, arg) in args.enumerated() {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            if arg == "--" {
-                pastTerminator = true
-                remaining.append(arg)
-                continue
-            }
-            if !pastTerminator {
-                if arg == "--env", idx + 1 < args.count {
-                    envPairs.append(args[idx + 1])
-                    skipNext = true
-                    continue
-                }
-                if arg.hasPrefix("--env=") {
-                    envPairs.append(String(arg.dropFirst("--env=".count)))
-                    continue
-                }
-                if arg == "--env-file", idx + 1 < args.count {
-                    envFiles.append(args[idx + 1])
-                    skipNext = true
-                    continue
-                }
-                if arg.hasPrefix("--env-file=") {
-                    envFiles.append(String(arg.dropFirst("--env-file=".count)))
-                    continue
-                }
-            }
-            remaining.append(arg)
-        }
-        return (envFiles, envPairs, remaining)
-    }
-
-    /// Builds the workspace environment dict from `--env-file` paths (applied
-    /// first, in order) and `--env KEY=VALUE` pairs (applied after, so they
-    /// override files). Env files use `KEY=VALUE` lines; blank lines and lines
-    /// starting with `#` are ignored, an optional leading `export ` is stripped,
-    /// and matching surrounding quotes on a file value are removed. Command-line
-    /// `--env` values are taken verbatim (the shell already handled quoting).
-    func buildWorkspaceEnvironment(
-        envFiles: [String],
-        envPairs: [String],
-        commandName: String
-    ) throws -> [String: String] {
-        var env: [String: String] = [:]
-        for path in envFiles {
-            let resolved = resolvePath(path)
-            let contents: String
-            do {
-                contents = try String(contentsOfFile: resolved, encoding: .utf8)
-            } catch {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.workspace.envFile.error.readFailed",
-                        defaultValue: "%@: could not read --env-file '%@': %@"
-                    ),
-                    locale: .current,
-                    commandName,
-                    path,
-                    String(describing: error)
-                ))
-            }
-            for rawLine in contents.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }) {
-                var line = String(rawLine).trimmingCharacters(in: .whitespaces)
-                if line.isEmpty || line.hasPrefix("#") { continue }
-                if line.hasPrefix("export ") {
-                    line = String(line.dropFirst("export ".count)).trimmingCharacters(in: .whitespaces)
-                }
-                let (key, value) = try parseEnvAssignment(line, source: "--env-file '\(path)'", commandName: commandName)
-                env[key] = unquoteEnvValue(value)
-            }
-        }
-        for pair in envPairs {
-            let (key, value) = try parseEnvAssignment(pair, source: "--env", commandName: commandName)
-            env[key] = value
-        }
-        return env
-    }
-
-    /// Splits a `KEY=VALUE` assignment on the first `=`. The key is trimmed and
-    /// must be non-empty; the value is returned unmodified (callers decide whether
-    /// to unquote).
-    func parseEnvAssignment(
-        _ raw: String,
-        source: String,
-        commandName: String
-    ) throws -> (String, String) {
-        guard let eq = raw.firstIndex(of: "=") else {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.env.error.invalidAssignment",
-                    defaultValue: "%@: %@ entry '%@' must be in KEY=VALUE form"
-                ),
-                locale: .current,
-                commandName,
-                source,
-                raw
-            ))
-        }
-        let key = String(raw[..<eq]).trimmingCharacters(in: .whitespaces)
-        let value = String(raw[raw.index(after: eq)...])
-        guard !key.isEmpty else {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.env.error.emptyKey",
-                    defaultValue: "%@: %@ entry '%@' has an empty key"
-                ),
-                locale: .current,
-                commandName,
-                source,
-                raw
-            ))
-        }
-        return (key, value)
-    }
-
-    /// Removes a single matching pair of surrounding single or double quotes from
-    /// an env-file value.
-    func unquoteEnvValue(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        if trimmed.count >= 2,
-           (trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
-           (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")) {
-            return String(trimmed.dropFirst().dropLast())
-        }
-        return trimmed
-    }
-
-    /// Masks a secret env value for display. Short values are fully masked so a
-    /// brief secret isn't mostly revealed; longer ones keep a 2-character hint.
-    /// The mask is fixed-width so the value's length isn't leaked.
-    static func maskedEnvValue(_ value: String) -> String {
-        if value.isEmpty { return "" }
-        guard value.count > 6 else { return "••••" }
-        return "\(value.prefix(2))••••"
-    }
-
-    /// `cmux workspace env [<handle>] [--mask]` — print a workspace's configured
-    /// environment variables (issue #5995). Resolves the positional/`--workspace`
-    /// handle, falling back to the selected workspace. `--mask` redacts values so
-    /// secrets aren't echoed in full.
-    private func runWorkspaceEnvCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?
-    ) throws {
-        var rest = commandArgs
-        let mask = rest.contains("--mask")
-        rest.removeAll { $0 == "--mask" }
-
-        let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
-        let (_, rem1) = parseOption(rem0, name: "--window")
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.env.error.unknownFlag",
-                    defaultValue: "workspace env: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask"
-                ),
-                locale: .current,
-                unknown
-            ))
-        }
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
-        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
-        // Match reconnect/disconnect: default to the caller's workspace
-        // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
-        // --window is given (the caller's workspace may live in another window).
-        let target = workspaceArg
-            ?? positional
-            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-
-        var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
-        if let wsId { params["workspace_id"] = wsId }
-
-        let payload = try client.sendV2(method: "workspace.env", params: params)
-        let rawEnv = (payload["env"] as? [String: Any]) ?? [:]
-        let envStrings: [String: String] = rawEnv.reduce(into: [:]) { result, pair in
-            if let value = pair.value as? String { result[pair.key] = value }
-        }
-        let displayedEnv: [String: String] = mask
-            ? envStrings.reduce(into: [String: String]()) { result, pair in
-                result[pair.key] = Self.maskedEnvValue(pair.value)
-            }
-            : envStrings
-
-        if jsonOutput {
-            // Format only the envelope's id/ref metadata. The env map is arbitrary
-            // user data, so running it through formatIDs (which strips `id` when
-            // `ref` is present and `*_id` when a matching `*_ref` exists) could
-            // silently drop a user variable; reinsert it verbatim after formatting.
-            var envelope = payload
-            envelope.removeValue(forKey: "env")
-            var formatted = (formatIDs(envelope, mode: idFormat) as? [String: Any]) ?? envelope
-            formatted["env"] = displayedEnv
-            print(jsonString(formatted))
-        } else if envStrings.isEmpty {
-            print(String(localized: "cli.workspace.env.empty", defaultValue: "No environment variables"))
-        } else {
-            for key in envStrings.keys.sorted() {
-                print("\(key)=\(displayedEnv[key] ?? "")")
-            }
-        }
-    }
-
-    private func runWorkspaceCloseCommand(
-        commandName: String,
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?,
-        requireWorkspaceFlag: Bool
-    ) throws {
-        let target: String?
-        if requireWorkspaceFlag {
-            guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
-                throw CLIError(message: "\(commandName) requires --workspace")
-            }
-            target = workspaceRaw
-        } else {
-            let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
-        }
-
-        var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
-        if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
-        if let wsId { params["workspace_id"] = wsId }
-        let payload = try client.sendV2(method: "workspace.close", params: params)
-        if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
-            try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
-        }
-        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
-    }
-
-    private func runWorkspaceSelectCommand(
-        commandName: String,
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?,
-        requireWorkspaceFlag: Bool
-    ) throws {
-        let target: String?
-        if requireWorkspaceFlag {
-            guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
-                throw CLIError(message: "\(commandName) requires --workspace")
-            }
-            target = workspaceRaw
-        } else {
-            let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
-        }
-
-        var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
-        if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
-        if !requireWorkspaceFlag {
-            guard let wsId else {
-                throw CLIError(message: "\(commandName): could not resolve workspace handle")
-            }
-            params["workspace_id"] = wsId
-        } else if let wsId {
-            params["workspace_id"] = wsId
-        }
-        let payload = try client.sendV2(method: "workspace.select", params: params)
-        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
-    }
-
-    private func runWorkspaceRenameCommand(
-        commandName: String,
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?,
-        mode: WorkspaceRenameCommandMode
-    ) throws {
-        let winId: String?
-        let wsId: String
-        let title: String
-
-        switch mode {
-        case .legacy:
-            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-            let windowRaw = windowOpt ?? windowOverride
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let titleArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
-            title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty else {
-                throw CLIError(message: "\(commandName) requires a title")
-            }
-            winId = try normalizeWindowHandle(windowRaw, client: client)
-            wsId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: winId)
-
-        case .namespace:
-            let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
-            let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
-            let (_, rem2) = parseOption(rem1, name: "--window")
-            let positional = rem2.first(where: { !$0.hasPrefix("--") })
-            let target = workspaceArg ?? positional
-            guard let titleOpt else {
-                throw CLIError(message: "\(commandName) requires --title <new>")
-            }
-            title = titleOpt
-            winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
-            guard let normalizedWorkspaceId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) else {
-                throw CLIError(message: "\(commandName): could not resolve workspace handle")
-            }
-            wsId = normalizedWorkspaceId
-        }
-
-        var params: [String: Any] = ["title": title, "workspace_id": wsId]
-        if let winId { params["window_id"] = winId }
-        let payload = try client.sendV2(method: "workspace.rename", params: params)
-        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
-    }
-
-    /// Top-level `cmux workspace <subcommand>` namespace. Dispatches to the
-    /// same v2 socket methods that legacy verbs use (`new-workspace`,
-    /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
-    /// unchanged for backwards compatibility.
-    /// `cmux window default-display [<name>|--clear]` — read/write the shared,
-    /// cross-tag default display that DEBUG cmux builds open new windows on.
-    ///
-    /// Persisted through ``CmuxSettings/JSONConfigStore`` in the shared
-    /// `cmux.json` under `app.devWindowDisplay`, so it applies to every tagged
-    /// dev build regardless of bundle id. No running app required: the value is
     /// read/written directly on disk via the store on this no-socket early path.
     private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
         let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
@@ -17865,7 +17157,7 @@ struct CMUXCLI {
 
     /// Unescape CLI escape sequences to match legacy v1 send behavior.
     /// \n and \r → carriage return (Enter), \t → tab.
-    private func unescapeSendText(_ text: String) -> String {
+    func unescapeSendText(_ text: String) -> String {
         return text
             .replacingOccurrences(of: "\\n", with: "\r")
             .replacingOccurrences(of: "\\r", with: "\r")
@@ -17879,11 +17171,11 @@ struct CMUXCLI {
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
     }
 
-    private func windowFromArgsOrOverride(_ args: [String], windowOverride: String? = nil) -> String? {
+    func windowFromArgsOrOverride(_ args: [String], windowOverride: String? = nil) -> String? {
         optionValue(args, name: "--window") ?? windowOverride
     }
 
-    private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
+    func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
         if let windowHandle = try normalizeWindowHandle(windowRaw, client: client) {
             params["window_id"] = windowHandle
             return
@@ -18379,7 +17671,7 @@ struct CMUXCLI {
     }
 
     /// Pick the display handle for an item dict based on --id-format.
-    private func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
+    func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
         let ref = item["ref"] as? String
         let id = item["id"] as? String
         switch idFormat {
@@ -24026,7 +23318,7 @@ struct CMUXCLI {
         try data.write(to: url, options: .atomic)
     }
 
-    private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
+    func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
         var store = loadTmuxCompatStore()
         let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
         let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
