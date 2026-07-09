@@ -4411,7 +4411,9 @@ struct CMUXCLI {
         case "ssh-pty-attach":
             do {
                 try runSSHPTYAttach(commandArgs: commandArgs, client: client, explicitPassword: socketPasswordArg)
-            } catch let error as CLIError where error.exitCode == 253 && commandArgs.contains("--require-existing") {
+            } catch let error as CLIError
+                where error.exitCode == SSHPTYAttachExitCode.sessionNotFound &&
+                commandArgs.contains("--require-existing") {
                 let notice = String(
                     localized: "cli.sshPtyAttach.remoteSessionLostRespawn",
                     defaultValue: "[cmux] remote session was lost; starting a new shell."
@@ -12251,6 +12253,7 @@ struct CMUXCLI {
     }
 
     private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
+        // Retryable 254|255 is owned by SSHPTYAttachExitCode; keep in sync with SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
         [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
@@ -12367,7 +12370,15 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
+            let exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
+            if requireExisting && exitCode == SSHPTYAttachExitCode.sessionNotFound {
+                // Match the bridge-status path below: keep surface tracking intact before respawn.
+                sessionLostWillRespawn = true
+            }
+            throw CLIError(
+                message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))",
+                exitCode: exitCode
+            )
         }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
@@ -12403,7 +12414,9 @@ struct CMUXCLI {
             // tracking intact across the respawn: sending pty_attach_end here
             // would untrack the surface and mark it ended while the
             // replacement shell is about to run on it.
-            if requireExisting, let cliError = error as? CLIError, cliError.exitCode == 253 {
+            if requireExisting,
+               let cliError = error as? CLIError,
+               cliError.exitCode == SSHPTYAttachExitCode.sessionNotFound {
                 sessionLostWillRespawn = true
             }
             if let connectedFD {
@@ -12484,38 +12497,6 @@ struct CMUXCLI {
         }
     }
 
-    private func cleanupFailedSSHPTYAttach(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String,
-        clearLocalSurface: Bool
-    ) {
-        let normalizedAttachmentToken = attachmentToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedAttachmentToken.isEmpty {
-            var detachParams: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": normalizedAttachmentToken,
-            ]
-            if let surfaceID {
-                detachParams["surface_id"] = surfaceID
-                detachParams["allow_moved_surface"] = true
-            }
-            _ = try? client.sendV2(method: "workspace.remote.pty_detach", params: detachParams)
-        }
-        guard clearLocalSurface else { return }
-        guard let surfaceID else { return }
-        _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceID,
-            "session_id": sessionID,
-        ])
-    }
-
     private func sshPTYBridgeReadErrorIsEOF(_ errnoValue: Int32) -> Bool {
         switch errnoValue {
         case ECONNRESET, ECONNABORTED, ENOTCONN:
@@ -12546,7 +12527,7 @@ struct CMUXCLI {
         } catch {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: 255
+                exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
 
@@ -12554,7 +12535,7 @@ struct CMUXCLI {
         if !errors.isEmpty {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
-                exitCode: 255
+                exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
 
@@ -12565,7 +12546,7 @@ struct CMUXCLI {
         if sessionStillRunning {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
-                exitCode: 254
+                exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning
             )
         }
 
@@ -12582,109 +12563,9 @@ struct CMUXCLI {
         } catch {
             throw CLIError(
                 message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: 255
+                exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
-    }
-
-    private func sshPTYBridgeParams(
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) -> [String: Any] {
-        var params: [String: Any] = [
-            "workspace_id": workspaceId,
-            "session_id": sessionID,
-            "attachment_id": attachmentID,
-            "command": command ?? "",
-            "require_existing": requireExisting,
-        ]
-        if let surfaceID {
-            params["surface_id"] = surfaceID
-            params["allow_moved_surface"] = true
-        }
-        return params
-    }
-
-    private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
-        let maxStatusBytes = 4096
-        var line = Data()
-        var byte = [UInt8](repeating: 0, count: 1)
-        while line.count < maxStatusBytes {
-            let count = Darwin.read(fd, &byte, 1)
-            if count > 0 {
-                if byte[0] == 0x0A {
-                    if let carriageIndex = line.lastIndex(of: 0x0D),
-                       carriageIndex == line.index(before: line.endIndex) {
-                        line.remove(at: carriageIndex)
-                    }
-                    guard let payload = try? JSONSerialization.jsonObject(with: line, options: []) as? [String: Any],
-                          let type = payload["type"] as? String else {
-                        throw CLIError(message: "ssh-pty-attach: invalid bridge status")
-                    }
-                    switch type {
-                    case "ready":
-                        return ((payload["attachment_token"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
-                    case "error":
-                        let message = ((payload["message"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? "remote PTY attach failed"
-                        let code = (payload["code"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        throw CLIError(
-                            message: "ssh-pty-attach: \(message)",
-                            exitCode: code == "pty_session_not_found" ? 253 : 1
-                        )
-                    default:
-                        throw CLIError(message: "ssh-pty-attach: invalid bridge status")
-                    }
-                }
-                line.append(byte[0])
-            } else if count == 0 {
-                throw CLIError(message: "ssh-pty-attach: bridge closed before ready")
-            } else if errno != EINTR {
-                throw CLIError(message: "ssh-pty-attach: bridge read failed")
-            }
-        }
-        throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
-    }
-
-    private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
-        guard host == "127.0.0.1" || host == "localhost" else {
-            throw CLIError(message: "ssh-pty-attach: bridge host must be loopback")
-        }
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw CLIError(message: "ssh-pty-attach: failed to create bridge socket")
-        }
-        do {
-            try configureCLISocketNoSIGPIPE(
-                fileDescriptor: fd,
-                failureMessage: "ssh-pty-attach: failed to disable SIGPIPE on bridge socket"
-            )
-        } catch {
-            Darwin.close(fd)
-            throw error
-        }
-        var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(UInt16(port).bigEndian)
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let result = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard result == 0 else {
-            Darwin.close(fd)
-            throw CLIError(message: "ssh-pty-attach: failed to connect to bridge")
-        }
-        return fd
     }
 
     private func cliStrictInt(_ value: Any?) -> Int? {
@@ -12710,7 +12591,10 @@ struct CMUXCLI {
                 } else if written < 0 && errno == EINTR {
                     continue
                 } else {
-                    throw CLIError(message: "ssh-pty-attach: bridge write failed")
+                    throw CLIError(
+                        message: "ssh-pty-attach: bridge write failed",
+                        exitCode: SSHPTYAttachExitCode.retryableTransient
+                    )
                 }
             }
         }

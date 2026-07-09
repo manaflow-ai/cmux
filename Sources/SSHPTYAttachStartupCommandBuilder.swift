@@ -54,6 +54,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func retryingAttachLines(command: String) -> [String] {
+        // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
         [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",

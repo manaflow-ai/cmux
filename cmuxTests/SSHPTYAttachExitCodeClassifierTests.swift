@@ -1,0 +1,63 @@
+import Testing
+
+@Suite struct SSHPTYAttachExitCodeClassifierTests {
+    @Test(arguments: [
+        "Command timed out",
+        "request timeout",
+        "remote daemon did not respond in time",
+        "remote connection is not active",
+        "remote daemon is not ready",
+        "remote daemon tunnel is not ready",
+        "pty_input_queue_full",
+        "pty input queue is full",
+        "connection refused",
+        "connection reset by peer",
+    ])
+    func transientDescriptionsExitRetryable(_ description: String) {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(description) ==
+                SSHPTYAttachExitCode.retryableTransient
+        )
+    }
+
+    @Test(arguments: [
+        "pty_session_not_found",
+        "persistent SSH PTY session abc is not running",
+    ])
+    func sessionNotFoundDescriptionsExitForRespawn(_ description: String) {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(description) ==
+                SSHPTYAttachExitCode.sessionNotFound
+        )
+    }
+
+    @Test(arguments: [
+        "missing required capability: pty.session",
+        "method_not_found",
+        "ssh-pty-attach: unknown flag",
+        "invalid bridge status",
+        "arbitrary text",
+    ])
+    func fatalDescriptionsStayFatal(_ description: String) {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(description) ==
+                SSHPTYAttachExitCode.fatal
+        )
+    }
+
+    @Test func classifierIsCaseInsensitive() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure("REMOTE CONNECTION IS NOT ACTIVE") ==
+                SSHPTYAttachExitCode.retryableTransient
+        )
+    }
+
+    @Test func bridgeStatusSessionNotFoundCodeExitsForRespawn() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "pty_session_not_found",
+                message: "remote PTY attach failed"
+            ) == SSHPTYAttachExitCode.sessionNotFound
+        )
+    }
+}
