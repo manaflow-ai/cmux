@@ -179,8 +179,8 @@ describe("iOS analytics route", () => {
     expect(calls).toEqual([
       "deletion-lock:stack-user-1",
       "record-identities",
-      "deletion-unlock",
       "forward-posthog",
+      "deletion-unlock",
     ]);
   });
 

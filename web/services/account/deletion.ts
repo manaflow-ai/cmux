@@ -1014,6 +1014,7 @@ async function cancelStripeAccountBilling(
         anonymizedUserId,
         isOwnedBillingTeamId(scope, subscription.stackTeamId),
         null,
+        subscription,
       );
       continue;
     }
@@ -1029,6 +1030,7 @@ async function cancelStripeAccountBilling(
       anonymizedUserId,
       isOwnedBillingTeamId(scope, subscription.stackTeamId),
       retainedOwnerId,
+      subscription,
     );
   }
 }
@@ -1061,6 +1063,7 @@ async function cancelStripeSubscriptionForAccountDeletion(
   anonymizedUserId: string,
   clearStackTeamId: boolean,
   retainedOwnerId: string | null,
+  routing: AccountDeletionSubscriptionRouting,
 ): Promise<void> {
   const subscription = await retrieveStripeSubscriptionForAccountDeletion(stripeClient, subscriptionId);
   if (!subscription) return;
@@ -1071,6 +1074,7 @@ async function cancelStripeSubscriptionForAccountDeletion(
     anonymizedUserId,
     clearStackTeamId,
     retainedOwnerId,
+    routing,
   );
 
   if (subscription.status === "canceled") return;
@@ -1089,13 +1093,15 @@ async function updateStripeSubscriptionForAccountDeletion(
   anonymizedUserId: string,
   clearStackTeamId: boolean,
   retainedOwnerId: string | null,
+  routing: AccountDeletionSubscriptionRouting,
 ): Promise<void> {
   try {
     await stripeClient.subscriptions.update(subscriptionId, {
-      metadata: accountDeletionStripeMetadata({
+      metadata: accountDeletionSubscriptionMetadata({
         anonymizedUserId,
         clearStackTeamId,
         retainedOwnerId,
+        routing,
       }),
     });
   } catch (error) {
@@ -1135,6 +1141,32 @@ function accountDeletionStripeMetadata(input: {
     ...(input.clearStackTeamId ? { stackTeamId: "" } : {}),
     deletedAccountId: input.anonymizedUserId,
   };
+}
+
+type AccountDeletionSubscriptionRouting = {
+  readonly plan: string | null;
+  readonly scope: string;
+  readonly stackTeamId: string | null;
+};
+
+function accountDeletionSubscriptionMetadata(input: {
+  readonly anonymizedUserId: string;
+  readonly clearStackTeamId: boolean;
+  readonly retainedOwnerId: string | null;
+  readonly routing: AccountDeletionSubscriptionRouting;
+}): Record<string, string> {
+  const metadata = accountDeletionStripeMetadata(input);
+  if (
+    input.retainedOwnerId &&
+    input.routing.scope === "team" &&
+    input.routing.plan === TEAM_PLAN_ID &&
+    input.routing.stackTeamId
+  ) {
+    metadata.app = "cmux";
+    metadata.plan = TEAM_PLAN_ID;
+    metadata.stackTeamId = input.routing.stackTeamId;
+  }
+  return metadata;
 }
 
 function deletedAccountEmail(anonymizedUserId: string): string {

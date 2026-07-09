@@ -633,7 +633,9 @@ describe("account deletion cleanup", () => {
 
     const sharedSubscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_shared");
     expect(sharedSubscriptionUpdate?.params.metadata?.stackUserId).toBe("user-2");
-    expect(sharedSubscriptionUpdate?.params.metadata?.stackTeamId).toBeUndefined();
+    expect(sharedSubscriptionUpdate?.params.metadata?.stackTeamId).toBe("team-shared");
+    expect(sharedSubscriptionUpdate?.params.metadata?.app).toBe("cmux");
+    expect(sharedSubscriptionUpdate?.params.metadata?.plan).toBe(TEAM_PLAN_ID);
     expect(sharedSubscriptionUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
     expect(stripeSubscriptionCancels).not.toContain("sub_shared");
 

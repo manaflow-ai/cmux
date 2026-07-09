@@ -124,11 +124,12 @@ export async function postAnalyticsEvents(
   }
 
   if (user) {
-    let eventsForForwarding: readonly IncomingEvent[];
+    let forwarded: Awaited<ReturnType<typeof forwardToPostHog>>;
     try {
-      eventsForForwarding = await dependencies.runAuthenticatedAnalytics(user.id, async (tx) =>
-        prepareAuthenticatedEvents(accepted, user.id, dependencies, tx)
-      );
+      forwarded = await dependencies.runAuthenticatedAnalytics(user.id, async (tx) => {
+        const eventsForForwarding = await prepareAuthenticatedEvents(accepted, user.id, dependencies, tx);
+        return await dependencies.forwardToPostHog(eventsForForwarding, user.id);
+      });
     } catch (error) {
       if (error instanceof AnalyticsAccountDeletionBlockedError) {
         return jsonResponse({ ok: true, forwarded: 0 });
@@ -138,7 +139,6 @@ export async function postAnalyticsEvents(
       }
       throw error;
     }
-    const forwarded = await dependencies.forwardToPostHog(eventsForForwarding, user.id);
     if (!forwarded.ok) {
       return jsonResponse({ error: "forward_failed" }, forwarded.status);
     }
