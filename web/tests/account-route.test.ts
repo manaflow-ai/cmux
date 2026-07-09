@@ -840,6 +840,27 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("anonymizes retained shared-team VM rows without blocking deletion", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000766",
+      billingTeamId: "team-shared",
+      providerVmId: "provider-vm-shared",
+      status: "running",
+    }]];
+    stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(listUserVms).not.toHaveBeenCalledWith("account-user-1", "team-shared");
+    expect(deletedTables).not.toContain(cloudVms);
+    expect(updatedRows.map(({ table, values }) => ({
+      table,
+      values: stripUpdatedAt(values),
+    }))).toContainEqual({ table: cloudVms, values: { userId: "deleted-account" } });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("anonymizes shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 

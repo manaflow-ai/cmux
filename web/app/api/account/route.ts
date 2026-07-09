@@ -551,13 +551,20 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     const userVmRows = await tx
       .select({
         id: cloudVms.id,
+        billingTeamId: cloudVms.billingTeamId,
         providerVmId: cloudVms.providerVmId,
         status: cloudVms.status,
       })
       .from(cloudVms)
       .where(eq(cloudVms.userId, userId))
       .for("update");
-    const unsafePersonalVmRows = userVmRows.filter((vm) => {
+    const personalVmRows = userVmRows.filter((vm) =>
+      !vm.billingTeamId || deletionTeamIds.includes(vm.billingTeamId)
+    );
+    const sharedTeamVmRows = userVmRows.filter((vm) =>
+      vm.billingTeamId && !deletionTeamIds.includes(vm.billingTeamId)
+    );
+    const unsafePersonalVmRows = personalVmRows.filter((vm) => {
       if (vm.status === "destroyed") return false;
       if (vm.status === "failed" && !vm.providerVmId) return false;
       return true;
@@ -609,8 +616,14 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     await tx.delete(cloudVmUsageEvents).where(eq(cloudVmUsageEvents.userId, userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, userId));
-    if (userVmRows.length > 0) {
-      await tx.delete(cloudVms).where(inArray(cloudVms.id, userVmRows.map((vm) => vm.id)));
+    if (personalVmRows.length > 0) {
+      await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
+    }
+    if (sharedTeamVmRows.length > 0) {
+      await tx
+        .update(cloudVms)
+        .set({ userId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
+        .where(inArray(cloudVms.id, sharedTeamVmRows.map((vm) => vm.id)));
     }
     await tx.delete(cloudVmBaseEvents).where(eq(cloudVmBaseEvents.userId, userId));
     await tx.delete(cloudVmBases).where(and(
