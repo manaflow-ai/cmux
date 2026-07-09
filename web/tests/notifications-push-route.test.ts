@@ -180,11 +180,11 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  test("holds the account deletion lock while sending APNs and rechecks before pruning", async () => {
+  test("rechecks account deletion before sending APNs and before pruning", async () => {
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     cloudDbImpl = () => fakePushDb();
     sendApnsNotificationImpl = async () => {
-      expect(pushDbTransactionOpen).toBe(true);
+      expect(pushDbTransactionOpen).toBe(false);
       pushDbCalls.push("send-apns");
       return [{
         deviceToken: "token-1",
@@ -219,8 +219,8 @@ describe("notifications push route", () => {
       "delete:notificationSendEvents",
       "select:notificationSendEvents",
       "insert:notificationSendEvents",
-      "send-apns",
       "transaction:end",
+      "send-apns",
       "transaction:start",
       "lock",
       "select:accountDeletionTombstones",

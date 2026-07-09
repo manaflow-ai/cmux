@@ -35,7 +35,6 @@ import type { ProviderId } from "../vms/drivers";
 import { deleteVmSnapshot, destroyAccountOwnedVm, revokeVmIdentityLease, runVmWorkflow } from "../vms/workflows";
 import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
-import { withVaultUserQuotaLock } from "../vault/usage";
 import {
   createSubrouterClientFromEnv,
   SubrouterClientError,
@@ -536,16 +535,7 @@ export async function deleteCmuxAccountData(
   await destroyProviderBackedAccountVms(scope, runtime);
   await deleteAccountVmSnapshots(scope, runtime);
   await deletePersonalSubrouterTenants(scope, runtime);
-  const vaultObjectsDeleted = await withVaultUserQuotaLock(
-    runtime.cloudDb(),
-    input.userId,
-    async (lockedDb) =>
-      await deleteAccountVaultObjectBatch(input.userId, {
-        ...runtime,
-        cloudDb: () => lockedDb,
-      }),
-    { allowAccountDeletion: true },
-  );
+  const vaultObjectsDeleted = await deleteAccountVaultObjectBatch(input.userId, runtime);
   if (!vaultObjectsDeleted) {
     throw new Error("Account deletion vault cleanup has more objects to delete");
   }
@@ -1062,7 +1052,9 @@ async function deleteVaultSnapshotObjectBatch(
   if (rows.length === 0) return 0;
 
   await deleteVaultObjectKeys(rows.map((row) => row.objectKey), runtime);
-  await db.delete(vaultSnapshots).where(inArray(vaultSnapshots.id, rows.map((row) => row.id)));
+  await db.transaction(async (tx) => {
+    await tx.delete(vaultSnapshots).where(inArray(vaultSnapshots.id, rows.map((row) => row.id)));
+  });
   return rows.length;
 }
 
@@ -1083,7 +1075,9 @@ async function deleteVaultUploadGrantObjectBatch(
   if (rows.length === 0) return 0;
 
   await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
-  await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, rows.map((row) => row.id)));
+  await db.transaction(async (tx) => {
+    await tx.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, rows.map((row) => row.id)));
+  });
   return rows.length;
 }
 
@@ -1104,7 +1098,9 @@ async function deleteVaultUploadTombstoneObjectBatch(
   if (rows.length === 0) return 0;
 
   await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
-  await db.delete(vaultUploadTombstones).where(inArray(vaultUploadTombstones.id, rows.map((row) => row.id)));
+  await db.transaction(async (tx) => {
+    await tx.delete(vaultUploadTombstones).where(inArray(vaultUploadTombstones.id, rows.map((row) => row.id)));
+  });
   return rows.length;
 }
 
