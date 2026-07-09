@@ -42,6 +42,15 @@ public struct LanguageSettingsStore: Sendable {
     /// Writes an explicit cmux-owned `AppleLanguages` override, or removes it
     /// for ``AppLanguage/system`` only when the current value still matches
     /// cmux's last recorded write.
+    ///
+    /// A no-companion `AppleLanguages` value is never removed, even though a
+    /// pre-companion cmux build could have left one behind when its last
+    /// session switched to System: those bytes are indistinguishable from a
+    /// user's manual `defaults write` or the macOS per-app Language & Region
+    /// setting, and deleting them is the exact data loss of
+    /// https://github.com/manaflow-ai/cmux/issues/7686. The legacy leftover
+    /// self-heals when the user picks any explicit language (or toggles
+    /// through one back to System), which stamps the companion.
     public func applyLanguageOverride(_ language: AppLanguage) {
         if language == .system {
             if let appliedOverride = defaults.string(forKey: appliedOverrideKey), currentAppleLanguages == [appliedOverride] {
