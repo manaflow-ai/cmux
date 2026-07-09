@@ -130,4 +130,18 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(workspace.customTitle == "dev")
         #expect(window.title == "dev")
     }
+
+    @Test func tmuxWindowNameRemainsAuthoritativeOverTerminalTitle() throws {
+        let (_, workspace, _) = makeMirror(sessionName: "work", title: "work")
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
+        let changed = workspace.updatePanelTitle(
+            panelId: panelId,
+            title: "/Users/austinwang"
+        )
+
+        #expect(!changed)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+    }
 }

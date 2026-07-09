@@ -211,4 +211,76 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(manager.shouldRefreshTitleChrome(for: directSelected))
         #expect(manager.shouldRefreshTitleChrome(for: surfaceSelected))
     }
+
+    @Test func programmaticMirrorReorderUpdatesTheTmuxWindowOrderLedger() throws {
+        let host = RemoteTmuxHost(destination: "reorder-\(UUID().uuidString)@host")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-programmatic-reorder-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 1,
+            lines: [
+                "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
+                "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
+            ],
+            isError: false
+        ))
+        for kind in connection.pendingCommandKindsForTesting {
+            guard case let .paneRects(windowId, _) = kind else { continue }
+            let paneId = windowId == 1 ? 0 : 5
+            let size = windowId == 1 ? "80 24" : "90 30"
+            connection.handleMessageForTesting(.commandResult(
+                commandNumber: 2,
+                lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
+                isError: false
+            ))
+        }
+
+        let controller = RemoteTmuxController()
+        controller.cacheConnection(connection)
+        let manager = TabManager()
+        try controller.mirrorSession(host: host, sessionName: "work", into: manager)
+        let workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelIds = workspace.bonsplitController.tabs(inPane: paneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+        #expect(panelIds.count == 2)
+        let secondPanelId = try #require(panelIds.last)
+
+        #expect(workspace.reorderSurface(panelId: secondPanelId, toIndex: 0, focus: false))
+        #expect(connection.windowOrder == [2, 1])
+    }
+
+    @Test func mirrorReorderWithoutASyncOwnerLeavesLocalOrderUnchanged() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let secondPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 2,
+            title: "two",
+            onInput: { _ in }
+        ))
+        workspace.isRemoteTmuxMirror = true
+        let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+
+        let reordered = workspace.reorderSurface(
+            panelId: secondPanel.id,
+            toIndex: 0,
+            focus: false
+        )
+
+        #expect(!reordered)
+        #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
+    }
 }
