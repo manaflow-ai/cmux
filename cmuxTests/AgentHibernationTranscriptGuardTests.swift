@@ -274,7 +274,7 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
-    func snapshotBeforeTeardownCopiesOnlyPopulatedTranscriptAndOverwrites() throws {
+    func snapshotBeforeTeardownCopiesOnlyPopulatedTranscriptAndKeepsSameSessionSnapshotsDistinct() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -293,7 +293,8 @@ struct AgentHibernationTranscriptGuardTests {
                 snapshotDirectory: snapshots
         )))
         #expect(first.transcriptPath == live.path)
-        #expect(first.snapshotPath == snapshots.appendingPathComponent("\(sessionId).jsonl").path)
+        let firstName = URL(fileURLWithPath: first.snapshotPath).lastPathComponent
+        #expect(firstName.hasPrefix("\(sessionId)-") && firstName.hasSuffix(".jsonl"))
         #expect(try String(contentsOfFile: first.snapshotPath, encoding: .utf8) == firstContent)
 
         let peerSessionId = "session-snapshot-peer"
@@ -315,8 +316,10 @@ struct AgentHibernationTranscriptGuardTests {
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
         )))
-        #expect(second.snapshotPath == first.snapshotPath)
+        #expect(second.snapshotPath != first.snapshotPath)
         #expect(try String(contentsOfFile: second.snapshotPath, encoding: .utf8) == secondContent)
+        try FileManager.default.removeItem(atPath: first.snapshotPath)
+        #expect(FileManager.default.fileExists(atPath: second.snapshotPath))
 
         let stubSession = "session-stub"
         let stubLive = transcriptURL(home: home, cwd: "/tmp/repo", sessionId: stubSession)

@@ -201,6 +201,7 @@ final class AgentHibernationController {
         guard enabled else {
             timer?.cancel()
             timer = nil
+            cancelPostTeardownRestoreTasks()
             clearTrackingState()
             return
         }
@@ -229,6 +230,7 @@ final class AgentHibernationController {
     ) {
         guard settings.enabled else {
             AgentHibernationTrackingGate.setEnabled(false)
+            cancelPostTeardownRestoreTasks()
             clearTrackingState()
             return
         }

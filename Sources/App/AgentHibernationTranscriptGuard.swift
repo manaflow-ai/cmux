@@ -173,10 +173,7 @@ enum AgentHibernationTranscriptGuard {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             pruneOldSnapshots(in: directory, fileManager: fileManager)
             guard isSafeSessionIdPathComponent(agent.sessionId) else { return .unableToProtect }
-            let snapshotURL = directory.appendingPathComponent("\(agent.sessionId).jsonl", isDirectory: false)
-            if fileManager.fileExists(atPath: snapshotURL.path) {
-                try fileManager.removeItem(at: snapshotURL)
-            }
+            let snapshotURL = directory.appendingPathComponent("\(agent.sessionId)-\(UUID().uuidString).jsonl", isDirectory: false)
             try fileManager.copyItem(atPath: transcriptPath, toPath: snapshotURL.path)
             try fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
             return .snapshot(
