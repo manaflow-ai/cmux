@@ -56,6 +56,23 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+
       - name: Verify asc CLI
         run: |
           set -euo pipefail
