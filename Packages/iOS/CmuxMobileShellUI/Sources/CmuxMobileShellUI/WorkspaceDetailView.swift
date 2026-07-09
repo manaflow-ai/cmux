@@ -67,6 +67,9 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    @State private var terminalArtifactFilesContext: TerminalArtifactContext?
+    @State private var selectedTerminalArtifact: TerminalArtifactSelection?
+    @State private var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
@@ -222,7 +225,21 @@ struct WorkspaceDetailView: View {
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
+                    themeGeneration: store.terminalThemeGeneration,
+                    artifactFilesEnabled: store.supportsTerminalArtifacts,
+                    onArtifactFilesRequested: {
+                        terminalArtifactFilesContext = TerminalArtifactContext(
+                            workspaceID: workspace.id.rawValue,
+                            surfaceID: terminalID
+                        )
+                    },
+                    onArtifactPathTapped: { path in
+                        selectedTerminalArtifact = TerminalArtifactSelection(
+                            workspaceID: workspace.id.rawValue,
+                            surfaceID: terminalID,
+                            path: path
+                        )
+                    }
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -300,6 +317,27 @@ struct WorkspaceDetailView: View {
             TerminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
+        .sheet(item: $terminalArtifactFilesContext) { context in
+            TerminalArtifactFilesSheet(
+                workspaceID: context.workspaceID,
+                surfaceID: context.surfaceID,
+                source: store.makeChatEventSource(),
+                loader: terminalArtifactLoader(
+                    workspaceID: context.workspaceID,
+                    surfaceID: context.surfaceID
+                )
+            )
+        }
+        .sheet(item: $selectedTerminalArtifact) { selection in
+            ChatArtifactViewerSheet(path: selection.path)
+                .environment(
+                    \.chatArtifactLoader,
+                    terminalArtifactLoader(
+                        workspaceID: selection.workspaceID,
+                        surfaceID: selection.surfaceID
+                    )
+                )
+        }
         #else
         .background(TerminalPalette.background)
         #endif
@@ -313,6 +351,43 @@ struct WorkspaceDetailView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    private func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
+        guard let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            terminalWorkspaceID: workspaceID,
+            terminalSurfaceID: surfaceID,
+            supportsArtifacts: store.supportsTerminalArtifacts,
+            cache: terminalArtifactThumbnailCache,
+            stat: { path in
+                try await source.terminalArtifactStat(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
+            },
+            fetch: { path, progress in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    progress: progress
+                )
+            },
+            thumbnail: { path, maxDimension in
+                try await source.terminalArtifactThumbnail(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    maxDimension: maxDimension
+                )
+            }
+        )
+    }
+    #endif
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {

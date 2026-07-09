@@ -173,6 +173,11 @@ public final class TerminalAccessoryConfiguration {
                 TerminalInputAccessoryAction.alternate.itemID,
                 TerminalInputAccessoryAction.control.itemID,
             ]),
+            (TerminalInputAccessoryAction.files.itemID, [
+                TerminalInputAccessoryAction.zoomOut.itemID,
+                TerminalInputAccessoryAction.zoomIn.itemID,
+                TerminalInputAccessoryAction.paste.itemID,
+            ]),
         ]
         for fold in folds {
             if let widened = migration.foldingNewlyConfigurable(

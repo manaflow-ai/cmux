@@ -299,6 +299,85 @@ public actor MobileChatEventSource: ChatEventSource {
         )
     }
 
+    public func terminalArtifactScan(
+        workspaceID: String,
+        surfaceID: String
+    ) async throws -> TerminalArtifactScanResponse {
+        try await artifactCall(
+            method: "mobile.terminal.artifact.scan",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]
+        )
+    }
+
+    public func terminalArtifactStat(
+        workspaceID: String,
+        surfaceID: String,
+        path: String
+    ) async throws -> ChatArtifactStat {
+        try await artifactCall(
+            method: "mobile.terminal.artifact.stat",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
+            ]
+        )
+    }
+
+    public func terminalArtifactFetch(
+        workspaceID: String,
+        surfaceID: String,
+        path: String,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
+    ) async throws -> Data {
+        var offset: Int64 = 0
+        var result = Data()
+        while true {
+            let chunk: ChatArtifactChunk = try await artifactCall(
+                method: "mobile.terminal.artifact.fetch",
+                params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                    "path": path,
+                    "offset": offset,
+                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
+                ]
+            )
+            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
+                result.reserveCapacity(Int(chunk.totalSize))
+            }
+            result.append(chunk.data)
+            offset = chunk.offset + Int64(chunk.data.count)
+            progress?(offset, chunk.totalSize)
+            if chunk.eof {
+                return result
+            }
+            guard !chunk.data.isEmpty else {
+                throw ChatArtifactError.macUnreachable
+            }
+        }
+    }
+
+    public func terminalArtifactThumbnail(
+        workspaceID: String,
+        surfaceID: String,
+        path: String,
+        maxDimension: Int
+    ) async throws -> ChatArtifactThumbnail {
+        try await artifactCall(
+            method: "mobile.terminal.artifact.thumbnail",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
+                "max_dimension": maxDimension,
+            ]
+        )
+    }
+
     private func artifactCall<T: Decodable>(
         method: String,
         params: [String: Any]

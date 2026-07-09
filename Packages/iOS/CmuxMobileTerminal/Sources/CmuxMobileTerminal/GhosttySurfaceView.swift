@@ -66,6 +66,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private let zoomPreference = MobileTerminalZoomPreference()
     private var bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
+    public var artifactFilesEnabled: Bool {
+        get { inputProxy.artifactFilesEnabled }
+        set { inputProxy.artifactFilesEnabled = newValue }
+    }
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
     private var displayLink: CADisplayLink?
@@ -530,6 +534,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.onOpenToolbarSettings = { [weak self] in
             guard let self else { return }
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
+        }
+        inputProxy.onOpenArtifactFiles = { [weak self] in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceViewDidRequestArtifactFiles(self)
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
@@ -3767,6 +3775,53 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return sections.joined(separator: "\n\n")
     }
 
+    /// Visible viewport text for this exact surface, used by non-blocking
+    /// terminal artifact tap hit-testing on iOS.
+    @MainActor
+    public func visibleTextForArtifactHitTesting() async -> String? {
+        guard let surface,
+              !renderPipelineRecoveryPaused else {
+            return nil
+        }
+        let generation = surfaceGeneration
+        return await visibleTextSnapshot(surface: surface, generation: generation)
+    }
+
+    private func visibleTextSnapshot(surface: ghostty_surface_t, generation: UInt64) async -> String? {
+        guard self.surface == surface,
+              surfaceGeneration == generation,
+              !renderPipelineRecoveryPaused else {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            let operationID = makeSurfaceOperationID()
+            if let existing = pendingVisibleSnapshot {
+                pendingVisibleSnapshot = nil
+                existing.continuation.resume(returning: nil)
+            }
+            pendingVisibleSnapshot = PendingVisibleSnapshot(
+                id: operationID,
+                startedAt: CACurrentMediaTime(),
+                continuation: continuation
+            )
+            ensureSurfaceOperationDeadlinePump()
+            let queue = outputQueue
+            let read = VisibleTextRead(surface: surface, generation: generation)
+            queue.async {
+                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                Task { @MainActor [weak self] in
+                    guard let view = self else { return }
+                    guard view.surface == read.surface,
+                          view.surfaceGeneration == read.generation else {
+                        view.completePendingVisibleSnapshot(id: operationID, returning: nil)
+                        return
+                    }
+                    view.completePendingVisibleSnapshot(id: operationID, returning: text)
+                }
+            }
+        }
+    }
+
     private func visibleSnapshotSection(
         surface: ghostty_surface_t,
         generation: UInt64,
@@ -3921,6 +3976,12 @@ nonisolated private struct VisibleSnapshotRead: @unchecked Sendable {
     let generation: UInt64
     let grid: String
     let font: Int
+}
+
+/// Raw visible-text read payload captured by the off-main output queue.
+nonisolated private struct VisibleTextRead: @unchecked Sendable {
+    let surface: ghostty_surface_t
+    let generation: UInt64
 }
 
 /// Raw full-text read payload captured by the off-main output queue.

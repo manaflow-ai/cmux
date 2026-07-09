@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -42,9 +43,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// advances, it rebuilds the runtime config and refreshes the mounted
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
+    var artifactFilesEnabled: Bool = false
+    var onArtifactFilesRequested: @MainActor () -> Void = {}
+    var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceID: surfaceID, store: store)
+        Coordinator(
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: artifactFilesEnabled,
+            onArtifactFilesRequested: onArtifactFilesRequested,
+            onArtifactPathTapped: onArtifactPathTapped
+        )
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -68,6 +78,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.artifactFilesEnabled = artifactFilesEnabled
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -107,6 +118,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        context.coordinator.artifactFilesEnabled = artifactFilesEnabled
+        context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
+        context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: the shell bumped the generation after writing the new
@@ -133,6 +148,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        var artifactFilesEnabled: Bool
+        var onArtifactFilesRequested: @MainActor () -> Void
+        var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
@@ -158,14 +176,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// the meantime.
         private var composerMountGeneration = 0
 
-        init(surfaceID: String, store: CMUXMobileShellStore) {
+        init(
+            surfaceID: String,
+            store: CMUXMobileShellStore,
+            artifactFilesEnabled: Bool,
+            onArtifactFilesRequested: @escaping @MainActor () -> Void,
+            onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void
+        ) {
             self.surfaceID = surfaceID
             self.store = store
+            self.artifactFilesEnabled = artifactFilesEnabled
+            self.onArtifactFilesRequested = onArtifactFilesRequested
+            self.onArtifactPathTapped = onArtifactPathTapped
             super.init()
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
+            surfaceView.artifactFilesEnabled = artifactFilesEnabled
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -442,7 +470,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                if self.artifactFilesEnabled,
+                   let text = await surfaceView.visibleTextForArtifactHitTesting() {
+                    if let path = TerminalArtifactTapHitTester().path(in: text, col: col, row: row) {
+                        self.onArtifactPathTapped(path)
+                        return
+                    }
+                }
                 await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
+            }
+        }
+
+        func ghosttySurfaceViewDidRequestArtifactFiles(_ surfaceView: GhosttySurfaceView) {
+            Task { @MainActor [weak self] in
+                self?.onArtifactFilesRequested()
             }
         }
 
@@ -504,5 +545,43 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             return view.window?.rootViewController
         }
     }
+}
+
+private struct TerminalArtifactTapHitTester {
+    func path(in text: String, col: Int, row: Int) -> String? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard row >= 0, row < lines.count else { return nil }
+        let line = lines[row]
+        for token in tokenRanges(in: line) {
+            guard col >= token.startColumn, col < token.endColumn else { continue }
+            return token.path
+        }
+        return nil
+    }
+
+    private func tokenRanges(in line: String) -> [(path: String, startColumn: Int, endColumn: Int)] {
+        var result: [(path: String, startColumn: Int, endColumn: Int)] = []
+        var index = line.startIndex
+        while index < line.endIndex {
+            while index < line.endIndex, line[index].isWhitespace {
+                index = line.index(after: index)
+            }
+            guard index < line.endIndex else { break }
+            let tokenStart = index
+            while index < line.endIndex, !line[index].isWhitespace {
+                index = line.index(after: index)
+            }
+            let raw = String(line[tokenStart..<index])
+            guard let path = TerminalArtifactPathDetector().tokens(in: raw).first?.path else {
+                continue
+            }
+            let leadingTrim = raw.count - raw.drop(while: { Self.leadingTrimCharacters.contains($0) }).count
+            let start = line.distance(from: line.startIndex, to: tokenStart) + leadingTrim
+            result.append((path: path, startColumn: start, endColumn: start + path.count))
+        }
+        return result
+    }
+
+    private static let leadingTrimCharacters: Set<Character> = ["\"", "'", "`", "(", "[", "{", "<"]
 }
 #endif

@@ -1,7 +1,5 @@
 import CmuxAgentChat
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 private enum TerminalControllerChatArtifactIndexProvider {
     static let shared = AgentChatArtifactIndex()
@@ -15,12 +13,12 @@ extension TerminalController {
         }
         do {
             let stat = try await Task.detached {
-                try ChatArtifactFileIO.stat(path: resolved.canonicalPath)
+                try ArtifactByteReader().stat(path: resolved.canonicalPath)
             }.value
             return .ok(ChatArtifactWire.payload(stat) ?? [:])
-        } catch ChatArtifactFileIO.Error.fileNotFound {
+        } catch ArtifactByteReader.Error.fileNotFound {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
-        } catch ChatArtifactFileIO.Error.unsupportedMedia {
+        } catch ArtifactByteReader.Error.unsupportedMedia {
             return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
         } catch {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
@@ -37,10 +35,10 @@ extension TerminalController {
             .clampedChunkLength(v2Int(params, "length"))
         do {
             let chunk = try await Task.detached {
-                try ChatArtifactFileIO.fetch(path: resolved.canonicalPath, offset: offset, length: length)
+                try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value
             return .ok(ChatArtifactWire.payload(chunk) ?? [:])
-        } catch ChatArtifactFileIO.Error.fileNotFound {
+        } catch ArtifactByteReader.Error.fileNotFound {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
@@ -55,12 +53,12 @@ extension TerminalController {
         let maxDimension = min(max(v2Int(params, "max_dimension") ?? 512, 64), 1024)
         do {
             let thumbnail = try await Task.detached {
-                try ChatArtifactFileIO.thumbnail(path: resolved.canonicalPath, maxDimension: maxDimension)
+                try ArtifactByteReader().thumbnail(path: resolved.canonicalPath, maxDimension: maxDimension)
             }.value
             return .ok(ChatArtifactWire.payload(thumbnail) ?? [:])
-        } catch ChatArtifactFileIO.Error.unsupportedMedia {
+        } catch ArtifactByteReader.Error.unsupportedMedia {
             return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
-        } catch ChatArtifactFileIO.Error.fileNotFound {
+        } catch ArtifactByteReader.Error.fileNotFound {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch {
             return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
@@ -74,10 +72,10 @@ extension TerminalController {
         }
         do {
             let listing = try await Task.detached {
-                try ChatArtifactFileIO.list(path: resolved.canonicalPath)
+                try ArtifactByteReader().list(path: resolved.canonicalPath)
             }.value
             return .ok(ChatArtifactWire.payload(listing) ?? [:])
-        } catch ChatArtifactFileIO.Error.fileNotFound {
+        } catch ArtifactByteReader.Error.fileNotFound {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch {
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
@@ -220,140 +218,5 @@ private struct ChatArtifactWire {
             return nil
         }
         return object
-    }
-}
-
-private struct ChatArtifactFileIO {
-    enum Error: Swift.Error {
-        case fileNotFound
-        case unsupportedMedia
-    }
-
-    static func stat(path: String) throws -> ChatArtifactStat {
-        let attributes = try attributes(path: path)
-        let isDirectory = (attributes[.type] as? FileAttributeType) == .typeDirectory
-        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
-        let kind = artifactKind(path: path, isDirectory: isDirectory)
-        return ChatArtifactStat(
-            exists: true,
-            isDirectory: isDirectory,
-            size: size,
-            modifiedAt: modifiedAt,
-            kind: kind,
-            mimeType: mimeType(path: path, isDirectory: isDirectory)
-        )
-    }
-
-    static func fetch(path: String, offset: Int64, length: Int) throws -> ChatArtifactChunk {
-        let stat = try stat(path: path)
-        guard !stat.isDirectory else { throw Error.unsupportedMedia }
-        guard let handle = FileHandle(forReadingAtPath: path) else {
-            throw Error.fileNotFound
-        }
-        defer { try? handle.close() }
-        let totalSize = stat.size
-        let clampedOffset = min(max(offset, 0), totalSize)
-        try handle.seek(toOffset: UInt64(clampedOffset))
-        let data = try handle.read(upToCount: max(0, length)) ?? Data()
-        let endOffset = clampedOffset + Int64(data.count)
-        return ChatArtifactChunk(
-            data: data,
-            offset: clampedOffset,
-            totalSize: totalSize,
-            eof: endOffset >= totalSize
-        )
-    }
-
-    static func thumbnail(path: String, maxDimension: Int) throws -> ChatArtifactThumbnail {
-        guard artifactKind(path: path, isDirectory: false) == .image else {
-            throw Error.unsupportedMedia
-        }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: path) else {
-            throw Error.fileNotFound
-        }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            throw Error.unsupportedMedia
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxDimension,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-              let destinationData = CFDataCreateMutable(nil, 0),
-              let destination = CGImageDestinationCreateWithData(
-                destinationData,
-                UTType.jpeg.identifier as CFString,
-                1,
-                nil
-              ) else {
-            throw Error.unsupportedMedia
-        }
-        CGImageDestinationAddImage(destination, image, [
-            kCGImageDestinationLossyCompressionQuality: 0.82,
-        ] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            throw Error.unsupportedMedia
-        }
-        return ChatArtifactThumbnail(
-            data: destinationData as Data,
-            pixelWidth: image.width,
-            pixelHeight: image.height
-        )
-    }
-
-    static func list(path: String) throws -> ChatArtifactDirectoryListing {
-        let stat = try stat(path: path)
-        guard stat.isDirectory else { throw Error.fileNotFound }
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        let entries = try FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
-            options: []
-        )
-        let listed = try entries
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .prefix(500)
-            .map { entry -> ChatArtifactDirectoryEntry in
-                let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
-                let isDirectory = values.isDirectory ?? false
-                return ChatArtifactDirectoryEntry(
-                    name: entry.lastPathComponent,
-                    isDirectory: isDirectory,
-                    size: Int64(values.fileSize ?? 0),
-                    kind: artifactKind(path: entry.path, isDirectory: isDirectory)
-                )
-            }
-        return ChatArtifactDirectoryListing(entries: listed)
-    }
-
-    private static func attributes(path: String) throws -> [FileAttributeKey: Any] {
-        do {
-            return try FileManager.default.attributesOfItem(atPath: path)
-        } catch {
-            throw Error.fileNotFound
-        }
-    }
-
-    private static func artifactKind(path: String, isDirectory: Bool) -> ChatArtifactKind {
-        if isDirectory { return .directory }
-        guard let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension) else {
-            return .binary
-        }
-        if type.conforms(to: .image) { return .image }
-        if type.conforms(to: .text) || type.conforms(to: .sourceCode) || type.conforms(to: .json) {
-            return .text
-        }
-        return .binary
-    }
-
-    private static func mimeType(path: String, isDirectory: Bool) -> String? {
-        guard !isDirectory,
-              let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension) else {
-            return nil
-        }
-        return type.preferredMIMEType
     }
 }

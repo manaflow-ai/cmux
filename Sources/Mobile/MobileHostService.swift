@@ -1415,7 +1415,11 @@ final class MobileHostService {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.scroll", "terminal.scroll":
+             "mobile.terminal.scroll", "terminal.scroll",
+             "mobile.terminal.artifact.scan",
+             "mobile.terminal.artifact.stat",
+             "mobile.terminal.artifact.fetch",
+             "mobile.terminal.artifact.thumbnail":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,

@@ -77,6 +77,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
+    /// Open the terminal files sheet for paths currently shown on screen.
+    case files
     /// Short label rendered on the terminal accessory button.
     public var title: String {
         title(isMacRemote: false)
@@ -100,6 +102,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .zoomIn:
             return ""
         case .composer:
+            return ""
+        case .files:
             return ""
         case .escape:
             return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
@@ -160,6 +164,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .zoomOut: return "terminal.inputAccessory.zoomOut"
         case .zoomIn: return "terminal.inputAccessory.zoomIn"
         case .composer: return "terminal.inputAccessory.composer"
+        case .files: return "terminal.inputAccessory.files"
         case .escape: return "terminal.inputAccessory.escape"
         case .tab: return "terminal.inputAccessory.tab"
         case .returnKey: return "terminal.inputAccessory.return"
@@ -197,6 +202,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         case .composer:
             return String(localized: "terminal.input_accessory.composer", defaultValue: "Composer")
+        case .files:
+            return String(localized: "terminal.input_accessory.files", defaultValue: "Files")
         default:
             return nil
         }
@@ -213,6 +220,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "doc.on.clipboard"
         case .composer:
             return "square.and.pencil"
+        case .files:
+            return "doc.text.magnifyingglass"
         default:
             return nil
         }
@@ -242,7 +251,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// paste, composer).
     public var output: Data? {
         switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
+        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer, .files:
             return nil
         case .escape:
             return Data([0x1B])
@@ -327,7 +336,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// fresh install, and the migration force-enables and appends them so an
     /// upgrading user's bar looks unchanged.
     public static var defaultTrailingActions: [TerminalInputAccessoryAction] {
-        [.zoomOut, .zoomIn]
+        [.files, .zoomOut, .zoomIn]
     }
 
     /// The default on-bar arrangement of the configurable shortcuts: the leading
@@ -389,6 +398,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
         case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
         case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
+        case .files: return String(localized: "terminal.input_accessory.files", defaultValue: "Files")
         case .shift: return String(localized: "terminal.shortcut.name.shift", defaultValue: "Shift")
         case .composer:
             return title

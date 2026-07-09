@@ -103,6 +103,20 @@ public struct ChatArtifactScope: Sendable {
         return canonicalPath
     }
 
+    /// Canonicalizes one absolute path using the same symlink-resolution and
+    /// standardization rules as scope checks.
+    ///
+    /// - Parameters:
+    ///   - path: Absolute path to canonicalize.
+    ///   - resolver: Filesystem resolver used for symlink resolution.
+    /// - Returns: Canonical path, or `nil` for invalid/unresolvable paths.
+    public static func canonicalizedPath(
+        _ path: String,
+        resolver: any FileSystemResolving
+    ) -> String? {
+        canonicalPath(path, resolver: resolver)
+    }
+
     /// Resolves an allowed directory-list request to its canonical path.
     ///
     /// - Parameter path: Requested absolute directory path.

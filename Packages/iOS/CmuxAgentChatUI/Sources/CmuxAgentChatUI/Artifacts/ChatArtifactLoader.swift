@@ -25,9 +25,31 @@ public actor ChatArtifactThumbnailCache {
     }
 }
 
+/// Cache and routing scope for Mac-hosted artifact operations.
+public enum ChatArtifactLoaderScope: Hashable, Sendable {
+    /// Artifacts referenced by one agent-chat session.
+    case chat(sessionID: String)
+    /// Artifacts currently visible in one terminal surface.
+    case terminal(workspaceID: String, surfaceID: String)
+    /// Unsupported fixture/default scope.
+    case unsupported
+
+    var cacheNamespace: String {
+        switch self {
+        case .chat(let sessionID):
+            return "chat:\(sessionID)"
+        case .terminal(let workspaceID, let surfaceID):
+            return "terminal:\(workspaceID):\(surfaceID)"
+        case .unsupported:
+            return "unsupported"
+        }
+    }
+}
+
 /// Value-type closure bundle for Mac-hosted artifact operations.
 public struct ChatArtifactLoader: Sendable {
     public let supportsArtifacts: Bool
+    public let scope: ChatArtifactLoaderScope
 
     private let statHandler: @Sendable (_ path: String) async throws -> ChatArtifactStat
     private let fetchHandler: @Sendable (
@@ -37,11 +59,10 @@ public struct ChatArtifactLoader: Sendable {
     private let thumbnailHandler: @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
     private let listHandler: @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing
     private let thumbnailCache: ChatArtifactThumbnailCache
-    private let cacheNamespace: String
 
     public init(
         supportsArtifacts: Bool = false,
-        cacheNamespace: String = "unsupported",
+        scope: ChatArtifactLoaderScope = .unsupported,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat = { _ in
             throw ChatArtifactError.unsupported
@@ -60,7 +81,7 @@ public struct ChatArtifactLoader: Sendable {
         }
     ) {
         self.supportsArtifacts = supportsArtifacts
-        self.cacheNamespace = cacheNamespace
+        self.scope = scope
         self.thumbnailCache = cache
         statHandler = stat
         fetchHandler = fetch
@@ -75,7 +96,7 @@ public struct ChatArtifactLoader: Sendable {
     ) {
         self.init(
             supportsArtifacts: source.supportsArtifacts,
-            cacheNamespace: sessionID,
+            scope: .chat(sessionID: sessionID),
             cache: cache,
             stat: { path in
                 try await source.artifactStat(sessionID: sessionID, path: path)
@@ -93,6 +114,29 @@ public struct ChatArtifactLoader: Sendable {
             list: { path in
                 try await source.artifactList(sessionID: sessionID, path: path)
             }
+        )
+    }
+
+    public init(
+        terminalWorkspaceID: String,
+        terminalSurfaceID: String,
+        supportsArtifacts: Bool,
+        cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
+        stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat,
+        fetch: @escaping @Sendable (
+            _ path: String,
+            _ progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
+        ) async throws -> Data,
+        thumbnail: @escaping @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
+    ) {
+        self.init(
+            supportsArtifacts: supportsArtifacts,
+            scope: .terminal(workspaceID: terminalWorkspaceID, surfaceID: terminalSurfaceID),
+            cache: cache,
+            stat: stat,
+            fetch: fetch,
+            thumbnail: thumbnail,
+            list: { _ in throw ChatArtifactError.unsupported }
         )
     }
 
@@ -126,7 +170,7 @@ public struct ChatArtifactLoader: Sendable {
     }
 
     private func thumbnailCacheKey(path: String, maxDimension: Int) -> String {
-        "\(cacheNamespace)#\(maxDimension)#\(path)"
+        "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
     }
 }
 

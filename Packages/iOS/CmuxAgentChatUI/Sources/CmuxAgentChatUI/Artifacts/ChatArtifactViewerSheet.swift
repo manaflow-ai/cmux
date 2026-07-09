@@ -7,14 +7,18 @@ import UIKit
 import AppKit
 #endif
 
-struct ChatArtifactViewerSheet: View {
+public struct ChatArtifactViewerSheet: View {
     let path: String
 
     @Environment(\.chatArtifactLoader) private var loader
     @Environment(\.dismiss) private var dismiss
     @State private var state: LoadState = .loading(fetched: 0, total: nil)
 
-    var body: some View {
+    public init(path: String) {
+        self.path = path
+    }
+
+    public var body: some View {
         NavigationStack {
             content
                 .navigationTitle(displayName)
