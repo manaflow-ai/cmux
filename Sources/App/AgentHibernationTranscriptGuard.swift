@@ -3,22 +3,6 @@ import Darwin
 import Foundation
 
 enum AgentHibernationTranscriptGuard {
-    struct TeardownTranscriptSnapshot: Sendable {
-        let transcriptPath: String
-        let snapshotPath: String
-    }
-
-    enum TeardownSnapshotOutcome: Sendable {
-        case snapshot(TeardownTranscriptSnapshot)
-        case nothingToProtect
-        case unableToProtect
-    }
-
-    private struct HookStoreFileMirror: Decodable {
-        struct Record: Decodable { let sessionId: String?; let transcriptPath: String? }
-        let sessions: [String: Record]?
-    }
-
     static let restoreCheckDelaysSeconds: [UInt64] = [20, 60, 180, 600]
     private static let maxScannedLineBytes = 16 * 1024 * 1024
 
@@ -27,6 +11,7 @@ enum AgentHibernationTranscriptGuard {
         processIDs: Set<Int>,
         initialRetryDelaysNanoseconds: [UInt64] = [0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000],
         backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
+        clock: ContinuousClock = ContinuousClock(),
         fileManager: FileManager = .default
     ) async {
         var canDeleteSnapshot = false
@@ -37,25 +22,30 @@ enum AgentHibernationTranscriptGuard {
         }
         defer { if Task.isCancelled { markSnapshotDeletableIfSafe() } else if canDeleteSnapshot { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
         if !processIDs.isEmpty {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
-            while ContinuousClock.now < deadline {
+            let deadline = clock.now.advanced(by: .seconds(30))
+            while clock.now < deadline {
                 let anyAlive = processIDs.contains { pid in
                     pid > 0 && pid <= Int(Int32.max) && kill(pid_t(pid), 0) == 0
                 }
                 if !anyAlive { break }
-                try? await Task.sleep(nanoseconds: 250_000_000)
+                // Bounded process-exit grace period before transcript restore checks; controller state cancels this task.
+                try? await clock.sleep(for: .milliseconds(250))
                 if Task.isCancelled { return }
             }
         }
 
         for delayNanoseconds in initialRetryDelaysNanoseconds {
-            if delayNanoseconds > 0 { try? await Task.sleep(nanoseconds: delayNanoseconds) }
+            if delayNanoseconds > 0 {
+                // Bounded Claude transcript-rewrite check window; controller state cancels this task.
+                try? await clock.sleep(for: .nanoseconds(Int64(clamping: delayNanoseconds)))
+            }
             if Task.isCancelled { return }
             markSnapshotDeletableIfSafe()
         }
 
         for delaySeconds in backstopDelaysSeconds {
-            try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            // Bounded delayed restore backstop; controller state cancels this task.
+            try? await clock.sleep(for: .seconds(Int64(clamping: delaySeconds)))
             if Task.isCancelled { return }
             markSnapshotDeletableIfSafe()
         }
@@ -250,7 +240,7 @@ enum AgentHibernationTranscriptGuard {
     ) -> String? {
         let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: homeDirectory)
         guard let data = fileManager.contents(atPath: storeURL.path),
-              let store = try? JSONDecoder().decode(HookStoreFileMirror.self, from: data),
+              let store = try? JSONDecoder().decode(AgentHibernationTranscriptHookStoreFileMirror.self, from: data),
               let sessions = store.sessions else {
             return nil
         }

@@ -25,16 +25,6 @@ struct AgentHibernationRecord {
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
 
-    private struct Confirmation { let fingerprint: String; let sampledAt: TimeInterval; let dueAt: TimeInterval }
-
-    private struct TailFingerprintSample { let fingerprint: String; let stableSince: TimeInterval }
-
-    private struct InFlightTeardown { let requestID: UUID }
-    struct PostTeardownRestoreTask { let requestID: UUID; let task: Task<Void, Never> }
-    struct PostSnapshotValidationIndexTask { let requestID: UUID; let startSequence: UInt64; let task: Task<RestorableAgentSessionIndex, Never> }
-
-    struct UnableToProtectMarker { let fingerprint: String; let lastActivityAt: TimeInterval; let retryAfter: TimeInterval }
-
     static let unableToProtectRetrySeconds: TimeInterval = 120
 
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
@@ -76,7 +66,6 @@ final class AgentHibernationController {
         timer?.cancel()
         timer = nil
         AgentHibernationTrackingGate.setEnabled(false)
-        cancelPostTeardownRestoreTasks()
         clearTrackingState()
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
@@ -137,7 +126,6 @@ final class AgentHibernationController {
         guard enabled else {
             timer?.cancel()
             timer = nil
-            cancelPostTeardownRestoreTasks()
             clearTrackingState()
             return
         }
@@ -166,7 +154,6 @@ final class AgentHibernationController {
     ) {
         guard settings.enabled else {
             AgentHibernationTrackingGate.setEnabled(false)
-            cancelPostTeardownRestoreTasks()
             clearTrackingState()
             return
         }
@@ -427,6 +414,7 @@ final class AgentHibernationController {
     }
 
     private func clearTrackingState() {
+        cancelPostTeardownRestoreTasks()
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)

@@ -36,19 +36,31 @@
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
+		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
+		F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */; };
+		F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */; };
+		F65760130000000000000001 /* AgentHibernationController+PostTeardownRestoreTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */; };
 		F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760030000000000000002 /* AgentHibernationController+Records.swift */; };
+		F65760140000000000000001 /* AgentHibernationController+TailFingerprintSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */; };
 		F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760060000000000000002 /* AgentHibernationController+Teardown.swift */; };
+		F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
+		F65760160000000000000001 /* AgentHibernationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760160000000000000002 /* AgentHibernationPlanner.swift */; };
+		F65760170000000000000001 /* AgentHibernationPlannerInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760170000000000000002 /* AgentHibernationPlannerInput.swift */; };
 		F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */; };
 		D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D72260010000000000000002 /* AgentHibernationPortalVisibilityTests.swift */; };
 		F65760020000000000000001 /* AgentHibernationTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760020000000000000002 /* AgentHibernationTestHelpers.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
 		F65760090000000000000001 /* AgentHibernationTranscriptGuard+ClaudeWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760090000000000000002 /* AgentHibernationTranscriptGuard+ClaudeWorkflow.swift */; };
+		F65760180000000000000001 /* AgentHibernationTranscriptGuard+TeardownSnapshotOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760180000000000000002 /* AgentHibernationTranscriptGuard+TeardownSnapshotOutcome.swift */; };
+		F65760190000000000000001 /* AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760190000000000000002 /* AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift */; };
 		F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */; };
 		F65760080000000000000001 /* AgentHibernationTranscriptGuardScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760080000000000000002 /* AgentHibernationTranscriptGuardScanTests.swift */; };
 		F65760040000000000000001 /* AgentHibernationTranscriptGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */; };
+		F65760200000000000000001 /* AgentHibernationTranscriptHookStoreFileMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */; };
+		F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */; };
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
@@ -1679,18 +1691,30 @@
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
+		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
+		F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+InFlightTeardown.swift"; sourceTree = "<group>"; };
+		F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostSnapshotValidationIndexTask.swift"; sourceTree = "<group>"; };
+		F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostTeardownRestoreTask.swift"; sourceTree = "<group>"; };
 		F65760030000000000000002 /* AgentHibernationController+Records.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Records.swift"; sourceTree = "<group>"; };
+		F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+TailFingerprintSample.swift"; sourceTree = "<group>"; };
 		F65760060000000000000002 /* AgentHibernationController+Teardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Teardown.swift"; sourceTree = "<group>"; };
+		F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+UnableToProtectMarker.swift"; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
+		F65760160000000000000002 /* AgentHibernationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationPlanner.swift"; sourceTree = "<group>"; };
+		F65760170000000000000002 /* AgentHibernationPlannerInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationPlannerInput.swift"; sourceTree = "<group>"; };
 		F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPlannerSwiftTests.swift; sourceTree = "<group>"; };
 		D72260010000000000000002 /* AgentHibernationPortalVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPortalVisibilityTests.swift; sourceTree = "<group>"; };
 		F65760020000000000000002 /* AgentHibernationTestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTestHelpers.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
 		F65760090000000000000002 /* AgentHibernationTranscriptGuard+ClaudeWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptGuard+ClaudeWorkflow.swift"; sourceTree = "<group>"; };
+		F65760180000000000000002 /* AgentHibernationTranscriptGuard+TeardownSnapshotOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptGuard+TeardownSnapshotOutcome.swift"; sourceTree = "<group>"; };
+		F65760190000000000000002 /* AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift"; sourceTree = "<group>"; };
 		F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationTranscriptGuard.swift; sourceTree = "<group>"; };
 		F65760080000000000000002 /* AgentHibernationTranscriptGuardScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptGuardScanTests.swift; sourceTree = "<group>"; };
 		F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptGuardTests.swift; sourceTree = "<group>"; };
+		F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptHookStoreFileMirror.swift"; sourceTree = "<group>"; };
+		F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptHookStoreRecord.swift"; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
@@ -3518,11 +3542,23 @@
 				C0DE1A020000000000000002 /* SavedLayoutStore.swift */,
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */,
+				F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */,
+				F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */,
+				F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */,
+				F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */,
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
+				F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */,
 				F65760060000000000000002 /* AgentHibernationController+Teardown.swift */,
+				F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
+				F65760160000000000000002 /* AgentHibernationPlanner.swift */,
+				F65760170000000000000002 /* AgentHibernationPlannerInput.swift */,
 				F65760090000000000000002 /* AgentHibernationTranscriptGuard+ClaudeWorkflow.swift */,
+				F65760180000000000000002 /* AgentHibernationTranscriptGuard+TeardownSnapshotOutcome.swift */,
+				F65760190000000000000002 /* AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift */,
 				F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */,
+				F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */,
+				F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */,
 				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
 				7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */,
 				7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */,
@@ -5291,12 +5327,24 @@
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
+				F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */,
+				F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */,
+				F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */,
+				F65760130000000000000001 /* AgentHibernationController+PostTeardownRestoreTask.swift in Sources */,
 				F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */,
+				F65760140000000000000001 /* AgentHibernationController+TailFingerprintSample.swift in Sources */,
 				F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */,
+				F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
+				F65760160000000000000001 /* AgentHibernationPlanner.swift in Sources */,
+				F65760170000000000000001 /* AgentHibernationPlannerInput.swift in Sources */,
 				F65760090000000000000001 /* AgentHibernationTranscriptGuard+ClaudeWorkflow.swift in Sources */,
+				F65760180000000000000001 /* AgentHibernationTranscriptGuard+TeardownSnapshotOutcome.swift in Sources */,
+				F65760190000000000000001 /* AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift in Sources */,
 				F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */,
+				F65760200000000000000001 /* AgentHibernationTranscriptHookStoreFileMirror.swift in Sources */,
+				F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
 				C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
