@@ -27,7 +27,8 @@ final class TerminalInlineImageThumbnailCache: @unchecked Sendable {
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
-        cache.countLimit = 64
+        cache.countLimit = 128
+        cache.totalCostLimit = 64 * 1024 * 1024
     }
 
     func thumbnail(
@@ -43,6 +44,15 @@ final class TerminalInlineImageThumbnailCache: @unchecked Sendable {
             DispatchQueue.main.async {
                 completion(thumbnail)
             }
+        }
+    }
+
+    func removeAll() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            cache.removeAllObjects()
+            cachedKeyByPath.removeAll()
+            cachedPathOrder.removeAll()
         }
     }
 

@@ -6,16 +6,28 @@ import GhosttyKit
 
 @MainActor
 final class TerminalInlineImageController {
+    private nonisolated static let sharedThumbnailCache = TerminalInlineImageThumbnailCache()
+    private nonisolated static let surfaceOutputDemand = RenderDemandCounter()
+    private nonisolated static let surfaceOutputLock = NSLock()
+    // SAFETY: guarded by `surfaceOutputLock`; written from the PTY tee thread and drained on main.
+    nonisolated(unsafe) private static var pendingOutputSurfaceIDs: Set<UUID> = []
+    // SAFETY: guarded by `surfaceOutputLock`; coalesces one main-actor notification drain.
+    nonisolated(unsafe) private static var surfaceOutputFlushScheduled = false
+    private nonisolated static let thumbnailRetryDelay: TimeInterval = 5
+    private nonisolated static let maximumThumbnailRetryEntries = 384
+
     private weak var hostedView: GhosttySurfaceScrollView?
     private weak var overlayView: TerminalInlineImageOverlayView?
     private let scanner = TerminalTranscriptImagePathScanner()
     private let reconciler = TerminalInlineImageReconciler()
-    private let cache = TerminalInlineImageThumbnailCache()
+    private let cache: TerminalInlineImageThumbnailCache
     private let scanQueue = DispatchQueue(label: "com.cmux.inline-image-scan", qos: .utility)
     private var settingsObserver: TerminalInlineImageSettingsObserver?
     private var observers: [NSObjectProtocol] = []
     private var releaseFrameDemand: (() -> Void)?
-    private var releaseTickDemand: (() -> Void)?
+    private var releaseSurfaceOutputDemand: (() -> Void)?
+    private var surfaceOutputObserver: NSObjectProtocol?
+    private var observedOutputSurfaceID: UUID?
     private var debounceTimer: DispatchSourceTimer?
     private var pendingScanFirstRequestedAt: DispatchTime?
     private var scanGeneration: UInt64 = 0
@@ -23,12 +35,19 @@ final class TerminalInlineImageController {
     private var lastScannedRowOffset: Int?
     private var annotations: [TerminalInlineImageAnnotation] = []
     private var thumbnailsByID: [UUID: TerminalInlineImageThumbnail] = [:]
-    private var pendingThumbnailIDs: Set<UUID> = []
+    private var pendingThumbnailPaths: Set<String> = []
+    private var thumbnailRetryAfterByPath: [String: Date] = [:]
+    private var thumbnailRetryPathOrder: [String] = []
     private var isEnabled = false
 
-    init(hostedView: GhosttySurfaceScrollView, overlayView: TerminalInlineImageOverlayView) {
+    init(
+        hostedView: GhosttySurfaceScrollView,
+        overlayView: TerminalInlineImageOverlayView,
+        cache: TerminalInlineImageThumbnailCache = TerminalInlineImageController.sharedThumbnailCache
+    ) {
         self.hostedView = hostedView
         self.overlayView = overlayView
+        self.cache = cache
         settingsObserver = TerminalInlineImageSettingsObserver { [weak self] enabled in
             self?.setEnabled(enabled)
         }
@@ -46,9 +65,49 @@ final class TerminalInlineImageController {
 
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        if let surfaceOutputObserver {
+            NotificationCenter.default.removeObserver(surfaceOutputObserver)
+        }
         releaseFrameDemand?()
-        releaseTickDemand?()
+        releaseSurfaceOutputDemand?()
         debounceTimer?.cancel()
+    }
+
+    nonisolated static func noteSurfaceOutput(surfaceID: UUID) {
+        guard surfaceOutputDemand.isActive else { return }
+        surfaceOutputLock.lock()
+        pendingOutputSurfaceIDs.insert(surfaceID)
+        let shouldSchedule = !surfaceOutputFlushScheduled
+        surfaceOutputFlushScheduled = true
+        surfaceOutputLock.unlock()
+        guard shouldSchedule else { return }
+        Task { @MainActor in
+            flushSurfaceOutputNotifications()
+        }
+    }
+
+    nonisolated private static func retainSurfaceOutputNotifications() -> () -> Void {
+        let retention = surfaceOutputDemand.retain()
+        return { retention.release() }
+    }
+
+    nonisolated private static func surfaceOutputNotificationName(for surfaceID: UUID) -> Notification.Name {
+        Notification.Name("cmux.terminalInlineImage.surfaceOutput.\(surfaceID.uuidString)")
+    }
+
+    @MainActor
+    private static func flushSurfaceOutputNotifications() {
+        surfaceOutputLock.lock()
+        let surfaceIDs = pendingOutputSurfaceIDs
+        pendingOutputSurfaceIDs.removeAll()
+        surfaceOutputFlushScheduled = false
+        surfaceOutputLock.unlock()
+        for surfaceID in surfaceIDs {
+            NotificationCenter.default.post(
+                name: surfaceOutputNotificationName(for: surfaceID),
+                object: nil
+            )
+        }
     }
 
     private func setEnabled(_ enabled: Bool) {
@@ -63,12 +122,21 @@ final class TerminalInlineImageController {
             lastScannedGridJSON = nil
             lastScannedRowOffset = nil
             clearAnnotations()
+            if !TerminalInlineImageSettings.isEnabled() {
+                cache.removeAll()
+            }
         }
+    }
+
+    func attachSurface(_ terminalSurface: TerminalSurface) {
+        installSurfaceOutputObserver(for: terminalSurface.id)
+        scheduleScanForVisibleViewport()
     }
 
     private func startSurfaceObservers() {
         guard observers.isEmpty, let hostedView else { return }
         releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
+        releaseSurfaceOutputDemand = Self.retainSurfaceOutputNotifications()
         let center = NotificationCenter.default
         observers.append(center.addObserver(
             forName: .ghosttyDidRenderFrame,
@@ -91,23 +159,9 @@ final class TerminalInlineImageController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleScan() }
         })
-        // Render-frame notifications only post when Ghostty's Metal layer
-        // vends a drawable, which it skips in common configurations, and
-        // scrollbar updates only fire when scrollback geometry changes —
-        // neither covers plain output at a fresh prompt. Ticks fire on every
-        // Ghostty IO cycle (see MobileTerminalRenderObserver), so they are
-        // the reliable output signal. The occlusion gate below plus the
-        // debounce and the byte-identical grid dedupe keep the per-tick cost
-        // to at most one coalesced export + compare per debounce window, and
-        // only for surfaces the user can actually see.
-        releaseTickDemand = GhosttyApp.retainTickNotifications()
-        observers.append(center.addObserver(
-            forName: .ghosttyDidTick,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
-        })
+        if let surfaceID = hostedView.surfaceView.terminalSurface?.id {
+            installSurfaceOutputObserver(for: surfaceID)
+        }
         // Ticks are skipped while the window is occluded, so catch up when it
         // becomes visible again instead of waiting for the next PTY output.
         observers.append(center.addObserver(
@@ -127,7 +181,12 @@ final class TerminalInlineImageController {
     }
 
     private func scheduleScanForVisibleViewport() {
-        guard let window = hostedView?.window,
+        guard let hostedView,
+              let window = hostedView.window,
+              !hostedView.isHiddenOrHasHiddenAncestor,
+              !hostedView.surfaceView.isHiddenOrHasHiddenAncestor,
+              hostedView.bounds.width > 1,
+              hostedView.bounds.height > 1,
               window.occlusionState.contains(.visible) else {
             return
         }
@@ -137,10 +196,31 @@ final class TerminalInlineImageController {
     private func stopSurfaceObservers() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
+        if let surfaceOutputObserver {
+            NotificationCenter.default.removeObserver(surfaceOutputObserver)
+        }
+        surfaceOutputObserver = nil
+        observedOutputSurfaceID = nil
         releaseFrameDemand?()
         releaseFrameDemand = nil
-        releaseTickDemand?()
-        releaseTickDemand = nil
+        releaseSurfaceOutputDemand?()
+        releaseSurfaceOutputDemand = nil
+    }
+
+    private func installSurfaceOutputObserver(for surfaceID: UUID) {
+        guard isEnabled else { return }
+        guard observedOutputSurfaceID != surfaceID || surfaceOutputObserver == nil else { return }
+        if let surfaceOutputObserver {
+            NotificationCenter.default.removeObserver(surfaceOutputObserver)
+        }
+        observedOutputSurfaceID = surfaceID
+        surfaceOutputObserver = NotificationCenter.default.addObserver(
+            forName: Self.surfaceOutputNotificationName(for: surfaceID),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
+        }
     }
 
     private func scheduleScan() {
@@ -183,6 +263,8 @@ final class TerminalInlineImageController {
         guard isEnabled,
               let hostedView,
               let terminalSurface = hostedView.surfaceView.terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              !workspace.isRemoteTerminalSurface(terminalSurface.id),
               let gridJSON = terminalSurface.mobileRenderGridJSON(stateSeq: 0) else {
             lastScannedGridJSON = nil
             lastScannedRowOffset = nil
@@ -201,8 +283,12 @@ final class TerminalInlineImageController {
         }
         scanGeneration &+= 1
         let generation = scanGeneration
+        let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
+            workspace: workspace,
+            surfaceId: terminalSurface.id
+        )
         let context = TerminalTranscriptImagePathScanner.Context(
-            cwd: terminalSurface.requestedWorkingDirectory,
+            cwd: cwd,
             homeDirectory: NSHomeDirectory()
         )
         let scanner = scanner
@@ -239,19 +325,28 @@ final class TerminalInlineImageController {
         )
         annotations = nextAnnotations
         let liveIDs = Set(nextAnnotations.map(\.id))
+        let livePaths = Set(nextAnnotations.map(\.resolvedPath))
         thumbnailsByID = thumbnailsByID.filter { liveIDs.contains($0.key) }
-        pendingThumbnailIDs.formIntersection(liveIDs)
+        thumbnailRetryAfterByPath = thumbnailRetryAfterByPath.filter { livePaths.contains($0.key) }
+        thumbnailRetryPathOrder = thumbnailRetryPathOrder.filter { thumbnailRetryAfterByPath[$0] != nil }
         render()
         requestMissingThumbnails(for: nextAnnotations)
     }
 
     private func requestMissingThumbnails(for annotations: [TerminalInlineImageAnnotation]) {
+        let now = Date()
         for annotation in annotations
-        where thumbnailsByID[annotation.id] == nil && !pendingThumbnailIDs.contains(annotation.id) {
-            pendingThumbnailIDs.insert(annotation.id)
-            cache.thumbnail(for: annotation.resolvedPath) { [weak self, id = annotation.id, key = annotation.key] thumbnail in
+        where thumbnailsByID[annotation.id] == nil {
+            let path = annotation.resolvedPath
+            guard !pendingThumbnailPaths.contains(path) else { continue }
+            if let retryAfter = thumbnailRetryAfterByPath[path] {
+                guard retryAfter <= now else { continue }
+                thumbnailRetryAfterByPath.removeValue(forKey: path)
+            }
+            pendingThumbnailPaths.insert(path)
+            cache.thumbnail(for: path) { [weak self, path] thumbnail in
                 Task { @MainActor in
-                    self?.receiveThumbnail(thumbnail, id: id, key: key)
+                    self?.receiveThumbnail(thumbnail, path: path)
                 }
             }
         }
@@ -259,16 +354,33 @@ final class TerminalInlineImageController {
 
     private func receiveThumbnail(
         _ thumbnail: TerminalInlineImageThumbnail?,
-        id: UUID,
-        key: TerminalInlineImageAnnotationKey
+        path: String
     ) {
-        pendingThumbnailIDs.remove(id)
-        guard let thumbnail,
-              annotations.contains(where: { $0.id == id && $0.key == key }) else {
+        pendingThumbnailPaths.remove(path)
+        let matchingAnnotations = annotations.filter { $0.resolvedPath == path }
+        guard !matchingAnnotations.isEmpty else { return }
+        guard let thumbnail else {
+            rememberThumbnailFailure(for: path)
             return
         }
-        thumbnailsByID[id] = thumbnail
+        thumbnailRetryAfterByPath.removeValue(forKey: path)
+        for annotation in matchingAnnotations {
+            thumbnailsByID[annotation.id] = thumbnail
+        }
         render()
+    }
+
+    private func rememberThumbnailFailure(for path: String) {
+        if thumbnailRetryAfterByPath[path] == nil {
+            thumbnailRetryPathOrder.append(path)
+        }
+        thumbnailRetryAfterByPath[path] = Date().addingTimeInterval(Self.thumbnailRetryDelay)
+        guard thumbnailRetryPathOrder.count > Self.maximumThumbnailRetryEntries else { return }
+        let overflow = thumbnailRetryPathOrder.count - Self.maximumThumbnailRetryEntries
+        for expiredPath in thumbnailRetryPathOrder.prefix(overflow) {
+            thumbnailRetryAfterByPath.removeValue(forKey: expiredPath)
+        }
+        thumbnailRetryPathOrder.removeFirst(overflow)
     }
 
     private func render() {
@@ -314,7 +426,9 @@ final class TerminalInlineImageController {
     private func clearAnnotations() {
         annotations.removeAll()
         thumbnailsByID.removeAll()
-        pendingThumbnailIDs.removeAll()
+        pendingThumbnailPaths.removeAll()
+        thumbnailRetryAfterByPath.removeAll()
+        thumbnailRetryPathOrder.removeAll()
         overlayView?.clear()
     }
 }

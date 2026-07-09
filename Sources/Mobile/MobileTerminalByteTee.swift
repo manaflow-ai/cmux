@@ -58,6 +58,7 @@ final class MobileTerminalByteTee {
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.
     nonisolated func append(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
+        TerminalInlineImageController.noteSurfaceOutput(surfaceID: surfaceID)
         // Hot path: this runs on the Ghostty PTY/IO read thread for *every*
         // surface, including normal desktop use with no phone attached. Bail
         // before any allocation or main-actor hop when no mobile client wants

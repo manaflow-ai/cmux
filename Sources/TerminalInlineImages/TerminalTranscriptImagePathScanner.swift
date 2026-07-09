@@ -108,6 +108,7 @@ struct TerminalTranscriptImagePathScanner: Sendable {
     ) -> DetectedImagePath? {
         let stripped = stripWrappers(candidate)
         guard !stripped.isEmpty,
+              !stripped.contains("://"),
               let ext = extensionName(in: stripped),
               Self.supportedExtensions.contains(ext.lowercased()) else {
             return nil

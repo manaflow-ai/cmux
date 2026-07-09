@@ -85,6 +85,7 @@ struct TerminalTranscriptImagePathScannerTests {
         let urlMatches = scanner.scan(rows: [
             "open http://example.com/image.png",
             "fetch https://x.test/a.png",
+            "quoted \"https://example.com/image.png\"",
         ])
         let wrappedPathMatches = scanner.scan(rows: [
             "Read(/tmp/a.png)"
