@@ -68,13 +68,18 @@ extension RemoteTmuxController {
         desired: [Int]
     ) -> [String] {
         var working = current
+        var indexByWindow = Dictionary(uniqueKeysWithValues: current.enumerated().map { ($1, $0) })
         var commands: [String] = []
         for index in desired.indices where working[index] != desired[index] {
-            guard let swapFrom = working.firstIndex(of: desired[index]) else { continue }
+            let targetWindow = desired[index]
+            guard let swapFrom = indexByWindow[targetWindow] else { continue }
+            let displacedWindow = working[index]
             commands.append(
                 "swap-window -d -s @\(working[index]) -t @\(working[swapFrom])"
             )
             working.swapAt(index, swapFrom)
+            indexByWindow[targetWindow] = index
+            indexByWindow[displacedWindow] = swapFrom
         }
         return commands
     }

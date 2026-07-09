@@ -9263,16 +9263,19 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
-        if isRemoteTmuxMirror, remoteTmuxWindowOrderSync == nil { return false }
-        guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
-
-        if isRemoteTmuxMirror {
-            guard let paneId = paneId(forPanelId: panelId) else { return false }
-            let orderedPanelIds = bonsplitController.tabs(inPane: paneId)
-                .compactMap { panelIdFromSurfaceId($0.id) }
-            guard remoteTmuxWindowOrderSync?(orderedPanelIds) == true else { return false }
+        let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
+        let mirrorPanelOrder = mirrorPaneId.map { paneId in
+            bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
         }
-
+        if isRemoteTmuxMirror, remoteTmuxWindowOrderSync == nil || mirrorPanelOrder == nil { return false }
+        guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
+        if let mirrorPaneId, let mirrorPanelOrder {
+            let orderedPanelIds = bonsplitController.tabs(inPane: mirrorPaneId).compactMap { panelIdFromSurfaceId($0.id) }
+            guard remoteTmuxWindowOrderSync?(orderedPanelIds) == true else {
+                _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: mirrorPanelOrder)
+                return false
+            }
+        }
         if focus, let paneId = paneId(forPanelId: panelId) {
             applyTabSelection(tabId: tabId, inPane: paneId)
         } else {
@@ -9282,9 +9285,8 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    /// Reconciles mirror tabs to tmux's window order without changing the user's
-    /// selection or focus. Used for remote reorders and rejected local mutations;
-    /// all activation callbacks are suppressed while bonsplit is rearranged.
+    /// Reconciles mirror tabs to tmux's window order without changing selection
+    /// or focus. Suppresses activation callbacks while bonsplit is rearranged.
     /// A concurrent remote reorder during an active drag can move tabs under the
     /// cursor, but the drop immediately reconciles through the outbound sync path.
     @discardableResult

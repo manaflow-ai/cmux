@@ -52,6 +52,7 @@ extension RemoteTmuxControlConnection {
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
         case let .listWindows(requestGeneration):
             let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
+            let completesReorderRecovery = windowReorderRecoveryGeneration == requestGeneration
             var order: [Int] = []
             var next: [Int: RemoteTmuxWindow] = [:]
             for line in lines {
@@ -142,6 +143,9 @@ extension RemoteTmuxControlConnection {
                 windowOrder = shouldApplyWindowOrder
                     ? order
                     : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)
+                if completesReorderRecovery {
+                    windowReorderRecoveryGeneration = nil
+                }
                 // Publish removals/order/names; geometry rides each window's
                 // rects reply.
                 observers.notifyTopologyChanged()
@@ -237,7 +241,10 @@ extension RemoteTmuxControlConnection {
     func completeWindowReorderCommand(isLast: Bool, failed: Bool) {
         windowReorderBatchFailed = windowReorderBatchFailed || failed
         guard isLast else { return }
-        if windowReorderBatchFailed { requestWindows() }
+        if windowReorderBatchFailed {
+            windowReorderRecoveryGeneration = windowReorderGeneration
+            requestWindows()
+        }
         windowReorderBatchFailed = false
     }
 }

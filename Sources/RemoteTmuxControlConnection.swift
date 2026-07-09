@@ -94,6 +94,8 @@ final class RemoteTmuxControlConnection {
     var pendingCommands: [CommandKind] = []
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
+    /// Reorders are rejected while a failed generation awaits authoritative recovery.
+    var windowReorderRecoveryGeneration: UInt64?
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
@@ -355,11 +357,11 @@ final class RemoteTmuxControlConnection {
     ///   attempts pass `false` (`attach-session`), so a session killed during the
     ///   outage fails the re-attach (→ `.ended`) instead of being silently recreated.
     private func spawnProcess(createIfMissing: Bool) throws {
-        // Fresh control stream: the prior attempt's parser buffer and pending-command
-        // FIFO are stale and must not bleed into the new %begin/%end correlation.
+        // A fresh control stream cannot retain the prior parser or command FIFO.
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
         windowReorderBatchFailed = false
+        windowReorderRecoveryGeneration = nil
         pendingLayouts.removeAll()
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
@@ -470,9 +472,9 @@ final class RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
-    /// Atomically queues a mirror reorder while preserving one result slot per swap.
     func sendWindowReorder(_ commands: [String]) -> Bool {
         guard !commands.isEmpty else { return true }
+        guard windowReorderRecoveryGeneration == nil else { return false }
         guard connectionState == .connected, let stdinWriter else { return false }
         let payload = commands.joined(separator: "\n") + "\n"
         guard let data = payload.data(using: .utf8) else { return false }
@@ -503,8 +505,7 @@ final class RemoteTmuxControlConnection {
     /// degrades to the session-wide client size.
     var supportsPerWindowSize = true
 
-    /// Requests current topology; the space-bearing window name stays last so
-    /// fixed id/layout/flags fields remain unambiguous.
+    /// Requests topology, keeping the space-bearing window name last for parsing.
     func requestWindows() {
         sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
@@ -524,8 +525,7 @@ final class RemoteTmuxControlConnection {
         )
     }
 
-    /// Applies an accepted reorder optimistically; unmentioned windows keep their
-    /// slots, and remote topology events remain the out-of-band authority.
+    /// Optimistically reorders the mentioned windows while preserving other slots.
     func applyWindowReorder(_ reordered: [Int]) {
         windowOrder = decoding.windowOrder(windowOrder, applyingReorder: reordered)
     }

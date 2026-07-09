@@ -262,7 +262,7 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(connection.windowOrder == [2, 1])
     }
 
-    @Test func mirrorReorderWithoutASyncOwnerLeavesLocalOrderUnchanged() throws {
+    @Test func mirrorReorderRejectedBySyncOwnerLeavesLocalOrderUnchanged() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -273,6 +273,11 @@ struct RemoteTmuxMirrorTargetingTests {
         ))
         workspace.isRemoteTmuxMirror = true
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+        var requestedPanelOrder: [UUID]?
+        workspace.remoteTmuxWindowOrderSync = { panelOrder in
+            requestedPanelOrder = panelOrder
+            return false
+        }
 
         let reordered = workspace.reorderSurface(
             panelId: secondPanel.id,
@@ -281,6 +286,7 @@ struct RemoteTmuxMirrorTargetingTests {
         )
 
         #expect(!reordered)
+        #expect(requestedPanelOrder?.first == secondPanel.id)
         #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
     }
 
