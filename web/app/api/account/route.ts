@@ -42,6 +42,7 @@ import {
   SubrouterClientError,
 } from "../../../services/subrouter/client";
 import { deleteObject } from "../../../services/vault/storage";
+import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
@@ -446,7 +447,19 @@ async function deleteVaultRowsAndObjectsForAccount(
   } = {},
 ): Promise<void> {
   const db = cloudDb();
+  await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+    await deleteVaultRowsAndObjectsForAccountLocked(lockedDb, userId, options);
+  });
+}
 
+async function deleteVaultRowsAndObjectsForAccountLocked(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  options: {
+    readonly beforeObjectDeletion?: () => void;
+    readonly afterObjectDeletion?: () => Promise<void>;
+  },
+): Promise<void> {
   for (;;) {
     const snapshots = await db
       .select({ id: vaultSnapshots.id, objectKey: vaultSnapshots.objectKey })
@@ -463,6 +476,7 @@ async function deleteVaultRowsAndObjectsForAccount(
     if (snapshots.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
+  let grantOffset = 0;
   for (;;) {
     const grants = await db
       .select({
@@ -473,18 +487,20 @@ async function deleteVaultRowsAndObjectsForAccount(
       .from(vaultUploadGrants)
       .where(eq(vaultUploadGrants.userId, userId))
       .orderBy(asc(vaultUploadGrants.id))
-      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
+      .offset(grantOffset);
     if (grants.length === 0) break;
     options.beforeObjectDeletion?.();
     await Promise.all(grants.flatMap((grant) => [
       deleteObject(grant.objectKey),
       deleteObject(grant.uploadObjectKey),
     ]));
-    await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, grants.map((grant) => grant.id)));
     await options.afterObjectDeletion?.();
     if (grants.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
+    grantOffset += grants.length;
   }
 
+  let tombstoneOffset = 0;
   for (;;) {
     const tombstones = await db
       .select({
@@ -495,18 +511,17 @@ async function deleteVaultRowsAndObjectsForAccount(
       .from(vaultUploadTombstones)
       .where(eq(vaultUploadTombstones.userId, userId))
       .orderBy(asc(vaultUploadTombstones.id))
-      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
+      .offset(tombstoneOffset);
     if (tombstones.length === 0) break;
     options.beforeObjectDeletion?.();
     await Promise.all(tombstones.flatMap((tombstone) => [
       deleteObject(tombstone.objectKey),
       deleteObject(tombstone.uploadObjectKey),
     ]));
-    await db
-      .delete(vaultUploadTombstones)
-      .where(inArray(vaultUploadTombstones.id, tombstones.map((tombstone) => tombstone.id)));
     await options.afterObjectDeletion?.();
     if (tombstones.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
+    tombstoneOffset += tombstones.length;
   }
 
   for (;;) {
@@ -892,7 +907,10 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
       .where(eq(cloudVmBaseGenerations.createdByUserId, userId));
 
-    await tx.delete(devices).where(eq(devices.userId, userId));
+    await tx.delete(devices).where(or(
+      eq(devices.userId, userId),
+      inArray(devices.teamId, deletionTeamIds),
+    ));
 
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, userId));
   });

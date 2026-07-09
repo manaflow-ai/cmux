@@ -43,6 +43,8 @@ const errorsModule = await import("../services/errors");
 const realCaptureAscError = errorsModule.captureAscError;
 const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
+const vaultUsageModule = await import("../services/vault/usage");
+const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
 const subrouterClientModule = await import("../services/subrouter/client");
 const realCreateSubrouterClientFromEnv = subrouterClientModule.createSubrouterClientFromEnv;
 const vmErrorsModule = await import("../services/vms/errors");
@@ -69,16 +71,38 @@ const transaction = mock(async (...args: unknown[]) => {
   routeEvents.push("transaction");
   return await callback(mockTransaction);
 });
-const transactionSelect = mock(() => ({
-  from: (table: unknown) => ({
-    where: () => ({
-      for: async () => nextTransactionSelectResult(),
-      limit: async () => table === accountDeletionTombstones
-        ? nextTransactionTombstoneSelectResult()
-        : nextTransactionSelectResult(),
-    }),
-  }),
-}));
+const transactionSelect = mock(() => {
+  let selectedTable: unknown = null;
+  const rows = () => {
+    if (selectedTable === accountDeletionTombstones) return nextTransactionTombstoneSelectResult();
+    if (
+      selectedTable === vaultSnapshots ||
+      selectedTable === vaultUploadGrants ||
+      selectedTable === vaultUploadTombstones ||
+      selectedTable === vaultSessions
+    ) {
+      return nextSelectResult();
+    }
+    return nextTransactionSelectResult();
+  };
+  const builder = {
+    from: (table: unknown) => {
+      selectedTable = table;
+      return builder;
+    },
+    innerJoin: () => builder,
+    where: () => builder,
+    orderBy: () => builder,
+    limit: () => builder,
+    offset: () => builder,
+    for: async () => rows(),
+    then: (
+      resolve: (value: unknown[]) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise.resolve(rows()).then(resolve, reject),
+  };
+  return builder;
+});
 const transactionExecute = mock(async () => {
   routeEvents.push("transaction-lock");
 });
@@ -245,6 +269,7 @@ let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: readonly unknown[] = [];
 let useAccountRouteStubs = false;
 let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unknown } | null = null;
+let vaultLockUsers: string[] = [];
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -364,6 +389,18 @@ mock.module("../services/vault/storage", () => ({
     if (isAccountDeletionVaultObject(objectKey)) return deleteObject(...args);
     return realDeleteObject(...args);
   }) as typeof realDeleteObject,
+}));
+
+mock.module("../services/vault/usage", () => ({
+  ...vaultUsageModule,
+  withVaultUserQuotaLock: (async (...args: Parameters<typeof realWithVaultUserQuotaLock>) => {
+    const [db, userId, run] = args;
+    if (useAccountRouteStubs) {
+      vaultLockUsers.push(userId);
+      return await run(db);
+    }
+    return await realWithVaultUserQuotaLock(...args);
+  }) as typeof realWithVaultUserQuotaLock,
 }));
 
 mock.module("../services/billing/stripe", () => ({
@@ -505,6 +542,7 @@ beforeEach(() => {
   subrouterRevokeError = null;
   stackUserSelectedTeam = null;
   stackUserTeams = [];
+  vaultLockUsers = [];
 });
 
 afterEach(() => {
@@ -1072,13 +1110,14 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("deletes shared team devices registered by the deleted user", async () => {
+  test("deletes owned team and shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
     expect(deletedTables).toContain(devices);
     const deviceDelete = deletedWhere.find((entry) => entry.table === devices);
     expect(conditionColumnNames(deviceDelete?.condition)).toContain("user_id");
+    expect(conditionColumnNames(deviceDelete?.condition)).toContain("team_id");
     expect(updatedRows.map(({ table }) => table)).not.toContain(devices);
   });
 
@@ -1112,9 +1151,10 @@ describe("account deletion route", () => {
       "vault/u/account-user-1/latest.jsonl.zst",
     ]);
     expect(deletedTables).toContain(vaultSnapshots);
-    expect(deletedTables).toContain(vaultUploadGrants);
-    expect(deletedTables).toContain(vaultUploadTombstones);
+    expect(deletedTables).not.toContain(vaultUploadGrants);
+    expect(deletedTables).not.toContain(vaultUploadTombstones);
     expect(deletedTables).toContain(vaultSessions);
+    expect(vaultLockUsers).toContain("account-user-1");
   });
 
   test("keeps deletion retryable when vault object cleanup fails after VMs are destroyed", async () => {
