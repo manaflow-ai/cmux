@@ -1647,6 +1647,18 @@ func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk) bool {
+	written, ackOK := h.writeInputChunkLocked(session, chunk)
+	if !ackOK {
+		// enqueueInputAck canceled the attachment because its send queue
+		// was saturated; finish the cleanup like the output path does.
+		// Must run outside ptyWriteMu: dropAttachment can resize via
+		// applyCurrentPTYSize, which takes ptyWriteMu.
+		h.dropAttachment(chunk.attachment)
+	}
+	return written
+}
+
+func (h *wsPTYHub) writeInputChunkLocked(session *wsPTYSession, chunk wsPTYInputChunk) (written bool, ackOK bool) {
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
 
@@ -1655,12 +1667,12 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 	ptyFile := session.ptyFile
 	h.mu.Unlock()
 	if !current || ptyFile == nil {
-		return false
+		return false, true
 	}
 	return h.writeInputChunkWithPTYFile(ptyFile, chunk)
 }
 
-func (h *wsPTYHub) writeInputChunkWithPTYFile(ptyFile *os.File, chunk wsPTYInputChunk) bool {
+func (h *wsPTYHub) writeInputChunkWithPTYFile(ptyFile *os.File, chunk wsPTYInputChunk) (written bool, ackOK bool) {
 	total := 0
 	for total < len(chunk.payload) {
 		n, err := ptyFile.Write(chunk.payload[total:])
@@ -1668,21 +1680,20 @@ func (h *wsPTYHub) writeInputChunkWithPTYFile(ptyFile *os.File, chunk wsPTYInput
 			total += n
 		}
 		if err != nil {
-			return false
+			return false, true
 		}
 		if n == 0 {
-			return false
+			return false, true
 		}
 	}
-	h.ackInputChunk(chunk)
-	return true
+	return true, h.ackInputChunk(chunk)
 }
 
-func (h *wsPTYHub) ackInputChunk(chunk wsPTYInputChunk) {
+func (h *wsPTYHub) ackInputChunk(chunk wsPTYInputChunk) bool {
 	if !chunk.finalSeqChunk || chunk.attachment == nil || !chunk.attachment.inputSeqAck {
-		return
+		return true
 	}
-	chunk.attachment.enqueueInputAck(chunk.seq)
+	return chunk.attachment.enqueueInputAck(chunk.seq)
 }
 
 func (h *wsPTYHub) sessionForAttachment(sessionKey wsPTYSessionKey) *wsPTYSession {

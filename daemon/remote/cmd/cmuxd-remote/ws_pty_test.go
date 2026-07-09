@@ -523,6 +523,38 @@ func TestWebSocketPTYInputSeqEnforcement(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYSaturatedAckQueueDropsAttachment(t *testing.T) {
+	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-ack-full", "ack-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	// Saturate the send queue so the coalesced ack frame cannot be queued.
+	for i := 0; i < cap(attachment.send); i++ {
+		attachment.send <- wsPTYOutgoingFrame{}
+	}
+	chunk := wsPTYInputChunk{
+		attachmentID:  attachment.id,
+		attachment:    attachment,
+		payload:       []byte("x"),
+		seq:           1,
+		finalSeqChunk: true,
+	}
+	if !hub.writeInputChunk(session, chunk) {
+		t.Fatal("payload write should still succeed")
+	}
+	if got := readExactlyFromFile(t, readFile, 1, 5*time.Second); string(got) != "x" {
+		t.Fatalf("PTY input = %q, want x", string(got))
+	}
+	hub.mu.Lock()
+	_, stillAttached := session.attachments[attachment.id]
+	hub.mu.Unlock()
+	if stillAttached {
+		t.Fatal("attachment with a saturated ack queue should be dropped, not leaked")
+	}
+}
+
 func TestWebSocketPTYWriteRejectsMalformedSeq(t *testing.T) {
 	hub, _, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq-invalid", "seq-att", true)
 	defer close(done)
