@@ -52,7 +52,7 @@ final class CmuxFeatureFlags {
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single
     // evaluation-site rule.
-    static var allFlags: [CmuxFeatureFlagDefinition] {
+    static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
             // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -133,7 +133,7 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: Self.sidebarWorkspaceAgentSpinnerDefault
             ),
         ]
-    }
+    }()
 
     var isProUpgradeUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[0])
