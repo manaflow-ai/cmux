@@ -39,7 +39,11 @@ struct WorkspaceSidebarProcessTitleObservationTests {
             "Process-title animation must not continuously invalidate sidebar rows while titles are still changing."
         )
         #expect(immediatePublishCounts.allSatisfy { $0 == 0 })
-        #expect(schedulers.allSatisfy { $0.scheduledActionCount == 6 })
+        #expect(schedulers.allSatisfy { scheduler in
+            scheduler.scheduledActionCount(
+                delay: WorkspaceSidebarProcessTitleObservationModel.defaultSettleInterval
+            ) == 6
+        })
 
         schedulers.forEach { $0.fireAll() }
         #expect(
@@ -74,7 +78,11 @@ struct WorkspaceSidebarProcessTitleObservationTests {
             aggregate.processTitleDidChange()
         }
 
-        #expect(scheduler.scheduledActionCount == 16)
+        #expect(
+            scheduler.scheduledActionCount(
+                delay: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval
+            ) == 16
+        )
         #expect(aggregate.changeGeneration == 0)
         scheduler.fireAll()
         #expect(aggregate.changeGeneration == 1)
@@ -128,7 +136,11 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         let observationStream = model.changes()
 
         workspace.applyProcessTitle("Agent frame")
-        #expect(scheduler.scheduledActionCount == 1)
+        #expect(
+            scheduler.scheduledActionCount(
+                delay: WorkspaceSidebarProcessTitleObservationModel.defaultSettleInterval
+            ) == 1
+        )
         workspace.setCustomTitle("User Edit")
         scheduler.fireAll()
 

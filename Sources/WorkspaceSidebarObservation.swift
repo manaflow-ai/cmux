@@ -73,8 +73,12 @@ extension View {
 }
 
 /// Settles automatic process-title churn before it invalidates a sidebar row.
-/// The injected scheduler keeps the deadline deterministic in tests, while the
-/// async stream ties row observation to SwiftUI task cancellation.
+/// Publication waits for `settleInterval` of quiet, but is never deferred more
+/// than `maxDeferralInterval` past the first unpublished change: an agent TUI
+/// that animates its title faster than the settle interval must still surface
+/// a fresh title periodically instead of freezing the row until it goes quiet.
+/// The injected scheduler keeps both deadlines deterministic in tests, while
+/// the async stream ties row observation to SwiftUI task cancellation.
 @MainActor
 @Observable
 final class WorkspaceSidebarProcessTitleObservationModel {
@@ -83,26 +87,37 @@ final class WorkspaceSidebarProcessTitleObservationModel {
 
     nonisolated static let defaultSettleInterval: TimeInterval = 0.5
     nonisolated static let extensionSidebarAggregateInterval: TimeInterval = 0.05
+    /// Staleness bound as a multiple of the settle interval: 2 s for sidebar
+    /// rows, 0.2 s for the extension-sidebar aggregate.
+    nonisolated static let maxDeferralFactor: Double = 4
 
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
     @ObservationIgnored
     private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     @ObservationIgnored
-    private var cancelPendingChange: Cancellation?
+    private var cancelSettleAction: Cancellation?
+    @ObservationIgnored
+    private var cancelDeferralDeadline: Cancellation?
     @ObservationIgnored
     private let settleInterval: TimeInterval
+    @ObservationIgnored
+    private let maxDeferralInterval: TimeInterval
     @ObservationIgnored
     private let schedule: Scheduler
 
     init(
         settleInterval: TimeInterval = defaultSettleInterval,
+        maxDeferralInterval: TimeInterval? = nil,
         schedule: @escaping Scheduler = { delay, action in
-            let boundedDelay = max(0, delay)
-            let maximumDelay = Double(Int.max) / 1_000_000_000.0
-            let nanoseconds = Int((min(boundedDelay, maximumDelay) * 1_000_000_000.0).rounded(.up))
+            // Clamped far below Int.max nanoseconds (~292 years) so the Int
+            // conversion cannot trap.
+            let nanoseconds = min(max(0, delay) * 1_000_000_000.0, 9e18).rounded(.up)
             let timer = DispatchSource.makeTimerSource(queue: .main)
-            timer.schedule(deadline: .now() + .nanoseconds(nanoseconds))
+            // Generous leeway lets deadlines of concurrently churning
+            // workspaces land in one main-queue drain, so SwiftUI folds their
+            // row refreshes into a single layout transaction.
+            timer.schedule(deadline: .now() + .nanoseconds(Int(nanoseconds)), leeway: .milliseconds(100))
             timer.setEventHandler {
                 MainActor.assumeIsolated {
                     action()
@@ -116,6 +131,7 @@ final class WorkspaceSidebarProcessTitleObservationModel {
         }
     ) {
         self.settleInterval = max(0, settleInterval)
+        self.maxDeferralInterval = max(0, maxDeferralInterval ?? settleInterval * Self.maxDeferralFactor)
         self.schedule = schedule
     }
 
@@ -140,20 +156,33 @@ final class WorkspaceSidebarProcessTitleObservationModel {
             cancelPendingProcessTitleChange()
             return
         }
-        cancelPendingProcessTitleChange()
-        cancelPendingChange = schedule(settleInterval) { [weak self] in
-            guard let self else { return }
-            cancelPendingChange = nil
-            changeGeneration &+= 1
-            for continuation in changeObservers.values {
-                continuation.yield(())
+        cancelSettleAction?()
+        cancelSettleAction = schedule(settleInterval) { [weak self] in
+            self?.publishSettledChange()
+        }
+        // Non-resetting staleness bound: changes spaced closer than the
+        // settle interval reset the settle timer indefinitely, so without
+        // this deadline a title animating at 10 Hz would never publish.
+        if cancelDeferralDeadline == nil {
+            cancelDeferralDeadline = schedule(maxDeferralInterval) { [weak self] in
+                self?.publishSettledChange()
             }
         }
     }
 
+    private func publishSettledChange() {
+        cancelPendingProcessTitleChange()
+        changeGeneration &+= 1
+        for continuation in changeObservers.values {
+            continuation.yield(())
+        }
+    }
+
     func cancelPendingProcessTitleChange() {
-        cancelPendingChange?()
-        cancelPendingChange = nil
+        cancelSettleAction?()
+        cancelSettleAction = nil
+        cancelDeferralDeadline?()
+        cancelDeferralDeadline = nil
     }
 }
 
@@ -198,8 +227,10 @@ extension Workspace {
     // process titles settle separately: agent TUIs can animate their terminal
     // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
     // spaced farther apart than its window. Waiting for the title to settle
-    // prevents those frames from continuously invalidating LazyVStack rows.
-    // See https://github.com/manaflow-ai/cmux/issues/5570.
+    // prevents those frames from continuously invalidating LazyVStack rows,
+    // and the settle model's deferral deadline still republishes during
+    // sustained churn so a row's title cannot stay stale until the agent
+    // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
