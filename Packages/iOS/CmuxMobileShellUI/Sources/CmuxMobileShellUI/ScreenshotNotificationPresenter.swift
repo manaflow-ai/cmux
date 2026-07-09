@@ -17,8 +17,16 @@ final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterD
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = "Agent needs your input"
-            content.body = "Claude is asking: which database should I use, Postgres or SQLite?"
+            content.title = String(
+                localized: "mobile.screenshot.notification.title",
+                defaultValue: "Agent needs your input",
+                bundle: .main
+            )
+            content.body = String(
+                localized: "mobile.screenshot.notification.body",
+                defaultValue: "Claude is asking: which database should I use, Postgres or SQLite?",
+                bundle: .main
+            )
             content.sound = .default
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.6, repeats: false)
             center.add(UNNotificationRequest(

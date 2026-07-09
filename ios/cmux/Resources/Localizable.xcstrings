@@ -18,6 +18,23 @@
         }
       }
     },
+    "auth.error.browser_sign_in_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not complete browser sign-in. Try again or open sign-in in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでのサインインを完了できませんでした。もう一度試すか、ブラウザでサインインを開いてください。"
+          }
+        }
+      }
+    },
     "auth.error.code_expired": {
       "extractionState": "manual",
       "localizations": {
@@ -86,6 +103,23 @@
         }
       }
     },
+    "auth.error.invalid_callback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in callback was invalid. Try signing in again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインコールバックが無効です。もう一度サインインしてください。"
+          }
+        }
+      }
+    },
     "auth.error.invalid_code": {
       "extractionState": "manual",
       "localizations": {
@@ -103,23 +137,6 @@
         }
       }
     },
-    "auth.error.browser_sign_in_failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not complete browser sign-in. Try again or open sign-in in your browser."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザでのサインインを完了できませんでした。もう一度試すか、ブラウザでサインインを開いてください。"
-          }
-        }
-      }
-    },
     "auth.error.invalid_code_short": {
       "extractionState": "manual",
       "localizations": {
@@ -133,23 +150,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードが無効です。もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "auth.error.invalid_callback": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The sign-in callback was invalid. Try signing in again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインインコールバックが無効です。もう一度サインインしてください。"
           }
         }
       }
@@ -681,40 +681,6 @@
         }
       }
     },
-    "mobile.common.ok": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK"
-          }
-        }
-      }
-    },
-    "mobile.common.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        }
-      }
-    },
     "mobile.browser.addressPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -868,6 +834,23 @@
         }
       }
     },
+    "mobile.common.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
     "mobile.common.done": {
       "extractionState": "manual",
       "localizations": {
@@ -898,6 +881,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集"
+          }
+        }
+      }
+    },
+    "mobile.common.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "mobile.common.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
           }
         }
       }
@@ -1429,6 +1446,193 @@
         }
       }
     },
+    "mobile.computers.ping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.dnsFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS lookup failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS の解決に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達できません"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by Local Network privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワークのプライバシー設定によりブロックされました"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.reachableFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reachable · %d ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能 · %d ms"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reachable, but cmux isn't listening"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能ですが、cmux が応答していません"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウトしました"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No route to host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストへのルートがありません"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not pingable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping 非対応"
+          }
+        }
+      }
+    },
+    "mobile.computers.pingFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping opens a direct connection to each route to check if this phone can reach the Mac right now. It works even when a workspace shows Disconnected, which usually means the live stream dropped, not that the Mac is offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping は各ルートへ直接接続を開き、この iPhone から今 Mac に到達できるかを確認します。ワークスペースが「切断されました」と表示されていても機能します。これは通常、Mac がオフラインなのではなく、ライブ接続が切れたことを意味します。"
+          }
+        }
+      }
+    },
+    "mobile.computers.pinging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinging…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping 中…"
+          }
+        }
+      }
+    },
     "mobile.computers.presenceFooter": {
       "extractionState": "manual",
       "localizations": {
@@ -1667,193 +1871,6 @@
         }
       }
     },
-    "mobile.computers.ping": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping"
-          }
-        }
-      }
-    },
-    "mobile.computers.pinging": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pinging…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping 中…"
-          }
-        }
-      }
-    },
-    "mobile.computers.pingFooter": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping opens a direct connection to each route to check if this phone can reach the Mac right now. It works even when a workspace shows Disconnected, which usually means the live stream dropped, not that the Mac is offline."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping は各ルートへ直接接続を開き、この iPhone から今 Mac に到達できるかを確認します。ワークスペースが「切断されました」と表示されていても機能します。これは通常、Mac がオフラインなのではなく、ライブ接続が切れたことを意味します。"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.reachableFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reachable · %d ms"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "到達可能 · %d ms"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.refused": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reachable, but cmux isn't listening"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "到達可能ですが、cmux が応答していません"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.unreachable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No route to host"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホストへのルートがありません"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.timedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Timed out"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タイムアウトしました"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.dnsFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DNS lookup failed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DNS の解決に失敗しました"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.permissionDenied": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blocked by Local Network privacy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ローカルネットワークのプライバシー設定によりブロックされました"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unreachable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "到達できません"
-          }
-        }
-      }
-    },
-    "mobile.computers.ping.unsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not pingable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping 非対応"
-          }
-        }
-      }
-    },
     "mobile.connection.connected": {
       "extractionState": "manual",
       "localizations": {
@@ -1956,6 +1973,312 @@
         }
       }
     },
+    "mobile.debug.copyLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Debug Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグログをコピー"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.allRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allRemoved="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allRemoved="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers: "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "page "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.workspacesStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " workspaces, status "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " ワークスペース、ステータス "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfNoDisconnectedBanner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfNoDisconnectedBanner="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfNoDisconnectedBanner="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfRemainingPresent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemainingPresent="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemainingPresent="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfRemovedAbsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemovedAbsent="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemovedAbsent="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.refreshPreservedEmptyList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedEmptyList="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedEmptyList="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.refreshPreservedHalfList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedHalfList="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedHalfList="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.status.pass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PASS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PASS"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Computers Verifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ削除検証"
+          }
+        }
+      }
+    },
+    "mobile.devices.emptyDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a computer to start syncing terminal workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを追加してターミナルワークスペースの同期を開始します。"
+          }
+        }
+      }
+    },
+    "mobile.devices.emptyTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスがありません"
+          }
+        }
+      }
+    },
+    "mobile.devices.savedDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a saved computer to reconnect, or add another."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したコンピュータをタップして再接続するか、別のコンピュータを追加します。"
+          }
+        }
+      }
+    },
+    "mobile.devices.savedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したコンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.devices.setupHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouble connecting?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続できないときは"
+          }
+        }
+      }
+    },
     "mobile.deviceTree.collapseHint": {
       "extractionState": "manual",
       "localizations": {
@@ -1990,6 +2313,23 @@
         }
       }
     },
+    "mobile.deviceTree.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        }
+      }
+    },
     "mobile.deviceTree.connectToSeeWorkspaces": {
       "extractionState": "manual",
       "localizations": {
@@ -2020,23 +2360,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続して表示"
-          }
-        }
-      }
-    },
-    "mobile.deviceTree.connected": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続済み"
           }
         }
       }
@@ -2241,108 +2564,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d個のワークスペース"
-          }
-        }
-      }
-    },
-    "mobile.devices.emptyDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add a computer to start syncing terminal workspaces."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータを追加してターミナルワークスペースの同期を開始します。"
-          }
-        }
-      }
-    },
-    "mobile.devices.emptyTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No devices"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デバイスがありません"
-          }
-        }
-      }
-    },
-    "mobile.devices.savedDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap a saved computer to reconnect, or add another."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存したコンピュータをタップして再接続するか、別のコンピュータを追加します。"
-          }
-        }
-      }
-    },
-    "mobile.devices.savedTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存したコンピュータ"
-          }
-        }
-      }
-    },
-    "mobile.devices.setupHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trouble connecting?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続できないときは"
-          }
-        }
-      }
-    },
-    "mobile.debug.copyLogs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Debug Logs"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デバッグログをコピー"
           }
         }
       }
@@ -2649,6 +2870,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータを切り替え"
+          }
+        }
+      }
+    },
+    "mobile.loading.timeout.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行するか、このコンピュータをもう一度追加してください。"
+          }
+        }
+      }
+    },
+    "mobile.loading.timeout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ読み込み中"
           }
         }
       }
@@ -3180,23 +3435,6 @@
         }
       }
     },
-    "mobile.pairing.connectTimedOutFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
-          }
-        }
-      }
-    },
     "mobile.pairing.connectionDroppedFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -3244,6 +3482,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@:%d から応答がありません。ホストアプリが開いていて、モバイル接続を受け入れていることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.connectTimedOutFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
           }
         }
       }
@@ -3924,6 +4179,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is asking: which database should I use, Postgres or SQLite?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude が質問しています: どのデータベースを使いますか、Postgres それとも SQLite?"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが入力を求めています"
           }
         }
       }
@@ -4778,6 +5067,23 @@
         }
       }
     },
+    "mobile.signIn.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
     "mobile.signIn.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -4863,23 +5169,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "取消"
-          }
-        }
-      }
-    },
-    "mobile.signIn.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign In"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインイン"
           }
         }
       }
@@ -5003,23 +5292,6 @@
         }
       }
     },
-    "mobile.signIn.google": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign in with Google"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Google でサインイン"
-          }
-        }
-      }
-    },
     "mobile.signIn.github": {
       "extractionState": "manual",
       "localizations": {
@@ -5037,36 +5309,19 @@
         }
       }
     },
-    "mobile.signIn.restoring": {
+    "mobile.signIn.google": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restoring session"
+            "value": "Sign in with Google"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを復元しています"
-          }
-        }
-      }
-    },
-    "mobile.signIn.restoringMessage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Checking your saved session. Sign-in options are paused until this finishes."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存済みセッションを確認しています。完了するまでサインイン操作は一時停止されます。"
+            "value": "Google でサインイン"
           }
         }
       }
@@ -5101,6 +5356,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだセッションを復元しています"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoring": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを復元しています"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoringMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your saved session. Sign-in options are paused until this finishes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みセッションを確認しています。完了するまでサインイン操作は一時停止されます。"
           }
         }
       }
@@ -6244,6 +6533,23 @@
         }
       }
     },
+    "mobile.terminal.rendererFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal renderer failed to start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルレンダラーを起動できませんでした。"
+          }
+        }
+      }
+    },
     "mobile.terminal.select": {
       "extractionState": "manual",
       "localizations": {
@@ -6291,23 +6597,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル画面を起動しています。"
-          }
-        }
-      }
-    },
-    "mobile.terminal.rendererFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal renderer failed to start."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルレンダラーを起動できませんでした。"
           }
         }
       }
@@ -6720,6 +7009,23 @@
         }
       }
     },
+    "mobile.workspace.drag.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reorder this workspace or move it between groups."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグしてこのワークスペースを並べ替えるか、グループ間で移動します。"
+          }
+        }
+      }
+    },
     "mobile.workspace.emptyTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -6873,40 +7179,6 @@
         }
       }
     },
-    "mobile.loading.timeout.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行するか、このコンピュータをもう一度追加してください。"
-          }
-        }
-      }
-    },
-    "mobile.loading.timeout.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still loading"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだ読み込み中"
-          }
-        }
-      }
-    },
     "mobile.workspace.reconnect": {
       "extractionState": "manual",
       "localizations": {
@@ -7043,6 +7315,465 @@
         }
       }
     },
+    "mobile.workspaceAction.failure.action.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.createWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを作成"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.createWorkspaceInGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace in group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内にワークスペースを作成"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.deleteGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "delete group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.markWorkspaceRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark workspace as read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを既読にする"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.markWorkspaceUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark workspace as unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを未読にする"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.moveWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "move workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを移動"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.pinGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pin group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループをピン留め"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.pinWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pin workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをピン留め"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.renameGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rename group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を変更"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.renameWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rename workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名を変更"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.ungroupGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ungroup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ解除"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.unpinGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unpin group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループのピン留めを外す"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.unpinWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unpin workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのピン留めを外す"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't %@: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@できませんでした: %2$@。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.authorization.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was not authorized by your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で認証されませんでした"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.authorization.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was not authorized by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で認証されませんでした"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.busy.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "another workspace action is still finishing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペース操作がまだ完了中です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.busy.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is finishing another workspace action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が別のワークスペース操作を完了しています"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.notConnected.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に接続されていません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.notConnected.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続されていません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.rejected.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was rejected by your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に拒否されました"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.rejected.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was rejected by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に拒否されました"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.timedOut.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out talking to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac との通信がタイムアウトしました"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.timedOut.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out talking to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ との通信がタイムアウトしました"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.unsupported.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your Mac doesn't support that action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac はその操作に対応していません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.unsupported.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ doesn't support that action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はその操作に対応していません"
+          }
+        }
+      }
+    },
     "mobile.workspaceGroup.collapse.a11y": {
       "extractionState": "manual",
       "localizations": {
@@ -7060,6 +7791,74 @@
         }
       }
     },
+    "mobile.workspaceGroup.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Group (Close Workspaces)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除（ワークスペースを閉じる）"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.delete.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.delete.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will delete the group and close its workspaces on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上のこのグループを削除し、そのワークスペースを閉じます。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.delete.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Group?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除しますか？"
+          }
+        }
+      }
+    },
     "mobile.workspaceGroup.expand.a11y": {
       "extractionState": "manual",
       "localizations": {
@@ -7073,6 +7872,227 @@
           "stringUnit": {
             "state": "translated",
             "value": "グループを展開"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.footer.a11y.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.footer.a11y.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop above to add to the group, or below to place this workspace at the top level."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上にドロップするとグループに追加され、下にドロップするとこのワークスペースを最上位に配置します。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.footer.a11y.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End of %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の終わり"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace in Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内に新規ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループをピン留め"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.rename.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を変更"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.rename.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を変更"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.ungroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungroup (Keep Workspaces)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ解除（ワークスペースは残す）"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.ungroup.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungroup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ解除"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.ungroup.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will dissolve the group on your Mac and keep its workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上のこのグループを解除し、ワークスペースは残します。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.ungroup.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungroup Group?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを解除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.unpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループのピン留めを外す"
           }
         }
       }
@@ -7247,23 +8267,6 @@
         }
       }
     },
-    "mobile.workspaces.settings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Settings"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定"
-          }
-        }
-      }
-    },
     "mobile.workspaces.macPicker.allMacs": {
       "extractionState": "manual",
       "localizations": {
@@ -7277,6 +8280,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべてのコンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.macPicker.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
           }
         }
       }
@@ -7298,19 +8318,19 @@
         }
       }
     },
-    "mobile.workspaces.macPicker.label": {
+    "mobile.workspaces.settings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer"
+            "value": "Settings"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ"
+            "value": "設定"
           }
         }
       }
@@ -8097,210 +9117,6 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.allRemoved": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "allRemoved="
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "allRemoved="
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.checkpoint.computers": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "computers: "
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "computers: "
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.checkpoint.page": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "page "
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ "
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.checkpoint.workspacesStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " workspaces, status "
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " ワークスペース、ステータス "
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.halfNoDisconnectedBanner": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "halfNoDisconnectedBanner="
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "halfNoDisconnectedBanner="
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.halfRemainingPresent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "halfRemainingPresent="
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "halfRemainingPresent="
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.halfRemovedAbsent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "halfRemovedAbsent="
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "halfRemovedAbsent="
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.refreshPreservedEmptyList": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "refreshPreservedEmptyList="
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "refreshPreservedEmptyList="
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.refreshPreservedHalfList": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "refreshPreservedHalfList="
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "refreshPreservedHalfList="
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.status.pass": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PASS"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PASS"
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.status.running": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RUNNING"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RUNNING"
-          }
-        }
-      }
-    },
-    "mobile.deleteComputersVerifier.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Computers Verifier"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータ削除検証"
-          }
-        }
-      }
-    },
     "terminal.zoom.restore_built_in": {
       "extractionState": "manual",
       "localizations": {
@@ -8333,528 +9149,6 @@
             "value": "デフォルトに設定"
           }
         }
-      }
-    },
-    "mobile.workspaceGroup.newWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Workspace in Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ内に新規ワークスペース"
-          }
-        }
-      }
-    },
-    "mobile.workspace.drag.a11y": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drag to reorder this workspace or move it between groups."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドラッグしてこのワークスペースを並べ替えるか、グループ間で移動します。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.footer.a11y.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "End of %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の終わり"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.footer.a11y.hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop above to add to the group, or below to place this workspace at the top level."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上にドロップするとグループに追加され、下にドロップするとこのワークスペースを最上位に配置します。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.footer.a11y.fallback": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ"
-          }
-        }
-      }
-    },
-    "mobile.common.dismiss": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閉じる"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.pin": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pin Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループをピン留め"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.unpin": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unpin Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループのピン留めを外す"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.rename.action": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ名を変更"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.rename.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ名を変更"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.rename.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Group name"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ名"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.ungroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungroup (Keep Workspaces)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ解除（ワークスペースは残す）"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.delete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Group (Close Workspaces)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを削除（ワークスペースを閉じる）"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.ungroup.confirmTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungroup Group?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを解除しますか？"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.ungroup.confirmMessage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This will dissolve the group on your Mac and keep its workspaces."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac 上のこのグループを解除し、ワークスペースは残します。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.ungroup.confirmAction": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungroup"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ解除"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.delete.confirmTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Group?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを削除しますか？"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.delete.confirmMessage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This will delete the group and close its workspaces on your Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac 上のこのグループを削除し、そのワークスペースを閉じます。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceGroup.delete.confirmAction": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを削除"
-          }
-        }
-      }
-    },
-    "mobile.workspaceAction.failure.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't %@: %@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@できませんでした: %2$@。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceAction.failure.action.createWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを作成" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.createWorkspaceInGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace in group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ内にワークスペースを作成" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.moveWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "move workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを移動" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.renameWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "rename workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース名を変更" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.pinWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "pin workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをピン留め" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.unpinWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unpin workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのピン留めを外す" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.markWorkspaceRead": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "mark workspace as read" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを既読にする" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.markWorkspaceUnread": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "mark workspace as unread" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを未読にする" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.closeWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "close workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを閉じる" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.renameGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "rename group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ名を変更" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.pinGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "pin group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループをピン留め" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.unpinGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unpin group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループのピン留めを外す" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.ungroupGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "ungroup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ解除" } }
-      }
-    },
-    "mobile.workspaceAction.failure.action.deleteGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "delete group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループを削除" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.notConnected.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "not connected to %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ に接続されていません" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.notConnected.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "not connected to your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac に接続されていません" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.timedOut.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "timed out talking to %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ との通信がタイムアウトしました" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.timedOut.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "timed out talking to your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac との通信がタイムアウトしました" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.authorization.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was not authorized by %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ で認証されませんでした" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.authorization.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was not authorized by your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac で認証されませんでした" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.busy.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ is finishing another workspace action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ が別のワークスペース操作を完了しています" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.busy.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "another workspace action is still finishing" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "別のワークスペース操作がまだ完了中です" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.rejected.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was rejected by %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ に拒否されました" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.rejected.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was rejected by your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac に拒否されました" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.unsupported.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ doesn't support that action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ はその操作に対応していません" } }
-      }
-    },
-    "mobile.workspaceAction.failure.reason.unsupported.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "your Mac doesn't support that action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac はその操作に対応していません" } }
       }
     }
   },
