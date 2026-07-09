@@ -103,6 +103,7 @@ extension CMUXCLI {
                 "workspace_id": workspaceId,
                 "session_id": sessionID,
                 "lifecycle_id": lifecycleID,
+                "acknowledge_lifecycle_if_session_absent": !intentionalOnly,
             ]
             if let surfaceID {
                 params["surface_id"] = surfaceID

@@ -4135,7 +4135,6 @@ class TerminalController {
 
             return .ok(["all_workspaces": true, "workspace_count": targets.count, "sessions": sessions, "errors": errors])
         }
-
         let resolved = v2ResolveRemotePTYTarget(
             params: params,
             requestedWorkspaceId: requestedWorkspaceId,
@@ -4160,7 +4159,8 @@ class TerminalController {
                 return .ok(payload)
             }
             let sessions = try controller.listPTYSessions()
-            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty,
+            let shouldAcknowledgeAbsentLifecycle = v2Bool(params, "acknowledge_lifecycle_if_session_absent") == true
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty, shouldAcknowledgeAbsentLifecycle,
                !sessions.contains(where: { ($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == sessionID }) {
                 try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
             }
