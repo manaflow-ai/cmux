@@ -9,6 +9,10 @@ import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../services/apns/routeHandler";
 import {
+  AccountDeletionMutationBlockedError,
+  withAccountDeletionUserMutationLock,
+} from "../../../services/account/deletion";
+import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
@@ -48,47 +52,55 @@ async function registerDeviceToken(request: Request): Promise<Response> {
 
   const db = cloudDb();
 
-  const registered = await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
+  let registered: boolean;
+  try {
+    registered = await withAccountDeletionUserMutationLock(db, user.id, async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
-    const [existingToken] = await tx
-      .select({ userId: deviceTokens.userId })
-      .from(deviceTokens)
-      .where(eq(deviceTokens.deviceToken, deviceToken))
-      .limit(1);
-
-    if (existingToken?.userId !== user.id) {
-      const [registrationCount] = await tx
-        .select({ total: count() })
+      const [existingToken] = await tx
+        .select({ userId: deviceTokens.userId })
         .from(deviceTokens)
-        .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
-      if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
-        return false;
-      }
-    }
+        .where(eq(deviceTokens.deviceToken, deviceToken))
+        .limit(1);
 
-    await tx
-      .insert(deviceTokens)
-      .values({
-        userId: user.id,
-        deviceToken,
-        bundleId: bundle.bundleId,
-        environment: bundle.environment,
-        platform,
-      })
-      .onConflictDoUpdate({
-        target: deviceTokens.deviceToken,
-        set: {
+      if (existingToken?.userId !== user.id) {
+        const [registrationCount] = await tx
+          .select({ total: count() })
+          .from(deviceTokens)
+          .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
+        if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
+          return false;
+        }
+      }
+
+      await tx
+        .insert(deviceTokens)
+        .values({
           userId: user.id,
+          deviceToken,
           bundleId: bundle.bundleId,
           environment: bundle.environment,
           platform,
-          updatedAt: new Date(),
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: deviceTokens.deviceToken,
+          set: {
+            userId: user.id,
+            bundleId: bundle.bundleId,
+            environment: bundle.environment,
+            platform,
+            updatedAt: new Date(),
+          },
+        });
 
-    return true;
-  });
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+    }
+    throw error;
+  }
 
   if (!registered) {
     return jsonResponse({ error: "too_many_devices" }, 429);
@@ -112,9 +124,18 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
 
   const db = cloudDb();
-  await db
-    .delete(deviceTokens)
-    .where(and(eq(deviceTokens.deviceToken, deviceToken), eq(deviceTokens.userId, user.id)));
+  try {
+    await withAccountDeletionUserMutationLock(db, user.id, async (tx) => {
+      await tx
+        .delete(deviceTokens)
+        .where(and(eq(deviceTokens.deviceToken, deviceToken), eq(deviceTokens.userId, user.id)));
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+    }
+    throw error;
+  }
 
   return jsonResponse({ ok: true });
 }

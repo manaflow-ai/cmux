@@ -2,6 +2,7 @@ import { and, count, eq, gte, lt, sql } from "drizzle-orm";
 
 import type { cloudDb } from "../../db/client";
 import { notificationSendEvents } from "../../db/schema";
+import { withAccountDeletionUserMutationLock } from "../account/deletion";
 
 type NotificationDb = ReturnType<typeof cloudDb>;
 
@@ -26,7 +27,7 @@ export async function recordPushSendOrThrow(
 ): Promise<void> {
   const windowStart = new Date(now.getTime() - PUSH_RATE_LIMIT_WINDOW_MS);
 
-  await db.transaction(async (tx) => {
+  await withAccountDeletionUserMutationLock(db, userId, async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 1))`);
     await tx
       .delete(notificationSendEvents)

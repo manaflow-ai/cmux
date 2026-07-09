@@ -77,6 +77,18 @@ type AccountDeletionRuntime = {
 };
 
 type AccountDeletionTombstoneRuntime = Pick<AccountDeletionRuntime, "cloudDb">;
+type AccountDeletionDb = ReturnType<typeof cloudDb>;
+
+export type AccountDeletionUserMutationLockOptions = {
+  readonly allowAccountDeletion?: boolean;
+};
+
+export class AccountDeletionMutationBlockedError extends Error {
+  constructor() {
+    super("Account writes are disabled while account deletion is in progress.");
+    this.name = "AccountDeletionMutationBlockedError";
+  }
+}
 
 const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   cloudDb,
@@ -201,6 +213,40 @@ export async function hasAccountDeletionTombstone(
     .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
     .limit(1);
   return row?.userIdHash === userIdHash && isBlockingAccountDeletionStatus(row.status);
+}
+
+export async function withAccountDeletionUserMutationLock<T>(
+  db: AccountDeletionDb,
+  userId: string,
+  run: (db: AccountDeletionDb) => Promise<T>,
+  options: AccountDeletionUserMutationLockOptions = {},
+): Promise<T> {
+  return await db.transaction(async (tx) => {
+    const lockedDb = tx as unknown as AccountDeletionDb;
+    await assertAccountDeletionUserMutationAllowed(lockedDb, userId, options);
+    return await run(lockedDb);
+  });
+}
+
+export async function assertAccountDeletionUserMutationAllowed(
+  db: AccountDeletionDb,
+  userId: string,
+  options: AccountDeletionUserMutationLockOptions = {},
+): Promise<void> {
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+  if (options.allowAccountDeletion) return;
+  const userIdHash = accountDeletionUserHash(userId);
+  const [deletion] = await db
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  if (deletion?.userIdHash === userIdHash && isBlockingAccountDeletionStatus(deletion.status)) {
+    throw new AccountDeletionMutationBlockedError();
+  }
 }
 
 export async function markStackUserDeletionInProgress(

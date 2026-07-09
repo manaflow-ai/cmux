@@ -12,6 +12,7 @@ import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
+import { AccountDeletionMutationBlockedError } from "../../../../services/account/deletion";
 import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
@@ -102,6 +103,9 @@ async function sendPush(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof PushRateLimitExceededError) {
       return rateLimitResponse(error);
+    }
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
     }
     throw error;
   }

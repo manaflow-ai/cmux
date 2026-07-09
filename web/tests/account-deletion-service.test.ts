@@ -16,10 +16,12 @@ import {
 } from "../db/schema";
 import type { ProviderId } from "../services/vms/drivers";
 import {
+  AccountDeletionMutationBlockedError,
   assertAccountDeletionCanStart,
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
   hasAccountDeletionTombstone,
+  withAccountDeletionUserMutationLock,
 } from "../services/account/deletion";
 import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../services/billing/pro";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
@@ -234,6 +236,32 @@ describe("account deletion cleanup", () => {
     };
 
     await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(false);
+  });
+
+  test("blocks user mutations under the deletion lock when a tombstone appears", async () => {
+    const db = fakeAccountDeletionMutationDb([{
+      userIdHash: accountDeletionUserHash("user-1"),
+      status: "pending",
+    }]);
+
+    await expect(withAccountDeletionUserMutationLock(db, "user-1", async () => {
+      calls.push("write-user-data");
+    })).rejects.toBeInstanceOf(AccountDeletionMutationBlockedError);
+
+    expect(calls).toEqual(["transaction", "lock-account-deletion"]);
+  });
+
+  test("runs user mutations under the deletion lock without a blocking tombstone", async () => {
+    const db = fakeAccountDeletionMutationDb([{
+      userIdHash: accountDeletionUserHash("user-1"),
+      status: "failed",
+    }]);
+
+    await withAccountDeletionUserMutationLock(db, "user-1", async () => {
+      calls.push("write-user-data");
+    });
+
+    expect(calls).toEqual(["transaction", "lock-account-deletion", "write-user-data"]);
   });
 
   test("claims Stack-delete retries as in-progress work", async () => {
@@ -847,6 +875,24 @@ describe("account deletion cleanup", () => {
     expect(subscriptionUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
   });
 });
+
+function fakeAccountDeletionMutationDb(rows: Array<{ userIdHash: string; status: string }>): ReturnType<typeof cloudDb> {
+  return {
+    transaction: async <T>(callback: (tx: {
+      execute: () => Promise<unknown[]>;
+      select: () => ReturnType<typeof selectBuilder>;
+    }) => Promise<T>) => {
+      calls.push("transaction");
+      return await callback({
+        execute: async () => {
+          calls.push("lock-account-deletion");
+          return [];
+        },
+        select: () => selectBuilder(() => rows),
+      });
+    },
+  } as unknown as ReturnType<typeof cloudDb>;
+}
 
 function fakeDb() {
   return {
