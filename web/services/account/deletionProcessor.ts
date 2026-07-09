@@ -71,11 +71,9 @@ export async function processAccountDeletionForUser(
 
   let stackDeletePending =
     claimedStatus === "stack_delete_pending" || claimedStatus === "stack_delete_in_progress";
-  let cleanupStarted = false;
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
-      cleanupStarted = true;
       await dependencies.deleteCmuxAccountData({ userId: input.userId });
       const postHogDistinctIds = await dependencies.listPostHogDeletionDistinctIds({ userId: input.userId });
       await dependencies.deletePostHogPersonData(input.userId, postHogDistinctIds);
@@ -89,10 +87,8 @@ export async function processAccountDeletionForUser(
   } catch (error) {
     if (stackDeletePending) {
       await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId, error });
-    } else if (cleanupStarted) {
-      await dependencies.markAccountDeletionRetryPending({ userId: input.userId, error });
     } else {
-      await dependencies.markAccountDeletionFailed({ userId: input.userId, error });
+      await dependencies.markAccountDeletionRetryPending({ userId: input.userId, error });
     }
     throw error;
   }

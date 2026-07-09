@@ -70,7 +70,7 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("records non-blocking failures before cleanup starts", async () => {
+  test("keeps pre-cleanup failures retryable after the deletion request is accepted", async () => {
     await expect(
       processAccountDeletionForUser({ userId: "user-1" }, dependencies({
         loadStackUser: async (userId) => {
@@ -83,7 +83,7 @@ describe("account deletion processor", () => {
     expect(calls).toEqual([
       "claim:user-1",
       "load-stack:user-1",
-      "failed:user-1:Stack lookup failed",
+      "retry-pending:user-1:Stack lookup failed",
     ]);
   });
 

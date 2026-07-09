@@ -327,7 +327,10 @@ async function persistCreateProviderHandle(
       failureMessage: null,
       updatedAt: input.now,
     })
-    .where(eq(cloudVms.id, input.id))
+    .where(and(
+      eq(cloudVms.id, input.id),
+      eq(cloudVms.status, "provisioning"),
+    ))
     .returning();
   return vm ?? null;
 }
