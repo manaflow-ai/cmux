@@ -91,7 +91,11 @@ def load_titles():
 
 
 def identify(path):
-    w, h = subprocess.check_output([MAGICK, "identify", "-format", "%w %h", path], text=True).split()
+    identify_bin = shutil.which("identify") if os.path.basename(MAGICK or "") == "convert" else MAGICK
+    if not identify_bin:
+        raise RuntimeError("ImageMagick identify not found")
+    cmd = [identify_bin, "-format", "%w %h", path] if os.path.basename(identify_bin) == "identify" else [identify_bin, "identify", "-format", "%w %h", path]
+    w, h = subprocess.check_output(cmd, text=True).split()
     return int(w), int(h)
 
 

@@ -50,7 +50,7 @@ record() {
 
 record claude   "claude '$PROMPT'"
 record codex    "codex '$PROMPT'"
-record opencode "opencode"            # opencode: type prompt after launch
+record opencode "opencode '$PROMPT'"
 record pi       "pi '$PROMPT'"
 
 python3 "$HERE/embed_sessions.py" "$OUT"

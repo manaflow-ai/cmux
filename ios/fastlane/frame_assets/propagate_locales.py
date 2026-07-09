@@ -38,6 +38,8 @@ def main():
     if not raws(en):
         raise SystemExit(f"no en-US raws in {en}; run capture first")
     ja_raws = raws(ja)
+    if not ja_raws:
+        raise SystemExit(f"no ja raws in {ja}; run capture first")
     n = 0
     for loc in LOCALES:
         if loc in ("en-US", "ja"):

@@ -13,7 +13,7 @@ name: iOS streamed-screenshot CI validation
 on:
   workflow_dispatch:
   push:
-    branches: [feat-ios-appstore-prod-lane]
+    branches: [main, feat-ios-appstore-prod-lane]
     paths: [".github/workflows/ios-streamed-validate.yml"]
 
 permissions:
@@ -261,7 +261,22 @@ jobs:
           idb list-targets >/dev/null 2>&1 || echo "warning: idb list-targets failed (will retry in capture)"
           curl -fsS http://localhost:3000/handler/sign-in >/dev/null || {
             echo "::error::web backend not reachable from capture step"; cat /tmp/webdev.log || true; exit 1; }
-          SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(x["udid"] for r in d["devices"].values() for x in r if "Pro Max" in x["name"]))')"
+          SIM_ID="$(xcrun simctl list devices booted -j | python3 - <<'PY'
+          import json
+          import sys
+
+          data = json.load(sys.stdin)
+          matches = [
+              device["udid"]
+              for runtime in data.get("devices", {}).values()
+              for device in runtime
+              if device.get("name") == "iPhone 17 Pro Max"
+          ]
+          if not matches:
+              raise SystemExit("no booted iPhone 17 Pro Max simulator found after ios/scripts/reload.sh")
+          print(matches[0])
+          PY
+          )"
           echo "sim: $SIM_ID"
           xcrun simctl ui "$SIM_ID" appearance dark || true
           # Launch the tagged Mac app FIRST: mobile-dev-launch --ensure-mac mints

@@ -1,1 +1,1 @@
-terminal,agent kodowania,AI,claude,codex,ssh,deweloper,devops,ghostty,zdalny,cli,cmux
+terminal,agent kodowania,AI,ssh,deweloper,devops,zdalny,cli,automatyzacja,cmux

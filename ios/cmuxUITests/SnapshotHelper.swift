@@ -76,6 +76,7 @@ open class Snapshot: NSObject {
             setLaunchArguments(app)
         } catch let error {
             NSLog(error.localizedDescription)
+            XCTFail(error.localizedDescription)
         }
     }
 
