@@ -696,7 +696,9 @@ final class CmuxWebView: WKWebView {
         // Manifest commands may use Control or Option, so dispatch them before
         // the Command-only cmux menu-equivalent guard.
         if #available(macOS 15.4, *),
-           AppDelegate.shared?.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
+           let appDelegate = AppDelegate.shared,
+           appDelegate.shouldOfferBrowserWebExtensionCommand(event),
+           appDelegate.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
             return finish(true)
         }
 

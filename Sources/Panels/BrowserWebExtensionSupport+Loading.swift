@@ -109,6 +109,12 @@ extension BrowserWebExtensionSupport {
         invalidation.refresh()
     }
 
+    func extensionPagePanels(usingContextIdentifier contextIdentifier: ObjectIdentifier) -> [BrowserPanel] {
+        tabAdapters.values.compactMap(\.panel).filter {
+            $0.webExtensionPageContextIdentifier == contextIdentifier
+        }
+    }
+
     private func actionSnapshot(
         for record: BrowserWebExtensionLoadedRecord,
         tabAdapter: BrowserWebExtensionTabAdapter?
@@ -134,6 +140,9 @@ extension BrowserWebExtensionSupport {
         preservePermissionState: Bool = true
     ) -> BrowserWebExtensionEntry? {
         guard let record = loadedByEntryID[entryID] else { return nil }
+        let extensionPagePanels = extensionPagePanels(
+            usingContextIdentifier: ObjectIdentifier(record.context)
+        )
         if preservePermissionState {
             persistPermissionState(
                 entryID: entryID,
@@ -159,6 +168,10 @@ extension BrowserWebExtensionSupport {
         loadedEntryIDsInOrder.removeAll { $0 == entryID }
         loadErrorsByEntryID.removeValue(forKey: entryID)
         refreshLoadErrors()
+
+        for panel in extensionPagePanels {
+            closeOpenedBrowserTab(panel)
+        }
 
         let closingPopouts = popouts.filter { $0.extensionContext === record.context }
         for popout in closingPopouts {
