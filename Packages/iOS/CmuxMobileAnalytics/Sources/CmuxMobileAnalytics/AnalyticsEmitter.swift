@@ -52,12 +52,6 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         case barrier(UUID)
     }
 
-    private struct IdentifyRequest: Sendable {
-        let userID: String?
-        let alias: String?
-        let properties: [String: AnalyticsValue]
-    }
-
     private let uploader: any AnalyticsUploading
     private let consent: any AnalyticsConsentProviding
     private let clock: any Clock<Duration>
@@ -72,7 +66,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
 
     private var superProperties: [String: AnalyticsValue] = [:]
     private var distinctID: String?
-    private var lastAuthenticatedIdentify: IdentifyRequest?
+    private var lastAuthenticatedIdentify: AnalyticsIdentifyRequest?
     private var authenticatedIdentifyReplayPending = false
     private var pending: [AnalyticsEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
@@ -160,6 +154,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         ))
     }
 
+    /// Replaces the properties merged onto every subsequent analytics event.
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
         continuation.yield(.superProperties(properties))
     }
@@ -169,6 +164,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         continuation.yield(.consentChanged(isEnabled: isEnabled))
     }
 
+    /// Waits until all analytics work submitted before this call has been processed.
     public func flush() async {
         let id = UUID()
         await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
@@ -257,7 +253,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         } else {
             superProperties.removeValue(forKey: "user_id")
         }
-        let request = IdentifyRequest(userID: userID, alias: alias, properties: properties)
+        let request = AnalyticsIdentifyRequest(userID: userID, alias: alias, properties: properties)
         if userID != nil {
             lastAuthenticatedIdentify = request
             authenticatedIdentifyReplayPending = true
@@ -282,7 +278,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         authenticatedIdentifyReplayPending = result == .retry
     }
 
-    private func sendIdentify(_ request: IdentifyRequest) async -> AnalyticsUploadResult {
+    private func sendIdentify(_ request: AnalyticsIdentifyRequest) async -> AnalyticsUploadResult {
         var personProps: [String: any Sendable] = [:]
         for (key, value) in request.properties { personProps[key] = value.jsonObject }
         let aliasID = request.alias ?? (anonymousID == request.userID ? nil : anonymousID)

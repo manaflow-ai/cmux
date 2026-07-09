@@ -32,19 +32,3 @@ public struct MobileTelemetryConsentStore: Sendable {
         backing.set(isEnabled, forKey: Self.defaultsKey)
     }
 }
-
-private final class MobileTelemetryConsentDefaultsBacking: @unchecked Sendable {
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults) {
-        self.defaults = defaults
-    }
-
-    func bool(forKey key: String) -> Bool? {
-        defaults.object(forKey: key) as? Bool
-    }
-
-    func set(_ value: Bool, forKey key: String) {
-        defaults.set(value, forKey: key)
-    }
-}
