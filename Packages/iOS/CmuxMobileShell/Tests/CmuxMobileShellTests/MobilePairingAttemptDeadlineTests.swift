@@ -219,6 +219,45 @@ import Testing
         #expect(store.connectionError?.isEmpty == false)
     }
 
+    @Test func staleManualHostApprovalDoesNotPersistTrustOrRequestTicket() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: box),
+            now: { clock.now },
+            supportedRouteKinds: [.manualHost]
+        )
+        let trustStore = InMemoryMobileManualHostTrustStore()
+        let store = makeStore(runtime: runtime, manualHostTrustStore: trustStore)
+        var isCurrent = true
+
+        let queued = await store.connectManualHost(
+            name: "Stale LAN",
+            host: "192.168.1.77",
+            port: 58_465,
+            recordsPairingAttempt: true,
+            ifStillCurrent: { isCurrent }
+        )
+
+        #expect(queued == .needsUserApproval)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:58465")
+
+        isCurrent = false
+        let approved = await store.acceptManualHostTrustWarning()
+        let route = try CmxAttachRoute(
+            id: "manual_host",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: 58_465)
+        )
+        let scope = try #require(MobileManualHostTrustScope(route: route, stackUserID: nil))
+
+        #expect(approved == .superseded)
+        #expect(store.manualHostTrustWarning == nil)
+        #expect(await trustStore.isTrusted(scope) == false)
+        #expect(await router.count(of: "mobile.attach_ticket.create") == 0)
+    }
+
     @Test func staleManualHostApprovalLookupCannotReplaceCurrentPrompt() async throws {
         let trustStore = BlockingManualHostTrustStore()
         let store = makeStore(

@@ -37,6 +37,15 @@ import Testing
         )
     }
 
+    private func legacyLANStoredAsTailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "legacy_lan",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "192.168.1.77", port: port),
+            priority: 1
+        )
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
@@ -119,6 +128,15 @@ import Testing
     @Test func tailscaleDNSBeatsManualHostIPFallback() throws {
         let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(50922), try manualHost(50922), try magicDNS(50922)],
+            supportedKinds: [.debugLoopback, .manualHost, .tailscale],
+            preferNonLoopback: true
+        )
+        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
+    }
+
+    @Test func tailscaleDNSBeatsLegacyLANRouteStoredAsTailscale() throws {
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
+            [try loopback(50922), try legacyLANStoredAsTailscale(50922), try magicDNS(50922)],
             supportedKinds: [.debugLoopback, .manualHost, .tailscale],
             preferNonLoopback: true
         )
