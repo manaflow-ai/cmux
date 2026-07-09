@@ -60,6 +60,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         return try body()
     }
 
+    @MainActor
     private func contextMenuActionID(_ item: NSMenuItem) -> String? {
         (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.id
     }
