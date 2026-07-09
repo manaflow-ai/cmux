@@ -156,6 +156,10 @@ extension AppDelegate {
                     noneItem.representedObject = WorkspaceDefaultLayoutBox(windowId: context.windowId, actionID: nil)
                     noneItem.state = management.defaultLayout.hasDefault ? .off : .on
                     submenu.addItem(noneItem)
+                    // Intentional redesign: the "Default for New Workspace"
+                    // section header above replaces the old separator that used
+                    // to sit between "None (Blank Terminal)" and the layout
+                    // entries, so layout rows follow "None" directly here.
                     for entry in management.defaultLayout.entries {
                         let item = NSMenuItem(
                             title: entry.title,

@@ -40,14 +40,16 @@ struct NewWorkspaceMenuModel: Equatable {
         var createRows: [CreateRow] = []
         var layoutRows: [LayoutRow] = []
         var pendingCreateSeparator = false
+        // Tracks whether any create action has been emitted yet, so a leading
+        // separator is dropped. Kept as a flag rather than rescanning the
+        // growing `createRows` array on every separator (avoids O(n^2) over
+        // user-configurable menu items).
+        var createSectionHasAction = false
 
         for item in newWorkspaceContextMenuItems {
             switch item {
             case .separator:
-                if createRows.contains(where: { row in
-                    if case .action = row { return true }
-                    return false
-                }) {
+                if createSectionHasAction {
                     pendingCreateSeparator = true
                 }
             case .action(let menuAction):
@@ -66,6 +68,7 @@ struct NewWorkspaceMenuModel: Equatable {
                         deletable: deletable(menuAction.action),
                         isDefault: menuAction.action.id == newWorkspaceActionID
                     ))
+                    createSectionHasAction = true
                     pendingCreateSeparator = false
                 }
             }
