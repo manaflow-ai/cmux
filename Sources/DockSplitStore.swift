@@ -6,7 +6,7 @@ import CmuxCore
 import CmuxTerminal
 import Observation
 import SwiftUI
-
+import WebKit
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
@@ -261,7 +261,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> UUID? {
         ensureLoaded()
         guard let panel = makePanel(
@@ -273,7 +273,7 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
@@ -444,7 +444,7 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> (any Panel)? {
         switch kind {
         case .terminal:
@@ -466,7 +466,7 @@ final class DockSplitStore: BonsplitDelegate {
                 url: url,
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
-                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration
             )
         }
     }

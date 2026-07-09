@@ -83,25 +83,92 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         shouldActivate: Bool,
         webViewConfiguration: WKWebViewConfiguration?
     ) -> BrowserWebExtensionTabAdapter? {
-        guard let sourcePanel = activeTabAdapter?.panel,
-              let workspace = AppDelegate.shared?.workspaceContainingPanel(
-                  panelId: sourcePanel.id,
-                  preferredWorkspaceId: sourcePanel.workspaceId
-              )?.workspace,
-              let paneId = workspace.paneId(forPanelId: sourcePanel.id),
-              let panel = workspace.newBrowserSurface(
+        guard let sourcePanel = activeTabAdapter?.panel else { return nil }
+        if let panel = openWorkspaceBrowserTab(
+            sourcePanel: sourcePanel,
+            url: url,
+            shouldActivate: shouldActivate,
+            webViewConfiguration: webViewConfiguration
+        ) {
+            return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
+        }
+        if let panel = openDockBrowserTab(
+            sourcePanel: sourcePanel,
+            url: url,
+            shouldActivate: shouldActivate,
+            webViewConfiguration: webViewConfiguration
+        ) {
+            return tabAdapterForOpenedPanel(panel, shouldActivate: shouldActivate)
+        }
+        return nil
+    }
+
+    private func openWorkspaceBrowserTab(
+        sourcePanel: BrowserPanel,
+        url: URL?,
+        shouldActivate: Bool,
+        webViewConfiguration: WKWebViewConfiguration?
+    ) -> BrowserPanel? {
+        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: sourcePanel.id,
+            preferredWorkspaceId: sourcePanel.workspaceId
+        )?.workspace,
+            let paneId = workspace.paneId(forPanelId: sourcePanel.id) else {
+            return nil
+        }
+        return workspace.newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: shouldActivate,
+            preferredProfileID: sourcePanel.profileID,
+            webViewConfiguration: webViewConfiguration
+        )
+    }
+
+    private func openDockBrowserTab(
+        sourcePanel: BrowserPanel,
+        url: URL?,
+        shouldActivate: Bool,
+        webViewConfiguration: WKWebViewConfiguration?
+    ) -> BrowserPanel? {
+        guard let dock = dockContainingPanel(sourcePanel.id),
+              let paneId = dock.paneId(forPanelId: sourcePanel.id),
+              let panelID = dock.newSurface(
+                  kind: .browser,
                   inPane: paneId,
                   url: url,
                   focus: shouldActivate,
                   preferredProfileID: sourcePanel.profileID,
                   webViewConfiguration: webViewConfiguration
-              ) else {
-            return nil
-        }
+              ) else { return nil }
+        return dock.browserPanel(for: panelID)
+    }
+
+    private func tabAdapterForOpenedPanel(
+        _ panel: BrowserPanel,
+        shouldActivate: Bool
+    ) -> BrowserWebExtensionTabAdapter? {
         if shouldActivate {
             noteActivated(panelID: panel.id)
         }
         return tabAdapter(for: panel.id)
+    }
+
+    func focusOwningCmuxTab(panelID: UUID, workspaceId: UUID) -> Bool {
+        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelID,
+            preferredWorkspaceId: workspaceId
+        )?.workspace {
+            workspace.focusPanel(panelID)
+            return true
+        }
+        guard let dock = dockContainingPanel(panelID) else { return false }
+        dock.focusPanel(panelID)
+        return true
+    }
+
+    private func dockContainingPanel(_ panelID: UUID) -> DockSplitStore? {
+        DockSplitStore.liveStores.first { $0.containsPanel(panelID) }
     }
 
     private func canOpenInRegularBrowserTab(_ url: URL) -> Bool {
