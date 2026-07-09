@@ -13011,16 +13011,6 @@ private struct SidebarHelpMenuButton: View {
 // and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
-private enum SidebarTitleFirstLineCenterAlignment: AlignmentID {
-    static func defaultValue(in context: ViewDimensions) -> CGFloat {
-        context[VerticalAlignment.center]
-    }
-}
-
-private extension VerticalAlignment {
-    static let sidebarTitleFirstLineCenter = VerticalAlignment(SidebarTitleFirstLineCenterAlignment.self)
-}
-
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
