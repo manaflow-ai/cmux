@@ -229,7 +229,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
     private func permissionMessage(
         extensionContext: WKWebExtensionContext,
         details: String,
-        key: String.LocalizationValue,
+        key: StaticString,
         defaultValue: String.LocalizationValue
     ) -> String {
         let extensionName = extensionContext.webExtension.displayName ?? String(
