@@ -58,7 +58,11 @@ function repo(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function registryRepo(repoName: string, stars: number) {
+function registryRepo(
+  repoName: string,
+  stars: number,
+  overrides: Record<string, unknown> = {},
+) {
   const [owner] = repoName.split("/");
   return repo({
     full_name: repoName,
@@ -68,6 +72,7 @@ function registryRepo(repoName: string, stars: number) {
     },
     html_url: `https://github.com/${repoName}`,
     stargazers_count: stars,
+    ...overrides,
   });
 }
 
@@ -222,6 +227,54 @@ describe("extensions index route", () => {
     });
     expect(fallback && "ownerAvatarUrl" in fallback).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length + 1);
+  });
+
+  test("keeps curated registry entries when GitHub marks them forked or archived", async () => {
+    const remoteRegistry = {
+      extensions: [
+        { repo: "curated/forked", addedAt: "2026-07-01" },
+        { repo: "curated/archived", addedAt: "2026-07-02" },
+      ],
+    };
+    const fetchMock = mock(async (...args: unknown[]) => {
+      const input = args[0] as RequestInfo | URL;
+      const url = String(input);
+      if (url === awesomeCmuxRegistryUrl) {
+        return Response.json(remoteRegistry);
+      }
+      if (url.endsWith(githubApiPath("curated/forked"))) {
+        return Response.json(
+          registryRepo("curated/forked", 2, { fork: true }),
+        );
+      }
+      if (url.endsWith(githubApiPath("curated/archived"))) {
+        return Response.json(
+          registryRepo("curated/archived", 1, { archived: true }),
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected url" }), { status: 500 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const response = await GET(new Request("https://cmux.test/api/extensions/index"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const extensions = body.extensions as ExtensionResponseItem[];
+    expect(extensions.map((extension) => extension.fullName)).toEqual([
+      "curated/archived",
+      "curated/forked",
+    ]);
+    for (const extension of extensions) {
+      expect(extension).toMatchObject({
+        owner: "curated",
+        description: null,
+        stars: null,
+        url: `https://github.com/${extension.fullName}`,
+        supported: true,
+      });
+      expect("ownerAvatarUrl" in extension).toBe(false);
+    }
   });
 
   test("returns minimal metadata entries when every repository fetch fails", async () => {

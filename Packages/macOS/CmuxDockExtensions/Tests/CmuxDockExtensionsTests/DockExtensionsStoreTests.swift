@@ -80,7 +80,13 @@ struct DockExtensionsStoreTests {
         #expect(installed.launchablePanes.map(\.id) == ["main"])
         #expect(harness.host.activationCount == 1)
 
-        try harness.store.openPane(qualifiedId: "hello.main")
+        let workspaceID = UUID()
+        let sourceSurfaceID = UUID()
+        try harness.store.openPane(
+            qualifiedId: "hello.main",
+            workspaceID: workspaceID,
+            sourceSurfaceID: sourceSurfaceID
+        )
         let request = try #require(harness.host.openedRequests.first)
         #expect(request.controlId == "hello.main")
         #expect(request.title == "Hello TUI")
@@ -92,6 +98,8 @@ struct DockExtensionsStoreTests {
         #expect(request.environment["CMUX_EXTENSION_PANE_ID"] == "main")
         #expect(request.environment["CMUX_EXTENSION_ROOT"] == installed.rootDirectory.path)
         #expect(request.environment["CMUX_EXTENSION_ENV"] == "1")
+        #expect(request.workspaceID == workspaceID)
+        #expect(request.sourceSurfaceID == sourceSurfaceID)
         let configDir = try #require(request.environment["CMUX_EXTENSION_CONFIG_DIR"])
         let stateDir = try #require(request.environment["CMUX_EXTENSION_STATE_DIR"])
         #expect(FileManager.default.fileExists(atPath: configDir))
