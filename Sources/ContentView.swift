@@ -13860,8 +13860,7 @@ struct TabItemView: View, Equatable {
             // workspace-todos feature is on and there is either content or a
             // pending "Add Checklist Item…" request (which needs the add
             // field visible on an empty checklist).
-            if workspaceSnapshot.taskStatus != nil,
-               !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
+            if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
                     completedCount: workspaceSnapshot.checklistCompletedCount,

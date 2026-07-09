@@ -410,15 +410,11 @@ enum KeyboardShortcutSettings {
             case .editWorkspaceDescription:
                 return StoredShortcut(key: "e", command: true, shift: false, option: true, control: false)
             case .markWorkspaceDone:
-                // Cmd+; pins the selected workspace's status to done. The
-                // Cmd-"D" family was taken by split/diff actions and the
-                // natural Cmd+Ctrl+D chord is reserved by macOS; Cmd+;
-                // (semicolon) is free and sits next to the status-cycle chord.
-                return StoredShortcut(key: ";", command: true, shift: false, option: false, control: false)
+                // Ctrl+Cmd+; avoids macOS spelling shortcuts while keeping the status pair adjacent.
+                return StoredShortcut(key: ";", command: true, shift: false, option: false, control: true)
             case .cycleWorkspaceStatus:
-                // Cmd+Shift+; cycles the selected workspace's status one lane
-                // forward (todo → working → needs-attention → review → done).
-                return StoredShortcut(key: ";", command: true, shift: true, option: false, control: false)
+                // Ctrl+Cmd+Shift+; cycles one lane forward without stealing spelling keys.
+                return StoredShortcut(key: ";", command: true, shift: true, option: false, control: true)
             case .toggleChecklistItemComplete:
                 // Cmd+Return toggles the highlighted checklist item in the
                 // focused todo pane / checklist popover. Registered here for
@@ -633,7 +629,10 @@ enum KeyboardShortcutSettings {
         }
 
         var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
+            self != .fileExplorerOpenSelection
+                && self != .fileExplorerOpenSelectionFinderAlias
+                && self != .cycleTextBoxSubmitAction
+                && self != .toggleChecklistItemComplete
         }
 
         var isBrowserContentShortcut: Bool {

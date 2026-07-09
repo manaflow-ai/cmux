@@ -292,8 +292,8 @@ Default: `enabled: false`. The setting turns on automatically the first time a s
 
 Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyboard Shortcuts** or `shortcuts.bindings`:
 
-- `markWorkspaceDone` (default `cmd+;`) pins the selected workspace's status to done.
-- `cycleWorkspaceStatus` (default `cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
+- `markWorkspaceDone` (default `ctrl+cmd+;`) pins the selected workspace's status to done.
+- `cycleWorkspaceStatus` (default `ctrl+cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
 - `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
