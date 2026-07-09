@@ -82,7 +82,12 @@ private nonisolated let agentChatThemeSyncState = OSAllocatedUnfairLock(
 enum AgentChatThemeSync {
     private static let requestTimeout: TimeInterval = 1.5
 
+    static var isEnabled: Bool {
+        CmuxFeatureFlags.shared.isAgentChatUIEnabled
+    }
+
     static func start() {
+        guard isEnabled else { return }
         let shouldInstall = agentChatThemeSyncState.withLock { state in
             guard !state.observersInstalled else { return false }
             state.observersInstalled = true
@@ -124,6 +129,7 @@ enum AgentChatThemeSync {
     }
 
     static func syncNow(agentChat: CmuxAgentChatConfiguration) {
+        guard isEnabled else { return }
         let url = themeURL(for: agentChat.url)
         Task { @MainActor in
             await postResolvedTheme(to: url)
@@ -131,6 +137,7 @@ enum AgentChatThemeSync {
     }
 
     static func scheduleDebouncedSync() {
+        guard isEnabled else { return }
         agentChatThemeSyncState.withLock { state in
             state.debouncedTask?.cancel()
             state.debouncedTask = Task { @MainActor in
