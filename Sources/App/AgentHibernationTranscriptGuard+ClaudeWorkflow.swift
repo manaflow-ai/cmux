@@ -3,6 +3,7 @@ import Foundation
 extension AgentHibernationTranscriptGuard {
     static func resolveClaudeTranscriptPath(
         agent: SessionRestorableAgentSnapshot,
+        panelKey: AgentHibernationPanelKey?,
         homeDirectory: String,
         fileManager: FileManager
     ) -> String? {
@@ -26,7 +27,16 @@ extension AgentHibernationTranscriptGuard {
             return (resolution.path, resolution.shouldStop)
         }
 
-        if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+        let recordedTranscript = recordedTranscriptPath(
+            agent: agent,
+            panelKey: panelKey,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+        if recordedTranscript.isAmbiguous {
+            return nil
+        }
+        if let recordedPath = recordedTranscript.path {
             var candidates: [String] = []
             appendCandidate(recordedPath, to: &candidates)
             let resolution = resolve(candidates)

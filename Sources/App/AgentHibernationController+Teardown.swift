@@ -145,7 +145,7 @@ extension AgentHibernationController {
                 let (key, agent) = agents[nextAgentIndex]
                 nextAgentIndex += 1
                 group.addTask(priority: .utility) {
-                    (key, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent))
+                    (key, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent, panelKey: key))
                 }
             }
             var outcomes: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] = [:]
@@ -155,7 +155,7 @@ extension AgentHibernationController {
                 let (nextKey, nextAgent) = agents[nextAgentIndex]
                 nextAgentIndex += 1
                 group.addTask(priority: .utility) {
-                    (nextKey, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: nextAgent))
+                    (nextKey, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: nextAgent, panelKey: nextKey))
                 }
             }
             return outcomes

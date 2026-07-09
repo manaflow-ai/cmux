@@ -199,48 +199,47 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
-    func resolveTranscriptPathPrefersRecordedHookTranscriptPath() throws {
+    func resolveTranscriptPathScopesRecordedHookTranscriptPathToPanel() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
         let cwd = "/tmp/repo"
         let sessionId = "session-recorded"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        let staleTranscript = home.appendingPathComponent("outside/stale.jsonl")
         let recordedTranscript = home.appendingPathComponent("outside/recorded.jsonl")
-        try FileManager.default.createDirectory(
-            at: recordedTranscript.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try populatedTranscript.write(to: recordedTranscript, atomically: true, encoding: .utf8)
-
         let derivedTranscript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
-        try FileManager.default.createDirectory(
-            at: derivedTranscript.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try (populatedTranscript + #"{"type":"assistant","message":{"content":"derived"}}"# + "\n")
-            .write(to: derivedTranscript, atomically: true, encoding: .utf8)
-
+        try writeFile(populatedTranscript, to: staleTranscript)
+        try writeFile(populatedTranscript, to: recordedTranscript)
+        try writeFile(populatedTranscript + #"{"type":"assistant","message":{"content":"derived"}}"# + "\n", to: derivedTranscript)
         let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
-        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try """
-        {"version":1,"sessions":{"hook-key":{"sessionId":" \(sessionId) ","transcriptPath":"~/outside/recorded.jsonl"}}}
-        """.write(to: storeURL, atomically: true, encoding: .utf8)
-
+        let staleRecord = #""sessionId":" \#(sessionId) ","workspaceId":"\#(UUID().uuidString)","surfaceId":"\#(UUID().uuidString)","transcriptPath":"\#(staleTranscript.path)","updatedAt":1"#
+        let currentRecord = #""sessionId":" \#(sessionId) ","workspaceId":"\#(workspaceId.uuidString)","surfaceId":"\#(panelId.uuidString)","transcriptPath":"~/outside/recorded.jsonl","updatedAt":2"#
         let claudeAgent = agent(sessionId: sessionId, workingDirectory: cwd)
+        try writeFile(#"{"version":1,"sessions":{"stale":{\#(staleRecord)}}}"#, to: storeURL)
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(agent: claudeAgent, panelKey: panelKey, homeDirectory: home.path) == derivedTranscript.path)
+        try writeFile(#"{"version":1,"sessions":{"stale":{\#(staleRecord)},"current":{\#(currentRecord)}}}"#, to: storeURL)
         #expect(
             AgentHibernationTranscriptGuard.resolveTranscriptPath(
                 agent: claudeAgent,
+                panelKey: panelKey,
                 homeDirectory: home.path
             ) == recordedTranscript.path
         )
         let protected = try #require(snapshotOutcomeValue(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
             agent: claudeAgent,
+            panelKey: panelKey,
             homeDirectory: home.path,
             snapshotDirectory: snapshots
         )))
         #expect(protected.transcriptPath == recordedTranscript.path)
         #expect(try String(contentsOfFile: protected.snapshotPath, encoding: .utf8) == populatedTranscript)
+        let duplicateRecord = #""sessionId":" \#(sessionId) ","workspaceId":"\#(workspaceId.uuidString)","surfaceId":"\#(panelId.uuidString)","transcriptPath":"\#(staleTranscript.path)","updatedAt":3"#
+        try writeFile(#"{"version":1,"sessions":{"current":{\#(currentRecord)},"duplicate":{\#(duplicateRecord)}}}"#, to: storeURL)
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: claudeAgent, panelKey: panelKey, homeDirectory: home.path, snapshotDirectory: snapshots)))
     }
 
     @Test

@@ -53,6 +53,7 @@ enum AgentHibernationTranscriptGuard {
 
     static func resolveTranscriptPath(
         agent: SessionRestorableAgentSnapshot,
+        panelKey: AgentHibernationPanelKey? = nil,
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> String? {
@@ -60,7 +61,12 @@ enum AgentHibernationTranscriptGuard {
               isSafeSessionIdPathComponent(agent.sessionId) else {
             return nil
         }
-        return resolveClaudeTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager)
+        return resolveClaudeTranscriptPath(
+            agent: agent,
+            panelKey: panelKey,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
     }
 
     static func transcriptHasConversationTurns(
@@ -113,6 +119,7 @@ enum AgentHibernationTranscriptGuard {
 
     static func snapshotBeforeTeardown(
         agent: SessionRestorableAgentSnapshot,
+        panelKey: AgentHibernationPanelKey? = nil,
         homeDirectory: String = NSHomeDirectory(),
         snapshotDirectory: URL? = nil,
         fileManager: FileManager = .default
@@ -122,6 +129,7 @@ enum AgentHibernationTranscriptGuard {
 
         guard let transcriptPath = resolveTranscriptPath(
             agent: agent,
+            panelKey: panelKey,
             homeDirectory: homeDirectory,
             fileManager: fileManager
         ) else {
@@ -235,27 +243,34 @@ enum AgentHibernationTranscriptGuard {
 
     static func recordedTranscriptPath(
         agent: SessionRestorableAgentSnapshot,
+        panelKey: AgentHibernationPanelKey?,
         homeDirectory: String,
         fileManager: FileManager
-    ) -> String? {
+    ) -> (path: String?, isAmbiguous: Bool) {
         let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: homeDirectory)
         guard let data = fileManager.contents(atPath: storeURL.path),
               let store = try? JSONDecoder().decode(AgentHibernationTranscriptHookStoreFileMirror.self, from: data),
               let sessions = store.sessions else {
-            return nil
+            return (nil, false)
         }
 
+        var paths: [String] = []
+        var seenPaths: Set<String> = []
         for record in sessions.values {
             guard normalized(record.sessionId) == agent.sessionId,
+                  panelKey.map({ record.matches(panelKey: $0) }) ?? true,
                   let transcriptPath = normalized(record.transcriptPath) else {
                 continue
             }
             let expandedPath = expandTilde(in: transcriptPath, homeDirectory: homeDirectory)
-            if isRegularFile(atPath: expandedPath, fileManager: fileManager) {
-                return expandedPath
+            let standardizedPath = (expandedPath as NSString).standardizingPath
+            if seenPaths.insert(standardizedPath).inserted,
+               isRegularFile(atPath: expandedPath, fileManager: fileManager) {
+                paths.append(expandedPath)
             }
         }
-        return nil
+        guard let path = paths.first else { return (nil, false) }
+        return paths.count == 1 ? (path, false) : (nil, true)
     }
 
     static func claudeConfigRoots(
