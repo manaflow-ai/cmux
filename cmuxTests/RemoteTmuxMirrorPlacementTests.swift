@@ -9,6 +9,44 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct RemoteTmuxMirrorPlacementTests {
+    @Test func explicitWindowRoutingFailsClosedButExistingMirrorAffinityWins() {
+        let existing = UUID()
+        let explicit = UUID()
+        let active = UUID()
+
+        #expect(RemoteTmuxAttachWindowTarget.unresolvedExplicitWindow.resolve(
+            existingMirrorWindowID: nil,
+            activeWindowID: active,
+            isLive: { $0 == active }
+        ) == nil)
+        #expect(RemoteTmuxAttachWindowTarget.explicitWindow(explicit).resolve(
+            existingMirrorWindowID: nil,
+            activeWindowID: active,
+            isLive: { $0 == active }
+        ) == nil)
+        #expect(RemoteTmuxAttachWindowTarget.unresolvedExplicitWindow.resolve(
+            existingMirrorWindowID: existing,
+            activeWindowID: active,
+            isLive: { $0 == existing || $0 == active }
+        ) == existing)
+    }
+
+    @Test func contextualRoutingRecoversFromAClosedPreferredWindow() {
+        let preferred = UUID()
+        let active = UUID()
+
+        #expect(RemoteTmuxAttachWindowTarget.contextualWindow(preferred).resolve(
+            existingMirrorWindowID: nil,
+            activeWindowID: active,
+            isLive: { $0 == active }
+        ) == active)
+        #expect(RemoteTmuxAttachWindowTarget.contextualWindow(preferred).resolve(
+            existingMirrorWindowID: nil,
+            activeWindowID: active,
+            isLive: { $0 == preferred || $0 == active }
+        ) == preferred)
+    }
+
     @Test func mirrorDiscoveredSessionsLandInRequestedManagerWithoutFocusOrWindowCreation() throws {
         let harness = try Harness()
         defer { harness.tearDown() }

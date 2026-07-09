@@ -26,7 +26,7 @@ import Testing
         )
 
         #expect(grid?.columns == 80)
-        #expect(grid?.rows == 23)
+        #expect(grid?.rows == 24)
     }
 
     @Test func horizontalSplitSubtractsDividerFromColumns() {
@@ -46,7 +46,7 @@ import Testing
             dividerThickness: 1
         )
 
-        #expect(grid?.columns == 79)
+        #expect(grid?.columns == 80)
         #expect(grid?.rows == 27)
     }
 
@@ -63,8 +63,8 @@ import Testing
             dividerThickness: 1
         )
 
-        #expect(grid?.columns == 119)
-        #expect(grid?.rows == 33)
+        #expect(grid?.columns == 120)
+        #expect(grid?.rows == 34)
     }
 
     @Test func dividerFractionUsesParsedTmuxCellSeparators() throws {
