@@ -975,11 +975,12 @@ async function deletePersonalSubrouterTenant(
 
   const client = createSubrouterClientFromEnv();
   for (const tenant of tenants) {
-    options.afterExternalMutation?.();
     try {
       await client.revokeTenant(tenant.tenantId);
+      options.afterExternalMutation?.();
     } catch (error) {
       if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
+      options.afterExternalMutation?.();
     }
   }
   await db.delete(subrouterTenants).where(inArray(subrouterTenants.teamId, teamIds));

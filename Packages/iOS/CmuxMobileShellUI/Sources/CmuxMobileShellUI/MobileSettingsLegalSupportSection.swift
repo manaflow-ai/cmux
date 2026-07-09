@@ -30,7 +30,18 @@ struct MobileSettingsLegalSupportSection: View {
 
     private static let privacyPolicyURL = URL(string: "https://cmux.com/privacy-policy")!
     private static let termsOfServiceURL = URL(string: "https://cmux.com/terms-of-service")!
-    private static let supportURL = URL(string: "mailto:feedback@manaflow.com?subject=cmux%20iOS%20support")!
+    private static var supportURL: URL {
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = "feedback@manaflow.com"
+        components.queryItems = [
+            URLQueryItem(
+                name: "subject",
+                value: L10n.string("mobile.settings.supportEmailSubject", defaultValue: "cmux iOS support")
+            )
+        ]
+        return components.url!
+    }
 
     private func externalLinkRow(
         title: String,

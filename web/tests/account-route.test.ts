@@ -1131,8 +1131,9 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("keeps deletion retryable when Subrouter revoke reaches the network before failing", async () => {
+  test("restores Stack metadata when Subrouter revoke fails before external mutation", async () => {
     listedPersonalVmIds = [];
+    revokedIdentityLeaseCount = 0;
     selectResults = [
       [],
       [],
@@ -1147,11 +1148,7 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 0,
-    });
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
     expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
     expect(deletedTables).not.toContain(subrouterTenants);
     expect(transaction).toHaveBeenCalledTimes(1);
@@ -1159,7 +1156,9 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
-    expect(updateStackUser).toHaveBeenCalledTimes(1);
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
   });
 
   test("restores Stack metadata when local Subrouter configuration fails before external mutation", async () => {
