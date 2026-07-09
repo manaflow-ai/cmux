@@ -648,7 +648,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
       update: updateTeam,
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    selectResults = [[{ stackUserId: "owner_123" }], [{ stackUserId: "owner_123" }], []];
 
     const result = await applySubscriptionUpdate(
       {
@@ -670,9 +670,12 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         stackApp: {
-          getUser: async () => {
-            throw new Error("should not load Stack user for Team subscription");
-          },
+          getUser: async () => ({
+            id: "owner_123",
+            primaryEmail: "owner@example.com",
+            clientReadOnlyMetadata: {},
+            update: mock(async () => undefined),
+          }),
           getTeam: async () => team,
         } as never,
       },
@@ -726,6 +729,56 @@ describe("recordCheckoutCompletion", () => {
     expect(result).toEqual({ skipped: true });
     expect(getTeam).not.toHaveBeenCalled();
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
+  test("skips Team subscription webhooks for tombstoned metadata owners before writing rows", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user after tombstone blocks Team subscription");
+    });
+    const getTeam = mock(async () => {
+      throw new Error("should not load Stack team after tombstone blocks Team subscription");
+    });
+    selectResults = [[], [], [], []];
+    tombstoneSelectResults = [[{ status: "pending" }]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: {
+          stackTeamId: "team_123",
+          stackUserId: "owner_123",
+          plan: "team",
+          app: "cmux",
+        },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser,
+          getTeam,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(getTeam).not.toHaveBeenCalled();
+    expect(inserts.some((insert) => insert.table === stripeCustomers)).toBe(false);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeCustomers)).toBe(false);
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
@@ -1056,7 +1109,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "team" },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "owner_123" }], []];
+    selectResults = [[{ stackUserId: "owner_123" }], [{ stackUserId: "owner_123" }], []];
 
     const result = await applySubscriptionUpdate(
       {
@@ -1078,9 +1131,12 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         stackApp: {
-          getUser: async () => {
-            throw new Error("should not load Stack user for Team subscription");
-          },
+          getUser: async () => ({
+            id: "owner_123",
+            primaryEmail: "owner@example.com",
+            clientReadOnlyMetadata: {},
+            update: mock(async () => undefined),
+          }),
           getTeam: async () => team,
         } as never,
         testflight: {
