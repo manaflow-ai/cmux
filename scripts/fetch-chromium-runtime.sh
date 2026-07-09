@@ -71,4 +71,4 @@ rm -rf "$DEST"
 mv "$RUNTIME_DIR" "$DEST"
 
 echo "installed: $DEST"
-echo "cmux picks up the newest runtime automatically (Debug menu → Debug Windows → Chromium Browser (Experimental))."
+echo "cmux picks up the newest runtime automatically (File → New Chromium Browser Window (Experimental))."

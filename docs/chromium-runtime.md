@@ -23,7 +23,7 @@ Runtimes install under `~/Library/Application Support/cmux/chromium-runtime/<tag
 
 ## Try it
 
-Debug builds only: **Debug → Debug Windows → Chromium Browser (Experimental)…** opens a window with an omnibar (back/forward/reload run through JavaScript history APIs — the wire protocol has no native history calls yet), a loading indicator, and a DevTools toggle.
+**File → New Chromium Browser Window (Experimental)** (all build configurations) opens a window with an omnibar (back/forward/reload run through JavaScript history APIs — the wire protocol has no native history calls yet), a loading indicator, and a DevTools toggle.
 
 ## Integration shape
 

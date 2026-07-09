@@ -560,14 +560,6 @@ struct cmuxApp: App {
                     }
                     Button(
                         String(
-                            localized: "debug.menu.chromiumBrowser",
-                            defaultValue: "Chromium Browser (Experimental)…"
-                        )
-                    ) {
-                        ChromiumBrowserDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
                             localized: "debug.menu.browserProfilePopoverDebug",
                             defaultValue: "Browser Profile Popover Debug…"
                         )
@@ -748,6 +740,15 @@ struct cmuxApp: App {
                         // shared action path.
                         activeTabManager.addWorkspace(initialSurface: .browser)
                     }
+                }
+
+                Button(
+                    String(
+                        localized: "menu.file.newChromiumBrowserWindow",
+                        defaultValue: "New Chromium Browser Window (Experimental)"
+                    )
+                ) {
+                    ChromiumBrowserDebugWindowController.shared.show()
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspaceGroup", defaultValue: "New Workspace Group"), shortcut: menuShortcut(for: .newWorkspaceGroup)) {
