@@ -207,6 +207,36 @@ struct TerminalTabAgentIconTests {
         #expect(asset == "AgentIcons/Codex")
     }
 
+    @MainActor
+    @Test func terminalTitleChangeReplacesStaleClaudeRuntimeIconWithCodex() throws {
+        try assertStaleAgentIconTransition(
+            stalePIDKey: "claude_code.old-session",
+            staleAsset: "AgentIcons/Claude",
+            title: "codex --yolo",
+            expectedAsset: "AgentIcons/Codex"
+        )
+    }
+
+    @MainActor
+    @Test func terminalTitleChangeReplacesStaleCodexRuntimeIconWithClaude() throws {
+        try assertStaleAgentIconTransition(
+            stalePIDKey: "codex.old-session",
+            staleAsset: "AgentIcons/Codex",
+            title: "claude --resume",
+            expectedAsset: "AgentIcons/Claude"
+        )
+    }
+
+    @MainActor
+    @Test func terminalTitleChangeClearsStaleAgentRuntimeIconForPlainShell() throws {
+        try assertStaleAgentIconTransition(
+            stalePIDKey: "claude_code.old-session",
+            staleAsset: "AgentIcons/Claude",
+            title: "zsh",
+            expectedAsset: nil
+        )
+    }
+
     @Test func liveRegisteredAgentResolvesThroughRegistrationLookup() {
         var lookedUpKeys: [String] = []
         let asset = TerminalTabAgentIconResolver().assetName(
@@ -262,5 +292,28 @@ struct TerminalTabAgentIconTests {
         )
 
         #expect(asset == "AgentIcons/HermesAgent")
+    }
+
+    @MainActor
+    private func assertStaleAgentIconTransition(
+        stalePIDKey: String,
+        staleAsset: String,
+        title: String,
+        expectedAsset: String?
+    ) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+
+        workspace.recordAgentPID(key: stalePIDKey, pid: 0, panelId: panel.id, refreshPorts: false)
+
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == staleAsset)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == staleAsset)
+
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == expectedAsset)
+        #expect(workspace.agentPIDs[stalePIDKey] == nil)
+        #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
     }
 }
