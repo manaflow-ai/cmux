@@ -39,6 +39,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b w` | Next workspace |
 | `Ctrl-b W` | New workspace |
 | `Ctrl-b s` | Toggle the workspace sidebar |
+| `Ctrl-b S` | Focus the sidebar plugin (when `sidebar.plugin` is configured; keys forward to it, `Ctrl-b` returns focus) |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -140,6 +141,7 @@ new-screen
 next-workspace
 new-workspace
 toggle-sidebar
+focus-sidebar
 focus-left
 focus-right
 focus-up

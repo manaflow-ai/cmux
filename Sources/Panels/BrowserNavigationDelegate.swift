@@ -18,6 +18,7 @@ import CmuxBrowser
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
@@ -232,6 +233,21 @@ import CmuxBrowser
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
             handleSSLTrustBypassAction(url, in: webView)
+            return
+        }
+
+        if let url = navigationAction.request.url,
+           BrowserFileDropNavigationGuard.isDropFallbackNavigation(
+               url: url,
+               isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+               navigationType: navigationAction.navigationType
+           ),
+           let droppedURLs = BrowserFileDropNavigationGuard.shared.consumeDropNavigation(webView: webView, url: url),
+           handleDroppedFileNavigation?(droppedURLs) == true {
+#if DEBUG
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=dropFilePreview url=\(browserNavigationDebugURL(url))")
+#endif
+            decisionHandler(.cancel)
             return
         }
 
@@ -603,4 +619,3 @@ import CmuxBrowser
         download.delegate = downloadDelegate
     }
 }
-

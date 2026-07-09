@@ -35,6 +35,71 @@ fn workspace_unread_color(
 }
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
+    if app.config.sidebar.plugin.is_some() {
+        draw_plugin(app, frame);
+        return;
+    }
+    draw_builtin(app, frame);
+}
+
+fn draw_plugin(app: &mut App, frame: &mut Frame) {
+    let area = frame.area();
+    let width = app.sidebar_width;
+    let height = area.height;
+    if width < 3 || height == 0 {
+        return;
+    }
+    let content = app.sidebar_plugin_rect();
+    let border_x = width - 1;
+    let focused = app.sidebar_focused;
+    let border_style = Style::default().fg(if focused {
+        app.config.theme.border_active
+    } else {
+        app.config.theme.border_inactive
+    });
+    {
+        let buf = frame.buffer_mut();
+        for y in 0..height {
+            buf[(border_x, y)].set_symbol("│").set_style(border_style);
+        }
+    }
+    if let Some(surface_id) = app.sidebar_plugin_surface {
+        let Some(surface) = app.session.surface(surface_id) else { return };
+        surface.take_dirty();
+        let theme = app.config.theme;
+        let rs = app
+            .render_states
+            .entry(surface_id)
+            .or_insert_with(|| ghostty_vt::RenderState::new().expect("render state alloc"));
+        if surface.snapshot(rs).is_ok() {
+            rs.set_clean();
+            let _ =
+                super::terminal_grid::draw_render_state(frame, content, rs, &theme, |_, _| false);
+            {
+                let buf = frame.buffer_mut();
+                for y in 0..height {
+                    buf[(border_x, y)].set_symbol("│").set_style(border_style);
+                }
+            }
+            return;
+        }
+    }
+    let message = app.sidebar_plugin_error.as_deref().unwrap_or("sidebar plugin unavailable");
+    let base = Style::default();
+    let dim = base.fg(Color::Indexed(244));
+    let buf = frame.buffer_mut();
+    for y in 0..height {
+        for x in 0..content.width {
+            buf[(x, y)].set_symbol(" ").set_style(base);
+        }
+    }
+    let text = truncate(message, content.width.saturating_sub(2) as usize);
+    if content.width > 2 {
+        buf.set_stringn(1, height / 2, &text, content.width.saturating_sub(2) as usize, dim);
+    }
+}
+
+fn draw_builtin(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let width = app.sidebar_width;
     let height = area.height;

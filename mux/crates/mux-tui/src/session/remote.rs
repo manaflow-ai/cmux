@@ -221,7 +221,7 @@ impl RemoteSession {
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
         if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6; restart the cmux-mux server"
             );
         }
         session.request(json!({"cmd": "subscribe"}))?;
@@ -475,12 +475,25 @@ impl RemoteSession {
         id: SurfaceId,
         size: Option<(u16, u16)>,
     ) -> Option<Arc<RemoteSurface>> {
+        let kind = {
+            let tree = self.tree.lock().unwrap();
+            tree.surface_kind(id)
+        };
+        self.ensure_surface_with_kind(id, kind, size)
+    }
+
+    pub fn ensure_surface_with_kind(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        kind: SurfaceKind,
+        size: Option<(u16, u16)>,
+    ) -> Option<Arc<RemoteSurface>> {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
-        let (kind, source) = {
+        let source = {
             let tree = self.tree.lock().unwrap();
-            (tree.surface_kind(id), browser_source_from_tree(&tree, id))
+            browser_source_from_tree(&tree, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
         let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
