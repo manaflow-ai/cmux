@@ -33,6 +33,12 @@ const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const stripeModule = await import("../services/billing/stripe");
 const realIsStripeBillingConfigured = stripeModule.isStripeBillingConfigured;
 const realStripe = stripeModule.stripe;
+const ascClientModule = await import("../services/asc/client");
+const realIsAscConfigured = ascClientModule.isAscConfigured;
+const ascTestflightModule = await import("../services/asc/testflight");
+const realRemoveTester = ascTestflightModule.removeTester;
+const errorsModule = await import("../services/errors");
+const realCaptureAscError = errorsModule.captureAscError;
 const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
 const subrouterClientModule = await import("../services/subrouter/client");
@@ -85,8 +91,8 @@ const updateRows = mock((table: unknown) => ({
   },
 }));
 const listUserVms = mock((...args: unknown[]) => {
-  const [userId] = args as [string];
-  return { kind: "listUserVms" as const, userId };
+  const [userId, billingTeamId] = args as [string, string | null | undefined];
+  return { kind: "listUserVms" as const, userId, billingTeamId };
 });
 const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => {
   const [userId] = args as [string];
@@ -106,7 +112,10 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   const [program] = args as [WorkflowProgram];
   if (program.kind === "listUserVms") {
     routeEvents.push("list-vms");
-    return listedPersonalVmIds.map((providerVmId) => ({ providerVmId }));
+    const providerVmIds = program.billingTeamId
+      ? listedPersonalVmIdsByBillingTeam[program.billingTeamId] ?? []
+      : listedPersonalVmIds;
+    return providerVmIds.map((providerVmId) => ({ providerVmId }));
   }
   if (program.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     routeEvents.push("revoke-identities");
@@ -140,6 +149,14 @@ const deleteCustomer = mock(async (...args: unknown[]) => {
   deletedStripeCustomers.push(customerId);
   if (stripeDeleteCustomerError) throw stripeDeleteCustomerError;
 });
+const removeTester = mock(async (...args: unknown[]) => {
+  const [email] = args as [string];
+  routeEvents.push(`testflight-remove:${email}`);
+  if (removeTesterError) throw removeTesterError;
+});
+const captureAscError = mock((..._args: unknown[]) => {
+  routeEvents.push("testflight-error");
+});
 const revokeTenant = mock(async (...args: unknown[]) => {
   const [tenantId] = args as [string];
   routeEvents.push(`subrouter-revoke:${tenantId}`);
@@ -159,23 +176,35 @@ let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
 let stripeConfigured = true;
+let ascConfigured = false;
 let cancelledStripeSubscriptions: string[] = [];
 let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
+let removeTesterError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
 let listedPersonalVmIds: string[] = [];
+let listedPersonalVmIdsByBillingTeam: Record<string, string[]> = {};
 let revokeIdentityLeasesError: unknown = null;
 let subrouterClientCreateError: unknown = null;
 let subrouterRevokeError: unknown = null;
+let stackUserSelectedTeam: unknown = null;
+let stackUserTeams: readonly unknown[] = [];
 let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
 type WorkflowProgram =
-  | { readonly kind: "listUserVms"; readonly userId: string }
+  | { readonly kind: "listUserVms"; readonly userId: string; readonly billingTeamId?: string | null }
   | { readonly kind: "revokeUserIdentityLeasesForAccountDeletion"; readonly userId: string }
-  | { readonly kind: "destroyVm"; readonly input: { readonly userId: string; readonly providerVmId: string } };
+  | {
+      readonly kind: "destroyVm";
+      readonly input: {
+        readonly userId: string;
+        readonly billingTeamId?: string | null;
+        readonly providerVmId: string;
+      };
+    };
 
 type MockTransaction = {
   readonly select: (...args: unknown[]) => {
@@ -270,6 +299,28 @@ mock.module("../services/billing/stripe", () => ({
     : realStripe(),
 }));
 
+mock.module("../services/asc/client", () => ({
+  ...ascClientModule,
+  isAscConfigured: () => useAccountRouteStubs ? ascConfigured : realIsAscConfigured(),
+}));
+
+mock.module("../services/asc/testflight", () => ({
+  ...ascTestflightModule,
+  removeTester: ((...args: Parameters<typeof realRemoveTester>) => {
+    const [email] = args;
+    if (useAccountRouteStubs) return removeTester(email);
+    return realRemoveTester(...args);
+  }) as typeof realRemoveTester,
+}));
+
+mock.module("../services/errors", () => ({
+  ...errorsModule,
+  captureAscError: ((...args: Parameters<typeof realCaptureAscError>) => {
+    if (useAccountRouteStubs) return captureAscError(...args);
+    return realCaptureAscError(...args);
+  }) as typeof realCaptureAscError,
+}));
+
 mock.module("../services/subrouter/client", () => ({
   ...subrouterClientModule,
   createSubrouterClientFromEnv: () => {
@@ -334,6 +385,8 @@ beforeEach(() => {
   deleteObject.mockClear();
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
+  removeTester.mockClear();
+  captureAscError.mockClear();
   revokeTenant.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
@@ -348,15 +401,20 @@ beforeEach(() => {
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
   stripeConfigured = true;
+  ascConfigured = false;
   cancelledStripeSubscriptions = [];
   deletedStripeCustomers = [];
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
+  removeTesterError = null;
   destroyVmFailureProviderIds = new Set();
   listedPersonalVmIds = ["personal-vm-1", "personal-vm-2"];
+  listedPersonalVmIdsByBillingTeam = {};
   revokeIdentityLeasesError = null;
   subrouterClientCreateError = null;
   subrouterRevokeError = null;
+  stackUserSelectedTeam = null;
+  stackUserTeams = [];
 });
 
 afterEach(() => {
@@ -388,8 +446,16 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(listUserVms).toHaveBeenCalledWith("account-user-1");
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
-    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-1",
+    });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-2",
+    });
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
@@ -400,14 +466,12 @@ describe("account deletion route", () => {
     }))).toEqual([
       { table: stripeSubscriptions, values: { stackUserId: "deleted-account" } },
       { table: stripeCustomers, values: { stackUserId: "deleted-account" } },
-      { table: cloudVms, values: { userId: "deleted-account" } },
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
       { table: devices, values: { userId: "deleted-account" } },
       { table: stripeSubscriptions, values: { stackUserId: "deleted-account" } },
       { table: stripeCustomers, values: { stackUserId: "deleted-account" } },
-      { table: cloudVms, values: { userId: "deleted-account" } },
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
@@ -453,6 +517,36 @@ describe("account deletion route", () => {
     ]);
   });
 
+  test("destroys personal-team scoped VMs before deleting account rows", async () => {
+    listedPersonalVmIds = [];
+    listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
+    stackUserTeams = [{ id: "team-personal" }];
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ tenantId: "tenant-team-personal" }],
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1");
+    expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal");
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      billingTeamId: "team-personal",
+      teamIds: ["account-user-1", "team-personal"],
+      providerVmId: "personal-team-vm",
+    });
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
+    expect(transactionExecute).toHaveBeenCalledTimes(4);
+  });
+
   test("revokes the personal Subrouter tenant before deleting local rows", async () => {
     selectResults = [
       [],
@@ -472,6 +566,17 @@ describe("account deletion route", () => {
     expect(routeEvents.indexOf("subrouter-revoke:tenant-personal")).toBeLessThan(
       routeEvents.indexOf("transaction"),
     );
+  });
+
+  test("removes TestFlight access during account deletion when ASC is configured", async () => {
+    ascConfigured = true;
+    listedPersonalVmIds = [];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(removeTester).toHaveBeenCalledWith("account@example.com");
+    expect(routeEvents).toContain("testflight-remove:account@example.com");
   });
 
   test("revokes active account SSH identities before deleting cmux rows", async () => {
@@ -686,7 +791,7 @@ describe("account deletion route", () => {
     expect(deletedTables).toContain(devices);
     const deviceDelete = deletedWhere.find((entry) => entry.table === devices);
     expect(conditionColumnNames(deviceDelete?.condition)).toContain("team_id");
-    expect(conditionColumnNames(deviceDelete?.condition)).not.toContain("user_id");
+    expect(conditionColumnNames(deviceDelete?.condition)).toContain("user_id");
     expect(updatedRows.map(({ table, values }) => ({
       table,
       values: stripUpdatedAt(values),
@@ -847,8 +952,16 @@ describe("account deletion route", () => {
       destroyedVms: 1,
     });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
-    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-1",
+    });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-2",
+    });
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
@@ -877,8 +990,16 @@ describe("account deletion route", () => {
       destroyedVms: 0,
     });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
-    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-1",
+    });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "personal-vm-2",
+    });
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
@@ -1034,8 +1155,8 @@ function stackUser(id = "account-user-1") {
     displayName: null,
     primaryEmail: "account@example.com",
     clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    selectedTeam: null,
-    listTeams: async () => [],
+    selectedTeam: stackUserSelectedTeam,
+    listTeams: async () => stackUserTeams,
     update: updateStackUser,
     delete: deleteStackUser,
   };

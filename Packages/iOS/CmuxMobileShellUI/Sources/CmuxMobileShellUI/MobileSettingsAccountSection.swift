@@ -77,7 +77,7 @@ struct MobileSettingsAccountSection: View {
             ))
         }
         .alert(
-            L10n.string("mobile.settings.deleteAccountFailedTitle", defaultValue: "Couldn't Delete Account"),
+            deleteAccountFailureKind.localizedTitle,
             isPresented: $showingDeleteAccountFailure
         ) {
             Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {

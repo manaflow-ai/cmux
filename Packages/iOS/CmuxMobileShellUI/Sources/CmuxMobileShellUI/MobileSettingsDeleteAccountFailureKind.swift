@@ -19,7 +19,7 @@ enum DeleteAccountFailureKind: Equatable {
         } else if case AccountDeletionRequestError.stackDeleteIncomplete = error {
             self = .stackDeleteIncomplete
         } else if case AccountDeletionRequestError.timedOut = error {
-            self = .unknown
+            self = .timedOut
         } else if case AccountDeletionRequestError.completionUnknown = error {
             self = .unknown
         } else if case AccountDeletionRequestError.localTransportFailure = error {
@@ -33,6 +33,21 @@ enum DeleteAccountFailureKind: Equatable {
 
     var signsOutAfterAcknowledgement: Bool {
         self == .serverCleanupIncomplete || self == .unauthorized
+    }
+
+    var localizedTitle: String {
+        switch self {
+        case .serverCleanupIncomplete:
+            return L10n.string(
+                "mobile.settings.deleteAccountCleanupIncompleteTitle",
+                defaultValue: "Account Deleted"
+            )
+        default:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedTitle",
+                defaultValue: "Couldn't Delete Account"
+            )
+        }
     }
 
     var localizedMessage: String {

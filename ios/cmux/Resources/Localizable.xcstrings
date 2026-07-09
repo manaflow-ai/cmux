@@ -4081,6 +4081,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountCleanupIncompleteTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除しました"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountFailureOK": {
       "extractionState": "manual",
       "localizations": {

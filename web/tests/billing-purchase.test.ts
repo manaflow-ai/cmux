@@ -741,6 +741,26 @@ describe("recordCheckoutCompletion", () => {
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
+  test("skips user subscription webhooks when Stripe metadata conflicts with the local customer mapping", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for conflicting Stripe identity");
+    });
+    selectResults = [[{ stackUserId: "user_local" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("creates a missing user subscription row from Stripe metadata", async () => {
     const update = mock(async () => undefined);
     const user = {

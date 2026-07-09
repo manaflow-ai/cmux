@@ -224,7 +224,13 @@ export async function applySubscriptionUpdate(
   const metadataStackUserId = subscription.metadata?.stackUserId;
   const mappedStackUserId = await stackUserIdForStripeCustomer(db, customerId);
   if (mappedStackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
-  const stackUserId = metadataStackUserId ?? mappedStackUserId;
+  if (
+    metadataStackUserId &&
+    mappedStackUserId &&
+    metadataStackUserId !== mappedStackUserId
+  ) return { skipped: true };
+
+  const stackUserId = mappedStackUserId ?? metadataStackUserId;
   if (!stackUserId || stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
 
   const isActive = isActiveStripeSubscriptionStatus(subscription.status);
@@ -232,11 +238,6 @@ export async function applySubscriptionUpdate(
     subscriptionId: subscription.id,
     stackUserId,
   });
-  if (
-    !hasUserSubscription &&
-    mappedStackUserId !== stackUserId &&
-    metadataStackUserId !== stackUserId
-  ) return { skipped: true };
   const isMetadataOnlyUserSubscription = !hasUserSubscription &&
     !mappedStackUserId &&
     metadataStackUserId === stackUserId;

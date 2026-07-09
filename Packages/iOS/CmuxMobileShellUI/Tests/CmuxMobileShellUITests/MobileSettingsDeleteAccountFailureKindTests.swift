@@ -18,5 +18,9 @@ import Testing
         #expect(DeleteAccountFailureKind(error: AccountDeletionRequestError.unauthorized) == .unauthorized)
         #expect(DeleteAccountFailureKind(error: AuthError.unauthorized) == .unauthorized)
     }
+
+    @Test func accountDeletionTransportTimeoutMapsToTimeoutCopy() {
+        #expect(DeleteAccountFailureKind(error: AccountDeletionRequestError.timedOut) == .timedOut)
+    }
 }
 #endif

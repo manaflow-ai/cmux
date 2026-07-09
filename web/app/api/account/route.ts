@@ -31,6 +31,9 @@ import {
   type ProMetadataJson,
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
+import { isAscConfigured } from "../../../services/asc/client";
+import { removeTester } from "../../../services/asc/testflight";
+import { captureAscError } from "../../../services/errors";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
 import {
   createSubrouterClientFromEnv,
@@ -55,6 +58,9 @@ const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 
 type DeletableStackUser = {
   readonly id: string;
+  readonly primaryEmail?: string | null;
+  readonly selectedTeam?: unknown;
+  readonly listTeams?: () => Promise<readonly unknown[]>;
   readonly delete: () => Promise<void>;
 } & ProMetadataCustomer;
 
@@ -70,6 +76,7 @@ export async function DELETE(request: Request): Promise<Response> {
   let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
   try {
+    const accountScope = await accountDeletionScopeForUser(stackUser);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(userId, {
@@ -78,8 +85,14 @@ export async function DELETE(request: Request): Promise<Response> {
         destructiveCleanupStarted = true;
       },
     });
+    await removeTestFlightAccessForAccountDeletion(stackUser, {
+      afterExternalMutation: () => {
+        restoreBillingEntitlementsOnFailure = false;
+        destructiveCleanupStarted = true;
+      },
+    });
     try {
-      destroyedVms = await destroyPersonalCloudVms(userId);
+      destroyedVms = await destroyPersonalCloudVms(userId, accountScope.teamIds);
       if (destroyedVms > 0) destructiveCleanupStarted = true;
     } catch (error) {
       if (error instanceof AccountDeletionDestructiveCleanupError) {
@@ -97,7 +110,7 @@ export async function DELETE(request: Request): Promise<Response> {
       afterExternalMutation: () => {
         destructiveCleanupStarted = true;
       },
-    });
+    }, accountScope.teamIds);
     try {
       const revokedIdentityLeases = await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(userId));
       if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
@@ -109,7 +122,7 @@ export async function DELETE(request: Request): Promise<Response> {
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
     // final Stack deletion when the distinct response below is returned.
-    await deleteCmuxOwnedAccountRows(userId);
+    await deleteCmuxOwnedAccountRows(userId, accountScope.teamIds);
     cmuxOwnedRowsDeleted = true;
     try {
       await stackUser.delete();
@@ -122,7 +135,7 @@ export async function DELETE(request: Request): Promise<Response> {
       }, 500);
     }
     try {
-      await finishPostStackAccountCleanup(userId);
+      await finishPostStackAccountCleanup(userId, accountScope.teamIds);
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
       return jsonResponse({
@@ -181,14 +194,25 @@ class AccountDeletionDestructiveCleanupError extends Error {
   }
 }
 
-async function destroyPersonalCloudVms(userId: string): Promise<number> {
-  const vms = await runVmWorkflow(listUserVms(userId));
+async function destroyPersonalCloudVms(userId: string, accountTeamIds: readonly string[]): Promise<number> {
+  const vms = await listAccountDeletionCloudVms(userId, accountTeamIds);
   const failures: unknown[] = [];
   let destroyedVms = 0;
   let destructiveCleanupStarted = false;
   for (const vm of vms) {
     try {
-      const destroyProgram = destroyVm({ userId, providerVmId: vm.providerVmId });
+      const destroyInput: {
+        userId: string;
+        billingTeamId?: string | null;
+        teamIds: readonly string[];
+        providerVmId: string;
+      } = {
+        userId,
+        teamIds: accountTeamIds,
+        providerVmId: vm.providerVmId,
+      };
+      if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
+      const destroyProgram = destroyVm(destroyInput);
       destructiveCleanupStarted = true;
       await runVmWorkflow(destroyProgram);
       destroyedVms += 1;
@@ -205,6 +229,25 @@ async function destroyPersonalCloudVms(userId: string): Promise<number> {
     );
   }
   return destroyedVms;
+}
+
+async function listAccountDeletionCloudVms(
+  userId: string,
+  accountTeamIds: readonly string[],
+): Promise<Array<{ readonly providerVmId: string; readonly billingTeamId?: string | null }>> {
+  const vms = new Map<string, { readonly providerVmId: string; readonly billingTeamId?: string | null }>();
+  const legacyScopedVms = await runVmWorkflow(listUserVms(userId));
+  for (const vm of legacyScopedVms) {
+    vms.set(vm.providerVmId, { providerVmId: vm.providerVmId });
+  }
+  for (const teamId of accountTeamIds) {
+    if (teamId === userId) continue;
+    const teamScopedVms = await runVmWorkflow(listUserVms(userId, teamId));
+    for (const vm of teamScopedVms) {
+      vms.set(vm.providerVmId, { providerVmId: vm.providerVmId, billingTeamId: teamId });
+    }
+  }
+  return [...vms.values()];
 }
 
 async function deleteVaultRowsAndObjectsForAccount(
@@ -287,9 +330,9 @@ async function deleteVaultRowsAndObjectsForAccount(
   }
 }
 
-async function finishPostStackAccountCleanup(userId: string): Promise<void> {
+async function finishPostStackAccountCleanup(userId: string, accountTeamIds: readonly string[]): Promise<void> {
   await deleteVaultRowsAndObjectsForAccount(userId);
-  await deleteCmuxOwnedAccountRows(userId);
+  await deleteCmuxOwnedAccountRows(userId, accountTeamIds);
 }
 
 async function resolveUserBillingForAccountDeletion(
@@ -327,6 +370,25 @@ async function resolveUserBillingForAccountDeletion(
   for (const customer of customers) {
     options.beforeExternalRequest?.();
     await deleteStripeCustomerForAccountDeletion(client, customer.id);
+  }
+}
+
+async function removeTestFlightAccessForAccountDeletion(
+  user: DeletableStackUser,
+  options: { readonly afterExternalMutation?: () => void } = {},
+): Promise<void> {
+  if (!isAscConfigured()) return;
+  const email = user.primaryEmail?.trim();
+  if (!email) return;
+  try {
+    await removeTester(email);
+    options.afterExternalMutation?.();
+  } catch (error) {
+    captureAscError(error, {
+      route: "/api/account",
+      stackUserId: user.id,
+      email,
+    });
   }
 }
 
@@ -398,21 +460,24 @@ function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: r
   return messagePatterns.some((pattern) => pattern.test(message));
 }
 
-async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
+async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readonly string[]): Promise<void> {
   const db = cloudDb();
   await db.transaction(async (tx) => {
     const now = new Date();
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
-    const personalVmRows = await tx
+    const deletionTeamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
+    for (const teamId of deletionTeamIds) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${teamId}, 0))`);
+    }
+    const userVmRows = await tx
       .select({
         id: cloudVms.id,
         providerVmId: cloudVms.providerVmId,
         status: cloudVms.status,
       })
       .from(cloudVms)
-      .where(personalVmScope(userId))
+      .where(eq(cloudVms.userId, userId))
       .for("update");
-    const unsafePersonalVmRows = personalVmRows.filter((vm) => {
+    const unsafePersonalVmRows = userVmRows.filter((vm) => {
       if (vm.status === "destroyed") return false;
       if (vm.status === "failed" && !vm.providerVmId) return false;
       return true;
@@ -464,18 +529,14 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
     await tx.delete(cloudVmUsageEvents).where(eq(cloudVmUsageEvents.userId, userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, userId));
-    if (personalVmRows.length > 0) {
-      await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
+    if (userVmRows.length > 0) {
+      await tx.delete(cloudVms).where(inArray(cloudVms.id, userVmRows.map((vm) => vm.id)));
     }
     await tx.delete(cloudVmBaseEvents).where(eq(cloudVmBaseEvents.userId, userId));
     await tx.delete(cloudVmBases).where(and(
       eq(cloudVmBases.scopeType, "user"),
       eq(cloudVmBases.scopeId, userId),
     ));
-    await tx
-      .update(cloudVms)
-      .set({ userId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
-      .where(eq(cloudVms.userId, userId));
     await tx
       .update(cloudVmBases)
       .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
@@ -489,7 +550,10 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
       .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
       .where(eq(cloudVmBaseGenerations.createdByUserId, userId));
 
-    await tx.delete(devices).where(eq(devices.teamId, userId));
+    await tx.delete(devices).where(and(
+      inArray(devices.teamId, deletionTeamIds),
+      eq(devices.userId, userId),
+    ));
     await tx
       .update(devices)
       .set({ userId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
@@ -502,30 +566,51 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
 async function deletePersonalSubrouterTenant(
   userId: string,
   options: { readonly afterExternalMutation?: () => void } = {},
+  accountTeamIds: readonly string[] = [userId],
 ): Promise<void> {
   const db = cloudDb();
-  const [tenant] = await db
+  const teamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
+  const tenants = await db
     .select({ tenantId: subrouterTenants.tenantId })
     .from(subrouterTenants)
-    .where(eq(subrouterTenants.teamId, userId))
-    .limit(1);
-  if (!tenant) return;
+    .where(inArray(subrouterTenants.teamId, teamIds));
+  if (tenants.length === 0) return;
 
   const client = createSubrouterClientFromEnv();
-  options.afterExternalMutation?.();
-  try {
-    await client.revokeTenant(tenant.tenantId);
-  } catch (error) {
-    if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
+  for (const tenant of tenants) {
+    options.afterExternalMutation?.();
+    try {
+      await client.revokeTenant(tenant.tenantId);
+    } catch (error) {
+      if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
+    }
   }
-  await db.delete(subrouterTenants).where(eq(subrouterTenants.teamId, userId));
+  await db.delete(subrouterTenants).where(inArray(subrouterTenants.teamId, teamIds));
 }
 
-function personalVmScope(userId: string) {
-  return and(
-    eq(cloudVms.userId, userId),
-    or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
-  );
+async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{ readonly teamIds: readonly string[] }> {
+  const selectedTeamId = stackTeamIdFromUnknown(user.selectedTeam);
+  if (selectedTeamId) return { teamIds: uniqueNonEmptyStrings([user.id, selectedTeamId]) };
+  if (typeof user.listTeams !== "function") return { teamIds: [user.id] };
+
+  const listedTeamIds = (await user.listTeams())
+    .map(stackTeamIdFromUnknown)
+    .filter((teamId): teamId is string => !!teamId);
+  return listedTeamIds.length === 1
+    ? { teamIds: uniqueNonEmptyStrings([user.id, listedTeamIds[0]]) }
+    : { teamIds: [user.id] };
+}
+
+function stackTeamIdFromUnknown(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as { readonly id?: unknown }).id;
+  if (typeof id !== "string") return null;
+  const trimmed = id.trim();
+  return trimmed || null;
+}
+
+function uniqueNonEmptyStrings(values: readonly (string | null | undefined)[]): readonly string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => !!value))];
 }
 
 const SENSITIVE_ERROR_TEXT =
