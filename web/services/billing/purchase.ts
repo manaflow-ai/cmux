@@ -474,7 +474,7 @@ async function recordTeamCheckoutCompletion(input: {
       customerId: input.customerId,
       stackUserId: guard.stackUserId,
       clearStackTeamId: true,
-      updateCustomer: false,
+      updateCustomer: true,
       dependencies: input.dependencies,
     });
     return {

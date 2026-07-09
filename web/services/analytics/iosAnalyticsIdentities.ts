@@ -4,6 +4,7 @@ import { iosAnalyticsIdentities } from "../../db/schema";
 
 const MAX_ANALYTICS_DISTINCT_ID_LENGTH = 512;
 const MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST = 16;
+const MAX_IOS_ANALYTICS_IDENTITIES_PER_USER = 1024;
 const IOS_INSTALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type IOSAnalyticsIdentityRuntime = {
@@ -40,10 +41,27 @@ export async function recordIOSAnalyticsIdentitiesInTransaction(
     .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST);
   if (anonymousIds.length === 0) return [];
 
+  const existingAnonymousIds = new Set(
+    await listIOSAnalyticsAnonymousIdsForUser(db, input.userId, MAX_IOS_ANALYTICS_IDENTITIES_PER_USER + 1),
+  );
+  let remainingNewAliases = Math.max(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_USER - existingAnonymousIds.size);
+  const acceptedAnonymousIds: string[] = [];
+  for (const anonymousId of anonymousIds) {
+    if (existingAnonymousIds.has(anonymousId)) {
+      acceptedAnonymousIds.push(anonymousId);
+      continue;
+    }
+    if (remainingNewAliases <= 0) continue;
+    existingAnonymousIds.add(anonymousId);
+    remainingNewAliases -= 1;
+    acceptedAnonymousIds.push(anonymousId);
+  }
+  if (acceptedAnonymousIds.length === 0) return [];
+
   const now = new Date();
   await db
     .insert(iosAnalyticsIdentities)
-    .values(anonymousIds.map((anonymousId) => ({
+    .values(acceptedAnonymousIds.map((anonymousId) => ({
       userId: input.userId,
       anonymousId,
       createdAt: now,
@@ -53,7 +71,7 @@ export async function recordIOSAnalyticsIdentitiesInTransaction(
       target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
       set: { updatedAt: now },
   });
-  return anonymousIds;
+  return acceptedAnonymousIds;
 }
 
 export async function listPostHogDeletionDistinctIds(
@@ -88,4 +106,17 @@ function normalizedDistinctId(value: string): string | null {
   if (!trimmed || trimmed.length > MAX_ANALYTICS_DISTINCT_ID_LENGTH) return null;
   if (!IOS_INSTALL_ID_PATTERN.test(trimmed)) return null;
   return trimmed;
+}
+
+async function listIOSAnalyticsAnonymousIdsForUser(
+  db: IOSAnalyticsIdentityDb,
+  userId: string,
+  limit: number,
+): Promise<string[]> {
+  const rows = await db
+    .select({ anonymousId: iosAnalyticsIdentities.anonymousId })
+    .from(iosAnalyticsIdentities)
+    .where(eq(iosAnalyticsIdentities.userId, userId))
+    .limit(limit);
+  return rows.map((row) => row.anonymousId);
 }

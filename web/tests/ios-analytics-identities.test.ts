@@ -47,6 +47,26 @@ describe("iOS analytics identities", () => {
     expect(newAnonymousIds.every((anonymousId) => userAnonymousIds.includes(anonymousId))).toBe(true);
     expect(deletionDistinctIds).toEqual([userId, ...userAnonymousIds]);
   });
+
+  test("refuses new aliases after the per-user ledger cap", async () => {
+    const userId = "stack-user-1";
+    const { identities, runtime } = identityRuntime(
+      Array.from({ length: 1024 }, (_, index) => ({
+        userId,
+        anonymousId: analyticsId(index),
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      })),
+    );
+    const newAnonymousIds = Array.from({ length: 16 }, (_, index) => analyticsId(index + 2000));
+
+    const recorded = await recordIOSAnalyticsIdentities({ userId, anonymousIds: newAnonymousIds }, runtime);
+    const deletionDistinctIds = await listPostHogDeletionDistinctIds({ userId }, runtime);
+
+    expect(recorded).toEqual([]);
+    expect(identities).toHaveLength(1024);
+    expect(deletionDistinctIds).toEqual([userId, ...identities.map((row) => row.anonymousId)]);
+  });
 });
 
 type StoredIdentity = {
@@ -58,6 +78,14 @@ type StoredIdentity = {
 
 function identityRuntime(initialIdentities: StoredIdentity[] = []) {
   const identities = [...initialIdentities];
+  const selectedRows = () => identities.map((row) => ({ anonymousId: row.anonymousId }));
+  const selectableRows = () => ({
+    limit: async (limit: number) => selectedRows().slice(0, limit),
+    then: (
+      resolve: (value: Array<{ anonymousId: string }>) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise.resolve(selectedRows()).then(resolve, reject),
+  });
   const runtime = {
     cloudDb: () => ({
       transaction: async <T>(fn: (tx: unknown) => Promise<T>) => {
@@ -75,11 +103,16 @@ function identityRuntime(initialIdentities: StoredIdentity[] = []) {
               },
             }),
           }),
+          select: () => ({
+            from: () => ({
+              where: () => selectableRows(),
+            }),
+          }),
         });
       },
       select: () => ({
         from: () => ({
-          where: async () => identities.map((row) => ({ anonymousId: row.anonymousId })),
+          where: () => selectableRows(),
         }),
       }),
     }),
