@@ -13,6 +13,7 @@ struct MobileSettingsAccountSection: View {
     @State private var deleteAccountFailureKind = DeleteAccountFailureKind.generic
     @State private var deletingAccount = false
     @State private var deleteAccountTask: Task<Void, Never>?
+    @State private var signOutAfterDeleteAccountFailureAcknowledgement = false
 
     var body: some View {
         Section {
@@ -79,7 +80,9 @@ struct MobileSettingsAccountSection: View {
             L10n.string("mobile.settings.deleteAccountFailedTitle", defaultValue: "Couldn't Delete Account"),
             isPresented: $showingDeleteAccountFailure
         ) {
-            Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {}
+            Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {
+                acknowledgeDeleteAccountFailure()
+            }
         } message: {
             Text(deleteAccountFailureKind.localizedMessage)
         }
@@ -95,12 +98,13 @@ struct MobileSettingsAccountSection: View {
             }
             do {
                 let result = try await authManager.deleteAccount()
-                await signOutDeletedAccount()
                 switch result {
                 case .completed:
+                    await signOutDeletedAccount()
                     dismiss()
                 case .completedWithIncompleteServerCleanup:
                     deleteAccountFailureKind = .serverCleanupIncomplete
+                    signOutAfterDeleteAccountFailureAcknowledgement = deleteAccountFailureKind.signsOutAfterAcknowledgement
                     showingDeleteAccountFailure = true
                 }
             } catch {
@@ -117,8 +121,18 @@ struct MobileSettingsAccountSection: View {
                 } else {
                     deleteAccountFailureKind = .generic
                 }
+                signOutAfterDeleteAccountFailureAcknowledgement = deleteAccountFailureKind.signsOutAfterAcknowledgement
                 showingDeleteAccountFailure = true
             }
+        }
+    }
+
+    private func acknowledgeDeleteAccountFailure() {
+        guard signOutAfterDeleteAccountFailureAcknowledgement else { return }
+        signOutAfterDeleteAccountFailureAcknowledgement = false
+        Task {
+            await signOutDeletedAccount()
+            dismiss()
         }
     }
 

@@ -39,7 +39,12 @@ import {
 import { deleteObject } from "../../../services/vault/storage";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
-import { destroyVm, listUserVms, runVmWorkflow } from "../../../services/vms/workflows";
+import {
+  destroyVm,
+  listUserVms,
+  revokeUserIdentityLeasesForAccountDeletion,
+  runVmWorkflow,
+} from "../../../services/vms/workflows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,6 +94,7 @@ export async function DELETE(request: Request): Promise<Response> {
     destructiveCleanupStarted = true;
     await deletePersonalSubrouterTenant(user.id);
     destructiveCleanupStarted = true;
+    await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(user.id));
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -385,6 +391,26 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
   const db = cloudDb();
   await db.transaction(async (tx) => {
     const now = new Date();
+    const personalVmRows = await tx
+      .select({
+        id: cloudVms.id,
+        providerVmId: cloudVms.providerVmId,
+        status: cloudVms.status,
+      })
+      .from(cloudVms)
+      .where(personalVmScope(userId))
+      .for("update");
+    const unsafePersonalVmRows = personalVmRows.filter((vm) => {
+      if (vm.status === "destroyed") return false;
+      if (vm.status === "failed" && !vm.providerVmId) return false;
+      return true;
+    });
+    if (unsafePersonalVmRows.length > 0) {
+      throw new Error(
+        `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
+      );
+    }
+
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
 
@@ -426,7 +452,9 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
     await tx.delete(cloudVmUsageEvents).where(eq(cloudVmUsageEvents.userId, userId));
     await tx.delete(cloudVmLeases).where(eq(cloudVmLeases.userId, userId));
     await tx.delete(cloudVmSessions).where(eq(cloudVmSessions.userId, userId));
-    await tx.delete(cloudVms).where(personalVmScope(userId));
+    if (personalVmRows.length > 0) {
+      await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
+    }
     await tx.delete(cloudVmBaseEvents).where(eq(cloudVmBaseEvents.userId, userId));
     await tx.delete(cloudVmBases).where(and(
       eq(cloudVmBases.scopeType, "user"),

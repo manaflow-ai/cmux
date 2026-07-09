@@ -4121,13 +4121,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your account sign-in was deleted, but some cmux cleanup did not finish. You have been signed out. Contact support if cmux data is still visible."
+            "value": "Your account sign-in was deleted, but some cmux cleanup did not finish. You will be signed out. Contact support if cmux data is still visible."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントのサインイン情報は削除されましたが、一部の cmux クリーンアップは完了しませんでした。サインアウトしました。cmux データがまだ表示される場合はサポートにお問い合わせください。"
+            "value": "アカウントのサインイン情報は削除されましたが、一部の cmux クリーンアップは完了しませんでした。サインアウトします。cmux データがまだ表示される場合はサポートにお問い合わせください。"
           }
         }
       }

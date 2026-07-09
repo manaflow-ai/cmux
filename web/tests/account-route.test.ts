@@ -4,6 +4,7 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmLeases,
   cloudVms,
   devices,
   stripeCustomers,
@@ -39,6 +40,7 @@ const realCreateSubrouterClientFromEnv = subrouterClientModule.createSubrouterCl
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
 const realListUserVms = workflowsModule.listUserVms;
+const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
 
 const deleteStackUser = mock(async () => {
@@ -54,6 +56,13 @@ const transaction = mock(async (...args: unknown[]) => {
   routeEvents.push("transaction");
   await callback(mockTransaction);
 });
+const transactionSelect = mock(() => ({
+  from: () => ({
+    where: () => ({
+      for: async () => nextTransactionSelectResult(),
+    }),
+  }),
+}));
 const deleteRows = mock((table: unknown) => {
   deletedTables.push(table);
   deletedTableCount += 1;
@@ -75,6 +84,13 @@ const listUserVms = mock((...args: unknown[]) => {
   const [userId] = args as [string];
   return { kind: "listUserVms" as const, userId };
 });
+const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => {
+  const [userId] = args as [string];
+  return {
+    kind: "revokeUserIdentityLeasesForAccountDeletion" as const,
+    userId,
+  };
+});
 const destroyVm = mock((...args: unknown[]) => {
   const [input] = args as [{ readonly userId: string; readonly providerVmId: string }];
   return {
@@ -90,6 +106,11 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
       { providerVmId: "personal-vm-1" },
       { providerVmId: "personal-vm-2" },
     ];
+  }
+  if (program.kind === "revokeUserIdentityLeasesForAccountDeletion") {
+    routeEvents.push("revoke-identities");
+    if (revokeIdentityLeasesError) throw revokeIdentityLeasesError;
+    return 2;
   }
   routeEvents.push("destroy-vm");
   if (destroyVmFailureProviderIds.has(program.input.providerVmId)) {
@@ -132,6 +153,7 @@ let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
 let selectResults: unknown[][] = [];
+let transactionSelectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
@@ -141,6 +163,7 @@ let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
+let revokeIdentityLeasesError: unknown = null;
 let subrouterRevokeError: unknown = null;
 let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
@@ -148,9 +171,17 @@ const consoleError = mock(() => {});
 
 type WorkflowProgram =
   | { readonly kind: "listUserVms"; readonly userId: string }
+  | { readonly kind: "revokeUserIdentityLeasesForAccountDeletion"; readonly userId: string }
   | { readonly kind: "destroyVm"; readonly input: { readonly userId: string; readonly providerVmId: string } };
 
 type MockTransaction = {
+  readonly select: (...args: unknown[]) => {
+    readonly from: (...args: unknown[]) => {
+      readonly where: (...args: unknown[]) => {
+        readonly for: (...args: unknown[]) => Promise<unknown[]>;
+      };
+    };
+  };
   readonly delete: (table: unknown) => { readonly where: (condition: unknown) => Promise<void> };
   readonly update: (table: unknown) => {
     readonly set: (values: unknown) => { readonly where: (condition: unknown) => Promise<void> };
@@ -164,12 +195,17 @@ type SelectResult = Promise<unknown[]> & {
 };
 
 const mockTransaction: MockTransaction = {
+  select: transactionSelect,
   delete: deleteRows,
   update: updateRows,
 };
 
 function nextSelectResult(): unknown[] {
   return selectResults.shift() ?? [];
+}
+
+function nextTransactionSelectResult(): unknown[] {
+  return transactionSelectResults.shift() ?? [];
 }
 
 function chainableSelectResult(rows: unknown[]): SelectResult {
@@ -245,6 +281,11 @@ mock.module("../services/vms/workflows", () => ({
     if (input.userId === ACCOUNT_USER_ID) return destroyVm(...args);
     return realDestroyVm(...args);
   }) as typeof realDestroyVm,
+  revokeUserIdentityLeasesForAccountDeletion: ((...args: Parameters<typeof realRevokeUserIdentityLeasesForAccountDeletion>) => {
+    const [userId] = args;
+    if (userId === ACCOUNT_USER_ID) return revokeUserIdentityLeasesForAccountDeletion(...args);
+    return realRevokeUserIdentityLeasesForAccountDeletion(...args);
+  }) as typeof realRevokeUserIdentityLeasesForAccountDeletion,
   listUserVms: ((...args: Parameters<typeof realListUserVms>) => {
     const [userId] = args;
     if (userId === ACCOUNT_USER_ID) return listUserVms(...args);
@@ -274,10 +315,12 @@ beforeEach(() => {
   updateStackUser.mockClear();
   getUser.mockClear();
   transaction.mockClear();
+  transactionSelect.mockClear();
   deleteRows.mockClear();
   updateRows.mockClear();
   mockDb.select.mockClear();
   listUserVms.mockClear();
+  revokeUserIdentityLeasesForAccountDeletion.mockClear();
   destroyVm.mockClear();
   runVmWorkflow.mockClear();
   deleteObject.mockClear();
@@ -292,6 +335,7 @@ beforeEach(() => {
   stackDeleteError = null;
   stackUserIds = [];
   selectResults = [[], [], [], [], [], []];
+  transactionSelectResults = [];
   deletedVaultObjects = [];
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
@@ -301,6 +345,7 @@ beforeEach(() => {
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
   destroyVmFailureProviderIds = new Set();
+  revokeIdentityLeasesError = null;
   subrouterRevokeError = null;
 });
 
@@ -388,6 +433,7 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "vault-delete",
+      "revoke-identities",
       "transaction",
       "stack-delete",
       "transaction",
@@ -413,6 +459,72 @@ describe("account deletion route", () => {
     expect(routeEvents.indexOf("subrouter-revoke:tenant-personal")).toBeLessThan(
       routeEvents.indexOf("transaction"),
     );
+  });
+
+  test("revokes active account SSH identities before deleting cmux rows", async () => {
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(revokeUserIdentityLeasesForAccountDeletion).toHaveBeenCalledWith("account-user-1");
+    expect(routeEvents.indexOf("revoke-identities")).toBeGreaterThan(-1);
+    expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("transaction"));
+    expect(deletedTables).toContain(cloudVmLeases);
+  });
+
+  test("keeps deletion retryable when account SSH identity revocation fails", async () => {
+    revokeIdentityLeasesError = new Error("provider identity revoke failed");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(revokeUserIdentityLeasesForAccountDeletion).toHaveBeenCalledWith("account-user-1");
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(deletedTables).not.toContain(cloudVmLeases);
+  });
+
+  test("does not delete personal VM rows that gained a provider id before account row deletion", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000764",
+      providerVmId: "provider-vm-raced",
+      status: "running",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transactionSelect).toHaveBeenCalledTimes(1);
+    expect(deletedTableCount).toBe(0);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "Error: Personal cloud VM provider teardown or creation is still pending for 1 row",
+    );
+  });
+
+  test("deletes destroyed personal VM rows after provider teardown completed", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000765",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deletedTables).toContain(cloudVms);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("anonymizes shared team devices registered by the deleted user", async () => {
@@ -653,6 +765,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "revoke-identities",
       "transaction",
       "stack-delete",
     ]);
@@ -789,6 +902,9 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
     readonly input?: { readonly userId?: unknown };
   };
   if (candidate.kind === "listUserVms") return candidate.userId === ACCOUNT_USER_ID;
+  if (candidate.kind === "revokeUserIdentityLeasesForAccountDeletion") {
+    return candidate.userId === ACCOUNT_USER_ID;
+  }
   if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
   return false;
 }

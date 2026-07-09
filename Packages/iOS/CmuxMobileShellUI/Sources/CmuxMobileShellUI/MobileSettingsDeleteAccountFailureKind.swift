@@ -9,6 +9,10 @@ enum DeleteAccountFailureKind {
     case timedOut
     case unknown
 
+    var signsOutAfterAcknowledgement: Bool {
+        self == .serverCleanupIncomplete
+    }
+
     var localizedMessage: String {
         switch self {
         case .generic:
@@ -29,7 +33,7 @@ enum DeleteAccountFailureKind {
         case .serverCleanupIncomplete:
             return L10n.string(
                 "mobile.settings.deleteAccountServerCleanupIncompleteMessage",
-                defaultValue: "Your account sign-in was deleted, but some cmux cleanup did not finish. You have been signed out. Contact support if cmux data is still visible."
+                defaultValue: "Your account sign-in was deleted, but some cmux cleanup did not finish. You will be signed out. Contact support if cmux data is still visible."
             )
         case .timedOut:
             return L10n.string(

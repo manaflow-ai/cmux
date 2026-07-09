@@ -1310,6 +1310,32 @@ export function revokeExpiredIdentityLeases(input: {
   });
 }
 
+export function revokeUserIdentityLeasesForAccountDeletion(userId: string) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const leases = yield* repo.accountDeletionIdentityLeases(userId);
+    const revokedIds: string[] = [];
+    for (const lease of leases) {
+      const identityHandle = lease.providerIdentityHandle;
+      if (!identityHandle) continue;
+      const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
+        Effect.as(true),
+        Effect.catchAll((err) => {
+          if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
+          return repo.markLeasesRevoked(revokedIds).pipe(
+            Effect.catchAll(() => Effect.void),
+            Effect.andThen(Effect.fail(err)),
+          );
+        }),
+      );
+      if (revoked) revokedIds.push(lease.id);
+    }
+    yield* repo.markLeasesRevoked(revokedIds);
+    return revokedIds.length;
+  });
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
