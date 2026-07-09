@@ -34,6 +34,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var settingsObservationTask: Task<Void, Never>?
     @ObservationIgnored
+    var settingsLoadGeneration = 0
+    @ObservationIgnored
     var browserAvailabilityObserverToken: NSObjectProtocol?
     @ObservationIgnored
     var loadedByEntryID: [String: BrowserWebExtensionLoadedRecord] = [:]
@@ -43,6 +45,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     var loadErrorsByEntryID: [String: String] = [:]
     @ObservationIgnored
     var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
+    @ObservationIgnored
+    var actionSnapshotInvalidationsByPanelID: [UUID: BrowserWebExtensionActionSnapshotInvalidation] = [:]
     @ObservationIgnored
     var permissionObserverTokensByEntryID: [String: [NSObjectProtocol]] = [:]
     @ObservationIgnored
@@ -140,15 +144,17 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         key: JSONKey<[BrowserWebExtensionEntry]>
     ) {
         guard settingsObservationTask == nil else { return }
+        settingsLoadGeneration &+= 1
         settingsObservationTask = Task { @MainActor [weak self] in
             for await entries in jsonStore.values(for: key) {
                 guard let self else { return }
-                await self.apply(entries: entries)
+                await self.apply(entries: entries, generation: self.settingsLoadGeneration)
             }
         }
     }
 
     private func stopSettingsObservationAndUnload() {
+        settingsLoadGeneration &+= 1
         settingsObservationTask?.cancel()
         settingsObservationTask = nil
         unloadAllWebExtensions()
@@ -165,6 +171,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         guard tabAdapters[panel.id] == nil else { return }
         let adapter = BrowserWebExtensionTabAdapter(panel: panel, support: self)
         tabAdapters[panel.id] = adapter
+        actionSnapshotInvalidationsByPanelID[panel.id] = BrowserWebExtensionActionSnapshotInvalidation()
         orderedPanelIDs.append(panel.id)
         if activePanelID == nil { activePanelID = panel.id }
         controller.didOpenTab(adapter)
@@ -173,6 +180,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     func unregister(panelID: UUID) {
         guard let adapter = tabAdapters.removeValue(forKey: panelID) else { return }
         orderedPanelIDs.removeAll { $0 == panelID }
+        actionSnapshotInvalidationsByPanelID.removeValue(forKey: panelID)
         controller.didCloseTab(adapter, windowIsClosing: false)
         if activePanelID == panelID {
             activePanelID = orderedPanelIDs.last
@@ -180,24 +188,27 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
             // the closed one until the next focus change.
             if let successor = activePanelID.flatMap({ tabAdapters[$0] }) {
                 controller.didActivateTab(successor, previousActiveTab: adapter)
+                refreshActionSnapshots(for: successor.panel?.id)
             }
         }
     }
 
     func noteActivated(panelID: UUID) {
         guard tabAdapters[panelID] != nil, activePanelID != panelID else { return }
-        let previous = activePanelID.flatMap { tabAdapters[$0] }
+        let previousPanelID = activePanelID
+        let previous = previousPanelID.flatMap { tabAdapters[$0] }
         activePanelID = panelID
         if let adapter = tabAdapters[panelID] {
             controller.didActivateTab(adapter, previousActiveTab: previous)
         }
-        rebuildActionSnapshots()
+        refreshActionSnapshots(for: previousPanelID)
+        refreshActionSnapshots(for: panelID)
     }
 
     func noteTabMetadataChanged(panelID: UUID) {
         guard let adapter = tabAdapters[panelID] else { return }
         controller.didChangeTabProperties([.title, .URL, .loading, .muted], for: adapter)
-        refreshActionSnapshots()
+        refreshActionSnapshots(for: panelID)
     }
 
     func tabAdapter(for panelID: UUID) -> BrowserWebExtensionTabAdapter? {

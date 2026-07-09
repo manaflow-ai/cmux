@@ -8044,7 +8044,8 @@ final class Workspace: Identifiable, ObservableObject {
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        webViewConfiguration: WKWebViewConfiguration? = nil
+        webViewConfiguration: WKWebViewConfiguration? = nil,
+        allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -8082,7 +8083,8 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             browserWebExtensionHost: browserWebExtensionHost,
-            webViewConfiguration: webViewConfiguration
+            webViewConfiguration: webViewConfiguration,
+            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel

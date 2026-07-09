@@ -40,6 +40,19 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             "urls=\(configuration.tabURLs.count) focused=\(configuration.shouldBeFocused ? 1 : 0)"
         )
 #endif
+        guard configuration.windowType == .popup else {
+            guard configuration.windowType == .normal,
+                  let window = openNormalBrowserWindow(using: configuration) else {
+                completionHandler(nil, openTabsUnsupportedError())
+                return
+            }
+            completionHandler(window, nil)
+            return
+        }
+        guard configuration.tabURLs.allSatisfy(canOpenExtensionRequestedBrowserURL) else {
+            completionHandler(nil, openTabsUnsupportedError())
+            return
+        }
         let popout = BrowserWebExtensionPopoutWindowController(
             configuration: configuration,
             context: extensionContext,
@@ -49,6 +62,32 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         controller.didOpenWindow(popout)
         controller.didOpenTab(popout.tab)
         completionHandler(popout, nil)
+    }
+
+    private func openNormalBrowserWindow(
+        using configuration: WKWebExtension.WindowConfiguration
+    ) -> (any WKWebExtensionWindow)? {
+        guard !configuration.tabURLs.isEmpty else {
+            guard configuration.tabs.isEmpty else {
+                return windowAdapter
+            }
+            return openBrowserTab(
+                url: nil,
+                shouldActivate: configuration.shouldBeFocused,
+                webViewConfiguration: nil
+            ).map { _ in windowAdapter }
+        }
+
+        for (index, url) in configuration.tabURLs.enumerated() {
+            guard canOpenExtensionRequestedBrowserURL(url) else { return nil }
+            let shouldActivate = configuration.shouldBeFocused && index == 0
+            guard openBrowserTab(
+                url: url,
+                shouldActivate: shouldActivate,
+                webViewConfiguration: webViewConfigurationForExtensionRequestedBrowserURL(url)
+            ) != nil else { return nil }
+        }
+        return windowAdapter
     }
 
     func webExtensionController(
@@ -61,8 +100,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         cmuxDebugLog("browser.webext.openTab url=\(configuration.url?.absoluteString.prefix(80) ?? "nil")")
 #endif
         if let url = configuration.url,
-           !canOpenInRegularBrowserTab(url),
-           controller.extensionContext(for: url) == nil {
+           !canOpenExtensionRequestedBrowserURL(url) {
             completionHandler(nil, openTabsUnsupportedError())
             return
         }
@@ -70,7 +108,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         guard let adapter = openBrowserTab(
             url: configuration.url,
             shouldActivate: configuration.shouldBeActive,
-            webViewConfiguration: nil
+            webViewConfiguration: configuration.url.flatMap(webViewConfigurationForExtensionRequestedBrowserURL)
         ) else {
             completionHandler(nil, openTabsUnsupportedError())
             return
@@ -169,6 +207,14 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
 
     private func dockContainingPanel(_ panelID: UUID) -> DockSplitStore? {
         DockSplitStore.liveStores.first { $0.containsPanel(panelID) }
+    }
+
+    func canOpenExtensionRequestedBrowserURL(_ url: URL) -> Bool {
+        canOpenInRegularBrowserTab(url) || controller.extensionContext(for: url) != nil
+    }
+
+    func webViewConfigurationForExtensionRequestedBrowserURL(_ url: URL) -> WKWebViewConfiguration? {
+        webViewConfiguration(forNavigatingTo: url)?.webViewConfiguration
     }
 
     private func canOpenInRegularBrowserTab(_ url: URL) -> Bool {
