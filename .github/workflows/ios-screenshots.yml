@@ -50,6 +50,12 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     steps:
+      - name: Guard trusted upload ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
+        run: |
+          echo "::error::Screenshot upload uses App Store Connect secrets and must run from main with no ref override. Run capture-only for arbitrary refs, then upload from main." >&2
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

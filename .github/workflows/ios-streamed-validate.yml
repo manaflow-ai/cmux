@@ -12,8 +12,6 @@ name: iOS streamed-screenshot CI validation
 # test account) is provided as CMUXTERM_DEV_ENV_B64.
 on:
   workflow_dispatch:
-    inputs:
-      ref: { description: Branch or SHA, required: false, default: "" }
   push:
     branches: [feat-ios-appstore-prod-lane]
     paths: [".github/workflows/ios-streamed-validate.yml"]
@@ -43,7 +41,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ github.ref }}
           persist-credentials: false
           submodules: recursive
 
