@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -266,7 +266,6 @@ impl Surface {
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
             let surface = surface.clone();
-            let mux = mux.clone();
             move || {
                 let mut buf = [0u8; 64 * 1024];
                 loop {
@@ -302,23 +301,23 @@ impl Surface {
                             scroll_changed = Some(after);
                         }
                     }
-                    if let Some((offset, at_bottom)) = scroll_changed {
-                        if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::ScrollChanged {
-                                surface: surface.id,
-                                offset,
-                                at_bottom,
-                            });
-                        }
+                    if let Some((offset, at_bottom)) = scroll_changed
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::ScrollChanged {
+                            surface: surface.id,
+                            offset,
+                            at_bottom,
+                        });
                     }
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                     if !responses.is_empty() {
                         let _ = surface.write_bytes(&responses);
                     }
-                    if !pty.dirty.swap(true, Ordering::AcqRel) {
-                        if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::SurfaceOutput(surface.id));
-                        }
+                    if !pty.dirty.swap(true, Ordering::AcqRel)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::SurfaceOutput(surface.id));
                     }
                 }
                 if let Some(pty) = surface.as_pty() {
@@ -449,10 +448,10 @@ impl Surface {
             let after = terminal_scroll_position(&term);
             (before != after).then_some(after)
         };
-        if let Some((offset, at_bottom)) = changed {
-            if let Some(mux) = pty.mux.upgrade() {
-                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
-            }
+        if let Some((offset, at_bottom)) = changed
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
         Ok(())
     }
@@ -468,10 +467,10 @@ impl Surface {
             let after = terminal_scroll_position(&term);
             (before != after).then_some(after)
         };
-        if let Some((offset, at_bottom)) = changed {
-            if let Some(mux) = pty.mux.upgrade() {
-                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
-            }
+        if let Some((offset, at_bottom)) = changed
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
         Ok(())
     }

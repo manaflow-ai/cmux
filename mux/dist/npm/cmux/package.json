@@ -1,0 +1,27 @@
+{
+  "name": "cmux",
+  "version": "0.0.0-managed",
+  "description": "cmux — a tmux-like terminal multiplexer TUI backed by libghostty-vt. Run with `npx cmux`.",
+  "bin": {
+    "cmux": "bin/cmux.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manaflow-ai/cmux.git",
+    "directory": "mux/dist/npm/cmux"
+  },
+  "homepage": "https://github.com/manaflow-ai/cmux/tree/main/mux",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/cmux.js"
+  ],
+  "optionalDependencies": {
+    "cmux-tui-darwin-arm64": "0.0.0-managed",
+    "cmux-tui-darwin-x64": "0.0.0-managed",
+    "cmux-tui-linux-x64": "0.0.0-managed",
+    "cmux-tui-linux-arm64": "0.0.0-managed"
+  }
+}

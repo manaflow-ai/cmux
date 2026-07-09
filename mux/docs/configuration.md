@@ -75,10 +75,11 @@ The default launched profile is `~/Library/Application Support/cmux-mux/chrome-p
 | `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using smart split direction |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
+| `keys.select-tab-1` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by visible tab number; use these to restore the old `Ctrl-b 1` through `Ctrl-b 9` tab selectors |
 | `keys.split-right` | chord string or array or `"none"` | `"%"` | Split right |
 | `keys.split-down` | chord string or array or `"none"` | `"\""` | Split down |
-| `keys.close-tab` | chord string or array or `"none"` | `"x"` | Close active tab |
-| `keys.close-pane` | chord string or array or `"none"` | `"X"` | Close active pane |
+| `keys.close-pane` | chord string or array or `"none"` | `"x"` | Close active pane |
+| `keys.close-tab` | chord string or array or `"none"` | `"X"` | Close active tab |
 | `keys.rename-tab` | chord string or array or `"none"` | unbound | Rename active tab |
 | `keys.rename-pane` | chord string or array or `"none"` | alias | Alias for `rename-tab` |
 | `keys.rename-screen` | chord string or array or `"none"` | `","` | Rename active screen |
@@ -86,21 +87,35 @@ The default launched profile is `~/Library/Application Support/cmux-mux/chrome-p
 | `keys.close-screen` | chord string or array or `"none"` | `"&"` | Close active screen |
 | `keys.prev-screen` | chord string or array or `"none"` | `["p","alt+["]` | Previous screen |
 | `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
+| `keys.select-screen-1` through `keys.select-screen-9` | chord string or array or `"none"` | `"1"` through `"9"` | Select visible screen 1 through 9 |
+| `keys.select-screen-0` | chord string or array or `"none"` | `"0"` | Select visible screen 10 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
+| `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
 | `keys.focus-up` | chord string or array or `"none"` | `["k","up","alt+k","alt+up"]` | Focus up |
 | `keys.focus-down` | chord string or array or `"none"` | `["j","down","alt+j","alt+down"]` | Focus down |
+| `keys.swap-pane-prev` | chord string or array or `"none"` | `"{"` | Swap active pane with the previous pane in split-tree order |
+| `keys.swap-pane-next` | chord string or array or `"none"` | `"}"` | Swap active pane with the next pane in split-tree order |
+| `keys.zoom-pane` | chord string or array or `"none"` | `"z"` | Toggle zoom for the active pane |
 | `keys.resize-grow` | chord string or array or `"none"` | `"alt+="` | Grow the focused split |
 | `keys.resize-shrink` | chord string or array or `"none"` | `"alt+-"` | Shrink the focused split |
-| `keys.scroll-up` | chord string or array or `"none"` | `"pageup"` | Scroll active PTY up 10 rows |
+| `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
 | `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
+| `keys.browser-back` | chord string or array or `"none"` | `"<"` | Browser back |
+| `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
+| `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
+| `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
-Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work. Prefix `1` through `9` stay fixed to tab selection.
+Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
+
+`Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
+
+Screens are visibly numbered from 1, so `select-screen-1` selects the first visible screen and `select-screen-0` selects the tenth visible screen. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
@@ -151,13 +166,19 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "new-pane-smart": "alt+n",
     "next-tab": "tab",
     "prev-tab": "backtab",
+    "select-screen-1": "1",
+    "select-screen-2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "rename-tab": "r",
     "rename-screen": ",",
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "focus-right": ["l", "right", "alt+l", "alt+right"],
-    "close-pane": "none",
+    "close-pane": "x",
+    "close-tab": "X",
+    "zoom-pane": "z",
+    "swap-pane-prev": "{",
+    "swap-pane-next": "}",
     "detach": "d"
   }
 }

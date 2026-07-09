@@ -3,12 +3,12 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
-use crate::layout::{layout_screen, Rect};
+use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
@@ -456,14 +456,14 @@ impl Mux {
     ) -> u64 {
         let id = self.next_notification_id();
         let mut unread_changed = false;
-        if let Some(surface) = surface {
-            if self.active_surface() != Some(surface) {
-                self.surface_notifications
-                    .lock()
-                    .unwrap()
-                    .insert(surface, SurfaceNotification { notification: id, level, unread: true });
-                unread_changed = true;
-            }
+        if let Some(surface) = surface
+            && self.active_surface() != Some(surface)
+        {
+            self.surface_notifications
+                .lock()
+                .unwrap()
+                .insert(surface, SurfaceNotification { notification: id, level, unread: true });
+            unread_changed = true;
         }
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: id,
@@ -486,10 +486,11 @@ impl Mux {
         session: Option<String>,
     ) -> AgentRecord {
         let mut records = self.agent_records.lock().unwrap();
-        if let Some(existing) = records.get(&surface) {
-            if existing.source == AgentSource::Hook && source == AgentSource::Socket {
-                return existing.clone();
-            }
+        if let Some(existing) = records.get(&surface)
+            && existing.source == AgentSource::Hook
+            && source == AgentSource::Socket
+        {
+            return existing.clone();
         }
         let record = AgentRecord { surface, state, source, session, updated_at_ms: now_ms() };
         records.insert(surface, record.clone());
@@ -1338,10 +1339,10 @@ impl Mux {
     ) -> anyhow::Result<AppliedLayout> {
         {
             let state = self.state.lock().unwrap();
-            if let Some(id) = workspace {
-                if !state.workspaces.iter().any(|ws| ws.id == id) {
-                    anyhow::bail!("unknown workspace {id}");
-                }
+            if let Some(id) = workspace
+                && !state.workspaces.iter().any(|ws| ws.id == id)
+            {
+                anyhow::bail!("unknown workspace {id}");
             }
         }
 
@@ -1591,10 +1592,10 @@ impl Drop for Mux {
                 surface.kill();
             }
         }
-        if let Ok(runtime) = self.browser_runtime.get_mut() {
-            if let Some(runtime) = runtime.take() {
-                runtime.shutdown();
-            }
+        if let Ok(runtime) = self.browser_runtime.get_mut()
+            && let Some(runtime) = runtime.take()
+        {
+            runtime.shutdown();
         }
     }
 }

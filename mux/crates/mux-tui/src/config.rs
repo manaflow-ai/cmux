@@ -47,6 +47,7 @@
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
+//!     "select-screen-1": "1",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -57,12 +58,37 @@
 //! colors: explicit config value, then the user's Ghostty config
 //! (`selection-background`/`selection-foreground`), then the built-in
 //! default.
+//!
+//! Key bindings are configured under `"keys"`. Each action accepts a
+//! chord string, an array of chord strings, or `"none"`. Overrides replace
+//! all default chords for that action. Action names are:
+//! `new-tab`, `new-browser-tab` (alias: `new_browser_tab`),
+//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-1` through
+//! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
+//! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
+//! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
+//! `select-screen-0` through `select-screen-9`, `new-screen`,
+//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-left`,
+//! `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
+//! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
+//! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
+//!
+//! The defaults intentionally match tmux where cmux has the same
+//! capability. `x` closes the active pane and `X` closes the active tab;
+//! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
+//! cmux defaults. Screens are visibly numbered from 1, so
+//! `select-screen-1` selects the first visible screen, ..., and
+//! `select-screen-0` selects the tenth visible screen. Zellij's modal
+//! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
+//! deliberate non-goal because they conflict with shell/editor control
+//! keys.
 
 use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use mux_core::platform;
 use mux_core::SurfaceOptions;
+use mux_core::platform;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -302,6 +328,7 @@ pub enum Action {
     NewPaneSmart,
     NextTab,
     PrevTab,
+    SelectTab(u8),
     SplitRight,
     SplitDown,
     CloseTab,
@@ -312,6 +339,7 @@ pub enum Action {
     CloseScreen,
     PrevScreen,
     NextScreen,
+    SelectScreen(u8),
     NewScreen,
     NextWorkspace,
     NewWorkspace,
@@ -320,6 +348,10 @@ pub enum Action {
     FocusRight,
     FocusUp,
     FocusDown,
+    FocusNextPane,
+    SwapPanePrev,
+    SwapPaneNext,
+    ZoomPane,
     ResizeGrow,
     ResizeShrink,
     ScrollUp,
@@ -332,40 +364,61 @@ pub enum Action {
 }
 
 impl Action {
-    fn config_key(&self) -> &'static str {
+    fn config_key(&self) -> String {
         match self {
-            Action::NewTab => "new-tab",
-            Action::NewBrowserTab => "new-browser-tab",
-            Action::NewPaneSmart => "new-pane-smart",
-            Action::NextTab => "next-tab",
-            Action::PrevTab => "prev-tab",
-            Action::SplitRight => "split-right",
-            Action::SplitDown => "split-down",
-            Action::CloseTab => "close-tab",
-            Action::ClosePane => "close-pane",
-            Action::RenameTab => "rename-tab",
-            Action::RenameScreen => "rename-screen",
-            Action::RenameWorkspace => "rename-workspace",
-            Action::CloseScreen => "close-screen",
-            Action::PrevScreen => "prev-screen",
-            Action::NextScreen => "next-screen",
-            Action::NewScreen => "new-screen",
-            Action::NextWorkspace => "next-workspace",
-            Action::NewWorkspace => "new-workspace",
-            Action::ToggleSidebar => "toggle-sidebar",
-            Action::FocusLeft => "focus-left",
-            Action::FocusRight => "focus-right",
-            Action::FocusUp => "focus-up",
-            Action::FocusDown => "focus-down",
-            Action::ResizeGrow => "resize-grow",
-            Action::ResizeShrink => "resize-shrink",
-            Action::ScrollUp => "scroll-up",
-            Action::ScrollDown => "scroll-down",
-            Action::BrowserBack => "browser-back",
-            Action::BrowserForward => "browser-forward",
-            Action::BrowserReload => "browser-reload",
-            Action::BrowserEditUrl => "browser-edit-url",
-            Action::Detach => "detach",
+            Action::NewTab => "new-tab".to_string(),
+            Action::NewBrowserTab => "new-browser-tab".to_string(),
+            Action::NewPaneSmart => "new-pane-smart".to_string(),
+            Action::NextTab => "next-tab".to_string(),
+            Action::PrevTab => "prev-tab".to_string(),
+            Action::SelectTab(number) => format!("select-tab-{number}"),
+            Action::SplitRight => "split-right".to_string(),
+            Action::SplitDown => "split-down".to_string(),
+            Action::CloseTab => "close-tab".to_string(),
+            Action::ClosePane => "close-pane".to_string(),
+            Action::RenameTab => "rename-tab".to_string(),
+            Action::RenameScreen => "rename-screen".to_string(),
+            Action::RenameWorkspace => "rename-workspace".to_string(),
+            Action::CloseScreen => "close-screen".to_string(),
+            Action::PrevScreen => "prev-screen".to_string(),
+            Action::NextScreen => "next-screen".to_string(),
+            Action::SelectScreen(number) => format!("select-screen-{number}"),
+            Action::NewScreen => "new-screen".to_string(),
+            Action::NextWorkspace => "next-workspace".to_string(),
+            Action::NewWorkspace => "new-workspace".to_string(),
+            Action::ToggleSidebar => "toggle-sidebar".to_string(),
+            Action::FocusLeft => "focus-left".to_string(),
+            Action::FocusRight => "focus-right".to_string(),
+            Action::FocusUp => "focus-up".to_string(),
+            Action::FocusDown => "focus-down".to_string(),
+            Action::FocusNextPane => "focus-next-pane".to_string(),
+            Action::SwapPanePrev => "swap-pane-prev".to_string(),
+            Action::SwapPaneNext => "swap-pane-next".to_string(),
+            Action::ZoomPane => "zoom-pane".to_string(),
+            Action::ResizeGrow => "resize-grow".to_string(),
+            Action::ResizeShrink => "resize-shrink".to_string(),
+            Action::ScrollUp => "scroll-up".to_string(),
+            Action::ScrollDown => "scroll-down".to_string(),
+            Action::BrowserBack => "browser-back".to_string(),
+            Action::BrowserForward => "browser-forward".to_string(),
+            Action::BrowserReload => "browser-reload".to_string(),
+            Action::BrowserEditUrl => "browser-edit-url".to_string(),
+            Action::Detach => "detach".to_string(),
+        }
+    }
+
+    pub fn screen_index(&self) -> Option<usize> {
+        match self {
+            Action::SelectScreen(0) => Some(9),
+            Action::SelectScreen(number @ 1..=9) => Some((*number as usize) - 1),
+            _ => None,
+        }
+    }
+
+    pub fn tab_index(&self) -> Option<usize> {
+        match self {
+            Action::SelectTab(number @ 1..=9) => Some((*number as usize) - 1),
+            _ => None,
         }
     }
 }
@@ -414,8 +467,8 @@ impl Default for Keys {
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
-                bind(KeyCode::Char('x'), Action::CloseTab),
-                bind(KeyCode::Char('X'), Action::ClosePane),
+                bind(KeyCode::Char('x'), Action::ClosePane),
+                bind(KeyCode::Char('X'), Action::CloseTab),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
@@ -423,10 +476,21 @@ impl Default for Keys {
                 alt(KeyCode::Char('['), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
+                bind(KeyCode::Char('1'), Action::SelectScreen(1)),
+                bind(KeyCode::Char('2'), Action::SelectScreen(2)),
+                bind(KeyCode::Char('3'), Action::SelectScreen(3)),
+                bind(KeyCode::Char('4'), Action::SelectScreen(4)),
+                bind(KeyCode::Char('5'), Action::SelectScreen(5)),
+                bind(KeyCode::Char('6'), Action::SelectScreen(6)),
+                bind(KeyCode::Char('7'), Action::SelectScreen(7)),
+                bind(KeyCode::Char('8'), Action::SelectScreen(8)),
+                bind(KeyCode::Char('9'), Action::SelectScreen(9)),
+                bind(KeyCode::Char('0'), Action::SelectScreen(0)),
                 bind(KeyCode::Char('c'), Action::NewScreen),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
                 alt(KeyCode::Char('h'), Action::FocusLeft),
@@ -445,6 +509,10 @@ impl Default for Keys {
                 alt(KeyCode::Down, Action::FocusDown),
                 alt(KeyCode::Char('='), Action::ResizeGrow),
                 alt(KeyCode::Char('-'), Action::ResizeShrink),
+                bind(KeyCode::Char('z'), Action::ZoomPane),
+                bind(KeyCode::Char('{'), Action::SwapPanePrev),
+                bind(KeyCode::Char('}'), Action::SwapPaneNext),
+                bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
@@ -494,8 +562,16 @@ impl Keys {
                 self.prefix = chord;
                 continue;
             }
+            // The numbered families accept both spellings: select-screen-N /
+            // select_screen_N and select-tab-N / select_tab_N.
+            let normalized =
+                if name.starts_with("select_screen_") || name.starts_with("select_tab_") {
+                    name.replace('_', "-")
+                } else {
+                    name.clone()
+                };
             match all_actions().iter().find(|a| {
-                a.config_key() == name
+                a.config_key() == normalized.as_str()
                     || (**a == Action::RenameTab && name == "rename-pane")
                     || (**a == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
@@ -536,6 +612,15 @@ fn all_actions() -> &'static [Action] {
         Action::NewPaneSmart,
         Action::NextTab,
         Action::PrevTab,
+        Action::SelectTab(1),
+        Action::SelectTab(2),
+        Action::SelectTab(3),
+        Action::SelectTab(4),
+        Action::SelectTab(5),
+        Action::SelectTab(6),
+        Action::SelectTab(7),
+        Action::SelectTab(8),
+        Action::SelectTab(9),
         Action::SplitRight,
         Action::SplitDown,
         Action::CloseTab,
@@ -546,6 +631,16 @@ fn all_actions() -> &'static [Action] {
         Action::CloseScreen,
         Action::PrevScreen,
         Action::NextScreen,
+        Action::SelectScreen(0),
+        Action::SelectScreen(1),
+        Action::SelectScreen(2),
+        Action::SelectScreen(3),
+        Action::SelectScreen(4),
+        Action::SelectScreen(5),
+        Action::SelectScreen(6),
+        Action::SelectScreen(7),
+        Action::SelectScreen(8),
+        Action::SelectScreen(9),
         Action::NewScreen,
         Action::NextWorkspace,
         Action::NewWorkspace,
@@ -554,6 +649,10 @@ fn all_actions() -> &'static [Action] {
         Action::FocusRight,
         Action::FocusUp,
         Action::FocusDown,
+        Action::FocusNextPane,
+        Action::SwapPanePrev,
+        Action::SwapPaneNext,
+        Action::ZoomPane,
         Action::ResizeGrow,
         Action::ResizeShrink,
         Action::ScrollUp,
@@ -745,10 +844,10 @@ pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOp
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
-    if let Some(name) = name {
-        if !name.is_empty() {
-            return name.to_string();
-        }
+    if let Some(name) = name
+        && !name.is_empty()
+    {
+        return name.to_string();
     }
     let number = index + 1;
     let suffix = if tabs.show_titles {
@@ -889,9 +988,11 @@ mod tests {
             }"##,
         )
         .unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
@@ -932,12 +1033,87 @@ mod tests {
                 "duplicate default chord: {left:?}"
             );
         }
+        assert!(
+            !keys.bindings.iter().any(|(chord, _)| chord == &keys.prefix),
+            "default binding shadows prefix passthrough: {:?}",
+            keys.prefix
+        );
         for c in ['b', 'f', 'd', '.'] {
             assert_eq!(
                 keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
                 None
             );
         }
+    }
+
+    #[test]
+    fn tmux_close_pane_flip_is_default() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            Some(Action::ClosePane)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)),
+            Some(Action::CloseTab)
+        );
+    }
+
+    #[test]
+    fn new_action_names_parse_from_config_overrides() {
+        let cases = [
+            ("zoom-pane", Action::ZoomPane),
+            ("focus-next-pane", Action::FocusNextPane),
+            ("swap-pane-prev", Action::SwapPanePrev),
+            ("swap-pane-next", Action::SwapPaneNext),
+            ("scroll-up", Action::ScrollUp),
+        ];
+        for (name, action) in cases {
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(name.to_string(), Value::String("f".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(action),
+                "{name} did not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn select_screen_action_names_round_trip_and_parse() {
+        for number in 0..=9 {
+            let action = Action::SelectScreen(number);
+            let name = format!("select-screen-{number}");
+            assert_eq!(action.config_key(), name);
+            assert!(all_actions().contains(&action));
+
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(name.clone(), Value::String("f".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(action),
+                "{name} did not parse"
+            );
+
+            // The snake_case spelling is accepted as an alias.
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(format!("select_screen_{number}"), Value::String("g".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+                Some(action),
+                "select_screen_{number} alias did not parse"
+            );
+        }
+
+        assert_eq!(Action::SelectScreen(1).screen_index(), Some(0));
+        assert_eq!(Action::SelectScreen(9).screen_index(), Some(8));
+        assert_eq!(Action::SelectScreen(0).screen_index(), Some(9));
     }
 
     #[test]
@@ -972,13 +1148,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mux.json");
         std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         // `load()` always seeds `selection_fg` from the Ghostty selection
         // colors (or leaves it `None` if there aren't any) before applying
         // this override, so regardless of the ambient Ghostty config, an
         // explicit `null` here must land back on `None`.
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_fg, None);
     }
@@ -995,7 +1173,8 @@ mod tests {
             r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
         )
         .unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
         assert_eq!(config.browser.max_capture_megapixels, 3.5);
         assert_eq!(config.browser.capture_scale, Some(0.5));
@@ -1006,7 +1185,8 @@ mod tests {
         )
         .unwrap();
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(
             config.browser.max_capture_megapixels,

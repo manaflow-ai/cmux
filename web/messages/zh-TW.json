@@ -3462,6 +3462,9 @@
       "faqA4": "免費。cmux 是面向 macOS 的免費開源軟體。"
     }
   },
+  "pricing": {
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use mux_core::platform::transport;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
 
@@ -562,10 +562,10 @@ fn resolve_socket(global: &GlobalArgs) -> PathBuf {
     if let Some(path) = &global.socket {
         return path.clone();
     }
-    if let Some(path) = std::env::var_os("CMUX_MUX_SOCKET") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
+    if let Some(path) = std::env::var_os("CMUX_MUX_SOCKET")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
     }
     let session = global.session.as_deref().unwrap_or("main");
     mux_core::server::default_socket_path(session)
@@ -1273,7 +1273,7 @@ fn print_tree(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             for pane in panes {
                 let pane_id = id_field(pane, "id");
                 if bool_field(pane, "dead") {
-                    writeln!(out, "pane id={} screen={} dead=true", pane_id, screen_id)?;
+                    writeln!(out, "pane id={pane_id} screen={screen_id} dead=true")?;
                     continue;
                 }
                 writeln!(
