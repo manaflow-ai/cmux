@@ -3,6 +3,7 @@ import CmuxCore
 import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
+import Observation
 import SwiftUI
 
 private struct SidebarPanelObservationState: Equatable {
@@ -25,6 +26,112 @@ extension View {
                 onChange()
             }
         }
+    }
+
+    func sidebarProcessTitleObservation(
+        id: UUID,
+        model: WorkspaceSidebarProcessTitleObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
+    }
+
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for model in models {
+                    group.addTask { @MainActor in
+                        for await _ in model.changes() {
+                            if Task.isCancelled { break }
+                            onChange()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Settles automatic process-title churn before it invalidates a sidebar row.
+/// The injected scheduler keeps the deadline deterministic in tests, while the
+/// async stream ties row observation to SwiftUI task cancellation.
+@MainActor
+@Observable
+final class WorkspaceSidebarProcessTitleObservationModel {
+    typealias Cancellation = @MainActor () -> Void
+    typealias Scheduler = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Cancellation
+
+    nonisolated static let defaultSettleInterval: TimeInterval = 0.5
+
+    @ObservationIgnored
+    private(set) var changeGeneration: UInt64 = 0
+    @ObservationIgnored
+    private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    @ObservationIgnored
+    private var cancelPendingChange: Cancellation?
+    @ObservationIgnored
+    private let settleInterval: TimeInterval
+    @ObservationIgnored
+    private let schedule: Scheduler
+
+    init(
+        settleInterval: TimeInterval = defaultSettleInterval,
+        schedule: @escaping Scheduler = { delay, action in
+            let boundedDelay = max(0, delay)
+            let maximumDelay = Double(Int.max) / 1_000_000_000.0
+            let nanoseconds = Int((min(boundedDelay, maximumDelay) * 1_000_000_000.0).rounded(.up))
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + .nanoseconds(nanoseconds))
+            timer.setEventHandler {
+                MainActor.assumeIsolated {
+                    action()
+                }
+            }
+            timer.resume()
+            return {
+                timer.setEventHandler {}
+                timer.cancel()
+            }
+        }
+    ) {
+        self.settleInterval = max(0, settleInterval)
+        self.schedule = schedule
+    }
+
+    func changes() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            changeObservers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.changeObservers[id] = nil }
+            }
+        }
+    }
+
+    func processTitleDidChange() {
+        cancelPendingProcessTitleChange()
+        cancelPendingChange = schedule(settleInterval) { [weak self] in
+            guard let self else { return }
+            cancelPendingChange = nil
+            changeGeneration &+= 1
+            for continuation in changeObservers.values {
+                continuation.yield(())
+            }
+        }
+    }
+
+    func cancelPendingProcessTitleChange() {
+        cancelPendingChange?()
+        cancelPendingChange = nil
     }
 }
 
@@ -72,8 +179,6 @@ extension Workspace {
     // prevents those frames from continuously invalidating LazyVStack rows.
     // See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
-    static let sidebarProcessTitleSettleInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(500)
-
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
             $customTitle,
@@ -118,18 +223,7 @@ extension Workspace {
             )
             .map { _ in () }
 
-        let settledProcessTitle = Publishers.CombineLatest($title, $customTitle)
-            .map { title, customTitle in customTitle == nil ? title : nil }
-            .removeDuplicates()
-            // TabItemView builds its initial snapshot in onAppear. Dropping
-            // the replay avoids a redundant delayed refresh for every row.
-            .dropFirst()
-            .debounce(for: Self.sidebarProcessTitleSettleInterval, scheduler: RunLoop.main)
-            .compactMap { $0 }
-            .map { _ in () }
-
-        return Publishers.Merge(immediateFields, settledProcessTitle)
-            .eraseToAnyPublisher()
+        return immediateFields.eraseToAnyPublisher()
     }
 
     /// Merged immediate observation across workspaces for the extension

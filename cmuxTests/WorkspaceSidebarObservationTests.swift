@@ -164,34 +164,54 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherDefersSustainedProcessTitleChurnUntilSettled() {
-        let workspaces = (0..<16).map { _ in Workspace() }
-        var publishCounts = Array(repeating: 0, count: workspaces.count)
+    @Test func sidebarProcessTitleObservationDefersSustainedChurnUntilSettled() {
+        let schedulers = (0..<16).map { _ in ManualProcessTitleSettleScheduler() }
+        let models = schedulers.map { scheduler in
+            WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        }
+        let workspaces = models.map { model in
+            Workspace(sidebarProcessTitleObservation: model)
+        }
+        var immediatePublishCounts = Array(repeating: 0, count: workspaces.count)
         let cancellables = workspaces.enumerated().map { index, workspace in
             workspace.sidebarImmediateObservationPublisher.sink {
-                publishCounts[index] += 1
+                immediatePublishCounts[index] += 1
             }
         }
         defer { cancellables.forEach { $0.cancel() } }
-        publishCounts = Array(repeating: 0, count: workspaces.count)
+        immediatePublishCounts = Array(repeating: 0, count: workspaces.count)
 
         for frame in 0..<6 {
             for (index, workspace) in workspaces.enumerated() {
-                workspace.title = "Agent \(index) frame \(frame)"
+                workspace.applyProcessTitle("Agent \(index) frame \(frame)")
             }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
         }
 
         #expect(
-            publishCounts.allSatisfy { $0 == 0 },
+            models.allSatisfy { $0.changeGeneration == 0 },
             "Process-title animation must not continuously invalidate sidebar rows while titles are still changing."
         )
+        #expect(immediatePublishCounts.allSatisfy { $0 == 0 })
+        #expect(schedulers.allSatisfy { $0.scheduledActionCount == 6 })
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        schedulers.forEach { $0.fireAll() }
         #expect(
-            publishCounts.allSatisfy { $0 == 1 },
+            models.allSatisfy { $0.changeGeneration == 1 },
             "Each workspace must publish exactly one refresh with its settled process title."
         )
+    }
+
+    @Test func customTitleCancelsPendingProcessTitleRefresh() {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+
+        workspace.applyProcessTitle("Agent frame")
+        workspace.setCustomTitle("User Edit")
+        scheduler.fireAll()
+
+        #expect(model.changeGeneration == 0)
+        #expect(workspace.title == "User Edit")
     }
 
     @Test func coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing() {
@@ -396,6 +416,34 @@ struct WorkspaceSidebarObservationTests {
                 statesByPanelId: statesByPanelId
             ) == 2
         )
+    }
+}
+
+@MainActor
+private final class ManualProcessTitleSettleScheduler {
+    private struct PendingAction {
+        var isCancelled = false
+        let action: @MainActor () -> Void
+    }
+
+    private var pendingActions: [PendingAction] = []
+    var scheduledActionCount: Int { pendingActions.count }
+
+    func schedule(
+        delay _: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> WorkspaceSidebarProcessTitleObservationModel.Cancellation {
+        let index = pendingActions.count
+        pendingActions.append(PendingAction(action: action))
+        return { [weak self] in
+            self?.pendingActions[index].isCancelled = true
+        }
+    }
+
+    func fireAll() {
+        for pendingAction in pendingActions where !pendingAction.isCancelled {
+            pendingAction.action()
+        }
     }
 }
 

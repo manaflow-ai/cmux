@@ -10731,6 +10731,12 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
+            .sidebarProcessTitleObservations(
+                ids: renderContext.workspaceIds,
+                models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
+            ) {
+                refreshExtensionSidebarSnapshot()
+            }
             .onAppear {
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
             }
@@ -13980,6 +13986,7 @@ struct TabItemView: View, Equatable {
             workspaceFinderDirectoryOpenRequest = nil
         }
         .sidebarAgentRuntimeObservation(id: tab.id, model: tab.sidebarAgentRuntimeObservation) { refreshWorkspaceSnapshot() }
+        .sidebarProcessTitleObservation(id: tab.id, model: tab.sidebarProcessTitleObservation) { refreshWorkspaceSnapshot() }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)

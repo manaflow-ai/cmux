@@ -2363,6 +2363,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     /// Todo lifecycle state: manual status override + persisted checklist
     /// (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
@@ -2893,10 +2894,12 @@ final class Workspace: Identifiable, ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
-        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
+        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
+        self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -4297,6 +4300,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         self.title = title
+        sidebarProcessTitleObservation.processTitleDidChange()
     }
 
     func setCustomColor(_ hex: String?) {
@@ -4337,10 +4341,14 @@ final class Workspace: Identifiable, ObservableObject {
             if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
         }
         if trimmed.isEmpty {
+            if customTitle != nil {
+                sidebarProcessTitleObservation.cancelPendingProcessTitleChange()
+            }
             customTitle = nil
             customTitleSource = nil
             self.title = processTitle
         } else {
+            sidebarProcessTitleObservation.cancelPendingProcessTitleChange()
             customTitle = trimmed
             customTitleSource = source
             self.title = trimmed
