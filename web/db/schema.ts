@@ -84,7 +84,7 @@ export const accountDeletionTombstones = pgTable(
   {
     userIdHash: text("user_id_hash").primaryKey(),
     userId: text("user_id"),
-    status: text("status").$type<"pending" | "in_progress" | "completed" | "failed">().notNull().default("pending"),
+    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "completed" | "failed">().notNull().default("pending"),
     attemptCount: integer("attempt_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -60,12 +60,28 @@ describe("account deletion cleanup", () => {
     await expect(hasAccountDeletionTombstone({ userId: "other-user" }, runtime)).resolves.toBe(false);
   });
 
-  test("does not block auth on terminal tombstone statuses", async () => {
+  test("blocks auth on retryable failed tombstones", async () => {
     const runtime = {
       cloudDb: () => ({
         select: () => selectBuilder(() => [{
           userIdHash: accountDeletionUserHash("user-1"),
           status: "failed",
+        }]),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(hasAccountDeletionTombstone({ userId: "user-1" }, runtime)).resolves.toBe(true);
+  });
+
+  test("does not block auth on completed tombstones", async () => {
+    const runtime = {
+      cloudDb: () => ({
+        select: () => selectBuilder(() => [{
+          userIdHash: accountDeletionUserHash("user-1"),
+          status: "completed",
         }]),
       }) as unknown as ReturnType<typeof cloudDb>,
       deleteObject,

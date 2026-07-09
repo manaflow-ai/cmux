@@ -6,7 +6,9 @@ import {
   listPendingAccountDeletionJobs,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
+  markAccountDeletionStackDeletePending,
   type AccountDeletionJob,
+  type AccountDeletionStatus,
   type StackAccountDeletionMetadataUser,
 } from "./deletion";
 
@@ -16,13 +18,16 @@ type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
 };
 
 export type AccountDeletionProcessorDependencies = {
-  readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<boolean>;
+  readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<AccountDeletionStatus | null>;
   readonly deleteCmuxAccountData: (input: { readonly userId: string }) => Promise<void>;
   readonly deletePostHogPersonData: (userId: string) => Promise<void>;
   readonly loadStackUser: (userId: string) => Promise<StackAccountDeletionUser | null>;
   readonly markAccountDeletionCompleted: (input: { readonly userId: string }) => Promise<void>;
   readonly markAccountDeletionFailed: (
     input: { readonly userId: string; readonly error: unknown },
+  ) => Promise<void>;
+  readonly markAccountDeletionStackDeletePending: (
+    input: { readonly userId: string; readonly error?: unknown },
   ) => Promise<void>;
   readonly listPendingAccountDeletionJobs: (
     input?: { readonly limit?: number },
@@ -37,6 +42,7 @@ const defaultAccountDeletionProcessorDependencies: AccountDeletionProcessorDepen
     await getStackServerApp().getUser(userId) as StackAccountDeletionUser | null,
   markAccountDeletionCompleted,
   markAccountDeletionFailed,
+  markAccountDeletionStackDeletePending,
   listPendingAccountDeletionJobs,
 };
 
@@ -44,18 +50,27 @@ export async function processAccountDeletionForUser(
   input: { readonly userId: string },
   dependencies: AccountDeletionProcessorDependencies = defaultAccountDeletionProcessorDependencies,
 ): Promise<"processed" | "skipped"> {
-  const claimed = await dependencies.claimAccountDeletionProcessing({ userId: input.userId });
-  if (!claimed) return "skipped";
+  const claimedStatus = await dependencies.claimAccountDeletionProcessing({ userId: input.userId });
+  if (!claimedStatus) return "skipped";
 
+  let stackDeletePending = claimedStatus === "stack_delete_pending";
   try {
     const user = await dependencies.loadStackUser(input.userId);
-    await dependencies.deleteCmuxAccountData({ userId: input.userId });
-    await dependencies.deletePostHogPersonData(input.userId);
-    await dependencies.markAccountDeletionCompleted({ userId: input.userId });
+    if (!stackDeletePending) {
+      await dependencies.deleteCmuxAccountData({ userId: input.userId });
+      await dependencies.deletePostHogPersonData(input.userId);
+      await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId });
+      stackDeletePending = true;
+    }
     if (user) await user.delete();
+    await dependencies.markAccountDeletionCompleted({ userId: input.userId });
     return "processed";
   } catch (error) {
-    await dependencies.markAccountDeletionFailed({ userId: input.userId, error });
+    if (stackDeletePending) {
+      await dependencies.markAccountDeletionStackDeletePending({ userId: input.userId, error });
+    } else {
+      await dependencies.markAccountDeletionFailed({ userId: input.userId, error });
+    }
     throw error;
   }
 }

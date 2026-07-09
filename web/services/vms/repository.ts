@@ -945,7 +945,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markBaseCreateRunning: (input) =>
     dbEffect("markBaseCreateRunning", async () => {
       const db = cloudDb();
-      return await db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const now = new Date();
         if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
           const vm = await persistCreateProviderHandle(tx, {
@@ -957,7 +957,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             now,
           });
           if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
-          throw new Error("Account deletion is in progress.");
+          return null;
         }
         const [vm] = await tx
           .update(cloudVms)
@@ -1020,6 +1020,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
 
         return vm;
       });
+      if (!result) {
+        throw new Error("Account deletion is in progress.");
+      }
+      return result;
     }),
 
   markBaseCreateFailed: (input) =>
@@ -1213,7 +1217,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
-      return await db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const [current] = await tx
           .select({ userId: cloudVms.userId })
           .from(cloudVms)
@@ -1231,7 +1235,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             now,
           });
           if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
-          throw new Error("Account deletion is in progress.");
+          return null;
         }
 
         const [vm] = await tx
@@ -1254,6 +1258,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
         return vm;
       });
+      if (!result) {
+        throw new Error("Account deletion is in progress.");
+      }
+      return result;
     }),
 
   markCreateFailed: (input) =>

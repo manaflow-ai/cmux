@@ -4,17 +4,17 @@ import {
   processPendingAccountDeletions,
   type AccountDeletionProcessorDependencies,
 } from "../services/account/deletionProcessor";
-import type { AccountDeletionJob } from "../services/account/deletion";
+import type { AccountDeletionJob, AccountDeletionStatus } from "../services/account/deletion";
 
 const calls: string[] = [];
-let claimResult = true;
+let claimResult: AccountDeletionStatus | null = "pending";
 let cleanupError: Error | null = null;
 let stackDeleteError: Error | null = null;
 let pendingJobs: AccountDeletionJob[] = [];
 
 beforeEach(() => {
   calls.length = 0;
-  claimResult = true;
+  claimResult = "pending";
   cleanupError = null;
   stackDeleteError = null;
   pendingJobs = [];
@@ -22,7 +22,7 @@ beforeEach(() => {
 
 describe("account deletion processor", () => {
   test("skips cleanup when another worker already owns the deletion job", async () => {
-    claimResult = false;
+    claimResult = null;
 
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies());
 
@@ -39,8 +39,9 @@ describe("account deletion processor", () => {
       "load-stack:user-1",
       "cleanup:user-1",
       "posthog:user-1",
-      "completed:user-1",
+      "stack-delete-pending:user-1",
       "stack-delete:user-1",
+      "completed:user-1",
     ]);
   });
 
@@ -71,9 +72,23 @@ describe("account deletion processor", () => {
       "load-stack:user-1",
       "cleanup:user-1",
       "posthog:user-1",
-      "completed:user-1",
+      "stack-delete-pending:user-1",
       "stack-delete:user-1",
-      "failed:user-1:Stack delete failed",
+      "stack-delete-pending:user-1:Stack delete failed",
+    ]);
+  });
+
+  test("resumes Stack deletion without replaying cmux or PostHog cleanup", async () => {
+    claimResult = "stack_delete_pending";
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies());
+
+    expect(result).toBe("processed");
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "stack-delete:user-1",
+      "completed:user-1",
     ]);
   });
 
@@ -129,6 +144,11 @@ function dependencies(
     },
     markAccountDeletionFailed: async ({ userId, error }) => {
       calls.push(`failed:${userId}:${error instanceof Error ? error.message : "unknown"}`);
+    },
+    markAccountDeletionStackDeletePending: async ({ userId, error }) => {
+      calls.push(error
+        ? `stack-delete-pending:${userId}:${error instanceof Error ? error.message : "unknown"}`
+        : `stack-delete-pending:${userId}`);
     },
     listPendingAccountDeletionJobs: async () => pendingJobs,
     ...overrides,

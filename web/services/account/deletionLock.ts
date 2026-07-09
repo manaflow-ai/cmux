@@ -9,5 +9,5 @@ export function accountDeletionAdvisoryLockKey(userId: string): string {
 }
 
 export function isBlockingAccountDeletionStatus(status: string): boolean {
-  return status === "pending" || status === "in_progress";
+  return status !== "completed";
 }

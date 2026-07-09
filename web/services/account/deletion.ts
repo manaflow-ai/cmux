@@ -76,7 +76,7 @@ export type AccountDeletionInput = {
   readonly userId: string;
 };
 
-export type AccountDeletionStatus = "pending" | "in_progress" | "completed" | "failed";
+export type AccountDeletionStatus = "pending" | "in_progress" | "stack_delete_pending" | "completed" | "failed";
 
 export type AccountDeletionRequest = {
   readonly userIdHash: string;
@@ -195,7 +195,7 @@ export async function enqueueAccountDeletion(
 export async function claimAccountDeletionProcessing(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
-): Promise<boolean> {
+): Promise<AccountDeletionStatus | null> {
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
   const staleBefore = new Date(Date.now() - ACCOUNT_DELETION_JOB_STALE_MS);
@@ -210,15 +210,16 @@ export async function claimAccountDeletionProcessing(
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .limit(1);
-    if (!existing || existing.status === "completed") return false;
-    if (existing.status === "in_progress" && existing.updatedAt > staleBefore) return false;
+    if (!existing || existing.status === "completed") return null;
+    if (existing.status === "in_progress" && existing.updatedAt > staleBefore) return null;
 
     const now = new Date();
+    const processingStatus = existing.status === "stack_delete_pending" ? "stack_delete_pending" : "in_progress";
     const [claimed] = await tx
       .update(accountDeletionTombstones)
       .set({
         userId: input.userId,
-        status: "in_progress",
+        status: processingStatus,
         attemptCount: sql`${accountDeletionTombstones.attemptCount} + 1`,
         updatedAt: now,
         startedAt: now,
@@ -226,7 +227,7 @@ export async function claimAccountDeletionProcessing(
       })
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .returning({ userIdHash: accountDeletionTombstones.userIdHash });
-    return !!claimed;
+    return claimed ? existing.status : null;
   });
 }
 
@@ -249,6 +250,7 @@ export async function listPendingAccountDeletionJobs(
       or(
         eq(accountDeletionTombstones.status, "pending"),
         eq(accountDeletionTombstones.status, "failed"),
+        eq(accountDeletionTombstones.status, "stack_delete_pending"),
         and(
           eq(accountDeletionTombstones.status, "in_progress"),
           lt(accountDeletionTombstones.updatedAt, staleBefore),
@@ -263,6 +265,26 @@ export async function listPendingAccountDeletionJobs(
       ? [{ userId: row.userId, userIdHash: row.userIdHash, status: row.status }]
       : []
   );
+}
+
+export async function markAccountDeletionStackDeletePending(
+  input: AccountDeletionInput & { readonly error?: unknown },
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    await tx
+      .update(accountDeletionTombstones)
+      .set({
+        userId: input.userId,
+        status: "stack_delete_pending",
+        updatedAt: now,
+        errorMessage: input.error ? accountDeletionErrorMessage(input.error) : null,
+      })
+      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)));
+  });
 }
 
 export async function markAccountDeletionCompleted(
