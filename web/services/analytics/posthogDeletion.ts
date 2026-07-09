@@ -1,19 +1,19 @@
 const POSTHOG_APP_HOST = (process.env.POSTHOG_APP_HOST ?? "https://us.posthog.com").replace(/\/$/, "");
 
 export function assertPostHogDeletionConfigured(): void {
-  if (!postHogProjectId() || !postHogPersonalApiKey()) {
+  if (!postHogEnvironmentId() || !postHogPersonalApiKey()) {
     throw new Error("PostHog account deletion is not configured");
   }
 }
 
 export async function deletePostHogPersonData(userId: string): Promise<void> {
-  const projectId = postHogProjectId();
+  const environmentId = postHogEnvironmentId();
   const personalApiKey = postHogPersonalApiKey();
-  if (!projectId || !personalApiKey) {
+  if (!environmentId || !personalApiKey) {
     throw new Error("PostHog account deletion is not configured");
   }
 
-  const response = await fetch(`${POSTHOG_APP_HOST}/api/projects/${encodeURIComponent(projectId)}/persons/bulk_delete/`, {
+  const response = await fetch(`${POSTHOG_APP_HOST}/api/environments/${encodeURIComponent(environmentId)}/persons/bulk_delete/`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${personalApiKey}`,
@@ -30,8 +30,8 @@ export async function deletePostHogPersonData(userId: string): Promise<void> {
   }
 }
 
-function postHogProjectId(): string | null {
-  return trimmedEnv("POSTHOG_PROJECT_ID");
+function postHogEnvironmentId(): string | null {
+  return trimmedEnv("POSTHOG_ENVIRONMENT_ID") ?? trimmedEnv("POSTHOG_PROJECT_ID");
 }
 
 function postHogPersonalApiKey(): string | null {
