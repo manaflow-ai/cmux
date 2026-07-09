@@ -1,7 +1,7 @@
 "use client";
 
-import posthog from "posthog-js";
 import { Link, usePathname } from "@/i18n/navigation";
+import { captureAnalyticsClick } from "../../lib/analytics";
 
 // Localized internal link that records a PostHog click event, so we can see how
 // many clicks each guide / landing page gets and where they came from.
@@ -21,7 +21,7 @@ export function TrackedLink({
     <Link
       href={href}
       className={className}
-      onClick={() => posthog.capture(event, { target: href, from: pathname })}
+      onClick={() => captureAnalyticsClick(event, { target: href, from: pathname })}
     >
       {children}
     </Link>

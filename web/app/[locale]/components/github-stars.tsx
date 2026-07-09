@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import posthog from "posthog-js";
+import { captureAnalyticsClick } from "../../lib/analytics";
 
 const STARS_CACHE_TTL_MS = 300_000;
 let cachedStars: number | null = null;
@@ -105,7 +105,7 @@ export function GitHubStarsBadge({
       target="_blank"
       rel="noopener noreferrer"
       onClick={() =>
-        posthog.capture("cmuxterm_github_clicked", { location })
+        captureAnalyticsClick("cmuxterm_github_clicked", { location })
       }
       className={classes}
     >

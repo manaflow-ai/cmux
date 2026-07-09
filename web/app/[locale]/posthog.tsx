@@ -4,14 +4,21 @@ import posthog from "posthog-js";
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, Suspense } from "react";
+import { captureAnalyticsClick } from "../lib/analytics";
 
 if (typeof window !== "undefined") {
   posthog.init("phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP", {
-    api_host: "https://r.cmux.com",
+    api_host: "/api/analytics/posthog-sdk-disabled",
     ui_host: "https://us.posthog.com",
+    autocapture: false,
     person_profiles: "identified_only",
     capture_pageview: false,
-    capture_pageleave: true,
+    capture_pageleave: false,
+    disable_session_recording: true,
+    disable_surveys: true,
+    disable_external_dependency_loading: true,
+    advanced_disable_flags: true,
+    advanced_disable_decide: true,
     advanced_disable_feature_flags: true,
   });
 }
@@ -25,7 +32,7 @@ function PageviewTracker() {
       let url = window.origin + pathname;
       const search = searchParams.toString();
       if (search) url += "?" + search;
-      posthog.capture("$pageview", { $current_url: url });
+      captureAnalyticsClick("$pageview", { $current_url: url });
     }
   }, [pathname, searchParams]);
 

@@ -2,9 +2,9 @@
 
 import { Menu } from "@base-ui-components/react/menu";
 import { useTranslations } from "next-intl";
-import posthog from "posthog-js";
 import { useState } from "react";
 import { Link, usePathname } from "../../../i18n/navigation";
+import { captureAnalyticsClick } from "../../lib/analytics";
 import {
   DOWNLOAD_CONFIRMATION_HREF,
   DOWNLOAD_CONFIRMATION_PATH,
@@ -91,7 +91,7 @@ export function DownloadButton({
     "group flex items-center justify-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03]";
 
   const captureMac = () =>
-    posthog.capture("cmuxterm_download_clicked", { location, platform: "mac" });
+    captureAnalyticsClick("cmuxterm_download_clicked", { location, platform: "mac" });
 
   // The Apple mark artwork has an 814:1000 aspect ratio. Derive the box width
   // from its height so the glyph fills the frame instead of letterboxing inside
@@ -194,7 +194,7 @@ export function DownloadButton({
                 <Menu.Item
                   render={<Link href="/ios" target="_blank" rel="noreferrer" />}
                   onClick={() =>
-                    posthog.capture("cmuxterm_download_clicked", {
+                    captureAnalyticsClick("cmuxterm_download_clicked", {
                       location,
                       platform: "ios",
                     })
@@ -214,7 +214,7 @@ export function DownloadButton({
                     <Menu.Item
                       key={platform}
                       onClick={() => {
-                        posthog.capture("cmuxterm_waitlist_opened", {
+                        captureAnalyticsClick("cmuxterm_waitlist_opened", {
                           location,
                           platform,
                         });

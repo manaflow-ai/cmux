@@ -1,10 +1,10 @@
 "use client";
 
-import posthog from "posthog-js";
 import {
   pricingActionClassName,
   type PricingActionSize,
 } from "../../components/pricing-shared";
+import { captureAnalyticsClick } from "../../lib/analytics";
 import {
   isClientConfigFlagEnabled,
   useClientConfigFlag,
@@ -44,7 +44,7 @@ export function ProCtaLink({
     <a
       href={checkout ? checkoutHref : fallbackHref}
       onClick={() =>
-        posthog.capture("cmuxterm_pro_cta_clicked", {
+        captureAnalyticsClick("cmuxterm_pro_cta_clicked", {
           location,
           checkout,
         })

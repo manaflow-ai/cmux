@@ -3,8 +3,8 @@
 import { Checkbox } from "@base-ui-components/react/checkbox";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
-import posthog from "posthog-js";
 import { useRef, useState } from "react";
+import { captureAnalyticsEvent } from "../../lib/analytics";
 import {
   WAITLIST_EARLY_ACCESS_FLAGS,
   WAITLIST_PLATFORMS,
@@ -29,53 +29,34 @@ const SUBMIT_DELAY_MS = 600;
 const VALIDATE_TIMEOUT_MS = 4000;
 
 /**
- * Records a waitlist signup by POSTing the event straight to PostHog's capture
- * endpoint and awaiting delivery, so the UI shows success only when the record
- * is actually accepted (posthog-js `capture` is fire-and-forget). The event
- * `$set`s the email and Early Access enrollment, so the signup persists
- * server-side even if the SDK's own requests are blocked. Returns whether the
- * server accepted it.
+ * Records a waitlist signup through cmux's first-party analytics route and
+ * awaits delivery, so the UI shows success only when PostHog accepts the
+ * server-forwarded event. The event `$set`s the email and Early Access
+ * enrollment, so the signup persists server-side even when browser extensions
+ * block tracker-shaped PostHog ingest URLs.
  */
 async function recordWaitlistSignup(
   email: string,
   platforms: WaitlistPlatform[],
   location: string,
 ): Promise<boolean> {
-  const host = posthog.config?.api_host;
-  const token = posthog.config?.token;
-  if (!host || !token) return false;
   const enrollment = Object.fromEntries(
     platforms.map((p) => [
       `$feature_enrollment/${WAITLIST_EARLY_ACCESS_FLAGS[p]}`,
       true,
     ]),
   );
-  try {
-    // `/e/` is the capture endpoint posthog-js itself posts events to (through
-    // the same first-party `api_host` proxy), so this matches the SDK's path
-    // and payload shape rather than inventing a new one.
-    const res = await fetch(`${host.replace(/\/+$/, "")}/e/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      keepalive: true,
-      body: JSON.stringify({
-        api_key: token,
-        event: "cmuxterm_waitlist_signup",
-        properties: {
-          distinct_id: email,
-          email,
-          platforms,
-          location,
-          $set: { email, ...enrollment },
-          $set_once: { waitlist_email: email },
-        },
-        timestamp: new Date().toISOString(),
-      }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return await captureAnalyticsEvent(
+    "cmuxterm_waitlist_signup",
+    {
+      email,
+      platforms,
+      location,
+      $set: { email, ...enrollment },
+      $set_once: { waitlist_email: email },
+    },
+    { distinctId: email, keepalive: true },
+  );
 }
 
 /**
