@@ -10,6 +10,9 @@ import Testing
         "remote daemon tunnel is not ready",
         "pty_input_queue_full",
         "pty input queue is full",
+        // Canonical app-side mapping of the daemon's input-queue-full error
+        // (v2RemotePTYUserFacingErrorMessage / RemotePTYBridgeStrings inputBackedUp).
+        "remote PTY input is temporarily backed up",
         "connection refused",
         "connection reset by peer",
     ])
