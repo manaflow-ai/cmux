@@ -12,7 +12,6 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
-    @State private var workspaceTodos: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
@@ -21,7 +20,6 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
-        _workspaceTodos = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodos))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
 
@@ -43,8 +41,6 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
-                workspaceTodosRow
-                SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
             }
         }
@@ -58,27 +54,9 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
-            workspaceTodos,
             workspaceTodosChecklistStyle,
         ]
         models.forEach { $0.startObserving() }
-    }
-
-    @ViewBuilder
-    private var workspaceTodosRow: some View {
-        SettingsCardRow(
-            configurationReview: .json("sidebar.beta.workspaceTodos.enabled"),
-            searchAnchorID: "setting:betaFeatures:workspace-todos",
-            String(localized: "settings.betaFeatures.workspaceTodos", defaultValue: "Workspace Todos"),
-            subtitle: workspaceTodos.current
-                ? String(localized: "settings.betaFeatures.workspaceTodos.subtitleOn", defaultValue: "Shows a task-status glyph and checklist on each workspace row, plus the workspace todo pane.")
-                : String(localized: "settings.betaFeatures.workspaceTodos.subtitleOff", defaultValue: "Hides the workspace todo UI. Turns on automatically the first time you set a status or add a checklist item.")
-        ) {
-            Toggle("", isOn: Binding(get: { workspaceTodos.current }, set: { workspaceTodos.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaWorkspaceTodosToggle")
-        }
     }
 
     @ViewBuilder

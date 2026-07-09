@@ -57,8 +57,8 @@ struct SidebarWorkspaceSnapshotBuilder {
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
-        // Workspace todo status/checklist; taskStatus is nil while the
-        // workspace-todos beta is disabled (no glyph slot reserved).
+        // Workspace todo status/checklist; taskStatus is nil when the
+        // workspace opted out of status display (no glyph slot reserved).
         let taskStatus: WorkspaceTaskStatus?
         let taskStatusHasOverride: Bool
         /// The lane the live signals currently infer; feeds the status

@@ -257,21 +257,25 @@ struct SidebarWorkspaceChecklistPopover: View {
         return .handled
     }
 
-    /// A zero-size button that binds Cmd+Return to toggling the highlighted
+    /// A zero-size button that binds the configured shortcut to toggling the highlighted
     /// item. A `.keyboardShortcut` fires even while the add field is focused
     /// (a plain TextField only consumes bare Return via `onSubmit`), so the
     /// toggle works without stealing focus from the add field. Also exposed
     /// as the configurable `toggleChecklistItemComplete` action in Settings.
+    @ViewBuilder
     private func toggleHighlightedShortcutButton(visible: [WorkspaceChecklistItem]) -> some View {
-        Button {
-            toggleHighlighted(in: visible)
-        } label: { Color.clear.frame(width: 0, height: 0) }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.return, modifiers: .command)
-            .accessibilityHidden(true)
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleChecklistItemComplete)
+        if let key = shortcut.keyEquivalent {
+            Button {
+                toggleHighlighted(in: visible)
+            } label: { Color.clear.frame(width: 0, height: 0) }
+                .buttonStyle(.plain)
+                .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+                .accessibilityHidden(true)
+        }
     }
 
-    /// Return/Cmd+Return toggles the highlighted item; no-op when nothing is
+    /// Return/configured shortcut toggles the highlighted item; no-op when nothing is
     /// highlighted.
     private func toggleHighlighted(in visible: [WorkspaceChecklistItem]) {
         guard let id = highlightedItemId,

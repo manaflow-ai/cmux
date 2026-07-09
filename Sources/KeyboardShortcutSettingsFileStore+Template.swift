@@ -131,7 +131,6 @@ extension CmuxSettingsFileStore {
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
                     "beta": [
                         "workspaceTodos": [
-                            "enabled": SettingCatalog().betaFeatures.workspaceTodos.defaultValue,
                             "checklistStyle": SettingCatalog().betaFeatures.workspaceTodosChecklistStyle.defaultValue.rawValue,
                         ],
                     ],

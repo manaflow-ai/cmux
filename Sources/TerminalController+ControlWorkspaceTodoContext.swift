@@ -450,11 +450,14 @@ extension TerminalController: ControlWorkspaceTodoContext {
         case .notFound:
             return .notFound
         case .found(let tabManager, let workspace):
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            let focus = v2FocusAllowed(requested: requestedFocus)
+            if focus {
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            }
             guard let panel = WorkspaceTodoActions.openTodoPane(
                 for: workspace,
-                focus: v2FocusAllowed(requested: requestedFocus)
+                focus: focus
             ) else {
                 return .openFailed
             }

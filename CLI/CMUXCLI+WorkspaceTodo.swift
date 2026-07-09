@@ -321,7 +321,7 @@ extension CMUXCLI {
       cmux workspace disconnect --workspace workspace:3
     """)
 
-    static let workspaceStatusUsage = """
+    static let workspaceStatusUsage = String(localized: "cli.workspace.status.usage", defaultValue: """
     Usage: cmux workspace status [set <lane|auto> | cycle] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
 
     Show or pin a workspace's todo lifecycle status. Without arguments prints
@@ -341,9 +341,9 @@ extension CMUXCLI {
       cmux workspace status set review
       cmux workspace status cycle
       cmux workspace status set auto --workspace workspace:2
-    """
+    """)
 
-    static let todoUsage = """
+    static let todoUsage = String(localized: "cli.todo.usage", defaultValue: """
     Usage: cmux todo <subcommand> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
 
     Per-workspace checklist, writable by you and by agents. Targets the
@@ -378,5 +378,5 @@ extension CMUXCLI {
       cmux todo open
 
     See also: cmux workspace status
-    """
+    """)
 }

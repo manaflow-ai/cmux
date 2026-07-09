@@ -9566,7 +9566,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
-    let workspaceTodosEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
 
     init(
@@ -9625,9 +9624,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
-        // The workspace-todos feature is always on (enablement FF removed);
-        // the popover/inline checklist style is still user-selectable.
-        workspaceTodosEnabled = true
         workspaceTodoChecklistStyle = settings.value(for: catalog.betaFeatures.workspaceTodosChecklistStyle)
     }
 
@@ -14701,10 +14697,9 @@ struct TabItemView: View, Equatable {
         }()
         // Pure reads only: effective-status resolution never mutates; the
         // expired-override cleanup happens at explicit mutation entry points.
-        let workspaceTodosEnabled = settings.workspaceTodosEnabled
         // A workspace can opt out of the status feature (None): no glyph slot
-        // is reserved, exactly like when the feature is globally disabled.
-        let workspaceStatusVisible = workspaceTodosEnabled && !tab.todoState.statusHidden
+        // is reserved.
+        let workspaceStatusVisible = !tab.todoState.statusHidden
         let inferredTaskStatus = workspaceStatusVisible ? tab.inferredTaskStatus : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
@@ -14712,7 +14707,7 @@ struct TabItemView: View, Equatable {
                 inferred: inferred
             )
         }
-        let checklistProgress = workspaceTodosEnabled ? tab.checklistProgressSummary : nil
+        let checklistProgress = tab.checklistProgressSummary
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: workspaceSnapshotPresentationKey,
@@ -14749,10 +14744,10 @@ struct TabItemView: View, Equatable {
                 tab.todoState.statusOverride != nil && !resolution.shouldClearOverride
             } ?? false,
             taskStatusInferred: inferredTaskStatus,
-            checklistItems: workspaceTodosEnabled ? tab.todoState.checklist : [],
-            checklistCompletedCount: checklistProgress?.completedCount ?? 0,
-            checklistTotalCount: checklistProgress?.totalCount ?? 0,
-            checklistFirstUncheckedText: checklistProgress?.firstUncheckedText
+            checklistItems: tab.todoState.checklist,
+            checklistCompletedCount: checklistProgress.completedCount,
+            checklistTotalCount: checklistProgress.totalCount,
+            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
         )
     }
 

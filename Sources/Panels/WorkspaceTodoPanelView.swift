@@ -248,21 +248,21 @@ private struct WorkspaceTodoPaneContent: View {
         return .handled
     }
 
-    /// Return or Cmd+Return toggles the highlighted item between completed and pending.
+    /// Return or the configured shortcut toggles the highlighted item between completed and pending.
     /// The action is also registered as the `toggleChecklistItemComplete`
-    /// shortcut for Settings discoverability via Cmd+Return; the pane handles
+    /// shortcut for Settings discoverability and rebinding; the pane handles
     /// the keystroke locally because the toggle needs the view-local highlight.
     private func handleItemsKeyPress(
         _ press: KeyPress,
         ordered: [WorkspaceChecklistItem]
     ) -> KeyPress.Result {
-        guard press.key == .return,
-              press.modifiers.isEmpty || press.modifiers.contains(.command) else {
+        let isPlainReturn = press.key == .return && press.modifiers.isEmpty
+        guard isPlainReturn || toggleChecklistItemCompleteShortcutMatches(press) else {
             return .ignored
         }
         // Plain Return must fall through to a live in-row edit's onSubmit
         // (the edit TextField is a descendant of this handler's scope).
-        if press.modifiers.isEmpty, editingItemId != nil {
+        if isPlainReturn, editingItemId != nil {
             return .ignored
         }
         guard let id = highlightedItemId,
@@ -273,6 +273,12 @@ private struct WorkspaceTodoPaneContent: View {
             in: workspace
         )
         return .handled
+    }
+
+    private func toggleChecklistItemCompleteShortcutMatches(_ press: KeyPress) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleChecklistItemComplete)
+        guard let key = shortcut.keyEquivalent else { return false }
+        return press.key == key && press.modifiers == shortcut.eventModifiers
     }
 
     /// Resolves a reorder drop: move the dragged item to the dropped-on row's

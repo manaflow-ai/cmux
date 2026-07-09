@@ -1,7 +1,7 @@
 import CmuxSettings
 import Foundation
 
-/// Settings-file section parsers for file editor, file explorer, and sidebar workspace-todo beta options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
+/// Settings-file section parsers for file editor, file explorer, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
 extension CmuxSettingsFileStore {
     func parseFileEditorSection(
         _ section: [String: Any],
@@ -38,11 +38,6 @@ extension CmuxSettingsFileStore {
     ) {
         if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
             let betaKeys = BetaFeaturesCatalogSection()
-            if let value = jsonBool(todos["enabled"]) {
-                snapshot.managedUserDefaults[betaKeys.workspaceTodos.userDefaultsKey] = .bool(value)
-            } else if todos.keys.contains("enabled") {
-                logInvalid("sidebar.beta.workspaceTodos.enabled", sourcePath: sourcePath)
-            }
             if let raw = jsonString(todos["checklistStyle"]) {
                 if let style = WorkspaceTodoChecklistStyle.decodeFromJSON(raw) {
                     snapshot.managedUserDefaults[

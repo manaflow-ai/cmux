@@ -47,19 +47,8 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
-    /// Workspace todos: the per-workspace task-status glyph, checklist, and
-    /// todo pane. Off by default; the first successful status/checklist
-    /// mutation from any entrypoint (context menu, palette, socket, CLI)
-    /// flips it on. The UserDefaults key predates the move into the beta
-    /// catalog, so stored round-1 values keep working.
-    public let workspaceTodos = DefaultsKey<Bool>(
-        id: "sidebar.beta.workspaceTodos.enabled",
-        defaultValue: false,
-        userDefaultsKey: "sidebarWorkspaceTodos"
-    )
-
     /// How a workspace row's checklist opens from its summary line while the
-    /// workspace-todos beta is on: an anchored popover (default) or the
+    /// workspace-todos feature is on: an anchored popover (default) or the
     /// round-1 inline expansion.
     public let workspaceTodosChecklistStyle = DefaultsKey<WorkspaceTodoChecklistStyle>(
         id: "sidebar.beta.workspaceTodos.checklistStyle",

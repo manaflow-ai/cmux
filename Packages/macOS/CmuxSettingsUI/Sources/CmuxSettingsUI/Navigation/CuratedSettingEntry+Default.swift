@@ -200,17 +200,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,
-                id: "workspace-todos",
-                title: String(localized: "settings.betaFeatures.workspaceTodos", defaultValue: "Workspace Todos"),
-                detailText: [
-                    String(localized: "settings.betaFeatures.workspaceTodos.subtitleOn", defaultValue: "Shows a task-status glyph and checklist on each workspace row, plus the workspace todo pane."),
-                    String(localized: "settings.betaFeatures.workspaceTodos.subtitleOff", defaultValue: "Hides the workspace todo UI. Turns on automatically the first time you set a status or add a checklist item."),
-                ].joined(separator: " "),
-                paths: ["sidebar.beta.workspaceTodos.enabled"],
-                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todos", defaultValue: "sidebar.beta.workspaceTodos.enabled workspace todo task status checklist glyph lane done review working needs attention beta")
-            ),
-            .init(
-                section: .betaFeatures,
                 id: "workspace-todos-checklist-style",
                 title: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
                 detailText: [
