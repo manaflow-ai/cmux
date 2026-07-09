@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
 import {
+  accountDeletionTombstones,
   billingEmailClaims,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
@@ -40,6 +41,10 @@ import {
   SubrouterClientError,
 } from "../../../services/subrouter/client";
 import { deleteObject } from "../../../services/vault/storage";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+} from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
 import { isVmAccountDeletionIdentityRevocationError } from "../../../services/vms/errors";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -76,12 +81,15 @@ export async function DELETE(request: Request): Promise<Response> {
   const userId = stackUser.id;
   const originalStackMetadata = stackUser.clientReadOnlyMetadata;
   let stackMetadataMarked = false;
+  let accountDeletionTombstoneStarted = false;
   let cmuxOwnedRowsDeleted = false;
   let destructiveCleanupStarted = false;
   let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
   try {
     const accountScope = await accountDeletionScopeForUser(stackUser);
+    await markAccountDeletionTombstonePending(userId);
+    accountDeletionTombstoneStarted = true;
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(userId, {
@@ -149,6 +157,7 @@ export async function DELETE(request: Request): Promise<Response> {
         destroyedVms,
       }, 202);
     }
+    await markAccountDeletionTombstoneCompleted(userId);
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     if (destructiveCleanupStarted || cmuxOwnedRowsDeleted) {
@@ -164,6 +173,7 @@ export async function DELETE(request: Request): Promise<Response> {
         restoreBillingEntitlements: restoreBillingEntitlementsOnFailure,
       });
     }
+    if (accountDeletionTombstoneStarted) await markAccountDeletionTombstoneFailed(userId, error);
     logAccountDeleteError("account.delete.failed", error);
     return jsonResponse({ error: "account_delete_failed" }, 500);
   }
@@ -186,6 +196,52 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   const candidate = user as Partial<DeletableStackUser>;
   if (!user || typeof candidate.delete !== "function" || typeof candidate.update !== "function") return null;
   return user as DeletableStackUser;
+}
+
+async function markAccountDeletionTombstonePending(userId: string): Promise<void> {
+  const db = cloudDb();
+  const now = new Date();
+  const userIdHash = accountDeletionUserHash(userId);
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+    await tx
+      .insert(accountDeletionTombstones)
+      .values({
+        userId,
+        userIdHash,
+        status: "pending",
+        updatedAt: now,
+        errorMessage: null,
+      })
+      .onConflictDoUpdate({
+        target: accountDeletionTombstones.userIdHash,
+        set: {
+          userId,
+          status: "pending",
+          updatedAt: now,
+          errorMessage: null,
+        },
+      });
+  });
+}
+
+async function markAccountDeletionTombstoneCompleted(userId: string): Promise<void> {
+  const now = new Date();
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({ status: "completed", updatedAt: now, completedAt: now, errorMessage: null })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
+}
+
+async function markAccountDeletionTombstoneFailed(userId: string, error: unknown): Promise<void> {
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({
+      status: "failed",
+      updatedAt: new Date(),
+      errorMessage: sanitizedErrorSummary(error),
+    })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 
 class AccountDeletionDestructiveCleanupError extends Error {

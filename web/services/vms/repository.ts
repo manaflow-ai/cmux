@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -13,8 +14,19 @@ import {
   cloudVms,
   cloudVmUsageEvents,
 } from "../../db/schema";
+import {
+  accountDeletionAdvisoryLockKey,
+  accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
+} from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
-import { VmCreateInProgressError, VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
+import {
+  VmCreateDisabledError,
+  VmCreateInProgressError,
+  VmDatabaseError,
+  VmLimitExceededError,
+  isVmLimitExceededError,
+} from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -239,6 +251,29 @@ function dbEffect<A>(
   });
 }
 
+type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+async function assertAccountVmCreateAllowed(
+  tx: CloudDbTransaction,
+  input: { readonly userId: string; readonly provider: ProviderId },
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+  const userIdHash = accountDeletionUserHash(input.userId);
+  const [deletion] = await tx
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  if (deletion?.userIdHash !== userIdHash || !isBlockingAccountDeletionStatus(deletion.status)) return;
+  throw new VmCreateDisabledError({
+    provider: input.provider,
+    reason: "Account deletion is in progress.",
+  });
+}
+
 function pgErrorCode(cause: unknown): string | null {
   if (!cause || typeof cause !== "object") return null;
   const code = (cause as { code?: unknown }).code;
@@ -405,6 +440,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         const db = cloudDb();
         try {
           return await db.transaction(async (tx) => {
+            await assertAccountVmCreateAllowed(tx, {
+              userId: input.userId,
+              provider: input.provider,
+            });
             if (idempotencyKey) {
               const [existing] = await tx
                 .select()

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { billingEmailClaims, stripeCustomers, stripeSubscriptions } from "../db/schema";
+import {
+  accountDeletionTombstones,
+  billingEmailClaims,
+  stripeCustomers,
+  stripeSubscriptions,
+} from "../db/schema";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -18,6 +23,7 @@ const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const upsertUpdates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
+let tombstoneSelectResults: unknown[][] = [];
 
 function fakeDb() {
   return {
@@ -36,8 +42,10 @@ function fakeDb() {
       },
     }),
     select: () => ({
-      from: () => ({
-        where: () => selectableResult(),
+      from: (table: unknown) => ({
+        where: () => table === accountDeletionTombstones
+          ? tombstoneSelectableResult()
+          : selectableResult(),
       }),
     }),
     update: (table: unknown) => ({
@@ -55,6 +63,13 @@ function selectableResult() {
   return {
     orderBy: () => selectableResult(),
     limit: () => Promise.resolve(selectResults.shift() ?? []),
+  };
+}
+
+function tombstoneSelectableResult() {
+  return {
+    orderBy: () => tombstoneSelectableResult(),
+    limit: () => Promise.resolve(tombstoneSelectResults.shift() ?? []),
   };
 }
 
@@ -131,6 +146,7 @@ describe("recordCheckoutCompletion", () => {
     upsertUpdates.length = 0;
     insertErrorsByTable.clear();
     selectResults = [];
+    tombstoneSelectResults = [];
   });
 
   test("attaches Stripe email to a purchaser without a primary email", async () => {
@@ -184,11 +200,12 @@ describe("recordCheckoutCompletion", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  test("does not recreate checkout billing rows after the Stack user is gone", async () => {
+  test("does not recreate checkout billing rows after tombstoned Stack user is gone", async () => {
     const cancelSubscription = mock(async () => {
       throw { statusCode: 404, message: "No such subscription" };
     });
     const deleteCustomer = mock(async () => undefined);
+    tombstoneSelectResults = [[{ status: "completed" }]];
 
     await expect(
       recordCheckoutCompletion(checkoutInput() as never, {
@@ -207,6 +224,27 @@ describe("recordCheckoutCompletion", () => {
 
     expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
     expect(deleteCustomer).toHaveBeenCalledWith("cus_123");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("fails closed when checkout metadata points at a missing Stack user without a deletion tombstone", async () => {
+    const cancelSubscription = mock(async () => undefined);
+    const deleteCustomer = mock(async () => undefined);
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => null } as never,
+        stripeClient: () => ({
+          subscriptions: { cancel: cancelSubscription },
+          customers: { del: deleteCustomer },
+        }) as never,
+      }),
+    ).rejects.toThrow("Stack user not found for checkout completion: user_123");
+
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(deleteCustomer).not.toHaveBeenCalled();
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
   });

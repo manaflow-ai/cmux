@@ -4,10 +4,15 @@ import type Stripe from "stripe";
 import { stackServerApp } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   billingEmailClaims,
   stripeCustomers,
   stripeSubscriptions,
 } from "../../db/schema";
+import {
+  accountDeletionUserHash,
+  isBlockingAccountDeletionStatus,
+} from "../account/deletionLock";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -126,7 +131,7 @@ export async function recordCheckoutCompletion(
 
   const db = dependencies.db ?? cloudDb();
   const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user || isAccountDeletionInProgress(user)) {
+  if (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, db) || (user && isAccountDeletionInProgress(user))) {
     await deleteCheckoutStripeResourcesForAccountDeletion(subscription, customerId, dependencies);
     return {
       skipped: "account_deletion_in_progress",
@@ -134,6 +139,7 @@ export async function recordCheckoutCompletion(
       subscriptionId: subscription.id,
     };
   }
+  if (!user) throw new Error(`Stack user not found for checkout completion: ${stackUserId}`);
 
   const email = checkoutEmail(input.session, input.customer);
   await upsertStripeCustomer(db, {
@@ -279,6 +285,18 @@ function isAccountDeletionInProgress(user: StackBillingUser): boolean {
       !Array.isArray(metadata) &&
       (metadata as Record<string, unknown>).cmuxAccountDeleting === true
   );
+}
+
+async function hasCheckoutBlockingAccountDeletionTombstone(
+  stackUserId: string,
+  db: BillingDb,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ status: accountDeletionTombstones.status })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
+    .limit(1);
+  return row ? row.status === "completed" || isBlockingAccountDeletionStatus(row.status) : false;
 }
 
 export async function latestStripeSubscriptionForSession(
