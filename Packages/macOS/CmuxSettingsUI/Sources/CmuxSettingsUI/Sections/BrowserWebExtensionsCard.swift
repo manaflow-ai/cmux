@@ -44,6 +44,7 @@ struct BrowserWebExtensionsCard: View {
 
     /// Discovered Safari extensions not yet added, offered by the Import menu.
     private var importableExtensions: [SettingsDiscoveredBrowserExtension] {
+        guard model.hasObservedValue else { return [] }
         let addedIDs = Set(model.current.map(\.id))
         let addedResourcePaths = Set(model.current.map { standardizedResourcePath(for: $0) })
         return discovered.filter { candidate in
@@ -76,7 +77,7 @@ struct BrowserWebExtensionsCard: View {
                     addUnpackedExtension()
                 }
                 .controlSize(.small)
-                .disabled(!supported)
+                .disabled(!supported || !model.hasObservedValue)
                 .accessibilityIdentifier("BrowserWebExtensionsAddUnpackedButton")
             }
         }
@@ -102,7 +103,7 @@ struct BrowserWebExtensionsCard: View {
         }
         .controlSize(.small)
         .fixedSize()
-        .disabled(!supported)
+        .disabled(!supported || !model.hasObservedValue)
         .accessibilityIdentifier("BrowserWebExtensionsImportMenu")
     }
 
@@ -148,6 +149,7 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func setEnabled(_ enabled: Bool, id: String) {
+        guard model.hasObservedValue else { return }
         var entries = model.current
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let targetPath = standardizedPath(entries[index].path)
@@ -161,6 +163,7 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func add(_ entry: BrowserWebExtensionEntry) {
+        guard model.hasObservedValue else { return }
         var entries = model.current
         guard !entries.contains(where: { $0.id == entry.id }) else {
             presentDuplicateExtensionAlert(for: entry)
@@ -176,6 +179,7 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func remove(id: String) {
+        guard model.hasObservedValue else { return }
         model.set(model.current.filter { $0.id != id })
     }
 

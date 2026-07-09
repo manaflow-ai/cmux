@@ -23,6 +23,9 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// watcher.
     public private(set) var current: Value
 
+    /// Whether the JSON change stream has yielded at least once.
+    public private(set) var hasObservedValue = false
+
     /// Error from the most recent set/reset attempt, or `nil`.
     public private(set) var lastWriteError: Error?
 
@@ -87,7 +90,9 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
-            self?.current = value
+            guard let self else { return }
+            self.current = value
+            self.hasObservedValue = true
         }
     }
 

@@ -81,4 +81,35 @@ import Testing
 
         #expect(streamCreations == 0)
     }
+
+    @Test func hasObservedValueTracksFirstStreamValue() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("json-value-model-observed-flag-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = JSONConfigStore(fileURL: tempDir.appendingPathComponent("cmux.json"))
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        let errorLog = SettingsErrorLog()
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        let model = JSONValueModel(
+            store: store,
+            key: key,
+            errorLog: errorLog,
+            makeStream: { stream }
+        )
+
+        #expect(model.hasObservedValue == false)
+        model.startObserving()
+        #expect(model.hasObservedValue == false)
+
+        continuation.yield("observed")
+        var settleSpins = 0
+        while !model.hasObservedValue, settleSpins < 100_000 {
+            await Task.yield()
+            settleSpins += 1
+        }
+
+        #expect(model.current == "observed")
+        #expect(model.hasObservedValue)
+    }
 }
