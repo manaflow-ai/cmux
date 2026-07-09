@@ -69,9 +69,10 @@ export async function deleteAccountWithDependencies(
   }
   if (!user) return unauthorized();
 
+  let teamScope: Awaited<ReturnType<typeof dependencies.accountDeletionTeamScopeForUser>>;
   try {
     await dependencies.preflightDeletionDependencies();
-    const teamScope = await dependencies.accountDeletionTeamScopeForUser(user);
+    teamScope = await dependencies.accountDeletionTeamScopeForUser(user);
     await dependencies.assertAccountDeletionCanStart({
       userId: user.id,
       ownedTeamIds: teamScope.ownedTeamIds,
@@ -82,7 +83,11 @@ export async function deleteAccountWithDependencies(
     return jsonResponse({ error: "deletion_unavailable" }, 503);
   }
 
-  const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });
+  const deletion = await dependencies.enqueueAccountDeletion({
+    userId: user.id,
+    ownedTeamIds: teamScope.ownedTeamIds,
+    retainedTeamBillingOwners: teamScope.retainedTeamBillingOwners,
+  });
 
   if (deletion.status !== "completed") {
     try {

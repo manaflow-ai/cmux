@@ -36,6 +36,7 @@ export type CliAuthRepository = {
  * transaction has been won, so tokens are never persisted anywhere server-side.
  */
 export type CliAuthTokenMinter = (userId: string) => Promise<CliAuthTokens | null>;
+export type CliAuthAccountDeletionBlocker = (userId: string) => Promise<boolean>;
 
 export type ClaimCliAuthResult =
   | { readonly status: "approved"; readonly accessToken: string; readonly refreshToken: string }
@@ -46,6 +47,7 @@ export async function claimCliAuthTokens(
   mintTokens: CliAuthTokenMinter,
   deviceCodeHash: string,
   now: Date,
+  isAccountDeletionBlocked: CliAuthAccountDeletionBlocker = async () => false,
 ): Promise<ClaimCliAuthResult> {
   type ClaimOutcome =
     | { readonly kind: "claimed"; readonly id: string; readonly userId: string }
@@ -66,6 +68,15 @@ export async function claimCliAuthTokens(
   });
 
   if (claim.kind === "terminal") return { status: claim.status };
+
+  try {
+    if (await isAccountDeletionBlocked(claim.userId)) {
+      return { status: "expired" };
+    }
+  } catch (error) {
+    await repository.restoreApproved(claim.id);
+    throw error;
+  }
 
   let tokens: CliAuthTokens | null = null;
   try {

@@ -136,6 +136,11 @@ export type RetainedTeamBillingOwner = {
   readonly stackUserId: string;
 };
 
+type AccountDeletionStoredScope = {
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
+};
+
 export type AccountDeletionStatus =
   | "pending"
   | "in_progress"
@@ -147,12 +152,18 @@ export type AccountDeletionStatus =
 export type AccountDeletionRequest = {
   readonly userIdHash: string;
   readonly status: AccountDeletionStatus;
+  readonly teamScopeStored: boolean;
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
 };
 
 export type AccountDeletionJob = {
   readonly userId: string;
   readonly userIdHash: string;
   readonly status: AccountDeletionStatus;
+  readonly teamScopeStored: boolean;
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
 };
 
 export type StackAccountDeletionMetadataUser = {
@@ -286,18 +297,26 @@ export async function enqueueAccountDeletion(
 ): Promise<AccountDeletionRequest> {
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
+  const scope = accountDeletionStoredScope(input);
 
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
     const [existing] = await tx
       .select({
+        userId: accountDeletionTombstones.userId,
         userIdHash: accountDeletionTombstones.userIdHash,
         status: accountDeletionTombstones.status,
+        scope: accountDeletionTombstones.scope,
       })
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .limit(1);
-    if (existing && existing.status !== "failed") return existing;
+    if (existing && existing.status !== "failed") {
+      return accountDeletionRequestFromRow({
+        ...existing,
+        userId: existing.userId ?? input.userId,
+      });
+    }
 
     const now = new Date();
     if (existing) {
@@ -306,16 +325,22 @@ export async function enqueueAccountDeletion(
         .set({
           userId: input.userId,
           status: "pending",
+          scope,
           updatedAt: now,
           errorMessage: null,
         })
         .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
         .returning({
+          userId: accountDeletionTombstones.userId,
           userIdHash: accountDeletionTombstones.userIdHash,
           status: accountDeletionTombstones.status,
+          scope: accountDeletionTombstones.scope,
         });
       if (!updated) throw new Error("Account deletion request update returned no row");
-      return updated;
+      return accountDeletionRequestFromRow({
+        ...updated,
+        userId: updated.userId ?? input.userId,
+      });
     }
 
     const [created] = await tx
@@ -324,21 +349,27 @@ export async function enqueueAccountDeletion(
         userIdHash,
         userId: input.userId,
         status: "pending",
+        scope,
         updatedAt: now,
       })
       .returning({
+        userId: accountDeletionTombstones.userId,
         userIdHash: accountDeletionTombstones.userIdHash,
         status: accountDeletionTombstones.status,
+        scope: accountDeletionTombstones.scope,
       });
     if (!created) throw new Error("Account deletion request insert returned no row");
-    return created;
+    return accountDeletionRequestFromRow({
+      ...created,
+      userId: created.userId ?? input.userId,
+    });
   });
 }
 
 export async function claimAccountDeletionProcessing(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
-): Promise<AccountDeletionStatus | null> {
+): Promise<AccountDeletionJob | null> {
   const db = runtime.cloudDb();
   const userIdHash = accountDeletionUserHash(input.userId);
   const staleBefore = new Date(Date.now() - ACCOUNT_DELETION_JOB_STALE_MS);
@@ -347,7 +378,10 @@ export async function claimAccountDeletionProcessing(
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
     const [existing] = await tx
       .select({
+        userId: accountDeletionTombstones.userId,
+        userIdHash: accountDeletionTombstones.userIdHash,
         status: accountDeletionTombstones.status,
+        scope: accountDeletionTombstones.scope,
         updatedAt: accountDeletionTombstones.updatedAt,
       })
       .from(accountDeletionTombstones)
@@ -374,7 +408,12 @@ export async function claimAccountDeletionProcessing(
       })
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .returning({ userIdHash: accountDeletionTombstones.userIdHash });
-    return claimed ? existing.status : null;
+    return claimed
+      ? accountDeletionJobFromRow({
+        ...existing,
+        userId: existing.userId ?? input.userId,
+      })
+      : null;
   });
 }
 
@@ -390,6 +429,7 @@ export async function listPendingAccountDeletionJobs(
       userId: accountDeletionTombstones.userId,
       userIdHash: accountDeletionTombstones.userIdHash,
       status: accountDeletionTombstones.status,
+      scope: accountDeletionTombstones.scope,
     })
     .from(accountDeletionTombstones)
     .where(and(
@@ -412,9 +452,89 @@ export async function listPendingAccountDeletionJobs(
 
   return rows.flatMap((row) =>
     row.userId
-      ? [{ userId: row.userId, userIdHash: row.userIdHash, status: row.status }]
+      ? [accountDeletionJobFromRow({ ...row, userId: row.userId })]
       : []
   );
+}
+
+function accountDeletionRequestFromRow(row: {
+  readonly userId: string;
+  readonly userIdHash: string;
+  readonly status: AccountDeletionStatus;
+  readonly scope: unknown;
+}): AccountDeletionRequest {
+  const scope = accountDeletionScopeFromStored(row.scope, row.userId);
+  return {
+    userIdHash: row.userIdHash,
+    status: row.status,
+    ...scope,
+  };
+}
+
+function accountDeletionJobFromRow(row: {
+  readonly userId: string;
+  readonly userIdHash: string;
+  readonly status: AccountDeletionStatus;
+  readonly scope: unknown;
+}): AccountDeletionJob {
+  const scope = accountDeletionScopeFromStored(row.scope, row.userId);
+  return {
+    userId: row.userId,
+    userIdHash: row.userIdHash,
+    status: row.status,
+    ...scope,
+  };
+}
+
+function accountDeletionStoredScope(input: AccountDeletionInput): AccountDeletionStoredScope {
+  const ownedTeamIds = uniqueStrings(input.ownedTeamIds ?? []);
+  const retainedTeamBillingOwners = Array.from(retainedTeamBillingOwnerMap({
+    deletedUserId: input.userId,
+    ownedBillingTeamIds: uniqueStrings([input.userId, ...ownedTeamIds]),
+    retainedTeamBillingOwners: input.retainedTeamBillingOwners ?? [],
+  }), ([stackTeamId, stackUserId]) => ({ stackTeamId, stackUserId }));
+
+  return { ownedTeamIds, retainedTeamBillingOwners };
+}
+
+function accountDeletionScopeFromStored(
+  stored: unknown,
+  userId: string,
+): {
+  readonly teamScopeStored: boolean;
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
+} {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+    return { teamScopeStored: false, ownedTeamIds: [], retainedTeamBillingOwners: [] };
+  }
+
+  const record = stored as {
+    readonly ownedTeamIds?: unknown;
+    readonly retainedTeamBillingOwners?: unknown;
+  };
+  const ownedTeamIds = uniqueStrings(
+    Array.isArray(record.ownedTeamIds)
+      ? record.ownedTeamIds.filter((teamId): teamId is string => typeof teamId === "string")
+      : [],
+  );
+  const retainedTeamBillingOwners = Array.from(retainedTeamBillingOwnerMap({
+    deletedUserId: userId,
+    ownedBillingTeamIds: uniqueStrings([userId, ...ownedTeamIds]),
+    retainedTeamBillingOwners: retainedTeamBillingOwnersFromUnknown(record.retainedTeamBillingOwners),
+  }), ([stackTeamId, stackUserId]) => ({ stackTeamId, stackUserId }));
+
+  return { teamScopeStored: true, ownedTeamIds, retainedTeamBillingOwners };
+}
+
+function retainedTeamBillingOwnersFromUnknown(value: unknown): readonly RetainedTeamBillingOwner[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const owner = entry as { readonly stackTeamId?: unknown; readonly stackUserId?: unknown };
+    if (typeof owner.stackTeamId !== "string" || typeof owner.stackUserId !== "string") return [];
+    return [{ stackTeamId: owner.stackTeamId, stackUserId: owner.stackUserId }];
+  });
 }
 
 export async function markAccountDeletionStackDeletePending(
@@ -453,6 +573,7 @@ export async function markAccountDeletionCompleted(
       .set({
         userId: null,
         status: "completed",
+        scope: null,
         updatedAt: now,
         completedAt: now,
         errorMessage: null,

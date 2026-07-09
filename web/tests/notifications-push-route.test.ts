@@ -180,11 +180,11 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  test("rechecks account deletion before sending APNs and before pruning", async () => {
+  test("sends APNs while holding the account deletion mutation lock", async () => {
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     cloudDbImpl = () => fakePushDb();
     sendApnsNotificationImpl = async () => {
-      expect(pushDbTransactionOpen).toBe(false);
+      expect(pushDbTransactionOpen).toBe(true);
       pushDbCalls.push("send-apns");
       return [{
         deviceToken: "token-1",
@@ -211,16 +211,12 @@ describe("notifications push route", () => {
       "lock",
       "select:accountDeletionTombstones",
       "select:deviceTokens",
-      "transaction:end",
-      "transaction:start",
-      "lock",
-      "select:accountDeletionTombstones",
       "rate-limit-lock",
       "delete:notificationSendEvents",
       "select:notificationSendEvents",
       "insert:notificationSendEvents",
-      "transaction:end",
       "send-apns",
+      "transaction:end",
       "transaction:start",
       "lock",
       "select:accountDeletionTombstones",
@@ -229,10 +225,10 @@ describe("notifications push route", () => {
     ]);
   });
 
-  test("does not send APNs when account deletion starts after token selection", async () => {
+  test("does not send APNs when account deletion is already in progress", async () => {
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     cloudDbImpl = () => fakePushDb();
-    accountDeletionBlockOnSelect = 2;
+    accountDeletionBlockOnSelect = 1;
     sendApnsNotificationImpl = async () => {
       pushDbCalls.push("send-apns");
       return [{
@@ -257,11 +253,6 @@ describe("notifications push route", () => {
     expect(await response.json()).toEqual({ error: "account_deletion_in_progress" });
     expect(sendApnsNotification).not.toHaveBeenCalled();
     expect(pushDbCalls).toEqual([
-      "transaction:start",
-      "lock",
-      "select:accountDeletionTombstones",
-      "select:deviceTokens",
-      "transaction:end",
       "transaction:start",
       "lock",
       "select:accountDeletionTombstones",

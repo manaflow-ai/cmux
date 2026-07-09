@@ -334,9 +334,47 @@ describe("account deletion cleanup", () => {
       runVmWorkflow,
     };
 
-    await expect(claimAccountDeletionProcessing({ userId: "user-1" }, runtime)).resolves.toBe("stack_delete_pending");
+    await expect(claimAccountDeletionProcessing({ userId: "user-1" }, runtime)).resolves.toMatchObject({
+      status: "stack_delete_pending",
+      teamScopeStored: false,
+    });
 
     expect(capturedStatus).toBe("stack_delete_in_progress");
+  });
+
+  test("returns the persisted team scope when claiming deletion work", async () => {
+    const runtime = {
+      cloudDb: () => ({
+        transaction: async <T>(callback: (tx: ReturnType<typeof fakeClaimTransaction>) => Promise<T>) =>
+          await callback(fakeClaimTransaction({
+            rows: [{
+              userId: "user-1",
+              userIdHash: accountDeletionUserHash("user-1"),
+              status: "pending",
+              updatedAt: new Date(),
+              scope: {
+                ownedTeamIds: ["team-owned", "team-owned", " "],
+                retainedTeamBillingOwners: [
+                  { stackTeamId: "team-shared", stackUserId: "user-2" },
+                  { stackTeamId: "team-owned", stackUserId: "user-3" },
+                  { stackTeamId: "team-self", stackUserId: "user-1" },
+                ],
+              },
+            }],
+            onSet: () => {},
+          })),
+      }) as unknown as ReturnType<typeof cloudDb>,
+      deleteObject,
+      destroyAccountOwnedVm,
+      runVmWorkflow,
+    };
+
+    await expect(claimAccountDeletionProcessing({ userId: "user-1" }, runtime)).resolves.toMatchObject({
+      status: "pending",
+      teamScopeStored: true,
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    });
   });
 
   test("does not claim fresh Stack-delete work already owned by another worker", async () => {
@@ -1258,7 +1296,13 @@ function fakeTransaction() {
 }
 
 function fakeClaimTransaction(input: {
-  rows: Array<{ status: string; updatedAt: Date }>;
+  rows: Array<{
+    userId?: string | null;
+    userIdHash?: string;
+    status: string;
+    scope?: unknown;
+    updatedAt: Date;
+  }>;
   onSet: (values: Record<string, unknown>) => void;
 }) {
   return {

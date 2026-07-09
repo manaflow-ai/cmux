@@ -141,6 +141,35 @@ describe("vault CLI auth claim", () => {
     expect(row.status).toBe("claimed");
   });
 
+  test("account deletion blocks session minting for approved CLI auth", async () => {
+    const row = approvedRow();
+    const { minter, calls } = countingMinter({ accessToken: "access-1", refreshToken: "refresh-1" });
+
+    await expect(
+      claimCliAuthTokens(fakeRepository(row), minter, "hash-1", NOW, async () => true),
+    ).resolves.toEqual({
+      status: "expired",
+    });
+
+    expect(calls).toEqual([]);
+    expect(row.status).toBe("claimed");
+  });
+
+  test("account deletion check failures restore the approval without minting", async () => {
+    const row = approvedRow();
+    const repository = fakeRepository(row);
+    const { minter, calls } = countingMinter({ accessToken: "access-1", refreshToken: "refresh-1" });
+
+    await expect(
+      claimCliAuthTokens(repository, minter, "hash-1", NOW, async () => {
+        throw new Error("deletion tombstone unavailable");
+      }),
+    ).rejects.toThrow("deletion tombstone unavailable");
+
+    expect(calls).toEqual([]);
+    expect(row.status).toBe("approved");
+  });
+
   test("mint throw is handled like a mint failure", async () => {
     const row = approvedRow();
     const repository = fakeRepository(row);

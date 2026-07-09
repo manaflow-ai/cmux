@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   AccountDeletionNonRetryableError,
   type AccountDeletionJob,
-  type AccountDeletionStatus,
 } from "../services/account/deletion";
 import type { AccountDeletionProcessorDependencies } from "../services/account/deletionProcessor";
 
@@ -19,7 +18,7 @@ const {
 } = await import("../services/account/deletionProcessor");
 
 const calls: string[] = [];
-let claimResult: AccountDeletionStatus | null = "pending";
+let claimResult: AccountDeletionJob | null = accountDeletionJob("pending");
 let cleanupError: Error | null = null;
 let stackDeleteError: Error | null = null;
 let completionError: Error | null = null;
@@ -27,7 +26,7 @@ let pendingJobs: AccountDeletionJob[] = [];
 
 beforeEach(() => {
   calls.length = 0;
-  claimResult = "pending";
+  claimResult = accountDeletionJob("pending");
   cleanupError = null;
   stackDeleteError = null;
   completionError = null;
@@ -354,7 +353,13 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("cleans local account data when the Stack user is already gone before cleanup", async () => {
+  test("cleans local account data from stored team scope when the Stack user is already gone", async () => {
+    claimResult = accountDeletionJob("pending", {
+      teamScopeStored: true,
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    });
+
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
       loadStackUser: async (userId) => {
         calls.push(`load-stack:${userId}`);
@@ -366,7 +371,7 @@ describe("account deletion processor", () => {
     expect(calls).toEqual([
       "claim:user-1",
       "load-stack:user-1",
-      "cleanup:user-1",
+      "cleanup:user-1:owned=team-owned:retained=team-shared->user-2",
       "list-analytics-identities:user-1",
       "posthog:user-1:user-1,anon-1",
       "delete-analytics-identities:user-1",
@@ -375,8 +380,25 @@ describe("account deletion processor", () => {
     ]);
   });
 
+  test("keeps cleanup retryable when Stack user and stored team scope are both unavailable", async () => {
+    await expect(
+      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+        loadStackUser: async (userId) => {
+          calls.push(`load-stack:${userId}`);
+          return null;
+        },
+      })),
+    ).rejects.toThrow("Persisted Stack account deletion team scope is unavailable.");
+
+    expect(calls).toEqual([
+      "claim:user-1",
+      "load-stack:user-1",
+      "retry-pending:user-1:Persisted Stack account deletion team scope is unavailable.",
+    ]);
+  });
+
   test("completes Stack-delete retries when the Stack user is already gone", async () => {
-    claimResult = "stack_delete_pending";
+    claimResult = accountDeletionJob("stack_delete_pending");
 
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
       loadStackUser: async (userId) => {
@@ -394,7 +416,7 @@ describe("account deletion processor", () => {
   });
 
   test("keeps Stack-delete retries retryable when user lookup fails", async () => {
-    claimResult = "stack_delete_pending";
+    claimResult = accountDeletionJob("stack_delete_pending");
 
     await expect(
       processAccountDeletionForUser({ userId: "user-1" }, dependencies({
@@ -440,7 +462,7 @@ describe("account deletion processor", () => {
     ).rejects.toThrow("completion write failed");
 
     completionError = null;
-    claimResult = "stack_delete_pending";
+    claimResult = accountDeletionJob("stack_delete_pending");
     await expect(processAccountDeletionForUser({ userId: "user-1" }, dependencies())).resolves.toBe("processed");
 
     expect(calls).toEqual([
@@ -462,7 +484,7 @@ describe("account deletion processor", () => {
   });
 
   test("resumes Stack deletion without replaying cmux or PostHog cleanup", async () => {
-    claimResult = "stack_delete_pending";
+    claimResult = accountDeletionJob("stack_delete_pending");
 
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies());
 
@@ -476,7 +498,7 @@ describe("account deletion processor", () => {
   });
 
   test("continues a claimed Stack deletion without replaying cleanup", async () => {
-    claimResult = "stack_delete_in_progress";
+    claimResult = accountDeletionJob("stack_delete_in_progress");
 
     const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies());
 
@@ -491,8 +513,8 @@ describe("account deletion processor", () => {
 
   test("processes pending jobs and continues after a failed processing attempt", async () => {
     pendingJobs = [
-      { userId: "user-1", userIdHash: "hash-1", status: "pending" },
-      { userId: "user-2", userIdHash: "hash-2", status: "pending" },
+      accountDeletionJob("pending"),
+      { ...accountDeletionJob("pending"), userId: "user-2", userIdHash: "hash-2" },
     ];
     const deps = dependencies({
       deleteCmuxAccountData: async ({ userId }) => {
@@ -508,6 +530,20 @@ describe("account deletion processor", () => {
     expect(calls).toContain("completed:user-2");
   });
 });
+
+function accountDeletionJob(
+  status: AccountDeletionJob["status"],
+  scope: Partial<Pick<AccountDeletionJob, "teamScopeStored" | "ownedTeamIds" | "retainedTeamBillingOwners">> = {},
+): AccountDeletionJob {
+  return {
+    userId: "user-1",
+    userIdHash: "hash-1",
+    status,
+    teamScopeStored: scope.teamScopeStored ?? false,
+    ownedTeamIds: scope.ownedTeamIds ?? [],
+    retainedTeamBillingOwners: scope.retainedTeamBillingOwners ?? [],
+  };
+}
 
 function dependencies(
   overrides: Partial<AccountDeletionProcessorDependencies> = {},

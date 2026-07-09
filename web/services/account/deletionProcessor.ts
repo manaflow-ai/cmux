@@ -17,7 +17,6 @@ import {
   markAccountDeletionStackDeletePending,
   AccountDeletionNonRetryableError,
   type AccountDeletionJob,
-  type AccountDeletionStatus,
   type RetainedTeamBillingOwner,
   type StackAccountDeletionMetadataUser,
 } from "./deletion";
@@ -48,7 +47,7 @@ type StackAccountDeletionPage = readonly unknown[] & {
 };
 
 export type AccountDeletionProcessorDependencies = {
-  readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<AccountDeletionStatus | null>;
+  readonly claimAccountDeletionProcessing: (input: { readonly userId: string }) => Promise<AccountDeletionJob | null>;
   readonly deleteCmuxAccountData: (
     input: {
       readonly userId: string;
@@ -104,17 +103,22 @@ export async function processAccountDeletionForUser(
   input: { readonly userId: string },
   dependencies: AccountDeletionProcessorDependencies = defaultAccountDeletionProcessorDependencies,
 ): Promise<"processed" | "skipped"> {
-  const claimedStatus = await dependencies.claimAccountDeletionProcessing({ userId: input.userId });
-  if (!claimedStatus) return "skipped";
+  const claimedJob = await dependencies.claimAccountDeletionProcessing({ userId: input.userId });
+  if (!claimedJob) return "skipped";
 
   let stackDeletePending =
-    claimedStatus === "stack_delete_pending" || claimedStatus === "stack_delete_in_progress";
+    claimedJob.status === "stack_delete_pending" || claimedJob.status === "stack_delete_in_progress";
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
-      const teamScope = user
-        ? await accountDeletionTeamScopeForUser(user)
-        : { ownedTeamIds: [], retainedTeamBillingOwners: [] };
+      const teamScope = claimedJob.teamScopeStored
+        ? {
+          ownedTeamIds: claimedJob.ownedTeamIds,
+          retainedTeamBillingOwners: claimedJob.retainedTeamBillingOwners,
+        }
+        : user
+          ? await accountDeletionTeamScopeForUser(user)
+          : accountDeletionTeamScopeUnavailable();
       await dependencies.deleteCmuxAccountData({
         userId: input.userId,
         ownedTeamIds: teamScope.ownedTeamIds,
@@ -141,6 +145,10 @@ export async function processAccountDeletionForUser(
     }
     throw error;
   }
+}
+
+function accountDeletionTeamScopeUnavailable(): never {
+  throw new AccountDeletionTeamScopeUnavailableError("Persisted Stack account deletion team scope is unavailable.");
 }
 
 export async function processPendingAccountDeletions(

@@ -14,6 +14,17 @@ let getUserMissing = false;
 let preflightError: Error | null = null;
 let accountDeletionCanStartError: Error | null = null;
 type NativeTokenStore = { accessToken: string; refreshToken: string };
+type AccountDeletionRouteTeamScope = {
+  readonly ownedTeamIds: readonly string[];
+  readonly retainedTeamBillingOwners: readonly {
+    readonly stackTeamId: string;
+    readonly stackUserId: string;
+  }[];
+};
+let accountDeletionTeamScope: AccountDeletionRouteTeamScope = {
+  ownedTeamIds: [],
+  retainedTeamBillingOwners: [],
+};
 const markStackUserDeletionInProgress = mock(async (user) => {
   calls.push("mark-deleting");
   if (markStackError) throw markStackError;
@@ -35,10 +46,7 @@ const preflightDeletionDependencies = mock(() => {
   calls.push("preflight");
   if (preflightError) throw preflightError;
 });
-const accountDeletionTeamScopeForUser = mock(async () => ({
-  ownedTeamIds: [],
-  retainedTeamBillingOwners: [],
-}));
+const accountDeletionTeamScopeForUser = mock(async () => accountDeletionTeamScope);
 const assertAccountDeletionCanStart = mock(async () => {
   if (accountDeletionCanStartError) throw accountDeletionCanStartError;
 });
@@ -98,6 +106,10 @@ beforeEach(() => {
   getUserMissing = false;
   preflightError = null;
   accountDeletionCanStartError = null;
+  accountDeletionTeamScope = {
+    ownedTeamIds: [],
+    retainedTeamBillingOwners: [],
+  };
   markStackUserDeletionInProgress.mockClear();
   enqueueAccountDeletion.mockClear();
   processAccountDeletionForUser.mockClear();
@@ -142,6 +154,8 @@ describe("account deletion route", () => {
     });
     expect(enqueueAccountDeletion).toHaveBeenCalledWith({
       userId: "user-1",
+      ownedTeamIds: [],
+      retainedTeamBillingOwners: [],
     });
     expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);
     expect(deleteUser).not.toHaveBeenCalled();
@@ -176,10 +190,43 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, status: "completed" });
-    expect(enqueueAccountDeletion).toHaveBeenCalledWith({ userId: "user-1" });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: [],
+      retainedTeamBillingOwners: [],
+    });
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
     expect(scheduledCallbacks).toHaveLength(0);
     expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+  });
+
+  test("enqueues the Stack team scope that passed deletion preflight", async () => {
+    accountDeletionTeamScope = {
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    };
+
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(assertAccountDeletionCanStart).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned"],
+      retainedTeamBillingOwners: [{ stackTeamId: "team-shared", stackUserId: "user-2" }],
+    });
   });
 
   test("does not mark Stack deletion metadata when enqueue fails", async () => {

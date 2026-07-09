@@ -101,20 +101,15 @@ async function sendPush(request: Request): Promise<Response> {
         return { kind: "unconfigured" as const };
       }
 
-      return { kind: "ready" as const, config, tokens };
+      await recordPushSendInTransactionOrThrow(tx, user.id, tokens.length);
+      const results = await sendApnsNotification(config, tokens, payload.value);
+      return { kind: "sent" as const, results };
     });
 
     if (result.kind === "unconfigured") {
       return jsonResponse({ error: "push_service_not_configured" }, 503);
     }
-    if (result.kind === "ready") {
-      await withAccountDeletionUserMutationLock(db, user.id, async (tx) => {
-        await recordPushSendInTransactionOrThrow(tx, user.id, result.tokens.length);
-      });
-      const results = await sendApnsNotification(result.config, result.tokens, payload.value);
-      await pruneDeadDeviceTokens(db, user.id, results.filter((r) => r.prune).map((r) => r.deviceToken));
-      return jsonResponse(summarizeApnsSendResults(results));
-    }
+    await pruneDeadDeviceTokens(db, user.id, result.results.filter((r) => r.prune).map((r) => r.deviceToken));
     return jsonResponse(summarizeApnsSendResults(result.results));
   } catch (error) {
     if (error instanceof PushRateLimitExceededError) {
