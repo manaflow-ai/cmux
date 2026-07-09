@@ -675,10 +675,10 @@ fn workspaces_json(
 
 fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
     let allowed = ["workspace", "screen", "pane", "surface"];
-    if let Some(kind) = kind {
-        if !allowed.contains(&kind) {
-            anyhow::bail!("bad kind {kind}");
-        }
+    if let Some(kind) = kind
+        && !allowed.contains(&kind)
+    {
+        anyhow::bail!("bad kind {kind}");
     }
     let mut raw = Vec::new();
     for ws in &state.workspaces {
@@ -1415,11 +1415,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                     while frames.notify.recv().is_ok() {
                         let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                        if let Some(state) = update.state {
-                            if writer.send(&browser_state_json(surface_id, &state, false)).is_err()
-                            {
-                                break;
-                            }
+                        if let Some(state) = update.state
+                            && writer.send(&browser_state_json(surface_id, &state, false)).is_err()
+                        {
+                            break;
                         }
                         if let Some(frame) = update.frame {
                             let value = json!({

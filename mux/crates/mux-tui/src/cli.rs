@@ -1273,7 +1273,7 @@ fn print_tree(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             for pane in panes {
                 let pane_id = id_field(pane, "id");
                 if bool_field(pane, "dead") {
-                    writeln!(out, "pane id={} screen={} dead=true", pane_id, screen_id)?;
+                    writeln!(out, "pane id={pane_id} screen={screen_id} dead=true")?;
                     continue;
                 }
                 writeln!(

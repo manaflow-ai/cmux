@@ -344,10 +344,10 @@ fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
 fn runtime_endpoint(
     opts: &SurfaceOptions,
 ) -> anyhow::Result<(String, Option<Chrome>, BrowserSource)> {
-    if let Ok(url) = std::env::var("CMUX_MUX_CDP_URL") {
-        if !url.trim().is_empty() {
-            return Ok((resolve_browser_ws_url(&url)?, None, BrowserSource::External));
-        }
+    if let Ok(url) = std::env::var("CMUX_MUX_CDP_URL")
+        && !url.trim().is_empty()
+    {
+        return Ok((resolve_browser_ws_url(&url)?, None, BrowserSource::External));
     }
     if let Some(url) = opts.cdp_url.as_deref().filter(|url| !url.trim().is_empty()) {
         return Ok((resolve_browser_ws_url(url)?, None, BrowserSource::External));
@@ -518,10 +518,10 @@ fn start_surface_thread(
                         seq: 0,
                     };
                     browser.store_frame(frame);
-                    if !browser.dirty.swap(true, Ordering::AcqRel) {
-                        if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::SurfaceOutput(id));
-                        }
+                    if !browser.dirty.swap(true, Ordering::AcqRel)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }
                 CdpEvent::TargetCreated(created) => {
@@ -532,10 +532,10 @@ fn start_surface_thread(
                     let url_changed =
                         if info.url.is_empty() { false } else { browser.set_url(info.url) };
                     let title_changed = browser.set_title(title);
-                    if url_changed || title_changed {
-                        if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::TitleChanged(id));
-                        }
+                    if (url_changed || title_changed)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::TitleChanged(id));
                     }
                 }
                 CdpEvent::Other { method, params, .. } if method == "Page.frameNavigated" => {

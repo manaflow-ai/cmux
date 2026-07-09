@@ -23,7 +23,7 @@ unused_qualifications = "warn"
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
-needless_pass_by_value = "warn"
+# Evaluated and dropped: needless_pass_by_value causes signature churn across mux-core call sites.
 
 [workspace.dependencies]
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }

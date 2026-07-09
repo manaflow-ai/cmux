@@ -889,9 +889,11 @@ mod tests {
             }"##,
         )
         .unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
@@ -972,13 +974,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mux.json");
         std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         // `load()` always seeds `selection_fg` from the Ghostty selection
         // colors (or leaves it `None` if there aren't any) before applying
         // this override, so regardless of the ambient Ghostty config, an
         // explicit `null` here must land back on `None`.
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_fg, None);
     }
@@ -995,7 +999,8 @@ mod tests {
             r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
         )
         .unwrap();
-        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
         assert_eq!(config.browser.max_capture_megapixels, 3.5);
         assert_eq!(config.browser.capture_scale, Some(0.5));
@@ -1006,7 +1011,8 @@ mod tests {
         )
         .unwrap();
         let config = load();
-        std::env::remove_var("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(
             config.browser.max_capture_megapixels,
