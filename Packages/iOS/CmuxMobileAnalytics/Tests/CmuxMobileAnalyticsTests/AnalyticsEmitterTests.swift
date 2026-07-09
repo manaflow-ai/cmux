@@ -186,6 +186,31 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(event?.properties["is_authenticated"] == .bool(false))
     }
 
+    @Test func optInReplaysAuthenticatedIdentify() async {
+        let consent = MutableConsent(enabled: false)
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent, anonymousID: "anon-9")
+
+        emitter.identify(userId: "user-3", alias: "anon-9", properties: [:])
+        emitter.setSuperProperties(["is_authenticated": .bool(true)])
+        await emitter.flush()
+        #expect(await uploader.identifyCalls.isEmpty)
+
+        consent.set(true)
+        emitter.setTelemetryConsentEnabled(true)
+        emitter.capture("ios_after_opt_in", [:])
+        await emitter.flush()
+
+        let calls = await uploader.identifyCalls
+        #expect(calls.count == 1)
+        #expect(calls.first?.userID == "user-3")
+        #expect(calls.first?.anonymousID == "anon-9")
+        let event = await uploader.uploadedEvents.last
+        #expect(event?.distinctID == "user-3")
+        #expect(event?.anonymousID == "anon-9")
+        #expect(event?.properties["is_authenticated"] == .bool(true))
+    }
+
     @Test func consentWithdrawalClearsBufferedEventsEvenIfReenabledBeforeFlush() async {
         let consent = MutableConsent(enabled: true)
         let uploader = RecordingAnalyticsUploader()

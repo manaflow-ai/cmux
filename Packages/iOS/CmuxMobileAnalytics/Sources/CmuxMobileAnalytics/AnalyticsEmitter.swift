@@ -52,6 +52,12 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         case barrier(UUID)
     }
 
+    private struct IdentifyRequest: Sendable {
+        let userID: String?
+        let alias: String?
+        let properties: [String: AnalyticsValue]
+    }
+
     private let uploader: any AnalyticsUploading
     private let consent: any AnalyticsConsentProviding
     private let clock: any Clock<Duration>
@@ -66,6 +72,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
 
     private var superProperties: [String: AnalyticsValue] = [:]
     private var distinctID: String?
+    private var lastAuthenticatedIdentify: IdentifyRequest?
+    private var authenticatedIdentifyReplayPending = false
     private var pending: [AnalyticsEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var consumerTask: Task<Void, Never>?
@@ -206,6 +214,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 if !isEnabled {
                     pending.removeAll()
                     uploadOutageOpen = false
+                } else {
+                    await replayAuthenticatedIdentifyIfNeeded()
                 }
             case let .barrier(id):
                 await drain()
@@ -247,18 +257,44 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         } else {
             superProperties.removeValue(forKey: "user_id")
         }
+        let request = IdentifyRequest(userID: userID, alias: alias, properties: properties)
+        if userID != nil {
+            lastAuthenticatedIdentify = request
+            authenticatedIdentifyReplayPending = true
+        } else {
+            lastAuthenticatedIdentify = nil
+            authenticatedIdentifyReplayPending = false
+        }
         guard networkAllowed, consent.isTelemetryEnabled else { return }
+        let result = await sendIdentify(request)
+        if userID != nil {
+            authenticatedIdentifyReplayPending = result == .retry
+        }
+    }
+
+    private func replayAuthenticatedIdentifyIfNeeded() async {
+        guard authenticatedIdentifyReplayPending,
+              consent.isTelemetryEnabled,
+              let request = lastAuthenticatedIdentify else {
+            return
+        }
+        let result = await sendIdentify(request)
+        authenticatedIdentifyReplayPending = result == .retry
+    }
+
+    private func sendIdentify(_ request: IdentifyRequest) async -> AnalyticsUploadResult {
         var personProps: [String: any Sendable] = [:]
-        for (key, value) in properties { personProps[key] = value.jsonObject }
-        let aliasID = alias ?? (anonymousID == userID ? nil : anonymousID)
+        for (key, value) in request.properties { personProps[key] = value.jsonObject }
+        let aliasID = request.alias ?? (anonymousID == request.userID ? nil : anonymousID)
         let result = await uploader.identify(
-            userID: userID,
+            userID: request.userID,
             anonymousID: aliasID,
             properties: personProps
         )
         if result == .retry {
             analyticsLog.debug("identify deferred (transient)")
         }
+        return result
     }
 
     private func startCadenceIfNeeded() {
