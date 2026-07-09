@@ -47,7 +47,7 @@
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
-//!     "select_screen_1": "1",
+//!     "select-screen-1": "1",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -67,7 +67,7 @@
 //! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
-//! `select_screen_0` through `select_screen_9`, `new-screen`,
+//! `select-screen-0` through `select-screen-9`, `new-screen`,
 //! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-left`,
 //! `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
@@ -78,8 +78,8 @@
 //! capability. `x` closes the active pane and `X` closes the active tab;
 //! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
 //! cmux defaults. Screens are visibly numbered from 1, so
-//! `select_screen_1` selects the first visible screen, ..., and
-//! `select_screen_0` selects the tenth visible screen. Zellij's modal
+//! `select-screen-1` selects the first visible screen, ..., and
+//! `select-screen-0` selects the tenth visible screen. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
@@ -382,7 +382,7 @@ impl Action {
             Action::CloseScreen => "close-screen".to_string(),
             Action::PrevScreen => "prev-screen".to_string(),
             Action::NextScreen => "next-screen".to_string(),
-            Action::SelectScreen(number) => format!("select_screen_{number}"),
+            Action::SelectScreen(number) => format!("select-screen-{number}"),
             Action::NewScreen => "new-screen".to_string(),
             Action::NextWorkspace => "next-workspace".to_string(),
             Action::NewWorkspace => "new-workspace".to_string(),
@@ -562,8 +562,16 @@ impl Keys {
                 self.prefix = chord;
                 continue;
             }
+            // The numbered families accept both spellings: select-screen-N /
+            // select_screen_N and select-tab-N / select_tab_N.
+            let normalized =
+                if name.starts_with("select_screen_") || name.starts_with("select_tab_") {
+                    name.replace('_', "-")
+                } else {
+                    name.clone()
+                };
             match all_actions().iter().find(|a| {
-                a.config_key() == name.as_str()
+                a.config_key() == normalized.as_str()
                     || (**a == Action::RenameTab && name == "rename-pane")
                     || (**a == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
@@ -1077,7 +1085,7 @@ mod tests {
     fn select_screen_action_names_round_trip_and_parse() {
         for number in 0..=9 {
             let action = Action::SelectScreen(number);
-            let name = format!("select_screen_{number}");
+            let name = format!("select-screen-{number}");
             assert_eq!(action.config_key(), name);
             assert!(all_actions().contains(&action));
 
@@ -1089,6 +1097,17 @@ mod tests {
                 keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
                 Some(action),
                 "{name} did not parse"
+            );
+
+            // The snake_case spelling is accepted as an alias.
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(format!("select_screen_{number}"), Value::String("g".to_string()));
+            keys.apply(&raw);
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+                Some(action),
+                "select_screen_{number} alias did not parse"
             );
         }
 

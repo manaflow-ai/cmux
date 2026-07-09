@@ -85,8 +85,8 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "alt_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new-pane-smart": "alt+n",
-    "select_screen_1": "1",
-    "select_screen_2": "2",
+    "select-screen-1": "1",
+    "select-screen-2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "focus-left": ["h", "left", "alt+h", "alt+left"],
@@ -126,16 +126,16 @@ rename-workspace
 close-screen
 prev-screen
 next-screen
-select_screen_0
-select_screen_1
-select_screen_2
-select_screen_3
-select_screen_4
-select_screen_5
-select_screen_6
-select_screen_7
-select_screen_8
-select_screen_9
+select-screen-0
+select-screen-1
+select-screen-2
+select-screen-3
+select-screen-4
+select-screen-5
+select-screen-6
+select-screen-7
+select-screen-8
+select-screen-9
 new-screen
 next-workspace
 new-workspace

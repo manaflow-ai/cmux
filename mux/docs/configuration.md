@@ -87,8 +87,8 @@ The default launched profile is `~/Library/Application Support/cmux-mux/chrome-p
 | `keys.close-screen` | chord string or array or `"none"` | `"&"` | Close active screen |
 | `keys.prev-screen` | chord string or array or `"none"` | `["p","alt+["]` | Previous screen |
 | `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
-| `keys.select_screen_1` through `keys.select_screen_9` | chord string or array or `"none"` | `"1"` through `"9"` | Select visible screen 1 through 9 |
-| `keys.select_screen_0` | chord string or array or `"none"` | `"0"` | Select visible screen 10 |
+| `keys.select-screen-1` through `keys.select-screen-9` | chord string or array or `"none"` | `"1"` through `"9"` | Select visible screen 1 through 9 |
+| `keys.select-screen-0` | chord string or array or `"none"` | `"0"` | Select visible screen 10 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
@@ -115,7 +115,7 @@ Each action override replaces all default chords for that action. Values may be 
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
 
-Screens are visibly numbered from 1, so `select_screen_1` selects the first visible screen and `select_screen_0` selects the tenth visible screen. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
+Screens are visibly numbered from 1, so `select-screen-1` selects the first visible screen and `select-screen-0` selects the tenth visible screen. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
@@ -166,8 +166,8 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "new-pane-smart": "alt+n",
     "next-tab": "tab",
     "prev-tab": "backtab",
-    "select_screen_1": "1",
-    "select_screen_2": "2",
+    "select-screen-1": "1",
+    "select-screen-2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "rename-tab": "r",
