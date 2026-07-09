@@ -296,6 +296,45 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(workspace.focusedPanelId == focusedPanelBefore)
     }
 
+    @Test func mirrorPinReorderUsesSyncOwner() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let secondPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 2, title: "two", onInput: { _ in }
+        ))
+        workspace.isRemoteTmuxMirror = true
+        var requestedPanelOrder: [UUID]?
+        workspace.remoteTmuxWindowOrderSync = { requestedPanelOrder = $0; return true }
+
+        workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+
+        let panelOrder = workspace.bonsplitController.tabs(inPane: paneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+        #expect(panelOrder.first == secondPanel.id)
+        #expect(requestedPanelOrder == panelOrder)
+        #expect(workspace.isPanelPinned(secondPanel.id))
+    }
+
+    @Test func mirrorPinReorderRejectionRestoresOrderAndPinState() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let secondPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 2, title: "two", onInput: { _ in }
+        ))
+        workspace.isRemoteTmuxMirror = true
+        let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+        workspace.remoteTmuxWindowOrderSync = { _ in false }
+
+        workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+        let secondTabId = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
+
+        #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
+        #expect(!workspace.isPanelPinned(secondPanel.id))
+        #expect(workspace.bonsplitController.tab(secondTabId)?.isPinned == false)
+    }
+
     @Test func mirrorWindowReorderUsesDetachedSwaps() {
         let commands = RemoteTmuxController.mirrorWindowReorderCommands(
             current: [0, 1, 2],
