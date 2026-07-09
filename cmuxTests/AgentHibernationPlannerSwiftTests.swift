@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
 struct AgentHibernationPlannerSwiftTests {
     @MainActor
     @Test
@@ -15,6 +15,7 @@ struct AgentHibernationPlannerSwiftTests {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()
         defer { AgentHibernationTrackingGate.setEnabled(wasEnabled) }
+        defer { resetSharedHibernationState(controller) }
 
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -47,6 +48,7 @@ struct AgentHibernationPlannerSwiftTests {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()
         defer { AgentHibernationTrackingGate.setEnabled(wasEnabled) }
+        defer { resetSharedHibernationState(controller) }
 
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -181,5 +183,17 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 101,
             now: 219
         ) == false)
+    }
+
+    @MainActor
+    private func resetSharedHibernationState(_ controller: AgentHibernationController) {
+        controller.activityByPanel.removeAll(keepingCapacity: false)
+        controller.terminalInputByPanel.removeAll(keepingCapacity: false)
+        controller.lifecycleChangeByPanel.removeAll(keepingCapacity: false)
+        controller.teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
+        controller.unableToProtectByPanel.removeAll(keepingCapacity: false)
+        controller.cancelPostTeardownRestoreTasks()
+        controller.postSnapshotValidationIndexRequestID = nil
+        controller.postSnapshotValidationIndexTask = nil
     }
 }

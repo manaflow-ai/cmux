@@ -34,7 +34,7 @@ extension AgentHibernationController {
                     try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
                 }
             }
-            let postSnapshotIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask().value
             let currentAgent = record.workspace.restorableAgentForHibernation(
                 panelId: record.key.panelId,
                 index: postSnapshotIndex
@@ -118,6 +118,23 @@ extension AgentHibernationController {
     ) {
         cancelPostTeardownRestoreTask(key)
         postTeardownRestoreTasksByPanel[key] = PostTeardownRestoreTask(requestID: requestID, task: task)
+    }
+
+    func sharedPostSnapshotValidationIndexTask() -> Task<RestorableAgentSessionIndex, Never> {
+        if let task = postSnapshotValidationIndexTask { return task }
+        let requestID = UUID()
+        let task = Task.detached(priority: .utility) {
+            await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+        }
+        postSnapshotValidationIndexRequestID = requestID
+        postSnapshotValidationIndexTask = task
+        Task { @MainActor in
+            _ = await task.value
+            guard self.postSnapshotValidationIndexRequestID == requestID else { return }
+            self.postSnapshotValidationIndexRequestID = nil
+            self.postSnapshotValidationIndexTask = nil
+        }
+        return task
     }
 
     func cancelPostTeardownRestoreTask(workspaceId: UUID, panelId: UUID) {

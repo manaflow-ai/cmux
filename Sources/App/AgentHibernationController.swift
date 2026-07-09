@@ -113,6 +113,8 @@ final class AgentHibernationController {
     var teardownValidationGeneration: UInt64 = 0
     var unableToProtectByPanel: [AgentHibernationPanelKey: UnableToProtectMarker] = [:]
     var postTeardownRestoreTasksByPanel: [AgentHibernationPanelKey: PostTeardownRestoreTask] = [:]
+    var postSnapshotValidationIndexRequestID: UUID?
+    var postSnapshotValidationIndexTask: Task<RestorableAgentSessionIndex, Never>?
     private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
