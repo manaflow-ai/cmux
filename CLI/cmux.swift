@@ -12265,7 +12265,8 @@ struct CMUXCLI {
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
             "while :; do",
-            "  \(command)",
+            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
@@ -12391,9 +12392,10 @@ struct CMUXCLI {
                 // Match the bridge-status path below: keep surface tracking intact before respawn.
                 sessionLostWillRespawn = true
             }
-            if exitCode.isWrapperRetryable {
+            if exitCode.isWrapperRetryable && sshPTYAttachWrapperRetryPending() {
                 // The shell wrapper loop re-runs this attach on the same
                 // surface; keep it tracked instead of sending pty_attach_end.
+                // On the final attempt (or without the wrapper) cleanup runs.
                 wrapperWillRetrySameSurface = true
             }
             throw CLIError(
@@ -12441,11 +12443,13 @@ struct CMUXCLI {
                 sessionLostWillRespawn = true
             }
             if let cliError = error as? CLIError,
-               SSHPTYAttachExitCode(rawValue: cliError.exitCode)?.isWrapperRetryable == true {
+               SSHPTYAttachExitCode(rawValue: cliError.exitCode)?.isWrapperRetryable == true,
+               sshPTYAttachWrapperRetryPending() {
                 // Transient pre-ready failure (TCP connect, handshake, ready
                 // wait): the shell wrapper loop re-runs this attach on the
                 // same surface; keep it tracked instead of sending
                 // pty_attach_end, which a successful retry cannot undo.
+                // On the final attempt (or without the wrapper) cleanup runs.
                 wrapperWillRetrySameSurface = true
             }
             if let connectedFD {
