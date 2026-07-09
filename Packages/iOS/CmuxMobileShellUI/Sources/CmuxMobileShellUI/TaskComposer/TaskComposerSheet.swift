@@ -28,8 +28,13 @@ struct TaskComposerSheet: View {
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
         let foregroundMacID = store.connectedMacDeviceID
-        let fallbackMacID = store.taskTemplateStore?.lastMacDeviceID()
-            ?? store.displayPairedMacs.first?.macDeviceID
+        // A persisted last-used Mac may have been forgotten since; only restore
+        // it while it is still paired, mirroring the template-id validation below.
+        let pairedMacIDs = store.displayPairedMacs.map(\.macDeviceID)
+        let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
+            .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
+        let fallbackMacID = restoredMacID
+            ?? pairedMacIDs.first
             ?? foregroundMacID
             ?? ""
         let selectedMacID = foregroundMacID ?? fallbackMacID
