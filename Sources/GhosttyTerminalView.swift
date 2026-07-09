@@ -2782,6 +2782,8 @@ class GhosttyApp {
                 self.ringBell()
             }
             return true
+        case GHOSTTY_ACTION_SELECTION_CHANGED:
+            return performOnMain { surfaceView.handleSelectionChangedAction() }
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
@@ -3428,16 +3430,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
+    let selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
-
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
     }
-
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
@@ -3479,7 +3480,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return .arrow
         }
     }
-
     fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
         guard ghosttyMouseShape != shape else { return }
         ghosttyMouseShape = shape
