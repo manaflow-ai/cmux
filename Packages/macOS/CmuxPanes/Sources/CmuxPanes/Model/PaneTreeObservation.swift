@@ -1,4 +1,3 @@
-public import Foundation
 internal import Observation
 
 /// A cancellable handle for a re-arming ``PaneTreeModel`` observation. Holding

@@ -15,8 +15,8 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
-import { existsSync, readFileSync } from "node:fs";
+import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
+import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -109,6 +109,9 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
+let fileTheme = resolveGhosttyTheme();
+let cmuxThemeOverride: GhosttyTheme | null = null;
+let currentTheme = fileTheme;
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
@@ -1196,22 +1199,238 @@ export function cssFontFamily(value: string | undefined | null, fallback: string
   return families.length ? `${families.join(", ")}, ${fallback}` : fallback;
 }
 
-function fontVars(theme: GhosttyTheme): string {
+function resolvedFontValues(theme: GhosttyTheme): Record<string, string> {
   const fonts = resolveUiConfig().fonts;
   const baseSize = fonts.baseSize ?? 14;
   const codeSize = fonts.codeSize ?? theme.fontSize ?? 12.5;
   const codeLineHeight = fonts.codeLineHeight ?? 1.5;
   const sans = cssFontFamily(fonts.sansFamily, DEFAULT_SANS);
   const mono = cssFontFamily(fonts.monoFamily ?? theme.fontFamily, DEFAULT_MONO);
-  return `--font-sans: ${sans}; --font-mono: ${mono}; --font-size-base: ${baseSize}px; ` +
-    `--font-size-code: ${codeSize}px; --font-line-code: ${codeLineHeight}; `;
+  return {
+    "--font-sans": sans,
+    "--font-mono": mono,
+    "--font-size-base": `${baseSize}px`,
+    "--font-size-code": `${codeSize}px`,
+    "--font-line-code": String(codeLineHeight),
+  };
 }
 
-function paletteVars(theme: GhosttyTheme): string {
-  return theme.palette
-    .map((color, i) => `--ansi-${i}: ${color}; --ansi-${ANSI_NAMES[i]}: ${color};`)
-    .join(" ") +
-    ` --selection-background: ${theme.selectionBackground ?? theme.palette[4]}; --cursor-color: ${theme.cursorColor ?? theme.foreground}; `;
+export function themeVarMap(theme: GhosttyTheme, opts: { transparent?: boolean; opacity?: number } = {}): Record<string, string> {
+  const transparent = opts.transparent === true;
+  const opacity = transparent ? (typeof opts.opacity === "number" && Number.isFinite(opts.opacity) ? opts.opacity : theme.opacity) : 1;
+  const n = parseInt(theme.background.slice(1), 16);
+  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+  const vars: Record<string, string> = {
+    "--bg": theme.background,
+    "--fg": theme.foreground,
+    "--bg-body": `rgba(${rgb}, ${opacity})`,
+    "--bg-html": transparent ? "transparent" : theme.background,
+    "--accent": pickAccentColor(theme),
+    "--green": theme.palette[2],
+    "--red": theme.palette[1],
+    "--amber": theme.palette[3],
+    "--selection-background": theme.selectionBackground ?? theme.palette[4],
+    "--cursor-color": theme.cursorColor ?? theme.foreground,
+    ...resolvedFontValues(theme),
+  };
+  for (const [i, color] of theme.palette.entries()) {
+    vars[`--ansi-${i}`] = color;
+    vars[`--ansi-${ANSI_NAMES[i]}`] = color;
+  }
+  return vars;
+}
+
+function varsToCss(vars: Record<string, string>): string {
+  return Object.entries(vars).map(([key, value]) => `${key}: ${value};`).join(" ");
+}
+
+export function themeCssVars(theme: GhosttyTheme, opts: { transparent?: boolean; opacity?: number } = {}): string {
+  return varsToCss(themeVarMap(theme, opts));
+}
+
+function themeForClient(theme: GhosttyTheme): GhosttyTheme {
+  return theme;
+}
+
+const THEME_POST_KEYS = [
+  "background",
+  "foreground",
+  "palette",
+  "selectionBackground",
+  "cursorColor",
+  "fontFamily",
+  "fontSize",
+  "opacity",
+  "blur",
+  "isLight",
+  "source",
+] as const;
+const THEME_POST_OPTIONAL_KEYS = ["accent"] as const;
+
+function isColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function nullableColor(value: unknown): string | null {
+  if (value === null) return null;
+  if (isColor(value)) return value.toLowerCase();
+  throw new Error("invalid theme color");
+}
+
+function requiredColor(value: unknown): string {
+  if (isColor(value)) return value.toLowerCase();
+  throw new Error("invalid theme color");
+}
+
+export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("theme payload must be an object");
+  const obj = body as Record<string, unknown>;
+  // JSON encoders commonly omit null fields entirely (Swift's synthesized
+  // Codable does), so absent nullable keys are treated as null; unexpected
+  // keys are still rejected.
+  for (const key of ["selectionBackground", "cursorColor", "fontFamily", "fontSize"]) {
+    if (!(key in obj)) obj[key] = null;
+  }
+  const keys = Object.keys(obj).sort();
+  const expected = [...THEME_POST_KEYS].sort();
+  const allowed = new Set<string>([...THEME_POST_KEYS, ...THEME_POST_OPTIONAL_KEYS]);
+  if (keys.some((key) => !allowed.has(key))) throw new Error("theme payload has unexpected keys");
+  if (expected.some((key) => !(key in obj))) throw new Error("theme payload is missing required keys");
+  if (obj.source !== "cmux") throw new Error("theme source must be cmux");
+  if (!Array.isArray(obj.palette) || obj.palette.length !== 16 || !obj.palette.every(isColor)) throw new Error("theme palette must contain 16 colors");
+  const fontSize = obj.fontSize;
+  if (fontSize !== null && (typeof fontSize !== "number" || !Number.isFinite(fontSize) || fontSize <= 0)) throw new Error("theme fontSize must be positive or null");
+  const opacity = obj.opacity;
+  const blur = obj.blur;
+  if (typeof opacity !== "number" || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) throw new Error("theme opacity must be 0-1");
+  if (typeof blur !== "number" || !Number.isFinite(blur) || blur < 0) throw new Error("theme blur must be non-negative");
+  if (typeof obj.isLight !== "boolean") throw new Error("theme isLight must be boolean");
+  if (obj.fontFamily !== null && typeof obj.fontFamily !== "string") throw new Error("theme fontFamily must be string or null");
+  return {
+    background: requiredColor(obj.background),
+    foreground: requiredColor(obj.foreground),
+    palette: obj.palette.map((color) => String(color).toLowerCase()),
+    selectionBackground: nullableColor(obj.selectionBackground),
+    cursorColor: nullableColor(obj.cursorColor),
+    fontFamily: obj.fontFamily ? String(obj.fontFamily) : null,
+    fontSize: fontSize === null ? null : Number(fontSize),
+    opacity,
+    blur,
+    isLight: Boolean(obj.isLight),
+    accent: "accent" in obj ? nullableColor(obj.accent) : null,
+    source: "cmux",
+    sources: [],
+  };
+}
+
+function sameTheme(a: GhosttyTheme, b: GhosttyTheme): boolean {
+  return JSON.stringify(themeForClient(a)) === JSON.stringify(themeForClient(b));
+}
+
+function broadcastTheme(theme: GhosttyTheme) {
+  const payload = JSON.stringify({ kind: "theme", theme: themeForClient(theme), vars: themeVarMap(theme) });
+  for (const ws of allSockets) ws.send(payload);
+}
+
+function setCurrentTheme(theme: GhosttyTheme, source: "cmux" | "ghostty") {
+  if (source === "cmux") cmuxThemeOverride = theme;
+  else cmuxThemeOverride = null;
+  currentTheme = theme;
+}
+
+export function themeOverrideStateForTest(action: "cmux" | "ghostty", theme: GhosttyTheme): { current: GhosttyTheme; hasOverride: boolean } {
+  if (action === "ghostty") fileTheme = theme;
+  setCurrentTheme(theme, action);
+  return { current: currentTheme, hasOverride: cmuxThemeOverride !== null };
+}
+
+let themeWatchers: FSWatcher[] = [];
+let themeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let themePollTimer: ReturnType<typeof setInterval> | null = null;
+let watchedThemeSources: string[] = [];
+let watchedThemeMtimes = new Map<string, number>();
+
+function closeThemeWatchers() {
+  for (const watcher of themeWatchers) watcher.close();
+  themeWatchers = [];
+}
+
+function sameSources(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+export function themeSourceMtimes(paths: string[]): Map<string, number> {
+  const mtimes = new Map<string, number>();
+  for (const path of paths) {
+    try {
+      mtimes.set(path, statSync(path).mtimeMs);
+    } catch {
+      mtimes.set(path, 0);
+    }
+  }
+  return mtimes;
+}
+
+export function themeMtimesChangedForTest(prev: Map<string, number>, next: Map<string, number>): boolean {
+  if (prev.size !== next.size) return true;
+  for (const [path, mtime] of next) {
+    if (prev.get(path) !== mtime) return true;
+  }
+  return false;
+}
+
+function armThemeWatchers(theme: GhosttyTheme) {
+  const sources = [...new Set(theme.sources)].sort();
+  watchedThemeMtimes = themeSourceMtimes(sources);
+  if (sameSources(watchedThemeSources, sources)) return;
+  closeThemeWatchers();
+  watchedThemeSources = sources;
+  for (const file of sources) {
+    try {
+      themeWatchers.push(watch(file, { persistent: false }, () => scheduleThemeRefresh()));
+    } catch {
+      // Missing files are still covered by the poll fallback and re-armed
+      // after the next successful resolve.
+    }
+  }
+}
+
+function scheduleThemeRefresh() {
+  if (themeRefreshTimer) clearTimeout(themeRefreshTimer);
+  themeRefreshTimer = setTimeout(() => {
+    themeRefreshTimer = null;
+    refreshThemeNow().catch((err) => console.warn(`theme refresh failed: ${String(err)}`));
+  }, 120);
+}
+
+export async function refreshThemeNow(): Promise<boolean> {
+  const nextFileTheme = await resolveGhosttyThemeAsync(true);
+  const changed = !sameTheme(fileTheme, nextFileTheme);
+  fileTheme = nextFileTheme;
+  armThemeWatchers(nextFileTheme);
+  if (changed) {
+    setCurrentTheme(nextFileTheme, "ghostty");
+    broadcastTheme(nextFileTheme);
+  }
+  return changed;
+}
+
+function startThemeWatcher() {
+  armThemeWatchers(fileTheme);
+  if (themePollTimer) clearInterval(themePollTimer);
+  // The poll exists only for atomic replaces or missing files that fs.watch
+  // cannot stay attached to. It stats watched files cheaply and resolves
+  // Ghostty only when an mtime/source-set change is observed.
+  themePollTimer = setInterval(() => {
+    const next = themeSourceMtimes(watchedThemeSources);
+    if (!themeMtimesChangedForTest(watchedThemeMtimes, next)) return;
+    watchedThemeMtimes = next;
+    refreshThemeNow().catch((err) => console.warn(`theme poll refresh failed: ${String(err)}`));
+  }, 5000);
+}
+
+export function themeMessageForTest(theme: GhosttyTheme): string {
+  return JSON.stringify({ kind: "theme", theme: themeForClient(theme), vars: themeVarMap(theme) });
 }
 
 // Inject the resolved Ghostty theme as CSS variables at serve time so the
@@ -1220,24 +1439,17 @@ function paletteVars(theme: GhosttyTheme): string {
 // transparent_background, so only genuinely transparent surfaces get an alpha
 // body; `?opacity=` is a dogfood override.
 function renderPage(url: URL): string {
-  const theme = resolveGhosttyTheme();
+  if (!cmuxThemeOverride) {
+    fileTheme = resolveGhosttyTheme();
+    currentTheme = fileTheme;
+  }
   const transparent = url.searchParams.get("transparent") === "1";
   const override = parseFloat(url.searchParams.get("opacity") ?? "");
-  const opacity = transparent ? (Number.isNaN(override) ? theme.opacity : override) : 1;
-  const n = parseInt(theme.background.slice(1), 16);
-  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
-  const accent = theme.palette[12];
-  const green = theme.palette[2];
-  const red = theme.palette[1];
-  const amber = theme.palette[3];
   // In opaque mode html paints the same solid bg as body, so nothing behind
   // the webview (a terminal surface) can composite through the transparent
   // document root. In transparent mode html stays clear on purpose so
   // background-opacity/blur show through.
-  const bgHtml = transparent ? "transparent" : theme.background;
-  const css = `:root { --bg: ${theme.background}; --fg: ${theme.foreground}; ` +
-    `--bg-body: rgba(${rgb}, ${opacity}); --bg-html: ${bgHtml}; --accent: ${accent}; ` +
-    `--green: ${green}; --red: ${red}; --amber: ${amber}; ${paletteVars(theme)} ${fontVars(theme)} }`;
+  const css = `:root { ${themeCssVars(currentTheme, { transparent, opacity: Number.isNaN(override) ? undefined : override })} }`;
   // Shell: theme vars first (so the first paint is the terminal bg), the
   // static stylesheet, a mount point, and the bundled React app (Base UI).
   const script = url.pathname === "/gallery" ? "/gallery.js" : "/app.js";
@@ -1411,7 +1623,28 @@ function startServer() {
     if (url.pathname === "/app.css") {
       return assetResponse(req, await cssAsset());
     }
-    if (url.pathname === "/api/theme") return Response.json(resolveGhosttyTheme());
+    if (url.pathname === "/api/theme" && req.method === "POST") {
+      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
+      try {
+        const theme = validateCmuxThemePayload(await req.json());
+        // cmux's payload has no accent field, so a push must not clobber the
+        // file-configured agent-chat-accent override.
+        if (!theme.accent) theme.accent = fileTheme.accent ?? null;
+        setCurrentTheme(theme, "cmux");
+        broadcastTheme(theme);
+        return Response.json(themeForClient(theme));
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+      }
+    }
+    if (url.pathname === "/api/theme") {
+      if (!cmuxThemeOverride) {
+        fileTheme = resolveGhosttyTheme();
+        currentTheme = fileTheme;
+        armThemeWatchers(fileTheme);
+      }
+      return Response.json(themeForClient(currentTheme));
+    }
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
     if (url.pathname === "/api/sessions" && req.method === "POST") {
@@ -1487,6 +1720,7 @@ function startServer() {
       console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
     });
   }
+  startThemeWatcher();
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }

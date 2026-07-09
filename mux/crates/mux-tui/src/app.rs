@@ -8,27 +8,27 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use crossterm::ExecutableCommand;
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
     EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
     MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    layout_screen, split_for_pane_edge, split_sides, BrowserSource, BrowserStatus, MuxEvent,
-    PaneId, Rect, SplitDir, SplitEdge, SurfaceId, SurfaceKind, WorkspaceId,
+    BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
+    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
+use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
@@ -324,11 +324,7 @@ impl Selection {
     pub fn range(&self) -> ((u16, u64), (u16, u64)) {
         let a = (self.anchor.1, self.anchor.0);
         let h = (self.head.1, self.head.0);
-        if a <= h {
-            (self.anchor, self.head)
-        } else {
-            (self.head, self.anchor)
-        }
+        if a <= h { (self.anchor, self.head) } else { (self.head, self.anchor) }
     }
 
     /// Whether a viewport cell is inside the (linear) selection at the
@@ -485,10 +481,10 @@ fn smart_split_target(
     cell_pixels: (u16, u16),
 ) -> Option<(PaneId, SplitDir)> {
     let ratio = cell_height_width_ratio(cell_pixels);
-    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane)) {
-        if let Some(dir) = zellij_smart_direction(area.content, ratio) {
-            return Some((area.pane, dir));
-        }
+    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane))
+        && let Some(dir) = zellij_smart_direction(area.content, ratio)
+    {
+        return Some((area.pane, dir));
     }
     areas
         .iter()
@@ -604,7 +600,6 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
     std::thread::Builder::new().name("input".into()).spawn({
-        let tx = tx.clone();
         move || {
             while let Ok(event) = crossterm::event::read() {
                 if tx.send(AppEvent::Input(event)).is_err() {
@@ -1671,18 +1666,17 @@ impl App {
             return;
         }
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
-        if let KeyCode::Char(c) = key.code {
-            if !key
+        if let KeyCode::Char(c) = key.code
+            && !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
-            {
-                self.browser_input.enqueue(BrowserInputEvent {
-                    surface_id,
-                    surface,
-                    kind: BrowserInputKind::InsertText(c.to_string()),
-                });
-                return;
-            }
+        {
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: BrowserInputKind::InsertText(c.to_string()),
+            });
+            return;
         }
         let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
         let modifiers = browser_modifiers(key.modifiers);
@@ -1896,14 +1890,14 @@ impl App {
     /// hovered element actually changes.
     fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
-        if let Some(menu) = self.menu.as_mut() {
-            if let Some(item) = menu.item_at(x, y) {
-                if item != menu.selected {
-                    menu.selected = item;
-                    return Ok(RenderAction::Draw);
-                }
-                return Ok(RenderAction::None);
+        if let Some(menu) = self.menu.as_mut()
+            && let Some(item) = menu.item_at(x, y)
+        {
+            if item != menu.selected {
+                menu.selected = item;
+                return Ok(RenderAction::Draw);
             }
+            return Ok(RenderAction::None);
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
             let mut over_browser = false;
@@ -1970,11 +1964,11 @@ impl App {
         if (x, y) != menu.right_press {
             menu.right_drag_moved = true;
         }
-        if let Some(item) = menu.item_at(x, y) {
-            if item != menu.selected {
-                menu.selected = item;
-                return Ok(RenderAction::Draw);
-            }
+        if let Some(item) = menu.item_at(x, y)
+            && item != menu.selected
+        {
+            menu.selected = item;
+            return Ok(RenderAction::Draw);
         }
         Ok(RenderAction::None)
     }
@@ -2681,16 +2675,16 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect, App,
-        PaneArea,
+        App, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
+        pane_parts_for_rect,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     use ghostty_vt::{KeyEncoder, RenderState};
     use mux_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{Config, ScrollbarPosition};

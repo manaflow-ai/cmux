@@ -1,5 +1,5 @@
 public import Foundation
-public import Bonsplit
+internal import Bonsplit
 #if DEBUG
 import CMUXDebugLog
 #endif

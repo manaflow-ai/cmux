@@ -1,4 +1,3 @@
-public import Foundation
 public import Bonsplit
 
 /// Drives a workspace's surface close commands against the live split tree:

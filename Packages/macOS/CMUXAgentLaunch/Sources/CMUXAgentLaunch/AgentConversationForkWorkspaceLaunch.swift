@@ -1,4 +1,3 @@
-public import Foundation
 public import CmuxCore
 
 /// The resolved launch descriptor for forking an agent conversation into a brand

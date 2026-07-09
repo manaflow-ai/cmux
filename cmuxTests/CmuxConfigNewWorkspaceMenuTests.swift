@@ -142,7 +142,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
     }
 
     @MainActor
-    @Test func customContextMenuControlsBuiltInAgentChatLikeOtherBuiltIns() throws {
+    @Test func customContextMenuWithoutAgentChatStillAppendsBuiltInAgentChat() throws {
         let (store, root) = try loadStore(globalJSON: """
         {
           "ui": {
@@ -156,8 +156,10 @@ struct CmuxConfigNewWorkspaceMenuTests {
 
         #expect(store.newWorkspaceContextMenuIsConfigured)
         let ids = plannedContextMenuActionIDs(store)
-        #expect(ids.contains(CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
-        #expect(!ids.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
+        let newWorkspaceIndex = try #require(ids.firstIndex(of: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
+        let agentChatIndex = try #require(ids.firstIndex(of: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
+        #expect(newWorkspaceIndex < agentChatIndex)
+        #expect(ids.filter { $0 == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID }.count == 1)
     }
 
     @MainActor

@@ -13,9 +13,6 @@ import Testing
 @testable import cmux
 #endif
 
-/// "Save as Workspace Layout" persistence (JSONC upsert/removal into
-/// cmux.json) and the foreground-command capture that feeds saved terminal
-/// surfaces.
 struct CmuxConfigActionSaverTests {
 
     private func temporaryRoot(_ label: String) throws -> URL {
@@ -316,7 +313,6 @@ struct CmuxConfigActionSaverTests {
     }
 
     @Test func commandLineStripsAgentResumeArtifacts() {
-        // Agent detection works on the basename; the invocation form is kept.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "/opt/homebrew/bin/claude", "--resume", "abc-123", "--dangerously-skip-permissions",
@@ -327,18 +323,90 @@ struct CmuxConfigActionSaverTests {
                 "codex", "resume", "0199d9c1", "--yolo",
             ]) == "codex --yolo"
         )
-        // Unknown executables keep their flags untouched.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "mytool", "--resume", "state.bin",
             ]) == "mytool --resume state.bin"
         )
-        // Alias basenames sanitize through their real agent kind.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "agy", "--continue", "old-conversation", "--sandbox", "danger-full-access",
             ]) == "agy --sandbox danger-full-access"
         )
+    }
+
+    @Test func commandLineStripsNodeCodexCmuxHooksAndResume() {
+        let command = TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv())
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex ") == true)
+        #expect(command?.contains("cmux-codex-hook") == false)
+        #expect(command?.contains("019dad34-d218-7943-b81a-eddac5c87951") == false)
+        #expect(command?.contains("--model gpt-5.5") == true)
+    }
+
+    @Test func commandLinePreservesNodeClaudeRuntimeAndUserSettingsOnly() {
+        let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
+        let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "node", "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            "--settings", mergedHookSettings, "--model", "claude-fable-5",
+        ])
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js --settings ") == true)
+        #expect(command?.contains("USER_FLAG") == true)
+        #expect(command?.contains("hooks claude session-start") == false)
+        #expect(command?.hasPrefix("claude --settings") == false)
+    }
+
+    @Test func commandLineStripsNativeCodexCmuxHooksWithoutRewritingExecutable() {
+        let nativeCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "/usr/local/bin/codex", "--enable", "hooks", "--dangerously-bypass-hook-trust",
+            "-c", "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "--model", "gpt-5.5",
+        ])
+        #expect(nativeCommand?.hasPrefix("/usr/local/bin/codex ") == true)
+        #expect(nativeCommand?.contains("cmux-codex-hook-stop.sh") == false)
+        #expect(nativeCommand?.contains("--model gpt-5.5") == true)
+        #expect(nativeCommand?.hasPrefix("codex ") == false)
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "/usr/local/bin/codex", "--model", "gpt-5.5",
+            ]) == "/usr/local/bin/codex --model gpt-5.5"
+        )
+        let explicitPinnedCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "/opt/pinned/bin/codex",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "--model",
+            "gpt-5.5",
+        ])
+        #expect(explicitPinnedCommand?.hasPrefix("/opt/pinned/bin/codex ") == true)
+        #expect(explicitPinnedCommand?.contains("cmux-codex-hook-stop.sh") == false)
+        #expect(explicitPinnedCommand?.hasPrefix("codex ") == false)
+    }
+
+    @Test func commandLineKeepsClaudeDirectBinaryBehavior() {
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "/Users/u/.local/bin/claude",
+                "--dangerously-skip-permissions",
+                "--model",
+                "claude-fable-5",
+                "--effort",
+                "high",
+            ]) == "/Users/u/.local/bin/claude --dangerously-skip-permissions --model claude-fable-5 --effort high"
+        )
+    }
+
+    @Test func commandLineStripsNativeClaudeCmuxHookSettingsWithoutRewritingExecutable() {
+        let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
+        let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "/opt/homebrew/bin/claude", "--settings", mergedHookSettings, "--model", "claude-fable-5",
+        ])
+        #expect(command?.hasPrefix("/opt/homebrew/bin/claude --settings ") == true)
+        #expect(command?.contains("USER_FLAG") == true)
+        #expect(command?.contains("hooks claude session-start") == false)
+        #expect(command?.hasPrefix("claude ") == false)
     }
 
     @Test func knownAgentKindCoversAliasesAndArchSuffixedBuilds() {
@@ -385,5 +453,51 @@ struct CmuxConfigActionSaverTests {
         #expect(plain.capturedCommands == [])
         #expect(plain.capturedURLs == [])
         #expect(plain.capturedEnvironmentKeys == [])
+    }
+
+    @Test func snapshotReportsOversizedCommands() {
+        let exactLimit = String(repeating: "a", count: TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length)
+        let oversized = exactLimit + "b"
+        let snapshot = WorkspaceConfigActionSnapshot(
+            definition: CmuxWorkspaceDefinition(
+                name: "W",
+                setup: oversized,
+                layout: .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, command: exactLimit),
+                    CmuxSurfaceDefinition(type: .terminal, command: oversized),
+                ]))
+            ),
+            skippedPanelCount: 0
+        )
+        #expect(snapshot.oversizedCommands == [oversized, oversized])
+    }
+
+    private func nodeWrappedCodexHookArgv() -> [String] {
+        [
+            "node",
+            "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
+            "-c",
+            "hooks.SessionStart=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-user-prompt-submit.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.PreToolUse=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.PostToolUse=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.Notification=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "resume",
+            "019dad34-d218-7943-b81a-eddac5c87951",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model",
+            "gpt-5.5",
+            "-c",
+            "model_reasoning_effort=xhigh",
+        ]
     }
 }

@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use mux_cdp::{
-    discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent, CdpKeyEvent, Chrome,
-    ChromeLaunchOptions, TargetCreated,
+    CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions, TargetCreated,
+    discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -332,11 +332,7 @@ fn capture_scale_for(pane_px_w: u32, pane_px_h: u32, opts: BrowserCaptureOptions
     }
     let area = f64::from(pane_px_w.max(1)) * f64::from(pane_px_h.max(1));
     let budget = opts.max_capture_megapixels.max(f64::MIN_POSITIVE) * 1_000_000.0;
-    if area <= budget {
-        1.0
-    } else {
-        (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0)
-    }
+    if area <= budget { 1.0 } else { (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0) }
 }
 
 fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
@@ -348,10 +344,10 @@ fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
 fn runtime_endpoint(
     opts: &SurfaceOptions,
 ) -> anyhow::Result<(String, Option<Chrome>, BrowserSource)> {
-    if let Ok(url) = std::env::var("CMUX_MUX_CDP_URL") {
-        if !url.trim().is_empty() {
-            return Ok((resolve_browser_ws_url(&url)?, None, BrowserSource::External));
-        }
+    if let Ok(url) = std::env::var("CMUX_MUX_CDP_URL")
+        && !url.trim().is_empty()
+    {
+        return Ok((resolve_browser_ws_url(&url)?, None, BrowserSource::External));
     }
     if let Some(url) = opts.cdp_url.as_deref().filter(|url| !url.trim().is_empty()) {
         return Ok((resolve_browser_ws_url(url)?, None, BrowserSource::External));
@@ -382,7 +378,7 @@ fn runtime_endpoint(
             &opts.browser_session_name,
         )?)
     };
-    let chrome = Chrome::launch_with(ChromeLaunchOptions {
+    let chrome = Chrome::launch_with(&ChromeLaunchOptions {
         binary: chrome_binary,
         user_data_dir,
         ephemeral: opts.browser_ephemeral,
@@ -440,11 +436,7 @@ fn sanitize_session_name(name: &str) -> String {
         }
     }
     let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() {
-        "default".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    if trimmed.is_empty() { "default".to_string() } else { trimmed.to_string() }
 }
 
 fn start_router(runtime: Arc<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
@@ -526,10 +518,10 @@ fn start_surface_thread(
                         seq: 0,
                     };
                     browser.store_frame(frame);
-                    if !browser.dirty.swap(true, Ordering::AcqRel) {
-                        if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::SurfaceOutput(id));
-                        }
+                    if !browser.dirty.swap(true, Ordering::AcqRel)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }
                 CdpEvent::TargetCreated(created) => {
@@ -540,10 +532,10 @@ fn start_surface_thread(
                     let url_changed =
                         if info.url.is_empty() { false } else { browser.set_url(info.url) };
                     let title_changed = browser.set_title(title);
-                    if url_changed || title_changed {
-                        if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::TitleChanged(id));
-                        }
+                    if (url_changed || title_changed)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::TitleChanged(id));
                     }
                 }
                 CdpEvent::Other { method, params, .. } if method == "Page.frameNavigated" => {
@@ -1141,8 +1133,8 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
-        BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus,
+        BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus, capture_scale_for,
+        new_surface, normalize_url, runtime_endpoint, scaled_pixels,
     };
     use crate::SurfaceOptions;
     use std::io::{Read, Write};
