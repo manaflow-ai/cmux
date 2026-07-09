@@ -3,50 +3,6 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
-import UserNotifications
-
-/// Drives a REAL iOS notification for the App Store "notifications" screenshot.
-///
-/// Instead of drawing a fake banner, this requests notification authorization
-/// and schedules a genuine local notification, so the system renders the actual
-/// banner (real blur, fonts, the app's real icon, and the app's display name
-/// "cmux"). The snapshot UITest taps the springboard "Allow" prompt and captures
-/// the real `NotificationShortLookView`. Foreground presentation as a banner is
-/// handled by `CmuxAppDelegate.willPresent` (returns `.banner` here since no push
-/// coordinator is wired in preview mode); we also set a delegate as a fallback.
-final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
-    static let shared = ScreenshotNotificationPresenter()
-    private var fired = false
-
-    func fire() {
-        guard !fired else { return }
-        fired = true
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = "Agent needs your input"
-            content.body = "Claude is asking: which database should I use, Postgres or SQLite?"
-            content.sound = .default
-            // Fire soon after authorization is granted; the UITest snapshots the
-            // banner the instant it appears (iOS banners auto-dismiss in ~5s).
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.6, repeats: false)
-            center.add(UNNotificationRequest(
-                identifier: "cmux-screenshot-agent",
-                content: content,
-                trigger: trigger
-            ))
-        }
-    }
-
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
-    }
-}
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
 ///
@@ -57,7 +13,11 @@ final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterD
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    // Safety: DEBUG screenshot-only presenter is owned by this preview view and
+    // only mutates its fired flag from the SwiftUI task that requests the banner.
+    private let notificationPresenter = ScreenshotNotificationPresenter()
 
+    /// Creates a static workspace-list preview for App Store screenshot capture.
     public init() {}
 
     private let workspaces: [MobileWorkspacePreview] = [
@@ -126,7 +86,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             // Fire a REAL local notification (not a drawn banner) so the system
             // renders the genuine banner over this workspace list.
             if showNotificationBanner {
-                ScreenshotNotificationPresenter.shared.fire()
+                notificationPresenter.fire()
             }
         }
     }

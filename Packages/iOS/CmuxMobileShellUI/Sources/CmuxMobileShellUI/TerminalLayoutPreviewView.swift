@@ -30,8 +30,9 @@ struct TerminalLayoutPreviewView: View {
     init() {
         let env = ProcessInfo.processInfo.environment
         let transcript = env["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
+        let transcripts = TerminalPreviewTranscripts()
         let derived = env["CMUX_UITEST_TERMINAL_BG"]
-            ?? TerminalPreviewTranscripts.dominantBackgroundHex(named: transcript)
+            ?? transcripts.dominantBackgroundHex(named: transcript)
         backgroundHex = derived
         // libghostty reads CMUX_UITEST_TERMINAL_BG at runtime init (see
         // GhosttyRuntime) to set the terminal's *default* background, so unpainted
@@ -141,6 +142,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
         private let targetCols =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
+        private let transcripts = TerminalPreviewTranscripts()
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
@@ -171,7 +173,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
                 surfaceView.processOutput(Data(s.utf8))
                 return
             }
-            surfaceView.processOutput(TerminalPreviewTranscripts.transcript(named: transcriptName))
+            surfaceView.processOutput(transcripts.transcript(named: transcriptName))
         }
     }
 }
