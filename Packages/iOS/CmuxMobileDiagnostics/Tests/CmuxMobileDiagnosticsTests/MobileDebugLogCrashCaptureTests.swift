@@ -24,7 +24,7 @@ import Testing
     }
 
     @Test func signalRecordsContainExpectedPreRenderedLines() throws {
-        let records = MobileDebugLogCrashCapture.signalRecords
+        let records = MobileDebugLogCrashCapture.signalRecordDefinitions
         let expected: [(signo: Int32, name: String)] = [
             (SIGABRT, "SIGABRT"),
             (SIGBUS, "SIGBUS"),
@@ -41,8 +41,17 @@ import Testing
         for expectedRecord in expected {
             let record = try #require(records.first { $0.signo == expectedRecord.signo })
             #expect(record.name == expectedRecord.name)
-            let line = String(decoding: record.bytes, as: UTF8.self)
-            #expect(line == "CRASH signal=\(expectedRecord.signo) name=\(expectedRecord.name)\n")
+            let expectedLine = MobileDebugLogCrashCapture.renderedSignalRecord(
+                signo: expectedRecord.signo,
+                name: expectedRecord.name
+            )
+            let bytes = try #require(
+                MobileDebugLogCrashCapture.installedSignalRecordBytes(
+                    for: expectedRecord.signo
+                )
+            )
+            let line = String(decoding: bytes, as: UTF8.self)
+            #expect(line == expectedLine)
             #expect(line.hasSuffix("\n"))
         }
     }

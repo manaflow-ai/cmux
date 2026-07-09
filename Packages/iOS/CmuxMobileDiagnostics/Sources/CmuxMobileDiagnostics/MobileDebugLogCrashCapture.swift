@@ -6,6 +6,8 @@ import Foundation
 final class MobileDebugLogCrashCapture {
     private init() {}
 
+    typealias SignalEntry = (signo: Int32, offset: Int32, length: Int32)
+
     // Written once during install before handlers can run, then read by crash
     // handlers. The macOS 14 package floor rules out Synchronization.Atomic.
     nonisolated(unsafe) private static var logFileDescriptor: Int32 = -1
@@ -18,14 +20,21 @@ final class MobileDebugLogCrashCapture {
     // this logger writes its record so existing crash handling still runs.
     nonisolated(unsafe) private static var previousExceptionHandler: NSUncaughtExceptionHandler?
 
-    static let signalRecords: [(signo: Int32, name: String, bytes: ContiguousArray<UInt8>)] = [
-        signalRecord(signo: SIGABRT, name: "SIGABRT"),
-        signalRecord(signo: SIGBUS, name: "SIGBUS"),
-        signalRecord(signo: SIGFPE, name: "SIGFPE"),
-        signalRecord(signo: SIGILL, name: "SIGILL"),
-        signalRecord(signo: SIGSEGV, name: "SIGSEGV"),
-        signalRecord(signo: SIGTRAP, name: "SIGTRAP"),
-        signalRecord(signo: SIGSYS, name: "SIGSYS"),
+    // Prepared once outside signal context, then read directly by the signal
+    // handler via pointer arithmetic. The allocations intentionally live for
+    // the process lifetime so a crash never races deallocation.
+    nonisolated(unsafe) private static var signalEntryPointer: UnsafeMutablePointer<SignalEntry>?
+    nonisolated(unsafe) private static var signalEntryCount: Int32 = 0
+    nonisolated(unsafe) private static var signalBytePointer: UnsafeMutablePointer<UInt8>?
+
+    static let signalRecordDefinitions: [(signo: Int32, name: String)] = [
+        (SIGABRT, "SIGABRT"),
+        (SIGBUS, "SIGBUS"),
+        (SIGFPE, "SIGFPE"),
+        (SIGILL, "SIGILL"),
+        (SIGSEGV, "SIGSEGV"),
+        (SIGTRAP, "SIGTRAP"),
+        (SIGSYS, "SIGSYS"),
     ]
 
     private static let exceptionHandler: @convention(c) (NSException) -> Void = { exception in
@@ -34,14 +43,22 @@ final class MobileDebugLogCrashCapture {
 
     private static let signalHandler: @convention(c) (Int32) -> Void = { signo in
         let fd = MobileDebugLogCrashCapture.logFileDescriptor
-        if fd >= 0 {
-            for record in MobileDebugLogCrashCapture.signalRecords where record.signo == signo {
-                record.bytes.withUnsafeBufferPointer { buffer in
-                    if let baseAddress = buffer.baseAddress {
-                        _ = Darwin.write(fd, baseAddress, buffer.count)
-                    }
+        let entries = MobileDebugLogCrashCapture.signalEntryPointer
+        let bytes = MobileDebugLogCrashCapture.signalBytePointer
+        let count = MobileDebugLogCrashCapture.signalEntryCount
+        if fd >= 0, let entries, let bytes {
+            var index: Int32 = 0
+            while index < count {
+                let entry = entries.advanced(by: Int(index)).pointee
+                if entry.signo == signo {
+                    _ = Darwin.write(
+                        fd,
+                        bytes.advanced(by: Int(entry.offset)),
+                        Int(entry.length)
+                    )
+                    break
                 }
-                break
+                index += 1
             }
         }
         _ = Darwin.signal(signo, SIG_DFL)
@@ -57,7 +74,7 @@ final class MobileDebugLogCrashCapture {
             return
         }
 
-        _ = signalRecords.count
+        prepareSignalRecordStorage()
         Self.logFileDescriptor = duplicatedDescriptor
         previousExceptionHandler = NSGetUncaughtExceptionHandler()
         NSSetUncaughtExceptionHandler(exceptionHandler)
@@ -65,10 +82,44 @@ final class MobileDebugLogCrashCapture {
         installed = true
     }
 
+    static func updateLogFileDescriptor(_ fileDescriptor: Int32) {
+        let duplicatedDescriptor = Darwin.dup(fileDescriptor)
+        guard duplicatedDescriptor >= 0 else {
+            return
+        }
+        let previousDescriptor = logFileDescriptor
+        logFileDescriptor = duplicatedDescriptor
+        if previousDescriptor >= 0 {
+            _ = Darwin.close(previousDescriptor)
+        }
+    }
+
     static func exceptionRecord(name: String, reason: String, stack: [String]) -> String {
         var lines = ["CRASH uncaught-exception name=\(name) reason=\(reason)"]
         lines.append(contentsOf: stack.map { "  \($0)" })
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func renderedSignalRecord(signo: Int32, name: String) -> String {
+        "CRASH signal=\(signo) name=\(name)\n"
+    }
+
+    static func installedSignalRecordBytes(for signo: Int32) -> [UInt8]? {
+        prepareSignalRecordStorage()
+        guard let entries = signalEntryPointer, let bytes = signalBytePointer else {
+            return nil
+        }
+        var index: Int32 = 0
+        while index < signalEntryCount {
+            let entry = entries.advanced(by: Int(index)).pointee
+            if entry.signo == signo {
+                let start = bytes.advanced(by: Int(entry.offset))
+                let buffer = UnsafeBufferPointer(start: start, count: Int(entry.length))
+                return Array(buffer)
+            }
+            index += 1
+        }
+        return nil
     }
 
     private static func handleUncaughtException(_ exception: NSException) {
@@ -82,7 +133,7 @@ final class MobileDebugLogCrashCapture {
     }
 
     private static func installSignalHandlers() {
-        for record in signalRecords {
+        for record in signalRecordDefinitions {
             var action = sigaction()
             sigemptyset(&action.sa_mask)
             action.sa_flags = 0
@@ -104,12 +155,36 @@ final class MobileDebugLogCrashCapture {
         }
     }
 
-    private static func signalRecord(
-        signo: Int32,
-        name: String
-    ) -> (signo: Int32, name: String, bytes: ContiguousArray<UInt8>) {
-        let line = "CRASH signal=\(signo) name=\(name)\n"
-        return (signo: signo, name: name, bytes: ContiguousArray(line.utf8))
+    private static func prepareSignalRecordStorage() {
+        guard signalEntryPointer == nil, signalBytePointer == nil else {
+            return
+        }
+
+        let renderedRecords = signalRecordDefinitions.map {
+            Array(renderedSignalRecord(signo: $0.signo, name: $0.name).utf8)
+        }
+        let byteCount = renderedRecords.reduce(0) { $0 + $1.count }
+        let entries = UnsafeMutablePointer<SignalEntry>.allocate(
+            capacity: signalRecordDefinitions.count
+        )
+        let bytes = UnsafeMutablePointer<UInt8>.allocate(capacity: byteCount)
+
+        var offset = 0
+        for index in signalRecordDefinitions.indices {
+            let recordBytes = renderedRecords[index]
+            let entry = signalRecordDefinitions[index]
+            bytes.advanced(by: offset).initialize(from: recordBytes, count: recordBytes.count)
+            entries.advanced(by: index).initialize(to: (
+                signo: entry.signo,
+                offset: Int32(offset),
+                length: Int32(recordBytes.count)
+            ))
+            offset += recordBytes.count
+        }
+
+        signalBytePointer = bytes
+        signalEntryPointer = entries
+        signalEntryCount = Int32(signalRecordDefinitions.count)
     }
 }
 #endif

@@ -113,6 +113,44 @@ import Testing
         """)
     }
 
+    @Test func rotatesWhenMaxFileBytesExceededMidRun() async throws {
+        let logURL = makeLogURL()
+        let rotatedURL = rotatedLogURL(for: logURL)
+        defer { removeLogFiles(at: logURL) }
+        try FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let clock = DateSequence([
+            Date(timeIntervalSince1970: 10),
+            Date(timeIntervalSince1970: 11),
+            Date(timeIntervalSince1970: 12),
+        ])
+        let sink = MobileDebugLogSink(
+            now: { clock.next() },
+            fileURL: logURL,
+            fileHeader: "h",
+            maxFileBytes: 35
+        )
+
+        await sink.append("old-1")
+        await sink.append("new-2")
+
+        let current = try String(contentsOf: logURL, encoding: .utf8)
+        let rotated = try String(contentsOf: rotatedURL, encoding: .utf8)
+        #expect(rotated == """
+        h
+        [    1.000] old-1
+
+        """)
+        #expect(current == """
+        h
+        [    2.000] new-2
+
+        """)
+    }
+
     private func makeLogURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mobile-debug-log-tests-\(UUID().uuidString)")
