@@ -6,6 +6,8 @@ import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
+let providerlessProvisioningRows: Array<{ id: string }> = [];
+let providerlessProvisioningSelectsRemaining = 0;
 let workflowErrorsByProviderId = new Map<string, unknown>();
 
 type DestroyAccountOwnedVmInput = { userId: string; providerVmId: string };
@@ -32,6 +34,8 @@ const deleteObject = mock(async () => {});
 beforeEach(() => {
   calls.length = 0;
   providerBackedVmBatches = [];
+  providerlessProvisioningRows = [];
+  providerlessProvisioningSelectsRemaining = 1;
   workflowErrorsByProviderId = new Map();
   destroyAccountOwnedVm.mockClear();
   runVmWorkflow.mockClear();
@@ -64,14 +68,14 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     expect(calls.slice(0, 3)).toEqual([
+      "select-providerless-provisioning-vms",
       "claim-providerless-vms",
       "select-provider-backed-vms",
-      "destroy:user-1:provider-vm-1",
     ]);
     expect(calls.slice(2, 5)).toEqual([
+      "select-provider-backed-vms",
       "destroy:user-1:provider-vm-1",
       "select-provider-backed-vms",
-      "transaction",
     ]);
     expect(destroyAccountOwnedVm).toHaveBeenCalledWith({
       userId: "user-1",
@@ -100,10 +104,10 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     expect(calls.slice(0, 4)).toEqual([
+      "select-providerless-provisioning-vms",
       "claim-providerless-vms",
       "select-provider-backed-vms",
       "destroy-error:user-1:provider-vm-1",
-      "select-provider-backed-vms",
     ]);
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
     expect(calls).toContain("delete-cloud-vm-sessions");
@@ -123,6 +127,17 @@ describe("account deletion cleanup", () => {
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
     expect(calls).toContain("destroy-error:user-1:provider-vm-1");
     expect(calls).not.toContain("delete-cloud-vm-sessions");
+  });
+
+  test("retries later when a providerless VM is still provisioning", async () => {
+    providerlessProvisioningRows = [{ id: "00000000-0000-4000-8000-000000000151" }];
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("waiting for provisioning VMs to settle");
+
+    expect(calls).toEqual(["select-providerless-provisioning-vms"]);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("fails closed when provider-backed VMs keep appearing", async () => {
@@ -148,6 +163,11 @@ function fakeDb() {
   return {
     select: () => {
       return selectBuilder(() => {
+        if (providerlessProvisioningSelectsRemaining > 0) {
+          providerlessProvisioningSelectsRemaining -= 1;
+          calls.push("select-providerless-provisioning-vms");
+          return providerlessProvisioningRows;
+        }
         if (providerBackedVmBatches.length > 0) {
           calls.push("select-provider-backed-vms");
           return providerBackedVmBatches.shift() ?? [];

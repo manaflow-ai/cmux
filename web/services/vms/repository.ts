@@ -282,14 +282,6 @@ async function hasAccountDeletionTombstoneWithLock(
   return deletion?.userIdHash === userIdHash;
 }
 
-async function ensureAccountVmWriteAllowed(
-  tx: CloudDbTransaction,
-  userId: string,
-): Promise<void> {
-  if (!await hasAccountDeletionTombstoneWithLock(tx, userId)) return;
-  throw new Error("Account deletion is in progress.");
-}
-
 async function deletionAllowedUsageEvents<T extends { readonly userId: string }>(
   tx: CloudDbTransaction,
   inputs: readonly T[],
@@ -302,6 +294,34 @@ async function deletionAllowedUsageEvents<T extends { readonly userId: string }>
     }
   }
   return inputs.filter((input) => !blockedUserIds.has(input.userId));
+}
+
+async function persistCreateProviderHandle(
+  tx: CloudDbTransaction,
+  input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly image: string;
+    readonly imageVersion?: string | null;
+    readonly providerMetadata?: Record<string, unknown>;
+    readonly now: Date;
+  },
+): Promise<CloudVmRow | null> {
+  const [vm] = await tx
+    .update(cloudVms)
+    .set({
+      providerVmId: input.providerVmId,
+      imageId: input.image,
+      imageVersion: input.imageVersion ?? null,
+      providerMetadata: input.providerMetadata ?? {},
+      status: "running",
+      failureCode: null,
+      failureMessage: null,
+      updatedAt: input.now,
+    })
+    .where(eq(cloudVms.id, input.id))
+    .returning();
+  return vm ?? null;
 }
 
 async function findByIdempotencyKey(
@@ -919,8 +939,19 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("markBaseCreateRunning", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
-        await ensureAccountVmWriteAllowed(tx, input.userId);
         const now = new Date();
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) {
+          const vm = await persistCreateProviderHandle(tx, {
+            id: input.vmId,
+            providerVmId: input.providerVmId,
+            image: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            now,
+          });
+          if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
+          throw new Error("Account deletion is in progress.");
+        }
         const [vm] = await tx
           .update(cloudVms)
           .set({
@@ -988,7 +1019,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("markBaseCreateFailed", async () => {
       const db = cloudDb();
       await db.transaction(async (tx) => {
-        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return;
+        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
         const now = new Date();
         await tx
           .update(cloudVms)
@@ -1182,7 +1213,19 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           .where(eq(cloudVms.id, input.id))
           .limit(1);
         if (!current) throw new Error(`vm row missing during create finalization: ${input.id}`);
-        await ensureAccountVmWriteAllowed(tx, current.userId);
+        const now = new Date();
+        if (await hasAccountDeletionTombstoneWithLock(tx, current.userId)) {
+          const vm = await persistCreateProviderHandle(tx, {
+            id: input.id,
+            providerVmId: input.providerVmId,
+            image: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            now,
+          });
+          if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
+          throw new Error("Account deletion is in progress.");
+        }
 
         const [vm] = await tx
           .update(cloudVms)
@@ -1194,7 +1237,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             status: "running",
             failureCode: null,
             failureMessage: null,
-            updatedAt: new Date(),
+            updatedAt: now,
           })
           .where(and(
             eq(cloudVms.id, input.id),
@@ -1216,7 +1259,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           .where(eq(cloudVms.id, input.id))
           .limit(1);
         if (!current) return;
-        if (await hasAccountDeletionTombstoneWithLock(tx, current.userId)) return;
+        await hasAccountDeletionTombstoneWithLock(tx, current.userId);
         await tx
           .update(cloudVms)
           .set({

@@ -394,6 +394,19 @@ async function claimProviderlessAccountVms(
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
   const db = runtime.cloudDb();
+  const [inFlightCreate] = await db
+    .select({ id: cloudVms.id })
+    .from(cloudVms)
+    .where(and(
+      personalCloudVmRows(userId),
+      eq(cloudVms.status, "provisioning"),
+      isNull(cloudVms.providerVmId),
+    ))
+    .limit(1);
+  if (inFlightCreate) {
+    throw new Error("Cloud VM account deletion cleanup is waiting for provisioning VMs to settle");
+  }
+
   await db
     .update(cloudVms)
     .set({
@@ -402,9 +415,9 @@ async function claimProviderlessAccountVms(
       updatedAt: new Date(),
     })
     .where(and(
-      eq(cloudVms.userId, userId),
-      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
+      personalCloudVmRows(userId),
       ne(cloudVms.status, "destroyed"),
+      ne(cloudVms.status, "provisioning"),
       isNull(cloudVms.providerVmId),
     ));
 }
@@ -445,8 +458,7 @@ async function providerBackedAccountVms(
     .select({ providerVmId: cloudVms.providerVmId })
     .from(cloudVms)
     .where(and(
-      eq(cloudVms.userId, userId),
-      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, userId)),
+      personalCloudVmRows(userId),
       ne(cloudVms.status, "destroyed"),
       isNotNull(cloudVms.providerVmId),
     ));
