@@ -8,6 +8,23 @@ import Testing
 @MainActor
 @Suite struct MobileShellAuthScopeIsolationTests {
     @Test func accountSwitchDuringDirectSecondaryRefreshNeverSendsNewTokenToOldManualHost() async throws {
+        try await assertSessionChangeNeverSendsNewToken(
+            replacementUserID: "user-b",
+            replacementToken: "user-b-token"
+        )
+    }
+
+    @Test func sameAccountSignOutAndSignInInvalidatesOldSecondaryRefresh() async throws {
+        try await assertSessionChangeNeverSendsNewToken(
+            replacementUserID: "user-a",
+            replacementToken: "new-user-a-session-token"
+        )
+    }
+
+    private func assertSessionChangeNeverSendsNewToken(
+        replacementUserID: String,
+        replacementToken: String
+    ) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true
@@ -65,9 +82,9 @@ import Testing
         }
         await tokenProvider.waitUntilRequested()
         store.signOut()
-        identity.currentUserID = "user-b"
+        identity.currentUserID = replacementUserID
         store.signIn()
-        await tokenProvider.release(with: "user-b-token")
+        await tokenProvider.release(with: replacementToken)
         await refresh.value
 
         #expect(await tokenSink.recordedTokens().isEmpty)

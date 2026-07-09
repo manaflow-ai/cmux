@@ -26,10 +26,7 @@ import Testing
         let pairing = Task { @MainActor in
             await store.connectPairingURLResult("cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465")
         }
-        let started = try await pollUntil {
-            await transport.connectCount() == 1
-        }
-        #expect(started)
+        await transport.waitUntilConnectStarted()
         store.cancelPairing()
         await transport.releaseStuckConnects()
         _ = await pairing.value

@@ -36,6 +36,31 @@ import Testing
         #expect(connected == .connected)
         #expect(store.activeRoute?.kind == route.kind)
 
+        let secondaryRoute = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 56_585
+        )
+        let secondaryTicket = try ticket(
+            route: secondaryRoute,
+            macDeviceID: "secondary-mac",
+            authToken: "secondary-ticket"
+        )
+        let secondaryClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: secondaryRoute,
+            ticket: secondaryTicket
+        )
+        let secondarySubscription = SecondaryMacSubscription(
+            macDeviceID: "secondary-mac",
+            client: secondaryClient,
+            route: secondaryRoute,
+            ticket: secondaryTicket,
+            supportedHostCapabilities: [],
+            actionCapabilities: MobileWorkspaceActionCapabilities()
+        )
+        store.secondaryMacSubscriptions["secondary-mac"] = secondarySubscription
+
         await trustStore.removeAll()
         store.terminalInputText = "pwd"
         await store.submitTerminalInput()
@@ -43,6 +68,7 @@ import Testing
         #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:58465")
         #expect(!store.connectionRequiresReauth)
         #expect(store.connectionState == .disconnected)
+        #expect(store.secondaryMacSubscriptions["secondary-mac"] === secondarySubscription)
 
         let reconnected = await store.acceptManualHostTrustWarning()
         #expect(reconnected == .connected)
@@ -198,6 +224,55 @@ import Testing
         #expect(store.remoteClient === newClient)
         #expect(store.foregroundMacDeviceIDForTesting() == "new-mac")
         #expect(store.manualHostTrustWarning == nil)
+        #expect(!store.connectionRequiresReauth)
+    }
+
+    @Test func staleForegroundAuthorizationFailureDoesNotDisconnectNewConnectionGeneration() async throws {
+        let router = LivenessHostRouter()
+        let failureGate = HeldAuthorizationFailureGate()
+        let runtime = LivenessTestRuntime(
+            transportFactory: HeldAuthorizationFailureTransportFactory(
+                method: "workspace.action",
+                gate: failureGate,
+                router: router
+            ),
+            now: { Date() },
+            supportedRouteKinds: [.debugLoopback],
+            supportsServerPushEvents: false
+        )
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56_584)
+        let attachTicket = try ticket(route: route, macDeviceID: "foreground-mac", authToken: "ticket")
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        #expect(await store.connectPairingURL(try attachURL(for: attachTicket)))
+        let client = try #require(store.remoteClient)
+        let capabilities = MobileWorkspaceActionCapabilities(supportsWorkspaceActions: true)
+        let workspace = MobileWorkspacePreview(
+            id: "workspace",
+            macDeviceID: "foreground-mac",
+            name: "Workspace",
+            terminals: []
+        )
+        store.setWorkspaceStatesForTesting([
+            "foreground-mac": MacWorkspaceState(
+                macDeviceID: "foreground-mac",
+                workspaces: [workspace],
+                status: .connected,
+                actionCapabilities: capabilities
+            ),
+        ], foregroundMacDeviceID: "foreground-mac")
+        let rowID = try #require(store.workspaces.first?.id)
+        let rename = Task { @MainActor in
+            await store.renameWorkspace(id: rowID, title: "Renamed")
+        }
+        await failureGate.waitUntilReached()
+        store.connectionGeneration = UUID()
+        await failureGate.release()
+        _ = await rename.value
+
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === client)
+        #expect(store.foregroundMacDeviceIDForTesting() == "foreground-mac")
         #expect(!store.connectionRequiresReauth)
     }
 
