@@ -44,6 +44,7 @@ final class CmuxFeatureFlags {
     #else
     private static let cloudVMUIDefault = false
     #endif
+    private static let agentChatUIDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -98,6 +99,21 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: Self.cloudVMUIDefault
             ),
+
+            // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
+            // command-palette command, surface-tab-bar button, and shared action
+            // executor. Hidden by default until the sidecar UX is ready to ship.
+            CmuxFeatureFlagDefinition(
+                key: "agent-chat-ui-enabled-release",
+                title: String(localized: "featureFlags.agentChat.title", defaultValue: "Agent Chat UI"),
+                flagDescription: String(
+                    localized: "featureFlags.agentChat.description",
+                    defaultValue: "Shows Agent Chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
+                ),
+                defaultWhenUnavailable: Self.agentChatUIDefault
+            ),
         ]
     }
 
@@ -111,6 +127,10 @@ final class CmuxFeatureFlags {
 
     var isCloudVMUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[2])
+    }
+
+    var isAgentChatUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[3])
     }
 
     @ObservationIgnored

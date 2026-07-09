@@ -82,7 +82,16 @@ private nonisolated let agentChatThemeSyncState = OSAllocatedUnfairLock(
 enum AgentChatThemeSync {
     private static let requestTimeout: TimeInterval = 1.5
 
+    @MainActor
+    static var isEnabled: Bool {
+        CmuxFeatureFlags.shared.isAgentChatUIEnabled
+    }
+
+    @MainActor
     static func start() {
+        // Observers install unconditionally (they're nearly free) so a
+        // runtime flag flip starts syncing without a relaunch; the actual
+        // pushes gate on the flag inside syncNow/scheduleDebouncedSync.
         let shouldInstall = agentChatThemeSyncState.withLock { state in
             guard !state.observersInstalled else { return false }
             state.observersInstalled = true
@@ -123,7 +132,9 @@ enum AgentChatThemeSync {
         }
     }
 
+    @MainActor
     static func syncNow(agentChat: CmuxAgentChatConfiguration) {
+        guard isEnabled else { return }
         let url = themeURL(for: agentChat.url)
         Task { @MainActor in
             await postResolvedTheme(to: url)
@@ -134,12 +145,17 @@ enum AgentChatThemeSync {
         agentChatThemeSyncState.withLock { state in
             state.debouncedTask?.cancel()
             state.debouncedTask = Task { @MainActor in
+                // The flag is MainActor state and this is called from
+                // nonisolated notification closures, so gate inside the hop.
+                guard isEnabled else { return }
                 let clock = ContinuousClock()
                 do {
                     try await clock.sleep(for: .milliseconds(300))
                 } catch {
                     return
                 }
+                // Re-check: the flag can flip off during the debounce window.
+                guard isEnabled else { return }
                 await postResolvedTheme(to: currentThemeURL())
             }
         }
