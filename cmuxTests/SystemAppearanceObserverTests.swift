@@ -40,7 +40,7 @@ struct SystemAppearanceObserverTests {
         var startObservationCallCount = 0
         var events: [String] = []
         var onPostSystemAppearanceDidChange: (() -> Void)?
-        private(set) var appearanceChangedHandler: (() -> Void)?
+        private(set) var appearanceChangedHandler: (@MainActor () -> Void)?
         let observation = ObservationToken()
 
         lazy var environment = SystemAppearanceObserver.Environment(
@@ -62,6 +62,7 @@ struct SystemAppearanceObserverTests {
             }
         )
 
+        @MainActor
         func fireEffectiveAppearanceChanged() {
             appearanceChangedHandler?()
         }

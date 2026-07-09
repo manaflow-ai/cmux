@@ -1860,7 +1860,8 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        let (currentColorScheme, usedPassedAppearance) = GhosttyAppearanceSync.resolveColorSchemePreference(passedAppearance: appearance)
+        let (currentColorScheme, usedPassedAppearance) =
+            GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme

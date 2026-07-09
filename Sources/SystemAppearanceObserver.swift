@@ -11,14 +11,6 @@ extension NSAppearance {
     var cmuxPrefersDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
 
-/// Shared observation contract used by `AppIconAppearanceObserver` (cmuxApp.swift)
-/// and `SystemAppearanceObserver`.
-protocol EffectiveAppearanceObservation: AnyObject {
-    func invalidate()
-}
-
-extension NSKeyValueObservation: EffectiveAppearanceObservation {}
-
 /// Keeps the app chrome in sync with live macOS appearance changes while the
 /// appearance mode is `system`.
 ///
@@ -49,7 +41,7 @@ extension NSKeyValueObservation: EffectiveAppearanceObservation {}
 @MainActor
 final class SystemAppearanceObserver {
     struct Environment {
-        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> EffectiveAppearanceObservation?
+        let startEffectiveAppearanceObservation: (@escaping @MainActor () -> Void) -> EffectiveAppearanceObservation?
         let currentAppearanceModeRawValue: () -> String?
         let effectivePrefersDark: () -> Bool
         let postSystemAppearanceDidChange: () -> Void
@@ -57,7 +49,7 @@ final class SystemAppearanceObserver {
         static func live() -> Environment {
             Environment(
                 startEffectiveAppearanceObservation: { handler in
-                    // `Environment` is nested in the now-`@MainActor` `SystemAppearanceObserver`,
+                    // `Environment` is nested in the `@MainActor` `SystemAppearanceObserver`,
                     // which makes the compiler check this closure's body for actor-isolation
                     // crossings even though `startEffectiveAppearanceObservation`'s declared type
                     // stays plain/non-isolated. `startObserving()` (the only caller) is
@@ -66,7 +58,9 @@ final class SystemAppearanceObserver {
                     MainActor.assumeIsolated {
                         guard let app = NSApp else { return nil }
                         return app.observe(\.effectiveAppearance, options: []) { _, _ in
-                            DispatchQueue.main.async { handler() }
+                            Task { @MainActor in
+                                handler()
+                            }
                         }
                     }
                 },
@@ -99,12 +93,7 @@ final class SystemAppearanceObserver {
         guard observation == nil else { return }
         lastResolvedPrefersDark = environment.effectivePrefersDark()
         observation = environment.startEffectiveAppearanceObservation { [weak self] in
-            // `startEffectiveAppearanceObservation`'s handler parameter is plain/non-isolated
-            // (see `Environment.live()`), but it is only ever invoked via
-            // `DispatchQueue.main.async` there, so this always runs on the main actor.
-            MainActor.assumeIsolated {
-                self?.handleEffectiveAppearanceChange()
-            }
+            self?.handleEffectiveAppearanceChange()
         }
     }
 
@@ -128,37 +117,5 @@ final class SystemAppearanceObserver {
         cmuxDebugLog("systemAppearance.observer.change prefersDark=\(prefersDark)")
 #endif
         environment.postSystemAppearanceDidChange()
-    }
-}
-
-enum GhosttyAppearanceSync {
-    /// Resolves the terminal color-scheme preference for an appearance-sync pass.
-    ///
-    /// `passedAppearance` comes from AppKit's live appearance cascade (a view's
-    /// `effectiveAppearance`, or an explicit app-level override). On scripted
-    /// OS appearance changes (e.g. Shortcuts' "Set Appearance"), that cascade
-    /// stays fresh, while this process's CFPreferences view of
-    /// `AppleInterfaceStyle` (what the defaults-based resolution below reads)
-    /// can remain stale on exactly that path. So when the app is following
-    /// the system (`AppearanceMode.system`) and a non-nil appearance was
-    /// passed in, it is the more trustworthy source and wins over the
-    /// defaults-based read. Explicit light/dark modes always win over both,
-    /// and a `nil` appearance (as passed by `AppearanceSettings.applyLiveMode`
-    /// when steady-state in system mode) falls back to the existing
-    /// defaults-based resolution unchanged.
-    static func resolveColorSchemePreference(
-        passedAppearance: NSAppearance?
-    ) -> (preference: GhosttyConfig.ColorSchemePreference, usedPassedAppearance: Bool) {
-        let isSystemMode = AppearanceSettings.mode(
-            for: UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        ) == .system
-        let usedPassedAppearance = isSystemMode && passedAppearance != nil
-        let currentColorScheme: GhosttyConfig.ColorSchemePreference
-        if isSystemMode, let passedAppearance {
-            currentColorScheme = passedAppearance.cmuxPrefersDark ? .dark : .light
-        } else {
-            currentColorScheme = GhosttyConfig.currentColorSchemePreference()
-        }
-        return (preference: currentColorScheme, usedPassedAppearance: usedPassedAppearance)
     }
 }
