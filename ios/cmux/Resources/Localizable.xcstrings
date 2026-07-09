@@ -4132,6 +4132,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountUnknownMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We couldn't confirm whether account deletion finished. Wait a moment, then try Delete Account again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの削除が完了したか確認できませんでした。少し待ってから、もう一度「アカウントを削除」をお試しください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountMessage": {
       "extractionState": "manual",
       "localizations": {

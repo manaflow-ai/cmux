@@ -464,7 +464,7 @@ describe("account deletion route", () => {
     expect(deletedTables).toContain(vaultSessions);
   });
 
-  test("does not delete rows or Stack user when vault object cleanup fails", async () => {
+  test("keeps deletion retryable when vault object cleanup fails after VMs are destroyed", async () => {
     selectResults = [
       [],
       [],
@@ -478,18 +478,20 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("does not restore Pro metadata when cleanup fails after Stripe cancellation", async () => {
+  test("keeps deletion retryable when cleanup fails after Stripe and VM cleanup", async () => {
     selectResults = [
       [{ id: "sub_user_active" }],
       [{ id: "cus_user" }],
@@ -503,7 +505,11 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
     expect(transaction).not.toHaveBeenCalled();
@@ -511,18 +517,20 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: {},
-    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("attempts every personal VM before failing account deletion on VM teardown errors", async () => {
+  test("keeps deletion retryable when any VM was destroyed before a teardown error", async () => {
     destroyVmFailureProviderIds = new Set(["personal-vm-1"]);
 
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 1,
+    });
     expect(destroyVm).toHaveBeenCalledTimes(2);
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
@@ -531,16 +539,14 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.vm_destroy_failed",
       "Error: destroy failed for personal-vm-1",
     );
     expect(consoleError).toHaveBeenCalledWith(
-      "account.delete.failed",
-      "Error: Failed to destroy 1 personal cloud VM",
+      "account.delete.partial_after_destructive_cleanup",
+      "AccountDeletionDestructiveCleanupError: Failed to destroy 1 personal cloud VM",
     );
   });
 

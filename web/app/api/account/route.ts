@@ -62,6 +62,8 @@ export async function DELETE(request: Request): Promise<Response> {
   const originalStackMetadata = stackUser.clientReadOnlyMetadata;
   let stackMetadataMarked = false;
   let cmuxOwnedRowsDeleted = false;
+  let destructiveCleanupStarted = false;
+  let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
   try {
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
@@ -71,9 +73,21 @@ export async function DELETE(request: Request): Promise<Response> {
         restoreBillingEntitlementsOnFailure = false;
       },
     });
-    const destroyedVms = await destroyPersonalCloudVms(user.id);
+    try {
+      destroyedVms = await destroyPersonalCloudVms(user.id);
+      if (destroyedVms > 0) destructiveCleanupStarted = true;
+    } catch (error) {
+      if (error instanceof AccountDeletionDestructiveCleanupError) {
+        destroyedVms = error.destroyedVms;
+        destructiveCleanupStarted = destroyedVms > 0;
+      }
+      throw error;
+    }
+    destructiveCleanupStarted = true;
     await deleteVaultRowsAndObjectsForAccount(user.id);
+    destructiveCleanupStarted = true;
     await deletePersonalSubrouterTenant(user.id);
+    destructiveCleanupStarted = true;
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -101,7 +115,15 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
-    if (stackMetadataMarked && !cmuxOwnedRowsDeleted) {
+    if (destructiveCleanupStarted || cmuxOwnedRowsDeleted) {
+      logAccountDeleteError("account.delete.partial_after_destructive_cleanup", error);
+      return jsonResponse({
+        error: "account_delete_retryable",
+        retryable: true,
+        destroyedVms,
+      }, 500);
+    }
+    if (stackMetadataMarked) {
       await restoreStackMetadataAfterAccountDeletionFailure(stackUser, originalStackMetadata, {
         restoreBillingEntitlements: restoreBillingEntitlementsOnFailure,
       });
@@ -130,21 +152,36 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   return user as DeletableStackUser;
 }
 
+class AccountDeletionDestructiveCleanupError extends Error {
+  constructor(
+    message: string,
+    readonly destroyedVms: number,
+  ) {
+    super(message);
+    this.name = "AccountDeletionDestructiveCleanupError";
+  }
+}
+
 async function destroyPersonalCloudVms(userId: string): Promise<number> {
   const vms = await runVmWorkflow(listUserVms(userId));
   const failures: unknown[] = [];
+  let destroyedVms = 0;
   for (const vm of vms) {
     try {
       await runVmWorkflow(destroyVm({ userId, providerVmId: vm.providerVmId }));
+      destroyedVms += 1;
     } catch (error) {
       failures.push(error);
       logAccountDeleteError("account.delete.vm_destroy_failed", error);
     }
   }
   if (failures.length > 0) {
-    throw new Error(`Failed to destroy ${failures.length} personal cloud VM${failures.length === 1 ? "" : "s"}`);
+    throw new AccountDeletionDestructiveCleanupError(
+      `Failed to destroy ${failures.length} personal cloud VM${failures.length === 1 ? "" : "s"}`,
+      destroyedVms,
+    );
   }
-  return vms.length;
+  return destroyedVms;
 }
 
 async function deleteVaultRowsAndObjectsForAccount(userId: string): Promise<void> {

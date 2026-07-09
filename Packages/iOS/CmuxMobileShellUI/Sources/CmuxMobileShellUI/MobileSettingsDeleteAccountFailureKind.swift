@@ -6,6 +6,7 @@ enum DeleteAccountFailureKind {
     case connection
     case stackDeleteIncomplete
     case timedOut
+    case unknown
 
     var localizedMessage: String {
         switch self {
@@ -28,6 +29,11 @@ enum DeleteAccountFailureKind {
             return L10n.string(
                 "mobile.settings.deleteAccountTimedOutMessage",
                 defaultValue: "Account deletion timed out. Check your connection and try again."
+            )
+        case .unknown:
+            return L10n.string(
+                "mobile.settings.deleteAccountUnknownMessage",
+                defaultValue: "We couldn't confirm whether account deletion finished. Wait a moment, then try Delete Account again."
             )
         }
     }
