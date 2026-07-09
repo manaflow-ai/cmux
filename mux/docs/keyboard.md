@@ -18,11 +18,12 @@ These defaults come from `Keys::default`.
 | `Alt-n` | Smart split into a new pane |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
-| `Ctrl-b 1` through `Ctrl-b 9` | Select tab 1 through 9 in the active pane |
+| `Ctrl-b 1` through `Ctrl-b 9` | Select visible screen 1 through 9 |
+| `Ctrl-b 0` | Select visible screen 10 |
 | `Ctrl-b %` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
-| `Ctrl-b x` | Close the active tab |
-| `Ctrl-b X` | Close the active pane |
+| `Ctrl-b x` | Close the active pane |
+| `Ctrl-b X` | Close the active tab |
 | `Ctrl-b ,` | Rename the active screen |
 | `Ctrl-b $` | Rename the active workspace |
 | `Ctrl-b &` | Close the active screen |
@@ -31,6 +32,10 @@ These defaults come from `Keys::default`.
 | `Ctrl-b n` | Next screen in the active workspace |
 | `Alt-]` | Next screen in the active workspace |
 | `Ctrl-b c` | New screen in the active workspace |
+| `Ctrl-b z` | Toggle zoom for the active pane |
+| `Ctrl-b o` | Focus the next pane in the current screen |
+| `Ctrl-b {` | Swap the active pane with the previous pane |
+| `Ctrl-b }` | Swap the active pane with the next pane |
 | `Ctrl-b w` | Next workspace |
 | `Ctrl-b W` | New workspace |
 | `Ctrl-b s` | Toggle the workspace sidebar |
@@ -44,11 +49,16 @@ These defaults come from `Keys::default`.
 | `Alt-j` or `Alt-Down` | Focus down |
 | `Alt-=` | Grow the focused split |
 | `Alt--` | Shrink the focused split |
+| `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
-The screen bindings intentionally use tmux verbs: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, and `,` renames a screen. Tabs use `t`, `Tab`, `BackTab`, fixed number selectors, and tab-bar mouse actions.
+The screen bindings intentionally use tmux verbs: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are visibly numbered from 1, so `Ctrl-b 1` selects the first visible screen and `Ctrl-b 0` selects the tenth visible screen.
+
+`Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `mux.json`.
+
+`Ctrl-b ]` is unbound because cmux has no paste-buffer concept. `Ctrl-b q` is unbound because there is no pane-number quick-jump overlay yet.
 
 ## Modeless Alt Layer
 
@@ -56,9 +66,11 @@ Any configured Alt chord is active without the prefix. Default modeless commands
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `mux.json` still work.
 
-## Fixed Number Selection
+Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a deliberate non-goal because they conflict with common shell and editor control keys such as history, transpose, flow control, and editor navigation.
 
-`1` through `9` select tabs by visible tab number after the prefix. These number bindings are fixed and are not configured through `mux.json`.
+## Number Selection
+
+`0` through `9` are regular configurable screen-selection bindings. The old `Ctrl-b 1` through `Ctrl-b 9` tab selectors can be restored with `select-tab-1` through `select-tab-9`.
 
 ## Remapping
 
@@ -73,12 +85,16 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "alt_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new-pane-smart": "alt+n",
+    "select_screen_1": "1",
+    "select_screen_2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "rename-tab": "r",
     "rename-screen": ",",
-    "close-pane": "none"
+    "close-pane": "x",
+    "close-tab": "X",
+    "select-tab-1": "none"
   }
 }
 ```
@@ -91,6 +107,15 @@ new_browser_tab
 new-pane-smart
 next-tab
 prev-tab
+select-tab-1
+select-tab-2
+select-tab-3
+select-tab-4
+select-tab-5
+select-tab-6
+select-tab-7
+select-tab-8
+select-tab-9
 split-right
 split-down
 close-tab
@@ -101,6 +126,16 @@ rename-workspace
 close-screen
 prev-screen
 next-screen
+select_screen_0
+select_screen_1
+select_screen_2
+select_screen_3
+select_screen_4
+select_screen_5
+select_screen_6
+select_screen_7
+select_screen_8
+select_screen_9
 new-screen
 next-workspace
 new-workspace
@@ -109,10 +144,18 @@ focus-left
 focus-right
 focus-up
 focus-down
+focus-next-pane
+swap-pane-prev
+swap-pane-next
+zoom-pane
 resize-grow
 resize-shrink
 scroll-up
 scroll-down
+browser-back
+browser-forward
+browser-reload
+browser-edit-url
 detach
 ```
 
