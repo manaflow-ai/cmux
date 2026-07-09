@@ -6,6 +6,8 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
+typealias CmuxEventHookSink = (_ eventName: String, _ envelope: [String: Any]) -> Void
+
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
@@ -109,7 +111,10 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
 // Sendable safety: event state is protected by `lock`; disk appends are delegated to `CmuxEventLogWriter`.
 final class CmuxEventBus: @unchecked Sendable {
-    static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
+    static let shared = CmuxEventBus(
+        eventLogURL: defaultEventLogURL(),
+        hookSink: CmuxHooksRuntime.shared.makeEventSink()
+    )
     static let protocolName = "cmux-events"
     static let protocolVersion = 1
     static let defaultHeartbeatIntervalSeconds: TimeInterval = 15
@@ -130,6 +135,7 @@ final class CmuxEventBus: @unchecked Sendable {
     private let maxEventLineBytes: Int
     private let maxPendingEventsPerSubscription: Int
     private let eventLogWriter: CmuxEventLogWriter?
+    private let hookSink: CmuxEventHookSink?
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
@@ -141,11 +147,13 @@ final class CmuxEventBus: @unchecked Sendable {
         maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes,
         maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes,
         maxPendingEventLogLines: Int = CmuxEventBus.defaultMaxPendingEventLogLines,
-        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
+        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription,
+        hookSink: CmuxEventHookSink? = nil
     ) {
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = max(1, maxEventLineBytes)
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.hookSink = hookSink
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
@@ -206,6 +214,9 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.unlock()
 
         if let encodedLine { eventLogWriter?.enqueue(encodedLine) }
+        if !name.hasPrefix("hook.") {
+            hookSink?(name, event)
+        }
 
         for subscription in liveSubscriptions where subscription.accepts(event) {
             if !subscription.enqueue(event) {

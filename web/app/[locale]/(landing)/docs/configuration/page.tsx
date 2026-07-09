@@ -40,6 +40,7 @@ const sectionOrder = [
   "app",
   "terminal",
   "notifications",
+  "hooks",
   "sidebar",
   "workspaceGroups",
   "workspaceColors",

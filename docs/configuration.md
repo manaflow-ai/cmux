@@ -132,6 +132,90 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 `terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
 
+## `hooks`
+
+Global user-script hooks live under `hooks` in `~/.config/cmux/cmux.json`. Project-local hooks are intentionally not supported for this hook system in v1; only the global config file is read.
+
+```json
+{
+  "hooks": {
+    "preSpawn": {
+      "command": "/Users/me/bin/cmux-spawn-gate",
+      "args": ["--policy", "strict"],
+      "timeoutMs": 5000,
+      "enabled": true
+    },
+    "events": {
+      "workspace.created": [
+        {
+          "command": "/Users/me/bin/cmux-event",
+          "args": ["${event.payload.cwd}"],
+          "timeoutMs": 20000,
+          "enabled": true
+        }
+      ]
+    }
+  }
+}
+```
+
+### `hooks.preSpawn`
+
+`hooks.preSpawn` is a blocking gate before cmux starts any local terminal process. It applies to terminal creation from the app UI, CLI/socket commands, session restore, splits, new workspaces, dock terminals, agent-created surfaces, and respawns. Manual-I/O surfaces do not spawn a local process and are exempt.
+
+The hook receives JSON on stdin:
+
+```json
+{
+  "hook": "preSpawn",
+  "spawn": {
+    "command": "echo hi",
+    "workingDirectory": "/Users/me/project",
+    "environmentAdditions": {
+      "KEY": "value"
+    },
+    "surfaceId": "...",
+    "workspaceId": "...",
+    "source": "normal",
+    "isRespawn": false,
+    "app": "cmux"
+  }
+}
+```
+
+It returns one JSON decision on stdout:
+
+```json
+{ "decision": "allow" }
+```
+
+```json
+{
+  "decision": "rewrite",
+  "command": "sandbox-exec -f /path/profile -- echo hi",
+  "workingDirectory": "/Users/me/safe",
+  "env": {
+    "KEY": "rewritten"
+  }
+}
+```
+
+```json
+{ "decision": "deny", "reason": "outside allowed project" }
+```
+
+For `rewrite`, omitting `command` keeps the original command; setting `"command": null` requests the default shell. `workingDirectory` and `env` are optional. Rewritten environment values are merged last into the terminal environment, except cmux still clears `CMUX_SOCKET` after the merge.
+
+`preSpawn` is fail-closed. If the hook is configured but the config is malformed, the hook cannot launch, times out, exits non-zero, prints invalid JSON, or prints more than 1 MiB on stdout, cmux denies the spawn. A denied spawn does not execute a process; cmux renders a denial message in the terminal pane and publishes `hook.spawn.denied`.
+
+### `hooks.events`
+
+`hooks.events` maps exact cmux event-bus event names to hook arrays. Event hooks receive the event envelope JSON on stdin. Failures are logged and cmux continues; event hooks never block the original event publisher.
+
+Arguments support `${event.<dot.path>}` expansion against the event envelope. Strings expand verbatim, numbers and booleans use their JSON text, objects and arrays expand as compact JSON, and missing or null values expand to an empty string. Other `${...}` namespaces are left unchanged.
+
+Hooks for the same event name run serialized in event order. Different event names may run concurrently. Events whose names start with `hook.` are ignored by event hooks to avoid feedback loops.
+
 ## `terminal.textBoxSubmitActions`
 
 Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.

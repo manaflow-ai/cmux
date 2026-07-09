@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -148,6 +149,33 @@ extension TerminalSurfaceRuntimeFilesystem {
 }
 
 // MARK: Construction
+
+extension GhosttyApp {
+    /// The injected collaborators for every `TerminalSurface` (transitional:
+    /// dissolves into composition-root injection when `GhosttyAppService`
+    /// replaces this type).
+    @MainActor
+    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
+        registry: GhosttyApp.terminalSurfaceRegistry,
+        engine: GhosttyApp.shared,
+        viewProvider: TerminalSurfaceViewFactory(),
+        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
+        spawnGate: TerminalSurfaceSpawnGateBridge(
+            configState: CmuxHooksRuntime.shared.configState,
+            gate: CmuxHooksRuntime.shared.spawnHookGate
+        ),
+        byteTee: TerminalMobileByteTeeBridge(),
+        rendererRealization: RendererRealizationController.shared,
+        hibernationRecorder: TerminalAgentHibernationRecorder(),
+        runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
+        restoreSpawnScheduler: GhosttyApp.terminalSurfaceRestoreSpawnScheduler,
+        runtimeFilesystem: .live(),
+        sessionPortBase: GhosttyApp.terminalSessionPortBase,
+        sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey,
+        globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+    )
+}
 
 extension TerminalSurface {
     /// The legacy app-target initializer signature, forwarding to the package

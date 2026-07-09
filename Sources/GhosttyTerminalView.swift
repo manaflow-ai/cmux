@@ -389,26 +389,6 @@ class GhosttyApp {
         return val > 0 ? val : AutomationSettings.defaultPortRange
     }()
 
-    /// The injected collaborators for every `TerminalSurface` (transitional:
-    /// dissolves into composition-root injection when `GhosttyAppService`
-    /// replaces this type).
-    @MainActor
-    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
-        registry: GhosttyApp.terminalSurfaceRegistry,
-        engine: GhosttyApp.shared,
-        viewProvider: TerminalSurfaceViewFactory(),
-        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalMobileByteTeeBridge(),
-        rendererRealization: RendererRealizationController.shared,
-        hibernationRecorder: TerminalAgentHibernationRecorder(),
-        runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
-        restoreSpawnScheduler: GhosttyApp.terminalSurfaceRestoreSpawnScheduler,
-        runtimeFilesystem: .live(),
-        sessionPortBase: GhosttyApp.terminalSessionPortBase,
-        sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
-    )
-
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     /// Shared config-file discovery seam. Resolves Ghostty config scan paths,
     /// scans them for font/appearance directives, and decides legacy/CJK/theme

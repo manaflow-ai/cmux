@@ -1682,6 +1682,23 @@
             "codeLineHeight": "Line-height multiplier used for Agent Chat code blocks."
           }
         },
+        "hooks": {
+          "description": "Global-only user script hooks. preSpawn is a blocking, fail-closed gate before local terminal processes start. events maps exact cmux event-bus names to log-and-continue scripts.",
+          "preSpawn": {
+            "description": "Blocking hook evaluated before every local terminal process spawn. If configured and the hook fails, times out, exits non-zero, returns invalid JSON, or this hooks section is malformed, cmux denies the spawn.",
+            "command": "Absolute path or PATH-resolved command to run. The hook receives {\"hook\":\"preSpawn\",\"spawn\":{...}} JSON on stdin and returns a JSON decision on stdout.",
+            "args": "Arguments passed to the pre-spawn hook command.",
+            "timeoutMs": "Maximum time cmux waits for the pre-spawn hook before denying the spawn. Values are clamped to 100...600000 milliseconds.",
+            "enabled": "Disable the pre-spawn hook without removing it."
+          },
+          "events": {
+            "description": "Exact cmux event-bus event names mapped to hook definitions. Event hooks receive the event envelope JSON on stdin, run serialized per event name, and failures are logged without blocking cmux.",
+            "command": "Absolute path or PATH-resolved command to run for this event.",
+            "args": "Arguments passed to the event hook. ${event.<dot.path>} tokens expand against the event envelope; missing or null values expand to an empty string.",
+            "timeoutMs": "Maximum time cmux waits for this event hook before logging a failure and continuing. Values are clamped to 100...600000 milliseconds.",
+            "enabled": "Disable this event hook without removing it."
+          }
+        },
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",

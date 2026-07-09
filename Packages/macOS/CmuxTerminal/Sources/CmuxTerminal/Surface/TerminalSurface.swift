@@ -65,6 +65,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let registry: any TerminalSurfaceRegistering
     let engine: any TerminalEngineHosting
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
+    let spawnGate: (any TerminalSurfaceSpawnGating)?
     let byteTee: any TerminalByteTeeBinding
     let rendererRealization: any TerminalRendererRealizationScheduling
     let hibernationRecorder: any AgentHibernationRecording
@@ -134,7 +135,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public let id: UUID
 
     /// The owning workspace id.
-    public private(set) var tabId: UUID
+    public internal(set) var tabId: UUID
 
     /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
     /// every runtime startup path uses the same immutable workspace port range.
@@ -163,7 +164,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// `setFocusPlacement(_:)` so the surface registry's placement record stays
     /// in sync. Reads happen on the main actor (UI/focus routing) and once on
     /// the creating thread at registration.
-    public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
+    public internal(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
     /// When true, the surface is created in libghostty MANUAL I/O mode: no
@@ -237,6 +238,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var claudeCommandShimCompletionTask: Task<Void, Never>?
     var claudeCommandShimInstallCompleted = false
     var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
+    var spawnGateState: TerminalSurfaceSpawnGateState = .idle
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
@@ -408,6 +410,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.registry = dependencies.registry
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
+        self.spawnGate = dependencies.spawnGate
         self.byteTee = dependencies.byteTee
         self.rendererRealization = dependencies.rendererRealization
         self.hibernationRecorder = dependencies.hibernationRecorder
@@ -448,35 +451,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         if hasStartupWork {
             scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
         }
-    }
-
-    /// Whether the surface stays open after its startup command exits.
-    public func debugWaitAfterCommand() -> Bool {
-        configTemplate?.waitAfterCommand ?? false
-    }
-
-    /// The ghostty launch context the surface was created with.
-    public var launchContext: ghostty_surface_context_e {
-        surfaceContext
-    }
-
-    /// Rebinds the surface (and its views) to a new owning workspace id.
-    @MainActor
-    public func updateWorkspaceId(_ newTabId: UUID) {
-        tabId = newTabId
-        attachedView?.tabId = newTabId
-        surfaceView.tabId = newTabId
-    }
-
-    /// Moves this surface between focus-routing placements (workspace ↔
-    /// right-sidebar dock) and keeps the surface registry's record in sync.
-    /// Used when a live terminal is dragged across containers so it is not
-    /// recreated. No-op when the placement is unchanged.
-    @MainActor
-    public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
-        guard focusPlacement != placement else { return }
-        focusPlacement = placement
-        registry.updateFocusPlacement(id: id, placement)
     }
 
     deinit {
