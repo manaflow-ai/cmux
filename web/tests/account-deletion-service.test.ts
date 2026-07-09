@@ -15,7 +15,27 @@ import {
   deleteCmuxAccountData,
   hasAccountDeletionTombstone,
 } from "../services/account/deletion";
+import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../services/billing/pro";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+
+type StripeClient = ReturnType<typeof import("../services/billing/stripe").stripe>;
+type StripeCustomerRow = {
+  readonly id: string;
+  readonly stackTeamId: string | null;
+  readonly stackUserId: string | null;
+};
+type StripeSubscriptionRow = {
+  readonly id: string;
+  readonly plan: string | null;
+  readonly scope: string;
+  readonly stackTeamId: string | null;
+  readonly stackUserId: string | null;
+  readonly status: string;
+};
+type StripeUpdateParams = {
+  readonly email?: string;
+  readonly metadata?: Record<string, string>;
+};
 
 const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ provider: ProviderId; providerVmId: string | null }>> = [];
@@ -30,6 +50,12 @@ let identityLeaseRevokeError: unknown = null;
 let subrouterTenantRows: Array<{ tenantId: string }> = [];
 let subrouterRevokeError: unknown = null;
 let updateSets: Array<{ readonly label: string; readonly values: Record<string, unknown> }> = [];
+let stripeCustomerRows: StripeCustomerRow[] = [];
+let stripeSubscriptionRows: StripeSubscriptionRow[] = [];
+let stripeRemoteSubscriptionStatuses = new Map<string, string>();
+let stripeCustomerUpdates: Array<{ readonly id: string; readonly params: StripeUpdateParams }> = [];
+let stripeSubscriptionUpdates: Array<{ readonly id: string; readonly params: StripeUpdateParams }> = [];
+let stripeSubscriptionCancels: string[] = [];
 
 type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -87,6 +113,25 @@ const runVmWorkflow = mock(async (workflow: unknown) => {
   calls.push(`destroy:${vmWorkflow.input.userId}:${vmWorkflow.input.providerVmId}`);
 });
 const deleteObject = mock(async () => {});
+const updateStripeCustomer = mock(async (...args: unknown[]) => {
+  const [id, params] = args as [string, StripeUpdateParams];
+  stripeCustomerUpdates.push({ id, params });
+});
+const retrieveStripeSubscription = mock(async (...args: unknown[]) => {
+  const [id] = args as [string];
+  return {
+    id,
+    status: stripeRemoteSubscriptionStatuses.get(id) ?? "active",
+  };
+});
+const updateStripeSubscription = mock(async (...args: unknown[]) => {
+  const [id, params] = args as [string, StripeUpdateParams];
+  stripeSubscriptionUpdates.push({ id, params });
+});
+const cancelStripeSubscription = mock(async (...args: unknown[]) => {
+  const [id] = args as [string];
+  stripeSubscriptionCancels.push(id);
+});
 
 beforeEach(() => {
   calls.length = 0;
@@ -102,11 +147,21 @@ beforeEach(() => {
   subrouterTenantRows = [];
   subrouterRevokeError = null;
   updateSets = [];
+  stripeCustomerRows = [];
+  stripeSubscriptionRows = [];
+  stripeRemoteSubscriptionStatuses = new Map();
+  stripeCustomerUpdates = [];
+  stripeSubscriptionUpdates = [];
+  stripeSubscriptionCancels = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
   revokeVmIdentityLease.mockClear();
   runVmWorkflow.mockClear();
   deleteObject.mockClear();
+  updateStripeCustomer.mockClear();
+  retrieveStripeSubscription.mockClear();
+  updateStripeSubscription.mockClear();
+  cancelStripeSubscription.mockClear();
 });
 
 describe("account deletion cleanup", () => {
@@ -498,6 +553,51 @@ describe("account deletion cleanup", () => {
     expect(customerUpdate?.values.stackTeamId).not.toBe("team-owned-1");
     expect(subscriptionUpdate?.values.stackTeamId).toBe(customerUpdate?.values.stackTeamId);
   });
+
+  test("scrubs shared-team Stripe identifiers without canceling shared billing", async () => {
+    stripeCustomerRows = [
+      { id: "cus_personal", stackUserId: "user-1", stackTeamId: null },
+      { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
+    ];
+    stripeSubscriptionRows = [
+      {
+        id: "sub_personal",
+        stackUserId: "user-1",
+        stackTeamId: null,
+        status: "active",
+        scope: "user",
+        plan: PRO_PLAN_ID,
+      },
+      {
+        id: "sub_shared",
+        stackUserId: "user-1",
+        stackTeamId: "team-shared",
+        status: "active",
+        scope: "team",
+        plan: TEAM_PLAN_ID,
+      },
+    ];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    const sharedCustomerUpdate = stripeCustomerUpdates.find((entry) => entry.id === "cus_shared");
+    expect(sharedCustomerUpdate?.params.email).toBe("");
+    expect(sharedCustomerUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(sharedCustomerUpdate?.params.metadata?.stackTeamId).toBeUndefined();
+    expect(sharedCustomerUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
+
+    const sharedSubscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_shared");
+    expect(sharedSubscriptionUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(sharedSubscriptionUpdate?.params.metadata?.stackTeamId).toBeUndefined();
+    expect(sharedSubscriptionUpdate?.params.metadata?.deletedAccountId).toMatch(/^deleted_[0-9a-f]{24}$/);
+    expect(stripeSubscriptionCancels).not.toContain("sub_shared");
+
+    const personalSubscriptionUpdate = stripeSubscriptionUpdates.find((entry) => entry.id === "sub_personal");
+    expect(personalSubscriptionUpdate?.params.metadata?.stackUserId).toBe("");
+    expect(stripeSubscriptionCancels).toContain("sub_personal");
+  });
 });
 
 function fakeDb() {
@@ -553,6 +653,8 @@ function fakeDbSelectBuilder() {
       calls.push("select-identity-leases");
       return identityLeaseRows.splice(0, 50);
     }
+    if (table === stripeCustomers) return stripeCustomerRows;
+    if (table === stripeSubscriptions) return stripeSubscriptionRows;
     return [];
   };
   const builder = {
@@ -583,7 +685,22 @@ function fakeRuntime() {
       calls.push(`revoke-subrouter-tenant:${tenantId}`);
       if (subrouterRevokeError) throw subrouterRevokeError;
     },
+    isStripeBillingConfigured: () => true,
+    stripeClient: fakeStripeClient,
   };
+}
+
+function fakeStripeClient(): StripeClient {
+  return {
+    customers: {
+      update: updateStripeCustomer,
+    },
+    subscriptions: {
+      retrieve: retrieveStripeSubscription,
+      update: updateStripeSubscription,
+      cancel: cancelStripeSubscription,
+    },
+  } as unknown as StripeClient;
 }
 
 function fakeTransaction() {

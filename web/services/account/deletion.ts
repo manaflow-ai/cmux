@@ -73,6 +73,8 @@ type AccountDeletionRuntime = {
   }) => AccountDeletionWorkflow;
   readonly runVmWorkflow: (workflow: AccountDeletionWorkflow) => Promise<unknown>;
   readonly revokeSubrouterTenant?: (tenantId: string) => Promise<void>;
+  readonly isStripeBillingConfigured?: () => boolean;
+  readonly stripeClient?: () => ReturnType<typeof stripe>;
 };
 
 const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
@@ -84,6 +86,8 @@ const defaultAccountDeletionRuntime: AccountDeletionRuntime = {
   runVmWorkflow: (workflow) =>
     runVmWorkflow(workflow as Parameters<typeof runVmWorkflow>[0]),
   revokeSubrouterTenant: revokeSubrouterTenantFromEnv,
+  isStripeBillingConfigured,
+  stripeClient: stripe,
 };
 
 type StackJson =
@@ -899,40 +903,37 @@ async function cancelStripeAccountBilling(
 ): Promise<void> {
   const db = runtime.cloudDb();
   const customerRows = await db
-    .select({ id: stripeCustomers.id, stackTeamId: stripeCustomers.stackTeamId })
+    .select({
+      id: stripeCustomers.id,
+      stackTeamId: stripeCustomers.stackTeamId,
+    })
     .from(stripeCustomers)
     .where(or(
-      and(
-        eq(stripeCustomers.stackUserId, scope.userId),
-        isNull(stripeCustomers.stackTeamId),
-      ),
+      eq(stripeCustomers.stackUserId, scope.userId),
       inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
     ));
   const subscriptionRows = await db
-    .select({ id: stripeSubscriptions.id, stackTeamId: stripeSubscriptions.stackTeamId })
+    .select({
+      id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
+      scope: stripeSubscriptions.scope,
+      stackTeamId: stripeSubscriptions.stackTeamId,
+      stackUserId: stripeSubscriptions.stackUserId,
+      status: stripeSubscriptions.status,
+    })
     .from(stripeSubscriptions)
-    .where(and(
-      inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
-      or(
-        and(
-          eq(stripeSubscriptions.stackUserId, scope.userId),
-          eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
-        ),
-        and(
-          inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
-          eq(stripeSubscriptions.scope, "team"),
-          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
-        ),
-      ),
+    .where(or(
+      eq(stripeSubscriptions.stackUserId, scope.userId),
+      inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
     ));
 
   if (customerRows.length === 0 && subscriptionRows.length === 0) return;
-  if (!isStripeBillingConfigured()) {
+  const isBillingConfigured = runtime.isStripeBillingConfigured ?? isStripeBillingConfigured;
+  if (!isBillingConfigured()) {
     throw new Error("Stripe account deletion is not configured");
   }
 
-  const stripeClient = stripe();
+  const stripeClient = (runtime.stripeClient ?? stripe)();
   for (const customer of customerRows) {
     await updateStripeCustomerForAccountDeletion(
       stripeClient,
@@ -942,7 +943,17 @@ async function cancelStripeAccountBilling(
     );
   }
   for (const subscription of subscriptionRows) {
-    await cancelStripeSubscriptionForAccountDeletion(
+    if (shouldCancelStripeSubscriptionForAccountDeletion(scope, subscription)) {
+      await cancelStripeSubscriptionForAccountDeletion(
+        stripeClient,
+        subscription.id,
+        anonymizedUserId,
+        isOwnedBillingTeamId(scope, subscription.stackTeamId),
+      );
+      continue;
+    }
+
+    await updateStripeSubscriptionForAccountDeletion(
       stripeClient,
       subscription.id,
       anonymizedUserId,
@@ -975,11 +986,16 @@ async function cancelStripeSubscriptionForAccountDeletion(
   clearStackTeamId: boolean,
 ): Promise<void> {
   const subscription = await retrieveStripeSubscriptionForAccountDeletion(stripeClient, subscriptionId);
-  if (!subscription || subscription.status === "canceled") return;
+  if (!subscription) return;
 
-  await stripeClient.subscriptions.update(subscriptionId, {
-    metadata: accountDeletionStripeMetadata(anonymizedUserId, clearStackTeamId),
-  });
+  await updateStripeSubscriptionForAccountDeletion(
+    stripeClient,
+    subscriptionId,
+    anonymizedUserId,
+    clearStackTeamId,
+  );
+
+  if (subscription.status === "canceled") return;
 
   try {
     await stripeClient.subscriptions.cancel(subscriptionId);
@@ -987,6 +1003,51 @@ async function cancelStripeSubscriptionForAccountDeletion(
     if (isStripeSubscriptionAlreadyCanceledError(error) || isStripeMissingResourceError(error)) return;
     throw error;
   }
+}
+
+async function updateStripeSubscriptionForAccountDeletion(
+  stripeClient: ReturnType<typeof stripe>,
+  subscriptionId: string,
+  anonymizedUserId: string,
+  clearStackTeamId: boolean,
+): Promise<void> {
+  try {
+    await stripeClient.subscriptions.update(subscriptionId, {
+      metadata: accountDeletionStripeMetadata(anonymizedUserId, clearStackTeamId),
+    });
+  } catch (error) {
+    if (isStripeMissingResourceError(error)) return;
+    throw error;
+  }
+}
+
+function shouldCancelStripeSubscriptionForAccountDeletion(
+  scope: AccountDeletionScope,
+  subscription: {
+    readonly plan: string | null;
+    readonly scope: string;
+    readonly stackTeamId: string | null;
+    readonly stackUserId: string | null;
+    readonly status: string;
+  },
+): boolean {
+  if (!isActiveStripeProStatus(subscription.status)) {
+    return false;
+  }
+  if (
+    subscription.stackUserId === scope.userId &&
+    subscription.scope === "user" &&
+    subscription.plan === PRO_PLAN_ID
+  ) {
+    return true;
+  }
+  return isOwnedBillingTeamId(scope, subscription.stackTeamId) &&
+    subscription.scope === "team" &&
+    subscription.plan === TEAM_PLAN_ID;
+}
+
+function isActiveStripeProStatus(status: string): boolean {
+  return ACTIVE_STRIPE_PRO_STATUSES.some((activeStatus) => activeStatus === status);
 }
 
 function accountDeletionStripeMetadata(
