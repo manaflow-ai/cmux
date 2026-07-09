@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -16,6 +17,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorLifecycleTests {
+    private let ignoreInput: @Sendable (Data) -> Void = { _ in }
+
     private func mirror(
         controller: RemoteTmuxController,
         manager: TabManager,
@@ -77,5 +80,67 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(manager.tabs.contains { $0.id == betaWorkspace.id })
         #expect(alpha.exited)
         #expect(!beta.exited)
+    }
+
+    @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let selectedBefore = try #require(workspace.bonsplitController.selectedTab(inPane: pane)?.id)
+
+        let mirrorPanel = workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 7,
+            title: "background",
+            focus: false,
+            onInput: ignoreInput
+        )
+
+        #expect(mirrorPanel != nil)
+        #expect(workspace.bonsplitController.focusedPaneId == pane)
+        #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == selectedBefore)
+    }
+
+    @Test func hiddenMirrorWindowStaysHiddenAndNonKeyAcrossBackgroundClose() throws {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
+        defer { workspace.teardownAllPanels() }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let selectedBefore = try #require(workspace.bonsplitController.selectedTab(inPane: pane)?.id)
+        _ = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 7,
+            title: "first mirror",
+            focus: false,
+            onInput: ignoreInput
+        ))
+        let closingPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 8,
+            title: "background mirror",
+            focus: false,
+            onInput: ignoreInput
+        ))
+        workspace.bonsplitController.selectTab(selectedBefore)
+        window.orderOut(nil)
+
+        #expect(workspace.closePanel(closingPanel.id, force: true))
+
+        #expect(workspace.bonsplitController.focusedPaneId == pane)
+        #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == selectedBefore)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
     }
 }

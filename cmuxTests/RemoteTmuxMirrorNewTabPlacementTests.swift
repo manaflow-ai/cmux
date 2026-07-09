@@ -35,4 +35,15 @@ import Testing
                 == "new-window -a -t @7"
         )
     }
+
+    /// A background surface request must create the remote tmux window detached,
+    /// otherwise tmux changes its active window before the mirror can reconcile.
+    @Test func backgroundCreationKeepsTmuxSelectionDetached() {
+        let command = RemoteTmuxController.newWindowCommand(
+            afterWindowId: nil,
+            workingDirectory: nil
+        )
+
+        #expect(command.split(separator: " ").contains("-d"))
+    }
 }
