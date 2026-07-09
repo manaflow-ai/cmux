@@ -8,12 +8,12 @@
 
 use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
 use mux_core::{BrowserStatus, Rect, SurfaceKind};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
+use ratatui::style::{Color, Modifier, Style};
 
 use super::{thumb_geometry, truncate};
 use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
-use crate::config::{tab_label, Theme};
+use crate::config::{Theme, tab_label};
 use crate::session::TabNotificationView;
 
 /// Border style for a pane box: active gets the accent color, idle
@@ -341,12 +341,12 @@ fn draw_content(
         }
     }
 
-    if focused {
-        if let Some(cursor) = rs.cursor() {
-            if (cursor.x as usize) < max_cols && (cursor.y as usize) < max_rows {
-                return Some((rect.x + cursor.x, rect.y + cursor.y));
-            }
-        }
+    if focused
+        && let Some(cursor) = rs.cursor()
+        && (cursor.x as usize) < max_cols
+        && (cursor.y as usize) < max_rows
+    {
+        return Some((rect.x + cursor.x, rect.y + cursor.y));
     }
     None
 }

@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use mux_core::{
-    assign_short_ids, BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId,
-    SurfaceKind, SurfaceNotification, WorkspaceId,
+    BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind,
+    SurfaceNotification, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
 
@@ -130,10 +130,10 @@ impl PaneView {
     /// Display name: the user-assigned name, else the active tab's
     /// process title, else "shell".
     pub fn display_name(&self) -> &str {
-        if let Some(name) = self.name.as_deref() {
-            if !name.is_empty() {
-                return name;
-            }
+        if let Some(name) = self.name.as_deref()
+            && !name.is_empty()
+        {
+            return name;
         }
         self.tabs
             .get(self.active_tab)

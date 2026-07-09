@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Socket/CLI handlers for the remote-tmux (`ssh … tmux -CC`) beta feature.
 ///
@@ -250,6 +251,102 @@ extension TerminalController {
             }
             return payload
         }
+    }
+
+    /// `remote.tmux.pane_grids` — per mirrored multi-pane window, each pane's
+    /// tmux-assigned dims (from the layout tree) next to the grid its ghostty
+    /// surface actually renders, plus the sizing state they converge toward
+    /// (summed grid, last requested client size, structure/correction
+    /// versions, remaining correction budget).
+    ///
+    /// Verification surface: a harness asserts renders match the assigned sizes through
+    /// this instead of reading pixels off screenshots. Params: `host`
+    /// (required), `session` (required).
+    nonisolated func v2RemoteTmuxPaneGrids(id: Any?, params: [String: Any]) -> String {
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params)
+        else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let snapshots: [RemoteTmuxWindowMirror.SizingSnapshot]? = await MainActor.run {
+                AppDelegate.shared?.remoteTmuxController
+                    .sessionMirror(host: host, sessionName: session)?
+                    .sizingSnapshots()
+            }
+            guard let snapshots else {
+                return ["host": host.destination, "session": session, "mirrored": false]
+            }
+            return [
+                "host": host.destination,
+                "session": session,
+                "mirrored": true,
+                "windows": snapshots.map { Self.sizingSnapshotPayload($0) },
+            ]
+        }
+    }
+
+
+    /// Serializes one window's ``RemoteTmuxWindowMirror/SizingSnapshot`` for the
+    /// socket response. Per pane, `match` is present once the surface has a live
+    /// grid: true iff rendered == assigned in both dimensions.
+    nonisolated static func sizingSnapshotPayload(
+        _ snapshot: RemoteTmuxWindowMirror.SizingSnapshot
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "window_id": "@\(snapshot.windowId)",
+            "structure_version": snapshot.structureVersion,
+            "zoomed": snapshot.zoomed,
+            "base": ["cols": snapshot.baseCols, "rows": snapshot.baseRows],
+            "panes": snapshot.panes.map { pane -> [String: Any] in
+                var entry: [String: Any] = [
+                    "pane_id": "%\(pane.paneId)",
+                    "assigned": ["cols": pane.assignedCols, "rows": pane.assignedRows],
+                    "has_panel": pane.hasPanel,
+                ]
+                if let inWindow = pane.viewInWindow { entry["view_in_window"] = inWindow }
+                if let live = pane.surfaceLive { entry["surface_live"] = live }
+                if let cols = pane.renderedCols, let rows = pane.renderedRows {
+                    entry["rendered"] = ["cols": cols, "rows": rows]
+                    // The render contract: exact on the enclosing split's
+                    // axis, fill (>=, never smaller) on the cross axis —
+                    // a smaller render means lost content, a larger one is
+                    // background beyond the PTY.
+                    let colsOk = pane.exactCols ? cols == pane.assignedCols : cols >= pane.assignedCols
+                    let rowsOk = pane.exactRows ? rows == pane.assignedRows : rows >= pane.assignedRows
+                    entry["match"] = colsOk && rowsOk
+                }
+                if let sample = pane.calibration {
+                    var calibration: [String: Any] = [
+                        "grid": ["cols": sample.columns, "rows": sample.rows],
+                        "cell_px": ["w": sample.cellWidthPx, "h": sample.cellHeightPx],
+                        "surface_px": ["w": sample.surfaceWidthPx, "h": sample.surfaceHeightPx],
+                    ]
+                    if let bounds = sample.viewBoundsPt {
+                        calibration["view_pt"] = ["w": Double(bounds.width), "h": Double(bounds.height)]
+                    }
+                    if let scale = sample.backingScale {
+                        calibration["scale"] = Double(scale)
+                    }
+                    entry["calibration"] = calibration
+                }
+                return entry
+            },
+        ]
+        if let cols = snapshot.pushedColumns, let rows = snapshot.pushedRows {
+            payload["pushed"] = ["cols": cols, "rows": rows]
+        }
+        payload["visible_for_sizing"] = snapshot.visibleForSizing
+        if let container = snapshot.containerPt {
+            payload["container_pt"] = ["w": Double(container.width), "h": Double(container.height)]
+        }
+        if let cols = snapshot.currentFCols, let rows = snapshot.currentFRows {
+            payload["current_f"] = ["cols": cols, "rows": rows]
+        }
+        return payload
     }
 
     /// Extracts a required tmux session name from socket params.

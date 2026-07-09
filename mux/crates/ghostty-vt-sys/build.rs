@@ -20,6 +20,7 @@ fn main() {
             e
         )
     });
+    let ghostty_dir = strip_windows_verbatim(ghostty_dir);
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
@@ -42,10 +43,10 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if target != host {
-        if let Some(zig_target) = zig_target_for_rust_target(&target) {
-            command.arg(format!("-Dtarget={zig_target}"));
-        }
+    if target != host
+        && let Some(zig_target) = zig_target_for_rust_target(&target)
+    {
+        command.arg(format!("-Dtarget={zig_target}"));
     }
     // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
     // extension zig's default target detection can select (e.g. some AVX-512
@@ -85,11 +86,36 @@ fn main() {
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
 }
 
+// std::fs::canonicalize on Windows returns \\?\-prefixed extended-length
+// paths. clang accepts such a path for the root header but cannot resolve
+// nested relative includes from it (ghostty/vt.h -> "ghostty/vt/types.h"
+// fails with file-not-found), which broke the windows-gnu bindgen step.
+// Strip the verbatim prefix so bindgen/clang see plain paths.
+fn strip_windows_verbatim(path: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}
+
 fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
     match target {
         "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
         "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
+        // Cross-compiling libghostty-vt for the release distribution targets
+        // (npm/PyPI `cmux` binaries). zig cross-compiles these cleanly and
+        // pairs with cargo-zigbuild for the Rust link step.
+        "x86_64-apple-darwin" => Some("x86_64-macos"),
+        "aarch64-apple-darwin" => Some("aarch64-macos"),
+        "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
+        "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
         _ => None,
     }
 }

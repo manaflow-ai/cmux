@@ -10,9 +10,20 @@ members = [
 ]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
+rust-version = "1.88"
 license = "MIT"
 publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_clone = "warn"
+# Evaluated and dropped: needless_pass_by_value causes signature churn across mux-core call sites.
 
 [workspace.dependencies]
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
@@ -23,14 +34,15 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"
-crossterm = "0.28"
-ratatui = "0.29"
+crossterm = "0.29"
+ratatui = "0.30"
 unicode-width = "0.2"
 base64 = "0.22"
 libc = "0.2"
-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 regex = "1"
+bindgen = "0.72"
 
 [profile.release]
 lto = "thin"
