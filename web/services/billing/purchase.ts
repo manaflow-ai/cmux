@@ -215,7 +215,8 @@ export async function applySubscriptionUpdate(
   }
 
   const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user || isAccountDeletionInProgress(user)) return { skipped: true };
+  if (!user) throw new Error(`Stack user not found for Stripe subscription update: ${stackUserId}`);
+  if (isAccountDeletionInProgress(user)) return { skipped: true };
 
   if (!hasUserSubscription) {
     await upsertStripeSubscription(db, {

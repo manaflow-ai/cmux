@@ -617,6 +617,32 @@ describe("recordCheckoutCompletion", () => {
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
   });
 
+  test("fails known subscription webhooks when the Stack user is missing", async () => {
+    const getUser = mock(async () => null);
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    await expect(
+      applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser } as never,
+        },
+      ),
+    ).rejects.toThrow("Stack user not found for Stripe subscription update: user_123");
+
+    expect(getUser).toHaveBeenCalledWith("user_123");
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.status === "canceled" &&
+          entry.values.stackUserId === "user_123",
+      ),
+    ).toBe(true);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("skips user subscription webhooks for anonymized local customer rows", async () => {
     const getUser = mock(async () => {
       throw new Error("should not load Stack user for anonymized local customer");
