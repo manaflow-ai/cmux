@@ -64,6 +64,9 @@ const transactionSelect = mock(() => ({
     }),
   }),
 }));
+const transactionExecute = mock(async () => {
+  routeEvents.push("transaction-lock");
+});
 const deleteRows = mock((table: unknown) => {
   deletedTables.push(table);
   deletedTableCount += 1;
@@ -181,6 +184,7 @@ type MockTransaction = {
       };
     };
   };
+  readonly execute: (query: unknown) => Promise<void>;
   readonly delete: (table: unknown) => { readonly where: (condition: unknown) => Promise<void> };
   readonly update: (table: unknown) => {
     readonly set: (values: unknown) => { readonly where: (condition: unknown) => Promise<void> };
@@ -195,6 +199,7 @@ type SelectResult = Promise<unknown[]> & {
 
 const mockTransaction: MockTransaction = {
   select: transactionSelect,
+  execute: transactionExecute,
   delete: deleteRows,
   update: updateRows,
 };
@@ -315,6 +320,7 @@ beforeEach(() => {
   getUser.mockClear();
   transaction.mockClear();
   transactionSelect.mockClear();
+  transactionExecute.mockClear();
   deleteRows.mockClear();
   updateRows.mockClear();
   mockDb.select.mockClear();
@@ -436,8 +442,10 @@ describe("account deletion route", () => {
       "vault-delete",
       "revoke-identities",
       "transaction",
+      "transaction-lock",
       "stack-delete",
       "transaction",
+      "transaction-lock",
     ]);
   });
 
@@ -614,6 +622,7 @@ describe("account deletion route", () => {
       destroyedVms: 2,
     });
     expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transactionExecute).toHaveBeenCalledTimes(1);
     expect(transactionSelect).toHaveBeenCalledTimes(1);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
@@ -902,6 +911,7 @@ describe("account deletion route", () => {
       "destroy-vm",
       "revoke-identities",
       "transaction",
+      "transaction-lock",
       "stack-delete",
     ]);
     expect(consoleError).toHaveBeenCalledWith(

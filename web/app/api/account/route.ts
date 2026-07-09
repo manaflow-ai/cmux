@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
@@ -402,6 +402,7 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
   const db = cloudDb();
   await db.transaction(async (tx) => {
     const now = new Date();
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
     const personalVmRows = await tx
       .select({
         id: cloudVms.id,
