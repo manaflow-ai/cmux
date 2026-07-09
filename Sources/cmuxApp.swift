@@ -50,7 +50,6 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
-
     private let resolvedIconAppearanceObserver = ResolvedIconAppearanceObserver()
     @State private var tabManager: TabManager
     @State private var notificationStore = TerminalNotificationStore.shared
