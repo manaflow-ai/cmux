@@ -184,9 +184,9 @@ import Testing
     @Test func currentScopePrefersInstalledBundleSuffix() {
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": "feat"], bundleIdentifier: "dev.cmux.ios.other", isDebugBuild: true)?.value == "other")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios.agent", isDebugBuild: true)?.value == "agent")
-        #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": "custom"], bundleIdentifier: "com.example.custom", isDebugBuild: true)?.value == "custom")
+        #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": "Custom Tag"], bundleIdentifier: "com.example.custom", isDebugBuild: true)?.value == "custom-tag")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios", isDebugBuild: true)?.value == "default")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": "stray"], bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false) == nil)
-        #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "cmux-dev:v2:RmVhdHVyZSBUYWc")
+        #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "cmux-dev:v2:ZmVhdHVyZS10YWc")
     }
 }

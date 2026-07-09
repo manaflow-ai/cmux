@@ -70,7 +70,7 @@ import Testing
 
     @Test func everyDebugIOSIdentityGetsAStrictScope() throws {
         let custom = try #require(CmxPairedMacClientScope.currentIOS(
-            devTag: "custom-tag",
+            devTag: "Custom Tag",
             bundleIdentifier: "com.example.custom-debug",
             isDebugBuild: true
         ))
@@ -82,6 +82,12 @@ import Testing
 
         #expect(custom.value == "custom-tag")
         #expect(fallback.value == "default")
+    }
+
+    @Test func canonicalizesRawTagsLikeSharedReloadTooling() throws {
+        #expect(try #require(CmxPairedMacClientScope("Feature Tag")).value == "feature-tag")
+        #expect(try #require(CmxPairedMacClientScope("-n")).value == "n")
+        #expect(CmxPairedMacClientScope("---") == nil)
     }
 
     @Test func scopeAcceptsOnlyItsMatchingMacPresenceTag() throws {
