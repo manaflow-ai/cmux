@@ -49,9 +49,14 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableWatchdogTerminationTracking == true)
         #expect(options.enableAppHangTracking == true)
         #expect(options.appHangTimeoutInterval == 8.0)
+        #expect(options.enableSwizzling == false)
+        #expect(options.enableNetworkTracking == false)
+        #expect(options.enableNetworkBreadcrumbs == false)
+        #expect(options.enableAutoBreadcrumbTracking == false)
+        #expect(options.tracePropagationTargets.isEmpty)
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
-        #expect(options.enableMetricKitRawPayload == true)
+        #expect(options.enableMetricKitRawPayload == false)
         #endif
         #if DEBUG
         #expect(options.environment == "ios-development")

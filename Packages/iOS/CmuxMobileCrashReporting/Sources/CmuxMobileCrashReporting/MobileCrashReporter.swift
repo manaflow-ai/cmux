@@ -103,13 +103,22 @@ public struct MobileCrashReporter {
         options.enableWatchdogTerminationTracking = true
         options.enableAppHangTracking = true
         options.appHangTimeoutInterval = 8.0
-        // No beforeSend scrubber in v1: the macOS scrubber is app/macOS-package
-        // owned today. iOS sends no custom messages or breadcrumbs here, keeps
-        // sendDefaultPii disabled, and relies on crash/device context only until
-        // the scrubber can move to a shared package.
+        // Crash/device-context ONLY until the macOS scrubber moves to a shared
+        // package: there is no beforeSend scrubber here, so every default that
+        // would record or mutate app traffic stays off. Swizzling injects
+        // sentry-trace/baggage headers into URLSession requests (which carry
+        // auth in this app) and network/auto breadcrumbs record request URLs
+        // into crash envelopes; sendDefaultPii does not cover those.
+        options.enableSwizzling = false
+        options.enableNetworkTracking = false
+        options.enableNetworkBreadcrumbs = false
+        options.enableAutoBreadcrumbTracking = false
+        options.tracePropagationTargets = []
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
+        // Normalized MetricKit diagnostics only. Raw MXDiagnosticPayload
+        // attachments bypass sendDefaultPii and any future event scrubber, so
+        // they stay off until a raw-attachment scrub path exists.
         options.enableMetricKit = true
-        options.enableMetricKitRawPayload = true
         #endif
         return options
     }
