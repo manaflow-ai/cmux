@@ -723,12 +723,12 @@ actor VMClient {
 
     // MARK: - HTTP
 
-    private func request(
+    func request( // internal: sibling extension files (VMClientEnvLayers.swift) share the HTTP path
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
-        timeoutSeconds: TimeInterval? = nil
+        timeoutSeconds: TimeInterval? = nil, queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         let tokens: (accessToken: String, refreshToken: String)
         do {
@@ -744,6 +744,7 @@ actor VMClient {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
         }
         url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + path
+        if !queryItems.isEmpty { url.queryItems = queryItems }
         guard let resolved = url.url else {
             throw VMClientError.malformedResponse("could not build URL for \(path)")
         }
@@ -841,14 +842,13 @@ actor VMClient {
         )
     }
 
-    private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
+    func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "<binary>"
-            throw VMClientError.httpStatus(http.statusCode, body)
+            throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<binary>")
         }
     }
 
-    private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
+    func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
             throw VMClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")

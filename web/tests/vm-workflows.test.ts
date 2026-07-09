@@ -1456,6 +1456,9 @@ describe("VM Effect workflows", () => {
           cause: new Error("usage event table unavailable"),
         }));
       },
+      findDeepestEnvLayer: () => Effect.succeed(null),
+      insertEnvLayer: () => Effect.fail(new Error("unused") as never),
+      listEnvLayers: () => Effect.succeed([]),
     };
     const provider: VmProviderGatewayShape = {
       create: () =>
@@ -4345,6 +4348,9 @@ function testWorkflowRepo(input: {
       Effect.sync(() => {
         input.usageEvents?.push(...events);
       }),
+    findDeepestEnvLayer: () => Effect.succeed(null),
+    insertEnvLayer: () => unusedDatabaseEffect("insertEnvLayer"),
+    listEnvLayers: () => Effect.succeed([]),
   };
 }
 

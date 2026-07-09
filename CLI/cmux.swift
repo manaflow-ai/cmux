@@ -4134,6 +4134,7 @@ struct CMUXCLI {
                 print("attach:   cmux vm ssh \(vmId)")
                 print("inspect:  cmux vm tools \(vmId)")
 
+            case "env": try runVMEnvCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
             case "promote-template":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux vm promote-template <id>")
@@ -4149,7 +4150,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|env|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -10189,7 +10190,7 @@ struct CMUXCLI {
         cliDebugLog(parts.joined(separator: " "))
     }
 
-    private func vmOpenShell(
+    func vmOpenShell( // internal: CLI/CMUXCLI+VMEnvOps.swift attaches after `cmux vm env up`
         id: String,
         workspaceName: String?,
         windowRaw: String?,
@@ -14217,7 +14218,6 @@ struct CMUXCLI {
             }
             return
         }
-
 
         if subcommand == "find" {
             let sid = try requireSurface()

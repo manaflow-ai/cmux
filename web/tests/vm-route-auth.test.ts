@@ -16,6 +16,9 @@ const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
+const resolveEnvLayers = mock(() => ({ workflow: "env.resolve" }));
+const recordEnvLayer = mock(() => ({ workflow: "env.record" }));
+const listEnvLayers = mock(() => ({ workflow: "env.list" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -54,6 +57,9 @@ const realResetBaseVm = workflowsModule.resetBaseVm;
 const realRestoreVm = workflowsModule.restoreVm;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realSnapshotVm = workflowsModule.snapshotVm;
+const realResolveEnvLayers = workflowsModule.resolveEnvLayers;
+const realRecordEnvLayer = workflowsModule.recordEnvLayer;
+const realListEnvLayers = workflowsModule.listEnvLayers;
 const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
@@ -108,6 +114,12 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs ? callMock(runVmWorkflow, args) : realRunVmWorkflow(...args)) as typeof realRunVmWorkflow,
   snapshotVm: ((...args: Parameters<typeof realSnapshotVm>) =>
     useWorkflowStubs ? callMock(snapshotVm, args) : realSnapshotVm(...args)) as typeof realSnapshotVm,
+  resolveEnvLayers: ((...args: Parameters<typeof realResolveEnvLayers>) =>
+    useWorkflowStubs ? callMock(resolveEnvLayers, args) : realResolveEnvLayers(...args)) as typeof realResolveEnvLayers,
+  recordEnvLayer: ((...args: Parameters<typeof realRecordEnvLayer>) =>
+    useWorkflowStubs ? callMock(recordEnvLayer, args) : realRecordEnvLayer(...args)) as typeof realRecordEnvLayer,
+  listEnvLayers: ((...args: Parameters<typeof realListEnvLayers>) =>
+    useWorkflowStubs ? callMock(listEnvLayers, args) : realListEnvLayers(...args)) as typeof realListEnvLayers,
 }));
 
 // Self-shield from other suites' process-global db mocks AND from the real
@@ -136,6 +148,8 @@ const forkRoute = await import("../app/api/vm/[id]/fork/route");
 const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
+const envLayersRoute = await import("../app/api/vm/env/layers/route");
+const envResolveRoute = await import("../app/api/vm/env/layers/resolve/route");
 const {
   VmCreateCreditsInsufficientError,
   VmCreateFailedError,
@@ -171,6 +185,9 @@ beforeEach(() => {
   openSshEndpoint.mockClear();
   restoreVm.mockClear();
   snapshotVm.mockClear();
+  resolveEnvLayers.mockClear();
+  recordEnvLayer.mockClear();
+  listEnvLayers.mockClear();
 });
 
 afterEach(() => {
@@ -219,6 +236,35 @@ describe("VM REST auth", () => {
       expect(response.status).toBe(401);
       expect(await response.json()).toEqual({ error: "unauthorized" });
     }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects unauthenticated env layer routes before reaching workflows", async () => {
+    const responses = await Promise.all([
+      envResolveRoute.POST(new Request("https://cmux.test/api/vm/env/layers/resolve", {
+        method: "POST",
+        body: JSON.stringify({ chainHashes: ["hash"] }),
+      })),
+      envLayersRoute.POST(new Request("https://cmux.test/api/vm/env/layers", {
+        method: "POST",
+        body: JSON.stringify({
+          baseImageId: "img",
+          chainHash: "hash",
+          stepIndex: 0,
+          specDigest: "digest",
+          snapshotId: "snap",
+        }),
+      })),
+      envLayersRoute.GET(new Request("https://cmux.test/api/vm/env/layers")),
+    ]);
+
+    for (const response of responses) {
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+    }
+    expect(resolveEnvLayers).not.toHaveBeenCalled();
+    expect(recordEnvLayer).not.toHaveBeenCalled();
+    expect(listEnvLayers).not.toHaveBeenCalled();
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
