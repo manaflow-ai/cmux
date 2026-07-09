@@ -94,6 +94,82 @@ struct CmuxTopProcessSnapshotStoreTests {
     }
 }
 
+@Suite
+struct PortScannerSharedSnapshotTests {
+    @Test
+    func processTreeExpansionIncludesForksAndDetachedAgentRoots() {
+        let firstWorkspace = UUID()
+        let detachedWorkspace = UUID()
+        let snapshot = processSnapshot([
+            process(pid: 10, parentPID: 1),
+            process(pid: 20, parentPID: 10),
+            process(pid: 30, parentPID: 20),
+            process(pid: 90, parentPID: 1),
+            process(pid: 91, parentPID: 90)
+        ])
+
+        let expanded = PortScanner.expandAgentProcessTree(
+            agentPIDsByWorkspace: [
+                firstWorkspace: [10],
+                detachedWorkspace: [90]
+            ],
+            processSnapshot: snapshot
+        )
+
+        #expect(expanded[10] == [firstWorkspace])
+        #expect(expanded[20] == [firstWorkspace])
+        #expect(expanded[30] == [firstWorkspace])
+        #expect(expanded[90] == [detachedWorkspace])
+        #expect(expanded[91] == [detachedWorkspace])
+    }
+
+    @Test
+    func lsofParsingReportsCurrentListenersAndDropsClosedPorts() {
+        let open = PortScanner.parseLsofOutput(
+            """
+            p20
+            n127.0.0.1:3000
+            n*:8080
+            p30
+            n[::1]:9229
+            """
+        )
+        let closed = PortScanner.parseLsofOutput("")
+
+        #expect(open[20] == [3000, 8080])
+        #expect(open[30] == [9229])
+        #expect(closed.isEmpty)
+    }
+
+    private func processSnapshot(_ processes: [CmuxTopProcessInfo]) -> CmuxTopProcessSnapshot {
+        CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(),
+            includesProcessDetails: false,
+            includesCMUXScope: false
+        )
+    }
+
+    private func process(pid: Int, parentPID: Int) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: pid,
+            parentPID: parentPID,
+            name: "process-\(pid)",
+            path: nil,
+            ttyDevice: nil,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: pid,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+    }
+}
+
 private actor ControlledProcessSnapshotCapturer {
     private let autoRelease: Bool
     private var requirements: [CmuxTopProcessSnapshotRequirements] = []
