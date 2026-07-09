@@ -126,7 +126,6 @@ extension AppDelegate {
             AgentChatThemeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
             guard let browserURL = availability.browserURL else {
-                // Owned launch failed: never fall back to the legacy URL.
                 NSSound.beep()
                 self.postAgentChatServerUnavailableNotification(
                     workspace: nil,
@@ -211,8 +210,7 @@ extension AppDelegate {
             )
             body = String(format: format, agentChat.url.absoluteString)
         }
-        // With no workspace (owned launch failed, nothing opened) anchor the
-        // notification to the focused workspace so the failure is still visible.
+        // No workspace = owned launch failed; anchor to the focused workspace.
         guard let anchorTabId = workspace?.id ?? activeTabManagerForCommands(preferredWindow: nil)?.selectedTabId else {
             return
         }
