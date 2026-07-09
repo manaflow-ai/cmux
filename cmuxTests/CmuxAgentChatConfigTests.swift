@@ -8,7 +8,18 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct CmuxAgentChatConfigTests {
+@Suite(.serialized)
+struct CmuxAgentChatConfigTests {
+
+    @MainActor
+    private func withAgentChatUIFlag<T>(_ enabled: Bool, _ body: () throws -> T) throws -> T {
+        let flags = CmuxFeatureFlags.shared
+        let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "agent-chat-ui-enabled-release" })
+        let previous = flags.overrideValue(for: definition)
+        flags.setOverride(enabled, for: definition)
+        defer { flags.setOverride(previous, for: definition) }
+        return try body()
+    }
 
     @MainActor
     private func withBrowserDisabled(_ body: () throws -> Void) rethrows {
@@ -241,8 +252,41 @@ import Testing
     }
 
     @MainActor
-    @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
-        try withBrowserDisabled {
+    @Test func agentChatUIFeatureFlagDefaultsOff() throws {
+        let defaultsName = "cmux-agent-chat-flag-defaults-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in nil })
+
+        #expect(!flags.isAgentChatUIEnabled)
+    }
+
+    @MainActor
+    @Test func commandPaletteNewAgentChatContributionFollowsFeatureFlag() throws {
+        try withAgentChatUIFlag(false) {
+            #expect(ContentView.commandPaletteNewAgentChatContributions().isEmpty)
+        }
+
+        try withAgentChatUIFlag(true) {
+            let contributions = ContentView.commandPaletteNewAgentChatContributions()
+            #expect(contributions.map(\.commandId) == ["palette.newAgentChat"])
+        }
+    }
+
+    @MainActor
+    @Test func agentChatThemeSyncGateFollowsFeatureFlag() throws {
+        try withAgentChatUIFlag(false) {
+            #expect(!AgentChatThemeSync.isEnabled)
+        }
+
+        try withAgentChatUIFlag(true) {
+            #expect(AgentChatThemeSync.isEnabled)
+        }
+    }
+
+    @MainActor
+    @Test func performNewAgentChatActionRejectsWhenFeatureFlagOff() throws {
+        try withAgentChatUIFlag(false) {
             let didStart = AppDelegate().performNewAgentChatAction(
                 tabManager: TabManager(),
                 agentChat: .default,
@@ -251,6 +295,22 @@ import Testing
             )
 
             #expect(!didStart)
+        }
+    }
+
+    @MainActor
+    @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
+        try withAgentChatUIFlag(true) {
+            try withBrowserDisabled {
+                let didStart = AppDelegate().performNewAgentChatAction(
+                    tabManager: TabManager(),
+                    agentChat: .default,
+                    globalConfigPath: nil,
+                    preferredWindow: nil
+                )
+
+                #expect(!didStart)
+            }
         }
     }
 }

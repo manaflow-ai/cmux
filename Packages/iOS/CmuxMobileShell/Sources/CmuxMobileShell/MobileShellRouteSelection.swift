@@ -39,9 +39,35 @@ struct MobileShellRouteSelection: Sendable {
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
     ) -> (String, Int)? {
+        reconnectHostPortRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ).first.map { ($0.host, $0.port) }
+    }
+
+    /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
+    /// preference policy but keeping fallbacks available for the same Mac.
+    ///
+    /// With `preferNonLoopback` (physical devices) the list NEVER contains a
+    /// `.debugLoopback` route while any real candidate exists - not even as a
+    /// trailing fallback. Callers iterate every candidate, so a loopback tail
+    /// entry would get dialed once the real routes fail; on a phone that reaches
+    /// whatever local process is listening on 127.0.0.1. Loopback stays reachable
+    /// only as the sole supported route (the on-device XCUITest mock host).
+    func reconnectHostPortRoutes(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> [(host: String, port: Int, routeID: String)] {
         let supportedKinds = Set(supportedKinds)
         let ordered = routes.sorted(by: routeSortsBefore)
-        func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
+        var seenEndpoints = Set<String>()
+
+        func appendCandidates(
+            where predicate: (CmxAttachRoute) -> Bool,
+            to candidates: inout [(host: String, port: Int, routeID: String)]
+        ) {
             for route in ordered {
                 if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
                     continue
@@ -49,30 +75,31 @@ struct MobileShellRouteSelection: Sendable {
                 guard predicate(route), case let .hostPort(host, port) = route.endpoint else {
                     continue
                 }
-                return (host, port)
+                let endpointKey = "\(host)\u{1F}\(port)"
+                guard seenEndpoints.insert(endpointKey).inserted else { continue }
+                candidates.append((host: host, port: port, routeID: route.id))
             }
-            return nil
         }
+
+        var candidates: [(host: String, port: Int, routeID: String)] = []
         if preferNonLoopback {
             // Prefer a Tailscale numeric IP over MagicDNS because it dials
             // without client DNS. Keep encrypted Tailscale routes ahead of
             // explicit plaintext manual-host fallbacks even when the manual
             // host is also a numeric IP.
-            if let tailscaleIP = firstHostPort(where: { route in
+            appendCandidates(where: { route in
                 guard route.kind == .tailscale,
                       case let .hostPort(host, _) = route.endpoint else { return false }
                 return routeAuthPolicy.routeAllowsStackAuth(route) && isIPLiteralHost(host)
-            }) {
-                return tailscaleIP
-            }
-            if let tailscale = firstHostPort(where: { $0.kind == .tailscale && routeAuthPolicy.routeAllowsStackAuth($0) }) {
-                return tailscale
-            }
-            if let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
-                return real
-            }
+            }, to: &candidates)
+            appendCandidates(where: {
+                $0.kind == .tailscale && routeAuthPolicy.routeAllowsStackAuth($0)
+            }, to: &candidates)
+            appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
+            guard candidates.isEmpty else { return candidates }
         }
-        return firstHostPort(where: { _ in true })
+        appendCandidates(where: { _ in true }, to: &candidates)
+        return candidates
     }
 
     /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name

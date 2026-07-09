@@ -154,6 +154,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:app-icon",
         "setting:app:file-drops",
         "setting:app:terminal-config",
+        "setting:app:workspace-layouts",
         "setting:app:desktop-notifications",
         "setting:account:account",
         "setting:mobile:pairDevice",
