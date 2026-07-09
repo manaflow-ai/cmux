@@ -3,21 +3,29 @@ import WebKit
 
 @available(macOS 15.4, *)
 extension BrowserWebExtensionSupport {
-    func restorePermissionState(for context: WKWebExtensionContext, entryID: String) {
-        permissionStateStore.state(for: entryID)?.apply(to: context)
+    func restorePermissionState(for context: WKWebExtensionContext, entryID: String, standardizedPath: String) {
+        permissionStateStore.state(for: entryID, standardizedPath: standardizedPath)?.apply(to: context)
     }
 
-    func persistPermissionState(entryID: String, context: WKWebExtensionContext) {
-        permissionStateStore.save(BrowserWebExtensionPermissionState(context: context), for: entryID)
+    func persistPermissionState(entryID: String, standardizedPath: String, context: WKWebExtensionContext) {
+        permissionStateStore.save(
+            BrowserWebExtensionPermissionState(context: context),
+            for: entryID,
+            standardizedPath: standardizedPath
+        )
     }
 
-    func removePermissionState(entryID: String) {
-        permissionStateStore.removeState(for: entryID)
+    func removePermissionState(entryID: String, standardizedPath: String) {
+        permissionStateStore.removeState(for: entryID, standardizedPath: standardizedPath)
     }
 
     func persistPermissionState(for context: WKWebExtensionContext) {
         guard let record = loadedRecordsInOrder.first(where: { $0.context === context }) else { return }
-        persistPermissionState(entryID: record.entryID, context: context)
+        persistPermissionState(
+            entryID: record.entryID,
+            standardizedPath: record.standardizedPath,
+            context: context
+        )
     }
 
     func persistPermissionStateSoon(for context: WKWebExtensionContext) {
@@ -27,7 +35,11 @@ extension BrowserWebExtensionSupport {
         }
     }
 
-    func installPermissionStateObservers(for context: WKWebExtensionContext, entryID: String) {
+    func installPermissionStateObservers(
+        for context: WKWebExtensionContext,
+        entryID: String,
+        standardizedPath: String
+    ) {
         removePermissionStateObservers(entryID: entryID)
         permissionObserverTokensByEntryID[entryID] = permissionStateNotificationNames.map { name in
             NotificationCenter.default.addObserver(
@@ -37,7 +49,11 @@ extension BrowserWebExtensionSupport {
             ) { [weak self, weak context] _ in
                 guard let self, let context else { return }
                 MainActor.assumeIsolated {
-                    self.persistPermissionState(entryID: entryID, context: context)
+                    self.persistPermissionState(
+                        entryID: entryID,
+                        standardizedPath: standardizedPath,
+                        context: context
+                    )
                 }
             }
         }

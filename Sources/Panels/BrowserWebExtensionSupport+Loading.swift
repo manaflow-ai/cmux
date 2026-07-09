@@ -135,7 +135,11 @@ extension BrowserWebExtensionSupport {
     ) -> BrowserWebExtensionEntry? {
         guard let record = loadedByEntryID[entryID] else { return nil }
         if preservePermissionState {
-            persistPermissionState(entryID: entryID, context: record.context)
+            persistPermissionState(
+                entryID: entryID,
+                standardizedPath: record.standardizedPath,
+                context: record.context
+            )
         }
         do {
             try controller.unload(record.context)
@@ -149,7 +153,7 @@ extension BrowserWebExtensionSupport {
 
         removePermissionStateObservers(entryID: entryID)
         if !preservePermissionState {
-            removePermissionState(entryID: entryID)
+            removePermissionState(entryID: entryID, standardizedPath: record.standardizedPath)
         }
         loadedByEntryID[entryID] = nil
         loadedEntryIDsInOrder.removeAll { $0 == entryID }
@@ -166,13 +170,31 @@ extension BrowserWebExtensionSupport {
         return nil
     }
 
-    func unloadAllWebExtensions() {
+    @discardableResult
+    func unloadAllWebExtensions() -> Bool {
+        var didUnloadEveryExtension = true
         for entryID in Array(loadedEntryIDsInOrder) {
-            unload(entryID: entryID)
+            if unload(entryID: entryID) != nil {
+                didUnloadEveryExtension = false
+            }
         }
-        loadErrorsByEntryID.removeAll()
-        refreshLoadErrors()
         rebuildActionSnapshots()
+        return didUnloadEveryExtension
+    }
+
+    func loadErrorUpdates() -> AsyncStream<[String: String]> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<[String: String]>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        loadErrorUpdateContinuations[id] = continuation
+        continuation.yield(loadErrorsByEntryID)
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in
+                self?.loadErrorUpdateContinuations.removeValue(forKey: id)
+            }
+        }
+        return stream
     }
 
     private func load(entry: BrowserWebExtensionEntry, generation: Int) async {
@@ -252,8 +274,12 @@ extension BrowserWebExtensionSupport {
 #if DEBUG
         context.isInspectable = true
 #endif
-        restorePermissionState(for: context, entryID: entryID)
-        installPermissionStateObservers(for: context, entryID: entryID)
+        restorePermissionState(for: context, entryID: entryID, standardizedPath: standardizedPath)
+        installPermissionStateObservers(
+            for: context,
+            entryID: entryID,
+            standardizedPath: standardizedPath
+        )
         do {
             try controller.load(context)
         } catch {
@@ -292,5 +318,8 @@ extension BrowserWebExtensionSupport {
         loadErrors = loadErrorsByEntryID
             .sorted { $0.key < $1.key }
             .map(\.value)
+        for continuation in loadErrorUpdateContinuations.values {
+            continuation.yield(loadErrorsByEntryID)
+        }
     }
 }

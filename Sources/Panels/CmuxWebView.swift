@@ -693,17 +693,17 @@ final class CmuxWebView: WKWebView {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
+        // Manifest commands may use Control or Option, so dispatch them before
+        // the Command-only cmux menu-equivalent guard.
+        if #available(macOS 15.4, *),
+           AppDelegate.shared?.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
+            return finish(true)
+        }
+
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {
             return finish(super.performKeyEquivalent(with: event))
-        }
-
-        // Web-extension commands (e.g. Bitwarden's ⌘⇧L autofill) match only
-        // shortcuts the extension manifest declares; everything else falls through.
-        if #available(macOS 15.4, *),
-           AppDelegate.shared?.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
-            return finish(true)
         }
 
         if Self.isPasteAsPlainTextCommandEquivalent(event) {

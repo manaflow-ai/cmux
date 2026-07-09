@@ -2,7 +2,7 @@ import Foundation
 
 @available(macOS 15.4, *)
 struct BrowserWebExtensionPermissionStateStore {
-    private static let storageKey = "browser.webExtensionPermissionStates.v1"
+    private static let storageKey = "browser.webExtensionPermissionStates.v2"
 
     private let defaults: UserDefaults
 
@@ -10,20 +10,25 @@ struct BrowserWebExtensionPermissionStateStore {
         self.defaults = defaults
     }
 
-    func state(for entryID: String) -> BrowserWebExtensionPermissionState? {
-        allStates()[entryID]
+    func state(for entryID: String, standardizedPath: String) -> BrowserWebExtensionPermissionState? {
+        allStates()[storageIdentity(entryID: entryID, standardizedPath: standardizedPath)]
     }
 
-    func save(_ state: BrowserWebExtensionPermissionState, for entryID: String) {
+    func save(_ state: BrowserWebExtensionPermissionState, for entryID: String, standardizedPath: String) {
         var states = allStates()
-        states[entryID] = state
+        states[storageIdentity(entryID: entryID, standardizedPath: standardizedPath)] = state
         saveAllStates(states)
     }
 
-    func removeState(for entryID: String) {
+    func removeState(for entryID: String, standardizedPath: String) {
         var states = allStates()
-        guard states.removeValue(forKey: entryID) != nil else { return }
+        let identity = storageIdentity(entryID: entryID, standardizedPath: standardizedPath)
+        guard states.removeValue(forKey: identity) != nil else { return }
         saveAllStates(states)
+    }
+
+    private func storageIdentity(entryID: String, standardizedPath: String) -> String {
+        "\(entryID)\n\(standardizedPath)"
     }
 
     private func allStates() -> [String: BrowserWebExtensionPermissionState] {

@@ -50,6 +50,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var loadErrorsByEntryID: [String: String] = [:]
     @ObservationIgnored
+    var loadErrorUpdateContinuations: [UUID: AsyncStream<[String: String]>.Continuation] = [:]
+    @ObservationIgnored
     var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     @ObservationIgnored
     var actionSnapshotInvalidationsByPanelID: [UUID: BrowserWebExtensionActionSnapshotInvalidation] = [:]
@@ -181,7 +183,9 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         settingsLoadGeneration &+= 1
         settingsObservationTask?.cancel()
         settingsObservationTask = nil
-        unloadAllWebExtensions()
+        if !unloadAllWebExtensions() {
+            BrowserAvailabilitySettings.setDisabled(false)
+        }
     }
 
     static func environmentExtensionPaths() -> [String] {
@@ -234,9 +238,19 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     }
 
     func noteWindowBecameKey(_ window: NSWindow) {
-        guard let panelID = activePanelID(in: window) else { return }
-        noteActivated(panelID: panelID)
-        controller.didFocusWindow(windowAdapter)
+        let focusedWindow = webExtensionWindow(for: window)
+        if (focusedWindow as AnyObject?) === windowAdapter,
+           let panelID = activePanelID(in: window) {
+            noteActivated(panelID: panelID)
+        }
+        controller.didFocusWindow(focusedWindow)
+    }
+
+    func webExtensionWindow(for window: NSWindow) -> (any WKWebExtensionWindow)? {
+        if let popout = popouts.first(where: { $0.window === window }) {
+            return popout
+        }
+        return activePanelID(in: window) == nil ? nil : windowAdapter
     }
 
     private func rememberActivePanel(_ panelID: UUID) {

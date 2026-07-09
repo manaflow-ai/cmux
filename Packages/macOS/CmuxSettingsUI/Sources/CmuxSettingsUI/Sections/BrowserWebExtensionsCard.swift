@@ -16,6 +16,7 @@ struct BrowserWebExtensionsCard: View {
     let hostActions: SettingsHostActions
 
     @State private var discovered: [SettingsDiscoveredBrowserExtension] = []
+    @State private var loadErrorsByEntryID: [String: String] = [:]
     @State private var pendingEntries: [BrowserWebExtensionEntry]?
     @State private var pendingWriteID: UInt64?
 
@@ -38,6 +39,11 @@ struct BrowserWebExtensionsCard: View {
         .task {
             model.startObserving()
             discovered = await hostActions.discoverBrowserWebExtensions()
+        }
+        .task {
+            for await loadErrors in hostActions.browserWebExtensionLoadErrorUpdates() {
+                loadErrorsByEntryID = loadErrors
+            }
         }
         .onChange(of: model.current) { _, current in
             guard let expectedEntries = pendingEntries, current == expectedEntries else { return }
@@ -73,7 +79,7 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private var headerRow: some View {
-        SettingsCardRow(
+        return SettingsCardRow(
             configurationReview: .json("browser.webExtensions"),
             searchAnchorID: "setting:browser:web-extensions",
             String(localized: "settings.browser.webExtensions", defaultValue: "Extensions"),
@@ -143,10 +149,22 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func entryRow(_ entry: BrowserWebExtensionEntry, isEnabled: Bool) -> some View {
-        SettingsCardRow(
+        let detail = entry.kind == .safariAppExtension ? entry.id : entry.path
+        let subtitle = if loadErrorsByEntryID[entry.id] == nil {
+            detail
+        } else {
+            String.localizedStringWithFormat(
+                String(
+                    localized: "settings.browser.webExtensions.loadFailed.subtitle",
+                    defaultValue: "%@ — Extension error. Disable and re-enable to retry, or remove it."
+                ),
+                detail
+            )
+        }
+        return SettingsCardRow(
             configurationReview: .json("browser.webExtensions"),
             entry.displayName ?? (entry.path as NSString).lastPathComponent,
-            subtitle: entry.kind == .safariAppExtension ? entry.id : entry.path
+            subtitle: subtitle
         ) {
             HStack(spacing: 8) {
                 Toggle("", isOn: Binding(

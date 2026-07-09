@@ -67,14 +67,9 @@ extension BrowserNavigationDelegate {
     func shouldRouteWebExtensionNavigationAsCurrentTab(
         targetFrameIsMainFrame: Bool?,
         shouldOpenInNewTab: Bool,
-        navigationType: WKNavigationType
+        navigationType _: WKNavigationType
     ) -> Bool {
-        guard targetFrameIsMainFrame != false, !shouldOpenInNewTab else { return false }
-        if targetFrameIsMainFrame == nil,
-           browserNavigationShouldFallbackNilTargetToNewTab(navigationType: navigationType) {
-            return false
-        }
-        return true
+        targetFrameIsMainFrame == true && !shouldOpenInNewTab
     }
 
     func shouldRouteWebExtensionNavigationAsCurrentTab(
