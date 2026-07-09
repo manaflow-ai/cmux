@@ -68,6 +68,7 @@ extension BrowserWebExtensionSupport {
 
     private func unload(entryID: String) {
         guard let record = loadedByEntryID[entryID] else { return }
+        persistPermissionState(entryID: entryID, context: record.context)
         do {
             try controller.unload(record.context)
         } catch {
@@ -78,6 +79,7 @@ extension BrowserWebExtensionSupport {
             return
         }
 
+        removePermissionStateObservers(entryID: entryID)
         loadedByEntryID[entryID] = nil
         loadedEntryIDsInOrder.removeAll { $0 == entryID }
         loadErrorsByEntryID.removeValue(forKey: entryID)
@@ -95,7 +97,7 @@ extension BrowserWebExtensionSupport {
     private func load(entry: BrowserWebExtensionEntry) async {
         do {
             let webExtension = try await makeWebExtension(for: entry)
-            let context = try load(webExtension)
+            let context = try load(webExtension, entryID: entry.id)
             let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedPath(entry.path)
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
                 entryID: entry.id,
@@ -134,12 +136,19 @@ extension BrowserWebExtensionSupport {
     }
 
     @discardableResult
-    private func load(_ webExtension: WKWebExtension) throws -> WKWebExtensionContext {
+    private func load(_ webExtension: WKWebExtension, entryID: String) throws -> WKWebExtensionContext {
         let context = WKWebExtensionContext(for: webExtension)
 #if DEBUG
         context.isInspectable = true
 #endif
-        try controller.load(context)
+        restorePermissionState(for: context, entryID: entryID)
+        installPermissionStateObservers(for: context, entryID: entryID)
+        do {
+            try controller.load(context)
+        } catch {
+            removePermissionStateObservers(entryID: entryID)
+            throw error
+        }
         return context
     }
 

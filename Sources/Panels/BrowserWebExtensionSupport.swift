@@ -24,6 +24,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     @ObservationIgnored
     let controller: WKWebExtensionController
+    @ObservationIgnored
+    let permissionStateStore = BrowserWebExtensionPermissionStateStore()
 
     var actionSnapshots: [BrowserWebExtensionActionSnapshot] = []
     var loadErrors: [String] = []
@@ -38,6 +40,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     var loadErrorsByEntryID: [String: String] = [:]
     @ObservationIgnored
     var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
+    @ObservationIgnored
+    var permissionObserverTokensByEntryID: [String: [NSObjectProtocol]] = [:]
     @ObservationIgnored
     var orderedPanelIDs: [UUID] = []
     @ObservationIgnored
@@ -66,11 +70,27 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         controller.delegate = self
     }
 
+    deinit {
+        settingsObservationTask?.cancel()
+        removeAllPermissionStateObservers()
+    }
+
     // MARK: - Configuration attachment
 
     /// Attaches the shared extension controller to a browser web view configuration.
     func attach(to configuration: WKWebViewConfiguration) {
         configuration.webExtensionController = controller
+    }
+
+    func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration? {
+        guard let context = controller.extensionContext(for: url),
+              let webViewConfiguration = context.webViewConfiguration else {
+            return nil
+        }
+        return BrowserWebExtensionNavigationConfiguration(
+            contextIdentifier: ObjectIdentifier(context),
+            webViewConfiguration: webViewConfiguration
+        )
     }
 
     // MARK: - Settings-driven loading

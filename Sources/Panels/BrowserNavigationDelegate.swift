@@ -21,6 +21,7 @@ import WebKit
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
+    var shouldReissueNavigationForWebExtensionConfiguration: ((URLRequest) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
@@ -325,6 +326,21 @@ import WebKit
             )
 #endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
+            decisionHandler(.cancel)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           !shouldOpenInNewTab,
+           shouldReissueNavigationForWebExtensionConfiguration?(navigationAction.request) == true,
+           let requestNavigation {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=webExtensionConfigurationSwap " +
+                "url=\(browserNavigationDebugURL(navigationAction.request.url))"
+            )
+#endif
+            requestNavigation(navigationAction.request, .currentTab)
             decisionHandler(.cancel)
             return
         }

@@ -101,6 +101,40 @@ struct BrowserWebExtensionSupportTests {
     }
 
     @Test
+    @available(macOS 15.4, *)
+    func permissionStateStorePersistsEntryStatesIndependently() throws {
+        let suiteName = "cmux-web-extension-permissions-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = BrowserWebExtensionPermissionStateStore(defaults: defaults)
+        let expiration = Date(timeIntervalSince1970: 1_800_000_000)
+        let firstState = BrowserWebExtensionPermissionState(
+            grantedPermissions: ["tabs": expiration],
+            deniedPermissions: ["cookies": expiration],
+            grantedPermissionMatchPatterns: ["https://example.com/*": expiration],
+            deniedPermissionMatchPatterns: ["https://denied.example/*": expiration],
+            hasRequestedOptionalAccessToAllHosts: true,
+            hasAccessToPrivateData: false
+        )
+        let secondState = BrowserWebExtensionPermissionState(
+            grantedPermissions: ["storage": expiration],
+            deniedPermissions: [:],
+            grantedPermissionMatchPatterns: [:],
+            deniedPermissionMatchPatterns: [:],
+            hasRequestedOptionalAccessToAllHosts: false,
+            hasAccessToPrivateData: true
+        )
+
+        store.save(firstState, for: "com.example.first")
+        store.save(secondState, for: "com.example.second")
+
+        #expect(store.state(for: "com.example.first") == firstState)
+        #expect(store.state(for: "com.example.second") == secondState)
+        #expect(store.state(for: "missing") == nil)
+    }
+
+    @Test
     func pluginkitParserHandlesVerboseSpaceSeparatedOutput() {
         let output = """
         +    com.bitwarden.desktop.safari(2026.7.0)  01234567-89AB-CDEF-0123-456789ABCDEF  2026-07-09 03:21:09 +0000  /Applications/Bitwarden.app/Contents/PlugIns/safari.appex

@@ -993,6 +993,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "http",
     "https",
     "javascript",
+    "webkit-extension",
 ]
 
 func browserShouldOpenURLExternally(_ url: URL) -> Bool {
@@ -2747,6 +2748,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
     let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+    private var webExtensionPageContextIdentifier: ObjectIdentifier?
     private var isRegisteredForWebExtensions = false
     var webViewDidRequestClose: (() -> Void)?
 
@@ -3977,9 +3979,14 @@ final class BrowserPanel: Panel, ObservableObject {
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
         self.browserWebExtensionHost = browserWebExtensionHost
+        let initialExtensionNavigationConfiguration = (initialRequest?.url ?? initialURL).flatMap {
+            browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: $0)
+        }
+        let initialWebViewConfiguration = webViewConfiguration
+            ?? initialExtensionNavigationConfiguration?.webViewConfiguration
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if webViewConfiguration == nil, let prewarmed = Self.claimedPrewarmedWebView(
+        if initialWebViewConfiguration == nil, let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -3995,10 +4002,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 profileID: resolvedProfileID,
                 websiteDataStore: websiteDataStore,
                 browserWebExtensionHost: browserWebExtensionHost,
-                webViewConfiguration: webViewConfiguration
+                webViewConfiguration: initialWebViewConfiguration
             )
         }
         self.webView = webView
+        webExtensionPageContextIdentifier = initialExtensionNavigationConfiguration?.contextIdentifier
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
@@ -4011,6 +4019,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
+        }
+        navDelegate.shouldReissueNavigationForWebExtensionConfiguration = { [weak self] request in
+            self?.needsWebExtensionNavigationConfigurationSwap(for: request) ?? false
         }
         navDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
@@ -5807,6 +5818,7 @@ final class BrowserPanel: Panel, ObservableObject {
             abandonRestoredSessionHistoryIfNeeded()
         }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
+        ensureWebExtensionNavigationConfiguration(for: originalURL)
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -5828,6 +5840,83 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             pendingDiscardRestoreNavigation = startedNavigation
         }
+    }
+
+    private func needsWebExtensionNavigationConfigurationSwap(for request: URLRequest) -> Bool {
+        guard let url = request.url else { return false }
+        let targetContextIdentifier = browserWebExtensionHost?
+            .webViewConfiguration(forNavigatingTo: url)?
+            .contextIdentifier
+        return targetContextIdentifier != webExtensionPageContextIdentifier
+    }
+
+    private func ensureWebExtensionNavigationConfiguration(for url: URL) {
+        let targetConfiguration = browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: url)
+        let targetContextIdentifier = targetConfiguration?.contextIdentifier
+        guard targetContextIdentifier != webExtensionPageContextIdentifier else { return }
+        replaceWebViewForWebExtensionNavigation(
+            webViewConfiguration: targetConfiguration?.webViewConfiguration,
+            contextIdentifier: targetContextIdentifier
+        )
+    }
+
+    private func replaceWebViewForWebExtensionNavigation(
+        webViewConfiguration: WKWebViewConfiguration?,
+        contextIdentifier: ObjectIdentifier?
+    ) {
+        let oldWebView = webView
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let reason = contextIdentifier == nil ? "webExtensionNavigation.leave" : "webExtensionNavigation.enter"
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webext.webviewSwap panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+
+        detachWebViewObservers()
+        clearBrowserFocusMode(reason: reason)
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
+        loadingGeneration &+= 1
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        isLoading = false
+        estimatedProgress = 0
+        cancelPendingInteractiveBrowserPrompts(reason: reason)
+        closeBackgroundPreloadHost(reason: reason)
+        BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator.tearDown(from: oldWebView)
+        oldWebView.stopLoading()
+        isMainFrameProvisionalNavigationActive = false
+        oldWebView.navigationDelegate = nil
+        oldWebView.uiDelegate = nil
+        if let oldCmuxWebView = oldWebView as? CmuxWebView {
+            oldCmuxWebView.clearBrowserDownloadCallbacks()
+        }
+
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost,
+            webViewConfiguration: webViewConfiguration
+        )
+        replacement.pageZoom = desiredZoom
+        webViewInstanceID = UUID()
+        hasCommittedDocumentSinceWebViewReplacement = false
+        userStoppedLoadSinceWebViewReplacement = false
+        resetWebViewLifecycleMetadata(resetVisibility: false)
+        webView = replacement
+        webExtensionPageContextIdentifier = contextIdentifier
+        nativeCanGoBack = false
+        nativeCanGoForward = false
+        refreshWebViewLifecycleState()
+        bindWebView(replacement)
+        applyProxyConfigurationIfAvailable()
+        applyBrowserThemeModeIfNeeded()
+        refreshNavigationAvailability()
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
