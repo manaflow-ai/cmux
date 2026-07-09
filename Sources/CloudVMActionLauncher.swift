@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxWorkspaces
 import AppKit
 import Foundation
 
@@ -548,3 +549,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
             .joined(separator: "\n\n")
     }
 }
+
+// `ProcessOutputCollector` already supplies start/finish/cancel; this conformance
+// lets `DiffViewerLaunchService` drain its child process through the same shared
+// bounded collector the other launchers use, without naming the app type.
+extension ProcessOutputCollector: DiffViewerProcessOutputDraining {}

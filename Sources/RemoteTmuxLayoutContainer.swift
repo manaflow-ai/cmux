@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxRemoteWorkspace
 import SwiftUI
 
 /// Renders one mirrored tmux window's pane tree.

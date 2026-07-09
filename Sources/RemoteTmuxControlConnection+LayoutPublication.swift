@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 
 extension RemoteTmuxControlConnection {
 

@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxMobileShellModel
+import CmuxMobileShellModel
 public import Foundation
 import os
 
@@ -207,7 +207,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     static func parseDeviceList(in data: Data) -> [RegistryDevice]? {
         struct FailableRoute: Decodable {
             let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
+            init(from decoder: any Decoder) throws {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }
@@ -285,7 +285,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         // element decodes to `nil` and is dropped, never throwing for the array.
         struct FailableRoute: Decodable {
             let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
+            init(from decoder: any Decoder) throws {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }

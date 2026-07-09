@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
@@ -142,7 +143,7 @@ struct ConfigSettingsView: View {
         .onAppear {
             refreshSnapshots(preserveCmuxDraft: false)
         }
-        .onChange(of: configSource) { _ in
+        .onChange(of: configSource) { _, _ in
             statusMessage = ""
             statusIsError = false
         }

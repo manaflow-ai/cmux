@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNotifications
 import Foundation
 
 @MainActor
@@ -21,7 +22,7 @@ extension AppDelegate {
             ])
         }
 #endif
-        guard let context = contextContainingTabId(tabId) else {
+        guard let context = windowRegistry.contextContainingTabId(tabId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
@@ -63,14 +64,14 @@ extension AppDelegate {
     }
 
     func openNotificationInContext(
-        _ context: MainWindowContext,
+        _ context: RegisteredMainWindow,
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
 #if DEBUG
@@ -84,7 +85,7 @@ extension AppDelegate {
             return false
         }
 
-        context.sidebarSelectionState.selection = .tabs
+        sidebarSelectionState(for: context).selection = .tabs
         bringToFront(window)
         let focusSurfaceId = panelId ?? surfaceId
         guard context.tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
@@ -126,7 +127,7 @@ extension AppDelegate {
             windowId: context.windowId,
             tabId: tabId,
             surfaceId: surfaceId,
-            sidebarSelection: context.sidebarSelectionState.selection
+            sidebarSelection: sidebarSelectionState(for: context).selection
         )
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(["jumpUnreadOpenInContext": "1", "jumpUnreadOpenResult": "1"])

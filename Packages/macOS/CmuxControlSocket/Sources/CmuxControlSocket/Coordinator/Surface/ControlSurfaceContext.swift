@@ -116,17 +116,101 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - move / reorder
 
-    /// Moves a surface for `surface.move`, delegating to the shared
-    /// surface-move logic, and bridges the result to a ``ControlCallResult``.
+    /// Locates the source surface for `surface.move`: the moved surface, its
+    /// source workspace, current pane/index, and default destination pane.
     ///
-    /// The whole body is app-typed end to end (it walks windows/workspaces/panes
-    /// and mutates Bonsplit), so the coordinator passes the raw params through and
-    /// the app returns the fully shaped result (forwarding the still-app-side
-    /// `v2SurfaceMove`, exactly as `pane.join` does).
+    /// Preserves the legacy `AppDelegate`-unavailable vs surface-not-found split
+    /// (the coordinator maps each to the identical error).
     ///
-    /// - Parameter params: The raw command params.
-    /// - Returns: The fully shaped call result.
-    func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult
+    /// - Parameter surfaceID: The surface being moved.
+    /// - Returns: The source resolution.
+    func controlSurfaceMoveLocateSource(surfaceID: UUID) -> ControlSurfaceMoveSourceResolution
+
+    /// Locates the anchor surface for the `.anchor` routing branch of
+    /// `surface.move` (`before_surface_id` / `after_surface_id`).
+    ///
+    /// - Parameter surfaceID: The anchor surface id.
+    /// - Returns: The anchor snapshot, or `nil` when the anchor surface, its
+    ///   workspace, pane, or index did not resolve (legacy "Anchor surface not
+    ///   found").
+    func controlSurfaceMoveLocateAnchor(surfaceID: UUID) -> ControlSurfaceMoveAnchorSnapshot?
+
+    /// Locates the pane for the `.pane` routing branch of `surface.move`
+    /// (`pane_id`).
+    ///
+    /// - Parameter paneID: The requested destination pane id.
+    /// - Returns: The pane snapshot, or `nil` when the pane did not resolve
+    ///   (legacy "Pane not found").
+    func controlSurfaceMoveLocatePane(paneID: UUID) -> ControlSurfaceMovePaneSnapshot?
+
+    /// Locates the workspace for the `.workspace` routing branch of
+    /// `surface.move` (`workspace_id`).
+    ///
+    /// - Parameter workspaceID: The requested destination workspace id.
+    /// - Returns: The workspace snapshot, or `nil` when the workspace did not
+    ///   resolve (legacy "Workspace not found").
+    func controlSurfaceMoveLocateWorkspace(workspaceID: UUID) -> ControlSurfaceMoveWorkspaceSnapshot?
+
+    /// Locates the window for the `.window` routing branch of `surface.move`
+    /// (`window_id`), preserving the window-not-found vs no-selected-workspace
+    /// split.
+    ///
+    /// - Parameter windowID: The requested destination window id.
+    /// - Returns: The window resolution.
+    func controlSurfaceMoveLocateWindow(windowID: UUID) -> ControlSurfaceMoveWindowResolution
+
+    /// Performs the same-workspace in-place pane move for `surface.move`
+    /// (`Workspace.moveSurface`).
+    ///
+    /// The app resolves the requested-vs-allowed focus
+    /// (`v2FocusAllowed(requested:)`) itself.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The (shared source/target) workspace.
+    ///   - surfaceID: The surface being moved.
+    ///   - destinationPaneID: The destination pane.
+    ///   - index: The destination index, or `nil`.
+    ///   - requestedFocus: Whether the request asked to focus the surface.
+    /// - Returns: Whether the move succeeded (legacy `internal_error` / "Failed
+    ///   to move surface" on `false`).
+    func controlSurfaceMovePerformMove(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> Bool
+
+    /// Performs the cross-workspace transfer for `surface.move`: detach from the
+    /// source workspace, attach onto the target (rolling back to the source
+    /// pane/index on attach failure), then focus the target when allowed.
+    ///
+    /// The app resolves the requested-vs-allowed focus
+    /// (`v2FocusAllowed(requested:)`) itself and drives
+    /// `setActiveTabManager` / `selectWorkspace` / `focusMainWindow`.
+    ///
+    /// - Parameters:
+    ///   - sourceWorkspaceID: The workspace the surface currently lives in.
+    ///   - sourcePaneID: The surface's current pane (for rollback), or `nil`.
+    ///   - sourceIndex: The surface's current index (for rollback), or `nil`.
+    ///   - targetWorkspaceID: The destination workspace.
+    ///   - targetWindowID: The destination window (focused on success).
+    ///   - surfaceID: The surface being moved.
+    ///   - destinationPaneID: The destination pane.
+    ///   - index: The destination index, or `nil`.
+    ///   - requestedFocus: Whether the request asked to focus the surface.
+    /// - Returns: The transfer outcome.
+    func controlSurfaceMovePerformTransfer(
+        sourceWorkspaceID: UUID,
+        sourcePaneID: UUID?,
+        sourceIndex: Int?,
+        targetWorkspaceID: UUID,
+        targetWindowID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> ControlSurfaceMoveTransferOutcome
 
     /// Reorders a surface within its pane for `surface.reorder`.
     ///
@@ -298,9 +382,9 @@ public protocol ControlSurfaceContext: AnyObject {
         path: String
     ) -> ControlSurfaceReportPWDResolution
 
-    /// Parses a raw shell-activity token via the app's
-    /// `parseReportedShellActivityState`, returning the state's raw value (the
-    /// coordinator rejects a `nil` result as `invalid_params`).
+    /// Parses a raw shell-activity token via
+    /// `PanelShellActivityState.parseReported`, returning the state's raw value
+    /// (the coordinator rejects a `nil` result as `invalid_params`).
     ///
     /// - Parameter rawState: The raw `state`/`shell_state`/`activity` token.
     /// - Returns: The parsed state's raw value, or `nil` when unrecognized.
@@ -310,8 +394,8 @@ public protocol ControlSurfaceContext: AnyObject {
     /// actor.
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
 
-    /// Parses a raw port-scan kick reason via the app's
-    /// `parseRemotePortScanKickReason`, returning the reason's raw value (the
+    /// Parses a raw port-scan kick reason via
+    /// `PortScanKickReason.parseReported`, returning the reason's raw value (the
     /// coordinator rejects a `nil` result as `invalid_params`).
     ///
     /// - Parameter rawReason: The raw `reason` token.
@@ -359,4 +443,77 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Returns: The bridged payload, or `nil` when unavailable.
     func controlDebugTerminals() -> JSONValue?
+
+    // MARK: - v1 line-protocol surface/input bodies
+
+    /// The v1 `list_surfaces` body: lists the ordered panels of the resolved
+    /// workspace (current when `tabArg` is empty), marking the focused one.
+    ///
+    /// The whole raw reply line is returned verbatim — byte-identical to the
+    /// legacy `TerminalController.listSurfaces`. The witness carries the
+    /// irreducibly app-coupled body (`TabManager` / `Workspace` ordered-panel
+    /// reads behind the legacy `v2MainSync` hop).
+    ///
+    /// - Parameter tabArg: The raw workspace selector argument (id or index),
+    ///   or empty for the current workspace.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceListV1(tabArg: String) -> String
+
+    /// The v1 `focus_surface` body: focuses a panel of the selected workspace by
+    /// UUID or 0-based index. Returns the raw v1 reply verbatim (legacy
+    /// `focusSurface`).
+    ///
+    /// - Parameter arg: The raw panel selector argument.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceFocusV1(arg: String) -> String
+
+    /// The v1 `send` body: sends (escape-unescaped) text to the focused terminal
+    /// of the selected workspace. Returns the raw v1 reply verbatim (legacy
+    /// `sendInput`).
+    ///
+    /// - Parameter text: The raw text argument.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendInputV1(text: String) -> String
+
+    /// The v1 `send_key` body: sends a named key to the focused terminal of the
+    /// selected workspace. Returns the raw v1 reply verbatim (legacy `sendKey`).
+    ///
+    /// - Parameter keyName: The raw key-name argument.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendKeyV1(keyName: String) -> String
+
+    /// The v1 `send_surface` body: sends (escape-unescaped) text to a specific
+    /// terminal by id or index. Returns the raw v1 reply verbatim (legacy
+    /// `sendInputToSurface`).
+    ///
+    /// - Parameter args: The raw `<id|idx> <text>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendInputToSurfaceV1(args: String) -> String
+
+    /// The v1 `send_key_surface` body: sends a named key to a specific terminal
+    /// by id or index. Returns the raw v1 reply verbatim (legacy
+    /// `sendKeyToSurface`).
+    ///
+    /// - Parameter args: The raw `<id|idx> <key>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendKeyToSurfaceV1(args: String) -> String
+
+    #if DEBUG
+    /// The DEBUG-only v1 `send_workspace` body: sends (escape-unescaped) text to
+    /// the selected terminal of an arbitrary workspace by UUID. Returns the raw
+    /// v1 reply verbatim (legacy `sendInputToWorkspace`).
+    ///
+    /// - Parameter args: The raw `<workspace_id> <text>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendInputToWorkspaceV1(args: String) -> String
+    #endif
+
+    /// The v1 `read_screen` body: reads plain-text terminal contents for the
+    /// resolved surface (with optional scrollback / line-limit options). Returns
+    /// the raw v1 reply verbatim (legacy `readScreenText`).
+    ///
+    /// - Parameter args: The raw `[id|idx] [--scrollback] [--lines N]` argument
+    ///   remainder.
+    /// - Returns: The decoded plain-text screen contents, or an `ERROR:` line.
+    func controlSurfaceReadScreenV1(args: String) -> String
 }

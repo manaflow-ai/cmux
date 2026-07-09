@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// Persists saved workspace layout results into the global cmux.json,

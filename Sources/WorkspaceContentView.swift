@@ -3,15 +3,13 @@ import Foundation
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxRemoteWorkspace
 import Bonsplit
+import CmuxCore
+import CmuxWindowing
 import CmuxWorkspaces
 import CmuxTerminal
-
-private enum WorkspaceTitlebarInteractionMetrics {
-    // Keep in sync with the minimal-mode titlebar strip so the monitor only
-    // covers titlebar chrome.
-    static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
+import CmuxTerminalCore
 
 private struct WorkspacePanelContentHostView: View {
     let workspace: Workspace
@@ -54,6 +52,12 @@ private struct WorkspacePanelContentHostView: View {
             onTriggerFlash: onTriggerFlash
         )
     }
+}
+
+private enum WorkspaceTitlebarInteractionMetrics {
+    // Keep in sync with the minimal-mode titlebar strip so the monitor only
+    // covers titlebar chrome.
+    static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
 @MainActor
@@ -118,7 +122,11 @@ struct WorkspaceContentView: View {
         let forceInitialApply: Bool
     }
 
-    @ObservedObject var workspace: Workspace
+    // `Workspace` is `@Observable`; SwiftUI tracks the exact stored properties
+    // this `body` reads (including nested `@Observable` sub-models like
+    // `paneTree`/`surfaceRegistry`/`unreadModel`), so a plain `var` replaces the
+    // legacy `@ObservedObject`.
+    var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     /// True when the right sidebar (Dock / Files / Find) owns keyboard focus in
@@ -157,6 +165,12 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+        // Track the shared live-agent index revision so Observation re-renders
+        // this view (and re-evaluates bonsplit's Fork Conversation availability
+        // provider) the moment a background `SharedLiveAgentIndex` refresh lands.
+        // Replaces the former `SharedLiveAgentIndex -> workspace.objectWillChange`
+        // forward now that `Workspace` is `@Observable`.
+        let _ = workspace.liveAgentIndexRevision
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
 #endif
@@ -412,113 +426,6 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
-        topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
-    )
-
-    private static func tmuxWorkspacePaneRects(
-        workspace: Workspace,
-        notificationStore: TerminalNotificationStore,
-        layoutSnapshot: LayoutSnapshot?,
-        includeContainerOffset: Bool
-    ) -> [CGRect] {
-        guard let layoutSnapshot else { return [] }
-        let geometry = tmuxPaneOverlayGeometry
-        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
-        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-
-        return layoutSnapshot.panes.compactMap { pane in
-            guard let selectedTabId = pane.selectedTabId,
-                  let tabUUID = UUID(uuidString: selectedTabId),
-                  let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)) else {
-                return nil
-            }
-
-            let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
-                hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                    forTabId: workspace.id,
-                    surfaceId: panelId
-                ),
-                hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
-                    workspace.restoredUnreadPanelIds.contains(panelId),
-                isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
-                isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
-            )
-            guard shouldShowUnread else { return nil }
-
-            let paneRect = pane.frame.cgRect
-            let rect: CGRect
-            if includeContainerOffset {
-                rect = paneRect.offsetBy(
-                    dx: 0,
-                    dy: -CGFloat(layoutSnapshot.containerFrame.y)
-                )
-            } else {
-                rect = paneRect.offsetBy(
-                    dx: -CGFloat(layoutSnapshot.containerFrame.x),
-                    dy: -CGFloat(layoutSnapshot.containerFrame.y)
-                )
-            }
-            return geometry.contentRect(rect)
-        }
-    }
-
-    static func tmuxWorkspacePaneOverlayRect(
-        layoutSnapshot: LayoutSnapshot?,
-        paneId: PaneID?
-    ) -> CGRect? {
-        tmuxPaneOverlayGeometry.overlayRect(
-            layoutSnapshot: layoutSnapshot,
-            paneId: paneId
-        )
-    }
-
-    static func tmuxWorkspacePaneWindowOverlayRect(
-        layoutSnapshot: LayoutSnapshot?,
-        paneId: PaneID?
-    ) -> CGRect? {
-        tmuxPaneOverlayGeometry.windowOverlayRect(
-            layoutSnapshot: layoutSnapshot,
-            paneId: paneId
-        )
-    }
-
-    static func effectiveTmuxLayoutSnapshot(
-        cachedSnapshot: LayoutSnapshot?,
-        liveSnapshot: LayoutSnapshot?
-    ) -> LayoutSnapshot? {
-        tmuxPaneOverlayGeometry.effectiveSnapshot(
-            cachedSnapshot: cachedSnapshot,
-            liveSnapshot: liveSnapshot
-        )
-    }
-
-    static func tmuxWorkspacePaneUnreadRects(
-        workspace: Workspace,
-        notificationStore: TerminalNotificationStore,
-        layoutSnapshot: LayoutSnapshot?
-    ) -> [CGRect] {
-        tmuxWorkspacePaneRects(
-            workspace: workspace,
-            notificationStore: notificationStore,
-            layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: false
-        )
-    }
-
-    static func tmuxWorkspacePaneWindowUnreadRects(
-        workspace: Workspace,
-        notificationStore: TerminalNotificationStore,
-        layoutSnapshot: LayoutSnapshot?
-    ) -> [CGRect] {
-        tmuxWorkspacePaneRects(
-            workspace: workspace,
-            notificationStore: notificationStore,
-            layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: true
-        )
-    }
-
     private func flushDeferredThemeRefreshIfNeeded() {
         guard isWorkspaceVisible,
               let deferredRefresh = deferredThemeRefresh else { return }
@@ -561,8 +468,7 @@ struct WorkspaceContentView: View {
         }
         deferredThemeRefresh = nil
 
-        let previousSignature = Self.ghosttyAppearanceSignature(
-            config,
+        let previousSignature = config.appearanceSignature(
             usesHostLayerBackground: lastAppliedUsesHostLayerBackground
         )
         let previousBackgroundHex = config.backgroundColor.hexString()
@@ -571,8 +477,7 @@ struct WorkspaceContentView: View {
             backgroundOverride: backgroundOverride
         )
         let nextUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-        let nextSignature = Self.ghosttyAppearanceSignature(
-            next,
+        let nextSignature = next.appearanceSignature(
             usesHostLayerBackground: nextUsesHostLayerBackground
         )
         let eventLabel = backgroundEventId.map(String.init) ?? "nil"
@@ -649,32 +554,18 @@ struct WorkspaceContentView: View {
 
 extension WorkspaceContentView {
     static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
-        var parts: [String] = []
-        if let terminalPanel = panel as? TerminalPanel {
-            if let initialCommand = terminalPanel.surface.initialCommand {
-                parts.append("initialCommand:\(initialCommand)")
-            }
-            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
-                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
-            }
-            if let pendingLaunchCommand = terminalPanel.textBoxState.pendingLaunchCommand?
+        var context = workspace.terminalAgentContext(panel: panel)
+        guard let terminalPanel = panel as? TerminalPanel,
+              let pendingLaunchCommand = terminalPanel.textBoxState.pendingLaunchCommand?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-               !pendingLaunchCommand.isEmpty {
-                parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
-            }
+              !pendingLaunchCommand.isEmpty else {
+            return context
         }
-        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
-            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
+        if !context.isEmpty {
+            context.append("\n")
         }
-        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
-            for key in agentPIDKeys.sorted() {
-                parts.append("agentPIDKey:\(key)")
-            }
-        }
-        return parts
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+        context.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
+        return context
     }
 
     #if DEBUG
@@ -699,115 +590,6 @@ extension WorkspaceContentView {
         _ = workspace
     }
     #endif
-}
-
-/// View shown for empty panes
-struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
-    let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-
-    private struct ShortcutHint: View {
-        let text: String
-
-        var body: some View {
-            Text(text)
-                .cmuxFont(size: 11, weight: .semibold, design: .rounded)
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.white.opacity(0.18), in: Capsule())
-        }
-    }
-
-    private func focusPane() {
-        workspace.bonsplitController.focusPane(paneId)
-    }
-
-    private func createTerminal() {
-        #if DEBUG
-        cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
-        #endif
-        focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId, inheritWorkingDirectoryFallback: true)
-    }
-
-    private func createBrowser() {
-        #if DEBUG
-        cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
-        #endif
-        focusPane()
-        _ = workspace.newBrowserSurface(inPane: paneId)
-    }
-
-    private var newSurfaceShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .newSurface)
-    }
-
-    private var openBrowserShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .openBrowser)
-    }
-
-    @ViewBuilder
-    private func emptyPaneActionButton(
-        title: String,
-        systemImage: String,
-        shortcut: StoredShortcut,
-        action: @escaping () -> Void
-    ) -> some View {
-        let button = Button(action: action) {
-            HStack(spacing: 10) {
-                HStack(spacing: 6) {
-                    CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
-                    Text(title)
-                }
-                ShortcutHint(text: shortcut.displayString)
-            }
-        }
-        .buttonStyle(.borderedProminent)
-
-        if let key = shortcut.keyEquivalent {
-            button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
-        } else {
-            button
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
-                .foregroundStyle(.tertiary)
-
-            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
-                .cmuxFont(.headline)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                emptyPaneActionButton(
-                    title: "Terminal",
-                    systemImage: "terminal.fill",
-                    shortcut: newSurfaceShortcut,
-                    action: createTerminal
-                )
-
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
-#if DEBUG
-        .onAppear {
-            DebugUIEventCounters.emptyPanelAppearCount += 1
-        }
-#endif
-    }
 }
 
 #if DEBUG

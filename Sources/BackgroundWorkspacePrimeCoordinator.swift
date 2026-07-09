@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import CmuxTerminal
 
 @MainActor
@@ -55,10 +54,6 @@ final class BackgroundWorkspacePrimeCoordinator {
 
         func addObserver(_ observer: NSObjectProtocol) {
             addCleanup { NotificationCenter.default.removeObserver(observer) }
-        }
-
-        func addCancellable(_ cancellable: AnyCancellable) {
-            addCleanup { cancellable.cancel() }
         }
 
         func addTask(_ task: Task<Void, Never>) {
@@ -285,31 +280,95 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
         waiter.addObserver(hostedViewObserver)
 
-        let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
-            .dropFirst()
-            .sink { [weak self, weak waiter, weak tabManager] pendingIds in
-                guard !pendingIds.contains(workspaceId),
-                      let self,
-                      let waiter,
-                      let tabManager else { return }
-                Task { @MainActor in
-                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
-                }
-            }
-        waiter.addCancellable(pendingObserver)
+        // Observation replaces the retired `$pendingBackgroundWorkspaceLoadIds`
+        // Combine bridge. `withObservationTracking` fires only on a genuine
+        // change (never an initial emit), matching the previous `.dropFirst()`,
+        // and re-arms itself until the waiter resolves so subsequent drains are
+        // still observed. The change handler reads the post-change set on the
+        // MainActor, mirroring the sink body.
+        observePendingBackgroundWorkspaceLoadDrain(
+            waiter: waiter,
+            workspaceId: workspaceId,
+            tabManager: tabManager
+        )
 
-        let tabsObserver = tabManager.tabsPublisher
-            .dropFirst()
-            .sink { [weak self, weak waiter, weak tabManager] tabs in
-                guard !tabs.contains(where: { $0.id == workspaceId }),
-                      let self,
-                      let waiter,
-                      let tabManager else { return }
-                Task { @MainActor in
+        // Observation replaces the retired `tabsPublisher` Combine bridge.
+        // `withObservationTracking` fires only on a genuine change (never an
+        // initial emit), matching the previous `.dropFirst()`, and re-arms
+        // itself until the waiter resolves so a later removal is still observed.
+        observeWorkspaceRemovalFromTabs(
+            waiter: waiter,
+            workspaceId: workspaceId,
+            tabManager: tabManager
+        )
+    }
+
+    /// Re-arming Observation watch on the `@Observable` ``WorkspacesModel``
+    /// `tabs` list, replacing the retired `tabsPublisher` Combine bridge fed by
+    /// the legacy `@Published tabs`. `onChange` fires once per genuine change
+    /// (at `willSet` time), so the handler hops to the MainActor to read the
+    /// post-change list, fires `evaluate` when this workspace has been removed,
+    /// then re-arms unless the waiter has resolved. The re-arm task is
+    /// registered with the waiter so it is cancelled on completion/teardown,
+    /// mirroring the old cancellable's lifetime (and the sibling
+    /// ``observePendingBackgroundWorkspaceLoadDrain(waiter:workspaceId:tabManager:)``).
+    private func observeWorkspaceRemovalFromTabs(
+        waiter: Waiter,
+        workspaceId: UUID,
+        tabManager: TabManager
+    ) {
+        guard !waiter.isResolved else { return }
+        let model = tabManager.workspaces
+        withObservationTracking {
+            _ = model.tabs
+        } onChange: { [weak self, weak waiter, weak tabManager] in
+            let rearm = Task { @MainActor [weak self, weak waiter, weak tabManager] in
+                guard let self, let waiter, let tabManager, !waiter.isResolved else { return }
+                if !tabManager.tabs.contains(where: { $0.id == workspaceId }) {
                     self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
                 }
+                self.observeWorkspaceRemovalFromTabs(
+                    waiter: waiter,
+                    workspaceId: workspaceId,
+                    tabManager: tabManager
+                )
             }
-        waiter.addCancellable(tabsObserver)
+            waiter?.addTask(rearm)
+        }
+    }
+
+    /// Re-arming Observation watch on the `@Observable`
+    /// ``BackgroundWorkspaceLoadModel`` pending-load set, replacing the retired
+    /// `$pendingBackgroundWorkspaceLoadIds` Combine bridge. `onChange` fires
+    /// once per genuine change (before the change commits), so the handler hops
+    /// to the MainActor to read the post-change set, fires `evaluate` when this
+    /// workspace has drained out of the pending set, then re-arms unless the
+    /// waiter has resolved. The re-arm task is registered with the waiter so it
+    /// is cancelled on completion/teardown, mirroring the old cancellable's
+    /// lifetime.
+    private func observePendingBackgroundWorkspaceLoadDrain(
+        waiter: Waiter,
+        workspaceId: UUID,
+        tabManager: TabManager
+    ) {
+        guard !waiter.isResolved else { return }
+        let model = tabManager.backgroundWorkspaceLoad
+        withObservationTracking {
+            _ = model.pendingBackgroundWorkspaceLoadIds
+        } onChange: { [weak self, weak waiter, weak tabManager] in
+            let rearm = Task { @MainActor [weak self, weak waiter, weak tabManager] in
+                guard let self, let waiter, let tabManager, !waiter.isResolved else { return }
+                if !tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
+                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                }
+                self.observePendingBackgroundWorkspaceLoadDrain(
+                    waiter: waiter,
+                    workspaceId: workspaceId,
+                    tabManager: tabManager
+                )
+            }
+            waiter?.addTask(rearm)
+        }
     }
 
     private func evaluate(waiter: Waiter, workspaceId: UUID, tabManager: TabManager) {

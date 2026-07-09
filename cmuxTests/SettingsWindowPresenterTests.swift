@@ -12,7 +12,7 @@ import Testing
 @Suite(.serialized)
 struct SettingsWindowPresenterTests {
     @Test func configureWindowLeavesPendingNavigationForSettingsViews() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: "cmux.unconfiguredSettings.\(UUID().uuidString)")
             var didOpen = false
@@ -36,7 +36,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func repeatedConfigureForSameSettingsWindowDoesNotRefocus() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
             defer {
@@ -55,7 +55,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func configureWindowWithoutOpenRequestDoesNotFocus() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
             defer {
@@ -72,7 +72,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func showPreservesPendingNavigationWhenExistingSettingsWindowIsMiniaturized() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(
                 identifier: SettingsWindowPresenter.windowIdentifier,
@@ -99,7 +99,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func closedSettingsWindowReopensThroughSceneInsteadOfRetainingHiddenTree() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
             var didOpen = false
@@ -127,7 +127,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func showReusesTrackedOrderedOutSettingsWindow() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
             var didOpen = false
@@ -149,7 +149,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func repeatedShowWhileSettingsSceneIsOpeningCoalescesOpenRequests() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openCallCount = 0
 
@@ -161,7 +161,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func refocusIfVisibleDoesNotReopenClosedSettingsWindow() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
             defer {
@@ -185,7 +185,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func doesNotAttachSettingsAsChildOfPreferredMainWindow() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
@@ -209,7 +209,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func focusingSettingsKeepsItAsPeerWhenPreferredMainWindowChanges() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let firstParent = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
             let secondParent = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
@@ -243,7 +243,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func settingsSurvivesPreferredMainWindowCloseAsIndependentPeer() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
@@ -270,7 +270,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func adoptCmuxPeerWindowLevelBringsFloatingWindowToNormal() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let window = makeWindow(identifier: "cmux.peer.\(UUID().uuidString)")
             defer {
                 window.orderOut(nil)
@@ -460,7 +460,7 @@ struct SettingsWindowPresenterTests {
     // the silently-dropped request and re-request the window, bounded at
     // exactly one retry by maxOpenAttempts.
     @Test func showReRequestsWindowWhenOpenRequestSilentlyProducesNoWindow() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openRequests = 0
             presenter.configure(openWindow: { openRequests += 1 })
@@ -482,7 +482,7 @@ struct SettingsWindowPresenterTests {
     // deferred request must get the same lost-request verification as a
     // direct one instead of being fired blind.
     @Test func deferredOpenRequestAlsoVerifiesAndRetries() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openRequests = 0
 
@@ -506,7 +506,7 @@ struct SettingsWindowPresenterTests {
     // calls SwiftUI openWindow(id:)) hits the same mid-teardown no-op, so it
     // must get the same lost-request verification and single retry.
     @Test func overrideOpenRequestAlsoVerifiesAndRetries() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openRequests = 0
 
@@ -524,7 +524,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func retryKeepsOpeningRequestsCoalescedUntilWindowMaterializes() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openRequests = 0
 
@@ -544,7 +544,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func scheduledVerificationCanAdvanceWithoutRealWaiting() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter(openVerificationDelay: .zero)
             var openRequests = 0
 
@@ -561,7 +561,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func giveUpClearsOpeningFlagSoNextShowCanRequestAgain() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openRequests = 0
 
@@ -580,7 +580,7 @@ struct SettingsWindowPresenterTests {
     }
 
     @Test func materializedVerificationUsesIdentifierScannedWindowAndClearsOpeningFlag() async throws {
-        try await withCleanSettingsWindows {
+        await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             var openRequests = 0
 

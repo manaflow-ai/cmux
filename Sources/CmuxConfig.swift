@@ -1,13 +1,11 @@
 import Bonsplit
+import CmuxCore
 import CmuxFoundation
+import CmuxWorkspaces
 import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
-
-extension CodingUserInfoKey {
-    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
-}
 
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
@@ -1654,6 +1652,205 @@ struct CmuxResolvedCommand: Sendable {
     let sourcePath: String?
 }
 
+extension CmuxWorkspaces.CmuxCommandDefinition {
+    init(appCommand command: CmuxCommandDefinition) {
+        self.init(
+            name: command.name,
+            description: command.description,
+            keywords: command.keywords,
+            restart: command.restart.map(CmuxWorkspaces.CmuxRestartBehavior.init(appRestartBehavior:)),
+            workspace: command.workspace,
+            command: command.command,
+            confirm: command.confirm
+        )
+    }
+}
+
+extension CmuxCommandDefinition {
+    init(cmuxWorkspacesCommand command: CmuxWorkspaces.CmuxCommandDefinition) {
+        self.init(
+            name: command.name,
+            description: command.description,
+            keywords: command.keywords,
+            restart: command.restart.map(CmuxRestartBehavior.init(cmuxWorkspacesRestartBehavior:)),
+            workspace: command.workspace,
+            command: command.command,
+            confirm: command.confirm
+        )
+    }
+}
+
+extension CmuxWorkspaces.CmuxRestartBehavior {
+    init(appRestartBehavior restart: CmuxRestartBehavior) {
+        self = Self(rawValue: restart.rawValue)!
+    }
+}
+
+extension CmuxRestartBehavior {
+    init(cmuxWorkspacesRestartBehavior restart: CmuxWorkspaces.CmuxRestartBehavior) {
+        self = Self(rawValue: restart.rawValue)!
+    }
+}
+
+extension CmuxWorkspaces.CmuxResolvedCommand {
+    init(appCommand command: CmuxResolvedCommand) {
+        self.init(
+            command: CmuxWorkspaces.CmuxCommandDefinition(appCommand: command.command),
+            sourcePath: command.sourcePath
+        )
+    }
+}
+
+extension CmuxResolvedCommand {
+    init(cmuxWorkspacesCommand command: CmuxWorkspaces.CmuxResolvedCommand) {
+        self.init(
+            command: CmuxCommandDefinition(cmuxWorkspacesCommand: command.command),
+            sourcePath: command.sourcePath
+        )
+    }
+}
+
+extension CmuxWorkspaces.CmuxConfigTerminalCommandTarget {
+    init(appTarget target: CmuxConfigTerminalCommandTarget) {
+        self = Self(rawValue: target.rawValue) ?? .defaultForActions
+    }
+}
+
+extension CmuxConfigTerminalCommandTarget {
+    init(cmuxWorkspacesTarget target: CmuxWorkspaces.CmuxConfigTerminalCommandTarget) {
+        self = Self(rawValue: target.rawValue) ?? .defaultForActions
+    }
+}
+
+extension CmuxWorkspaces.CmuxButtonIcon {
+    init(appIcon icon: CmuxButtonIcon) {
+        switch icon {
+        case .symbol(let name):
+            self = .symbol(name)
+        case .emoji(let value, let scale):
+            self = .emoji(value, scale: scale)
+        case .imagePath(let path):
+            self = .imagePath(path)
+        }
+    }
+}
+
+extension CmuxButtonIcon {
+    init(cmuxWorkspacesIcon icon: CmuxWorkspaces.CmuxButtonIcon) {
+        switch icon {
+        case .symbol(let name):
+            self = .symbol(name)
+        case .emoji(let value, let scale):
+            self = .emoji(value, scale: scale)
+        case .imagePath(let path):
+            self = .imagePath(path)
+        }
+    }
+}
+
+extension CmuxWorkspaces.CmuxConfigAgentKind {
+    init?(appAgent agent: CmuxConfigAgentKind) {
+        switch agent {
+        case .codex:
+            self = .codex
+        case .claudeCode:
+            self = .claudeCode
+        case .opencode, .custom:
+            return nil
+        }
+    }
+}
+
+extension CmuxConfigAgentKind {
+    init(cmuxWorkspacesAgent agent: CmuxWorkspaces.CmuxConfigAgentKind) {
+        switch agent {
+        case .codex:
+            self = .codex
+        case .claudeCode:
+            self = .claudeCode
+        }
+    }
+}
+
+extension CmuxWorkspaces.CmuxSurfaceTabBarButtonAction {
+    init(appAction action: CmuxSurfaceTabBarButtonAction, fallbackWorkspaceCommandName: String) {
+        switch action {
+        case .builtIn(let builtIn):
+            self = .builtIn(builtIn)
+        case .command(let command):
+            self = .command(command)
+        case .agent(let agent, let args):
+            if let packageAgent = CmuxWorkspaces.CmuxConfigAgentKind(appAgent: agent) {
+                self = .agent(packageAgent, args: args)
+            } else {
+                self = .command(action.terminalCommand ?? agent.commandName)
+            }
+        case .workspaceCommand(let commandName):
+            self = .workspaceCommand(commandName)
+        case .workspace:
+            self = .workspaceCommand(fallbackWorkspaceCommandName)
+        case .actionReference(let identifier):
+            self = .actionReference(identifier)
+        }
+    }
+}
+
+extension CmuxSurfaceTabBarButtonAction {
+    init(cmuxWorkspacesAction action: CmuxWorkspaces.CmuxSurfaceTabBarButtonAction) {
+        switch action {
+        case .builtIn(let builtIn):
+            self = .builtIn(builtIn)
+        case .command(let command):
+            self = .command(command)
+        case .agent(let agent, let args):
+            self = .agent(CmuxConfigAgentKind(cmuxWorkspacesAgent: agent), args: args)
+        case .workspaceCommand(let commandName):
+            self = .workspaceCommand(commandName)
+        case .actionReference(let identifier):
+            self = .actionReference(identifier)
+        }
+    }
+}
+
+extension CmuxWorkspaces.CmuxSurfaceTabBarButton {
+    init(appButton button: CmuxSurfaceTabBarButton) {
+        self.init(
+            id: button.id,
+            title: button.title,
+            icon: button.icon.map(CmuxWorkspaces.CmuxButtonIcon.init(appIcon:)),
+            tooltip: button.tooltip,
+            action: CmuxWorkspaces.CmuxSurfaceTabBarButtonAction(
+                appAction: button.action,
+                fallbackWorkspaceCommandName: button.id
+            ),
+            confirm: button.confirm,
+            terminalCommandTarget: button.terminalCommandTarget.map(
+                CmuxWorkspaces.CmuxConfigTerminalCommandTarget.init(appTarget:)
+            ),
+            actionSourcePath: button.actionSourcePath,
+            iconSourcePath: button.iconSourcePath
+        )
+    }
+}
+
+extension CmuxSurfaceTabBarButton {
+    init(cmuxWorkspacesButton button: CmuxWorkspaces.CmuxSurfaceTabBarButton) {
+        self.init(
+            id: button.id,
+            title: button.title,
+            icon: button.icon.map(CmuxButtonIcon.init(cmuxWorkspacesIcon:)),
+            tooltip: button.tooltip,
+            action: CmuxSurfaceTabBarButtonAction(cmuxWorkspacesAction: button.action),
+            confirm: button.confirm,
+            terminalCommandTarget: button.terminalCommandTarget.map(
+                CmuxConfigTerminalCommandTarget.init(cmuxWorkspacesTarget:)
+            ),
+            actionSourcePath: button.actionSourcePath,
+            iconSourcePath: button.iconSourcePath
+        )
+    }
+}
+
 struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     enum Kind: String, Sendable {
         case newWorkspaceActionNotFound
@@ -1797,6 +1994,9 @@ final class CmuxConfigStore: ObservableObject {
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
+    private var trackingWorkspacesObservations: [WorkspacesObservation] = []
+    private var trackedSurfaceTabBarWorkspaceId: UUID??
+    private var surfaceTabBarDirectoryCancellable: AnyCancellable?
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
@@ -1853,6 +2053,11 @@ final class CmuxConfigStore: ObservableObject {
     deinit {
         localFileWatchSource?.cancel()
         localFallbackDirectoryWatchSource?.cancel()
+        let observations = trackingWorkspacesObservations
+        Task { @MainActor in
+            observations.forEach { $0.cancel() }
+        }
+        surfaceTabBarDirectoryCancellable?.cancel()
         hookWatchTasks.values.forEach { $0.cancel() }
         globalWatchTask?.cancel()
     }
@@ -1861,32 +2066,47 @@ final class CmuxConfigStore: ObservableObject {
 
     func wireDirectoryTracking(tabManager: TabManager) {
         trackingCancellables.removeAll()
+        trackingWorkspacesObservations.forEach { $0.cancel() }
+        trackingWorkspacesObservations.removeAll()
+        surfaceTabBarDirectoryCancellable?.cancel()
+        surfaceTabBarDirectoryCancellable = nil
+        trackedSurfaceTabBarWorkspaceId = nil
         self.tabManager = tabManager
 
-        tabManager.selectedTabIdPublisher
-            .compactMap { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
-            }
-            .removeDuplicates(by: { $0.id == $1.id })
-            .map { workspace -> AnyPublisher<String?, Never> in
-                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
-            }
-            .switchToLatest()
+        trackingWorkspacesObservations = [
+            tabManager.workspaces.observeSelectedTabId { [weak self, weak tabManager] in
+                self?.rewireSurfaceTabBarDirectoryTracking(tabManager: tabManager)
+            },
+            tabManager.workspaces.observeTabs { [weak self, weak tabManager] in
+                self?.applySurfaceTabBarButtonsToCurrentManager()
+                self?.rewireSurfaceTabBarDirectoryTracking(tabManager: tabManager)
+            },
+        ]
+
+        rewireSurfaceTabBarDirectoryTracking(tabManager: tabManager)
+    }
+
+    private func rewireSurfaceTabBarDirectoryTracking(tabManager: TabManager?) {
+        guard let tabManager else { return }
+        let workspace = tabManager.selectedTabId.flatMap { selectedTabId in
+            tabManager.tabs.first(where: { $0.id == selectedTabId })
+        }
+        let workspaceId = workspace?.id
+        if let trackedSurfaceTabBarWorkspaceId, trackedSurfaceTabBarWorkspaceId == workspaceId {
+            return
+        }
+        trackedSurfaceTabBarWorkspaceId = .some(workspaceId)
+        surfaceTabBarDirectoryCancellable?.cancel()
+        guard let workspace else {
+            updateLocalConfigPath(nil)
+            return
+        }
+        updateLocalConfigPath(workspace.surfaceTabBarDirectory)
+        surfaceTabBarDirectoryCancellable = workspace.surfaceTabBarDirectoryPublisher
             .removeDuplicates()
             .sink { [weak self] directory in
                 self?.updateLocalConfigPath(directory)
             }
-            .store(in: &trackingCancellables)
-
-        tabManager.tabsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applySurfaceTabBarButtonsToCurrentManager()
-            }
-            .store(in: &trackingCancellables)
-
-        updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
@@ -2987,7 +3207,7 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
-        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
+        let paletteFingerprint = WorkspaceTabColorSettings().paletteCacheFingerprint()
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxCore
 import Darwin
 import Foundation
@@ -1102,35 +1103,6 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
     }
 
-    @Test func testRemotePTYAllWorkspacesTreatsMissingPTYListAsUnsupported() {
-        let unsupported = NSError(
-            domain: "cmux.remote.daemon.rpc",
-            code: 14,
-            userInfo: [
-                NSLocalizedDescriptionKey: "pty.list failed (method_not_found): Unknown method",
-            ]
-        )
-        XCTAssertTrue(remotePTYSessionListErrorIsUnsupportedDaemon(unsupported))
-
-        let notReady = NSError(
-            domain: "cmux.remote.pty",
-            code: 1,
-            userInfo: [
-                NSLocalizedDescriptionKey: "remote daemon is not ready",
-            ]
-        )
-        XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(notReady))
-
-        let differentRPCMethod = NSError(
-            domain: "cmux.remote.daemon.rpc",
-            code: 14,
-            userInfo: [
-                NSLocalizedDescriptionKey: "pty.close failed (method_not_found): Unknown method",
-            ]
-        )
-        XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(differentRPCMethod))
-    }
-
     @Test func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
         let socketPath = makeSocketPath("notify-surface")
         let store = TerminalNotificationStore.shared
@@ -1173,16 +1145,13 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        let workspaceID = workspace.id.uuidString, targetPanelID = targetPanel.id.uuidString
         let response = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let response = try self.sendV2Request(
                         method: "notification.create",
-                        params: [
-                            "workspace_id": workspace.id.uuidString,
-                            "surface_id": targetPanel.id.uuidString,
-                            "title": "Targeted"
-                        ],
+                        params: ["workspace_id": workspaceID, "surface_id": targetPanelID, "title": "Targeted"],
                         to: socketPath
                     )
                     continuation.resume(returning: response)
@@ -1366,12 +1335,13 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        let pinnedWorkspaceID = pinnedWorkspace.id.uuidString
         let response = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let response = try self.sendV2Request(
                         method: "workspace.close",
-                        params: ["workspace_id": pinnedWorkspace.id.uuidString],
+                        params: ["workspace_id": pinnedWorkspaceID],
                         to: socketPath
                     )
                     continuation.resume(returning: response)

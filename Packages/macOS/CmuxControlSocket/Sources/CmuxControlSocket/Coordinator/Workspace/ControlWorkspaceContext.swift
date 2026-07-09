@@ -282,4 +282,231 @@ public protocol ControlWorkspaceContext: AnyObject {
         surfaceID: UUID,
         relayPort: Int
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution
+
+    // MARK: - Set auto title
+
+    /// Whether workspace auto-naming is enabled in Settings, for the
+    /// `workspace.set_auto_title` non-probe gate (the legacy `disabled` error
+    /// reads this first).
+    ///
+    /// - Returns: The auto-naming enabled flag.
+    func controlWorkspaceAutoNamingEnabled() -> Bool
+
+    /// Builds the `workspace.set_auto_title` probe snapshot: the enabled flag,
+    /// the summarizer agent slug to report, and (only when `hasWorkspaceID` and a
+    /// TabManager resolves) whether the user owns the workspace's title.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - hasWorkspaceID: Whether the request carried a `workspace_id` param
+    ///     (a valid one, already parsed by the coordinator).
+    ///   - workspaceID: The parsed `workspace_id`, if present.
+    /// - Returns: The probe snapshot.
+    func controlWorkspaceAutoTitleProbe(
+        routing: ControlRoutingSelectors,
+        hasWorkspaceID: Bool,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceAutoTitleProbe
+
+    /// Records an auto-naming failure on the Settings status line for the
+    /// `workspace.set_auto_title` `failure` branch (it never reaches a workspace
+    /// or tab title).
+    ///
+    /// - Parameters:
+    ///   - rawCategory: The raw `failure` category string.
+    ///   - agent: The reporting `agent` string (empty when absent).
+    func controlRecordAutoNamingFailure(rawCategory: String, agent: String)
+
+    /// Applies an auto-generated title for `workspace.set_auto_title`: resolves
+    /// the workspace, sets its title with the `.auto` source, optionally sets a
+    /// panel title, and clears any stale auto-naming failure when the workspace
+    /// title applied.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The target workspace.
+    ///   - title: The trimmed, non-empty title.
+    ///   - panelID: The optional panel id (or surface id) to also title.
+    ///   - panelOnlyIfMultiple: Whether to skip the panel title when the
+    ///     workspace has fewer than two panels.
+    /// - Returns: The apply resolution.
+    func controlApplyWorkspaceAutoTitle(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        title: String,
+        panelID: UUID?,
+        panelOnlyIfMultiple: Bool
+    ) -> ControlWorkspaceSetAutoTitleResolution
+
+    // MARK: - Env
+
+    /// Reads a workspace's user-defined environment for `workspace.env`
+    /// (issue #5995). Resolves strictly for explicit targets (the coordinator
+    /// already validated each explicit-target key), falling back to the selected
+    /// workspace only when no explicit target was supplied.
+    ///
+    /// - Parameter routing: The routing selectors used for TabManager +
+    ///   workspace resolution.
+    /// - Returns: The env resolution.
+    func controlWorkspaceEnv(routing: ControlRoutingSelectors) -> ControlWorkspaceEnvResolution
+
+    // MARK: - v1 line-protocol witnesses
+
+    /// The v1 `list_workspaces` body: lists the active controller's workspaces.
+    ///
+    /// The v1 command read the controller's own active `TabManager` directly
+    /// (erroring when absent) and emitted flat `<sel> <idx>: <uuid> <title>`
+    /// lines, distinct from the JSON `workspace.list`, so it carries its own
+    /// witness.
+    ///
+    /// - Returns: The flat v1 reply line(s).
+    func controlListWorkspacesV1() -> String
+
+    /// The v1 `current_workspace` body: the active controller's selected
+    /// workspace id.
+    ///
+    /// - Returns: The flat v1 reply line.
+    func controlCurrentWorkspaceV1() -> String
+
+    /// The v1 `new_workspace` body: creates a workspace in the active
+    /// controller's `TabManager`, selecting/eager-loading per the active
+    /// focus-allowance gate, and returns the flat `OK <uuid>` line.
+    ///
+    /// - Parameter args: The raw (trimmed-to-title) argument remainder.
+    /// - Returns: The flat v1 reply line.
+    func controlNewWorkspaceV1(args: String) -> String
+
+    /// The v1 `new_split` body: parses `<direction> [panel]`, resolves the
+    /// target surface (explicit panel or the focused one), rejects a left/up
+    /// split in a remote tmux mirror, and creates the split.
+    ///
+    /// - Parameter args: The raw argument remainder.
+    /// - Returns: The flat v1 reply line.
+    func controlNewSplitV1(args: String) -> String
+
+    /// The v1 `close_workspace` body: parses the workspace id, honors the
+    /// pinned-protection guard, and closes the tab.
+    ///
+    /// - Parameter arg: The raw workspace-id argument.
+    /// - Returns: The flat v1 reply line.
+    func controlCloseWorkspaceV1(arg: String) -> String
+
+    /// The v1 `select_workspace` body: selects a workspace by UUID or by index
+    /// in the active controller's `TabManager`. The v1 path selects in place
+    /// (no cross-window focus or `setActiveTabManager`), distinct from
+    /// `workspace.select`, so it carries its own witness.
+    ///
+    /// - Parameter arg: The raw UUID-or-index argument.
+    /// - Returns: The flat v1 reply line.
+    func controlSelectWorkspaceV1(arg: String) -> String
+
+    // MARK: - workspace.action
+
+    /// The effective workspace tab-color palette snapshot, read for the
+    /// non-blank `set_color` path of `workspace.action` so
+    /// ``ControlWorkspaceActionResolution`` can match a requested color name and
+    /// echo the available names on failure (the legacy
+    /// `WorkspaceTabColorSettings.palette()` read).
+    ///
+    /// - Returns: The palette entries, in `palette()` order.
+    func controlWorkspaceColorPalette() -> [ControlWorkspaceColorPaletteEntry]
+
+    /// Resolves the `workspace.action` target: applies the routing precedence to
+    /// find the TabManager, the `workspace_id ?? selectedTabId` fallback, and the
+    /// owning window (`v2ResolveWindowId`). Returns `nil` when the workspace
+    /// cannot be located (legacy `not_found`).
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - requestedWorkspaceID: The explicit `workspace_id` param, if any.
+    /// - Returns: The resolved target, or `nil`.
+    func controlWorkspaceActionResolveTarget(
+        routing: ControlRoutingSelectors,
+        requestedWorkspaceID: UUID?
+    ) -> ControlWorkspaceActionTarget?
+
+    /// Pins or unpins the workspace (`pin` / `unpin`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - pinned: The new pinned state.
+    func controlWorkspaceActionSetPinned(workspaceID: UUID, pinned: Bool)
+
+    /// Sets the workspace's custom title to the trimmed value (`rename`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - title: The trimmed, non-empty title.
+    func controlWorkspaceActionSetCustomTitle(workspaceID: UUID, title: String)
+
+    /// Clears the workspace's custom title (`clear_name`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    /// - Returns: The workspace's resulting (post-clear) title, for the `title`
+    ///   payload.
+    func controlWorkspaceActionClearCustomTitle(workspaceID: UUID) -> String
+
+    /// Sets the workspace's custom description to the raw value
+    /// (`set_description`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - description: The validated description value.
+    /// - Returns: The workspace's resulting (post-set) custom description, for
+    ///   the `description` payload.
+    func controlWorkspaceActionSetCustomDescription(workspaceID: UUID, description: String) -> String?
+
+    /// Clears the workspace's custom description (`clear_description`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    func controlWorkspaceActionClearCustomDescription(workspaceID: UUID)
+
+    /// Reorders the workspace one slot (`move_up` / `move_down`), applying the
+    /// legacy index clamp and re-reading the resulting index.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - direction: The reorder direction.
+    /// - Returns: The reorder outcome.
+    func controlWorkspaceActionReorder(
+        workspaceID: UUID,
+        direction: ControlWorkspaceActionReorderDirection
+    ) -> ControlWorkspaceActionReorderOutcome
+
+    /// Moves the workspace to the top (`move_top`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    /// - Returns: The workspace's resulting index, or `nil` when it could not be
+    ///   located after the move, for the `index` payload.
+    func controlWorkspaceActionMoveTop(workspaceID: UUID) -> Int?
+
+    /// Closes the scoped sibling workspaces (`close_others` / `close_above` /
+    /// `close_below`), honoring the pinned-protection guard.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - scope: Which siblings to close.
+    /// - Returns: The close outcome.
+    func controlWorkspaceActionClose(
+        workspaceID: UUID,
+        scope: ControlWorkspaceActionCloseScope
+    ) -> ControlWorkspaceActionCloseOutcome
+
+    /// Marks the workspace read (`mark_read`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    func controlWorkspaceActionMarkRead(workspaceID: UUID)
+
+    /// Marks the workspace unread (`mark_unread`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    func controlWorkspaceActionMarkUnread(workspaceID: UUID)
+
+    /// Sets the workspace's tab color to the resolved hex, or clears it when
+    /// `nil` (`set_color` / `clear_color`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - hex: The resolved hex color, or `nil` to clear.
+    func controlWorkspaceActionSetTabColor(workspaceID: UUID, hex: String?)
 }

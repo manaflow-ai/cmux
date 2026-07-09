@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// Pure resolution logic for `cmux://workspace/...` navigation deep links.

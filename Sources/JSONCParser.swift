@@ -1,5 +1,7 @@
 import Foundation
 
+import CmuxFoundation
+
 enum JSONCParser {
     static func preprocess(data: Data) throws -> Data {
         let source = try sourceString(from: data)
@@ -363,7 +365,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, !JSONCParser.isLineTerminator(source[index]) {
+                    while index < source.endIndex, !source[index].isJSONCLineTerminator {
                         index = source.index(after: index)
                     }
                     continue
@@ -460,7 +462,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, !JSONCParser.isLineTerminator(source[index]) {
+                    while index < source.endIndex, !source[index].isJSONCLineTerminator {
                         index = source.index(after: index)
                     }
                     continue
@@ -491,7 +493,7 @@ enum JSONCObjectEditor {
         var lineStart = index
         while lineStart > source.startIndex {
             let previous = source.index(before: lineStart)
-            if JSONCParser.isLineTerminator(source[previous]) {
+            if source[previous].isJSONCLineTerminator {
                 break
             }
             lineStart = previous

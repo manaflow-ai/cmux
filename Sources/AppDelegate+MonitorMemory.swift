@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import CmuxWindowing
+import CmuxWorkspaces
 import Foundation
 
 // CoreGraphics requires a C callback; this trampoline only forwards to AppDelegate on the main queue.
@@ -52,20 +53,6 @@ extension AppDelegate {
             }
         }
         return false
-    }
-
-    func displaySnapshot(for window: NSWindow?) -> SessionDisplaySnapshot? {
-        guard let window else { return nil }
-        let screen = window.screen
-            ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
-        guard let screen else { return nil }
-
-        return SessionDisplaySnapshot(
-            displayID: screen.cmuxDisplayID,
-            stableID: screen.cmuxStableDisplayKey,
-            frame: SessionRectSnapshot(screen.frame),
-            visibleFrame: SessionRectSnapshot(screen.visibleFrame)
-        )
     }
 
     /// Consumes the current display-change notification state: first restores
@@ -383,6 +370,18 @@ extension AppDelegate {
         let displayCount = signature.split(separator: "|").count
         let tail = signature.suffix(20)
         return "[\(displayCount)d …\(tail)]"
+    }
+
+    func sessionRectLogDescription(_ rect: SessionRectSnapshot?) -> String {
+        rect?.debugLogDescription ?? "nil"
+    }
+
+    func sessionDisplayLogDescription(_ display: SessionDisplaySnapshot?) -> String {
+        display?.debugLogDescription ?? "nil"
+    }
+
+    func nsRectLogDescription(_ rect: NSRect) -> String {
+        SessionRectSnapshot(rect).debugLogDescription
     }
 #endif
 

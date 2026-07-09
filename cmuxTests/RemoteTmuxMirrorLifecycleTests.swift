@@ -24,7 +24,7 @@ struct RemoteTmuxMirrorLifecycleTests {
     ) throws -> RemoteTmuxControlConnection {
         let connection = RemoteTmuxControlConnection(host: host, sessionName: sessionName)
         controller.cacheConnection(connection)
-        let mirrored = try controller.mirrorSession(host: host, sessionName: sessionName, into: manager)
+        let mirrored = try controller.mirrorSessionForTesting(host: host, sessionName: sessionName, into: manager)
         #expect(mirrored)
         return connection
     }

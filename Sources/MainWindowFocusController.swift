@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSidebar
 import CmuxTerminal
 
 @MainActor
@@ -10,90 +11,40 @@ final class MainWindowFocusController {
         case unknown
     }
 
-    private enum RightSidebarFocusTarget: Equatable {
-        case host
-        case outline
-        case searchField
-        case firstItem
-    }
-
-    private struct RightSidebarFocusRequest: Equatable {
-        let id: UInt64
-        let mode: RightSidebarMode
-        let target: RightSidebarFocusTarget
-    }
-
-    private enum RightSidebarFocusState: Equatable {
-        case inactive
-        case requested(RightSidebarFocusRequest)
-        case focused(mode: RightSidebarMode, target: RightSidebarFocusTarget)
-
-        var mode: RightSidebarMode? {
-            switch self {
-            case .inactive:
-                return nil
-            case .requested(let request):
-                return request.mode
-            case .focused(let mode, _):
-                return mode
-            }
-        }
-
-        var request: RightSidebarFocusRequest? {
-            if case .requested(let request) = self {
-                return request
-            }
-            return nil
-        }
-    }
-
     let windowId: UUID
 
     private weak var window: NSWindow?
     private weak var tabManager: TabManager?
     private weak var fileExplorerState: FileExplorerState?
-    private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
-    private weak var fileExplorerHost: FileExplorerContainerView?
-    private weak var fileSearchHost: FileExplorerContainerView?
-    private weak var feedHost: FeedKeyboardFocusView?
-    private weak var dockHost: DockKeyboardFocusView?
+    private let hostRouter = RightSidebarFocusHostRouter()
+    private let surfaceFocusResolver: any TerminalSurfaceFocusResolving
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
             syncBonsplitTabShortcutHintEligibility()
-            publishRightSidebarOwnsInputFocus()
         }
     }
-
-    /// Mirror the exclusive focus intent into `FileExplorerState` so the view
-    /// layer can make main-pane vs right-sidebar (Dock) focus mutually exclusive.
-    private func publishRightSidebarOwnsInputFocus() {
-        let ownsFocus: Bool
-        if case .rightSidebar = intent { ownsFocus = true } else { ownsFocus = false }
-        guard let fileExplorerState, fileExplorerState.rightSidebarOwnsInputFocus != ownsFocus else { return }
-        fileExplorerState.rightSidebarOwnsInputFocus = ownsFocus
-    }
     private var rememberedRightSidebarMode: RightSidebarMode?
-    private var nextRightSidebarFocusRequestId: UInt64 = 0
-    private var rightSidebarFocusState: RightSidebarFocusState = .inactive
+    private var rightSidebarFocus = RightSidebarFocusStateMachine()
     /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
     /// private focus state for the `sidebarMode` keyboard-shortcut context key.
     var activeRightSidebarMode: RightSidebarMode? {
-        rightSidebarFocusState.mode
+        rightSidebarFocus.state.mode
     }
     private var feedSelectedItemId: UUID?
-    private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
     init(
         windowId: UUID,
         window: NSWindow?,
         tabManager: TabManager,
-        fileExplorerState: FileExplorerState?
+        fileExplorerState: FileExplorerState?,
+        surfaceFocusResolver: any TerminalSurfaceFocusResolving
     ) {
         self.windowId = windowId
         self.window = window
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
+        self.surfaceFocusResolver = surfaceFocusResolver
         self.rememberedRightSidebarMode = fileExplorerState?.mode
         syncBonsplitTabShortcutHintEligibility()
     }
@@ -113,40 +64,40 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
-    func registerRightSidebarHost(_ host: RightSidebarKeyboardFocusView) {
-        rightSidebarHost = host
-        if let mode = rightSidebarFocusState.request?.mode {
+    func registerRightSidebarHost(_ host: any RightSidebarHostFocusing) {
+        hostRouter.rightSidebarHost = host
+        if let mode = rightSidebarFocus.state.request?.mode {
             focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
         }
     }
 
-    func registerFileExplorerHost(_ host: FileExplorerContainerView) {
+    func registerFileExplorerHost(_ host: any FileExplorerFocusHosting) {
         let mode = host.representedRightSidebarMode()
         switch mode {
         case .files:
-            fileExplorerHost = host
+            hostRouter.fileExplorerHost = host
         case .find:
-            fileSearchHost = host
+            hostRouter.fileSearchHost = host
         case .sessions, .feed, .dock, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
     }
 
-    func registerFeedHost(_ host: FeedKeyboardFocusView) {
-        feedHost = host
+    func registerFeedHost(_ host: any FeedFocusHosting) {
+        hostRouter.feedHost = host
         publishFeedFocusSnapshot(force: true)
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .feed)
     }
 
-    func registerDockHost(_ host: DockKeyboardFocusView) {
-        dockHost = host
+    func registerDockHost(_ host: any DockFocusHosting) {
+        hostRouter.dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
         rememberedRightSidebarMode = mode
-        rightSidebarFocusState = .focused(mode: mode, target: .host)
+        rightSidebarFocus.state = .focused(mode: mode, target: .host)
         intent = .rightSidebar(mode: mode)
         if mode != .feed {
             feedSelectedItemId = nil
@@ -167,13 +118,13 @@ final class MainWindowFocusController {
     }
 
     func noteMainPanelInteraction(workspaceId: UUID, panelId: UUID) {
-        rightSidebarFocusState = .inactive
+        rightSidebarFocus.state = .inactive
         intent = .mainPanel(workspaceId: workspaceId, panelId: panelId)
         publishFeedFocusSnapshot()
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
-        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
+        if surfaceFocusResolver.isRightSidebarDockSurface(id: panelId) {
             return true
         }
         switch intent {
@@ -198,23 +149,7 @@ final class MainWindowFocusController {
     }
 
     func ownsRightSidebarFocus(_ responder: NSResponder) -> Bool {
-        if let host = rightSidebarHost, responder === host {
-            return true
-        }
-        if responder is FeedKeyboardFocusResponder {
-            return true
-        }
-        if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
-            fileSearchHost?.ownsKeyboardFocus(responder) == true {
-            return true
-        }
-        if feedHost?.ownsKeyboardFocus(responder) == true {
-            return true
-        }
-        if dockHost?.ownsKeyboardFocus(responder) == true {
-            return true
-        }
-        return false
+        hostRouter.ownsRightSidebarFocus(responder)
     }
 
     func shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: NSResponder?) -> Bool {
@@ -254,7 +189,7 @@ final class MainWindowFocusController {
             return focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: true)
         }
 
-        rightSidebarFocusState = .inactive
+        rightSidebarFocus.state = .inactive
 
         if panel is TerminalPanel {
             return focusTerminal()
@@ -290,7 +225,7 @@ final class MainWindowFocusController {
             publishFeedFocusSnapshot()
             return true
         }
-        if let request = rightSidebarFocusState.request, request.mode == mode {
+        if let request = rightSidebarFocus.state.request, request.mode == mode {
             return focusRightSidebar(mode: mode, target: request.target)
         }
         if mode == .find {
@@ -330,7 +265,7 @@ final class MainWindowFocusController {
             }
         }
 
-        rightSidebarFocusState = .inactive
+        rightSidebarFocus.state = .inactive
         intent = .mainPanel(workspaceId: workspace.id, panelId: panelId)
         publishFeedFocusSnapshot()
         workspace.focusPanel(panelId)
@@ -349,7 +284,7 @@ final class MainWindowFocusController {
     func selectFeedItem(_ id: UUID, focusFeed: Bool) -> Bool {
         feedSelectedItemId = id
         rememberedRightSidebarMode = .feed
-        rightSidebarFocusState = .focused(mode: .feed, target: .host)
+        rightSidebarFocus.state = .focused(mode: .feed, target: .host)
         intent = .rightSidebar(mode: .feed)
         publishFeedFocusSnapshot()
 
@@ -375,7 +310,7 @@ final class MainWindowFocusController {
 
 #if DEBUG
     var debugPendingRightSidebarFocusMode: RightSidebarMode? {
-        rightSidebarFocusState.request?.mode
+        rightSidebarFocus.state.request?.mode
     }
 
     func debugSyncAfterResponderChange(responder: NSResponder?) {
@@ -389,7 +324,7 @@ final class MainWindowFocusController {
             return
         }
         if let terminal = terminalFocusRequest(for: responder) {
-            if rightSidebarFocusState.request != nil {
+            if rightSidebarFocus.state.request != nil {
                 publishFeedFocusSnapshot()
                 return
             }
@@ -397,8 +332,8 @@ final class MainWindowFocusController {
             return
         }
         if let mode = rightSidebarModeOwning(responder) {
-            let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
-            if !canAcceptRightSidebarResponderFocus(
+            let isFallbackSidebarHost = hostRouter.rightSidebarHost.map { responder === $0 } ?? false
+            if !rightSidebarFocus.canAcceptResponderFocus(
                 mode: mode,
                 isFallbackSidebarHost: isFallbackSidebarHost
             ) {
@@ -406,7 +341,7 @@ final class MainWindowFocusController {
                 return
             }
             rememberedRightSidebarMode = mode
-            completeRightSidebarFocusFromResponder(mode: mode, isFallbackSidebarHost: isFallbackSidebarHost)
+            rightSidebarFocus.completeFocusFromResponder(mode: mode, isFallbackSidebarHost: isFallbackSidebarHost)
             intent = .rightSidebar(mode: mode)
             if mode != .feed {
                 feedSelectedItemId = nil
@@ -414,7 +349,7 @@ final class MainWindowFocusController {
             publishFeedFocusSnapshot()
             return
         }
-        if rightSidebarFocusState.request != nil {
+        if rightSidebarFocus.state.request != nil {
             publishFeedFocusSnapshot()
             return
         }
@@ -423,37 +358,6 @@ final class MainWindowFocusController {
             return
         }
         publishFeedFocusSnapshot()
-    }
-
-    private func canAcceptRightSidebarResponderFocus(
-        mode responderMode: RightSidebarMode,
-        isFallbackSidebarHost: Bool
-    ) -> Bool {
-        guard let request = rightSidebarFocusState.request else {
-            return true
-        }
-        if responderMode != request.mode {
-            return false
-        }
-        if isFallbackSidebarHost, request.target != .host {
-            return false
-        }
-        return true
-    }
-
-    private func completeRightSidebarFocusFromResponder(
-        mode responderMode: RightSidebarMode,
-        isFallbackSidebarHost: Bool
-    ) {
-        guard let request = rightSidebarFocusState.request else {
-            rightSidebarFocusState = .focused(mode: responderMode, target: .host)
-            return
-        }
-        guard request.mode == responderMode else { return }
-        if isFallbackSidebarHost, request.target != .host {
-            return
-        }
-        rightSidebarFocusState = .focused(mode: request.mode, target: request.target)
     }
 
     @discardableResult
@@ -465,7 +369,7 @@ final class MainWindowFocusController {
             return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
         }
         let mode = desiredMode
-        let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
+        let target = RightSidebarFocusTarget.forMode(mode, focusFirstItem: focusFirstItem)
         return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
     }
 
@@ -478,7 +382,7 @@ final class MainWindowFocusController {
         guard let state = fileExplorerState else { return false }
         guard mode.isAvailable() else { return false }
         rememberedRightSidebarMode = mode
-        beginRightSidebarFocusRequest(mode: mode, target: target)
+        rightSidebarFocus.beginRequest(mode: mode, target: target)
         intent = .rightSidebar(mode: mode)
         if mode != .feed {
             feedSelectedItemId = nil
@@ -490,15 +394,15 @@ final class MainWindowFocusController {
             state.mode = mode
         }
 
-        let modeResult = focusRightSidebarEndpoint(mode: mode, target: target)
+        let modeResult = hostRouter.focusRightSidebarEndpoint(mode: mode, target: target)
         if modeResult {
-            rightSidebarFocusState = .focused(mode: mode, target: target)
+            rightSidebarFocus.state = .focused(mode: mode, target: target)
         }
-        let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
+        let fallbackResult = modeResult ? false : hostRouter.focusFallbackRightSidebarHost(window: window)
         if fallbackResult, target == .host {
-            rightSidebarFocusState = .focused(mode: mode, target: .host)
+            rightSidebarFocus.state = .focused(mode: mode, target: .host)
         }
-        let result = modeResult || fallbackResult || rightSidebarFocusState.request?.mode == mode
+        let result = modeResult || fallbackResult || rightSidebarFocus.state.request?.mode == mode
         publishFeedFocusSnapshot()
         return result
     }
@@ -538,7 +442,7 @@ final class MainWindowFocusController {
         let responder = currentResponder ?? window?.firstResponder
         if let responder {
             if let mode = rightSidebarModeOwning(responder) {
-                return findShortcutTarget(forRightSidebarMode: mode)
+                return MainWindowFindShortcutTarget.forRightSidebarMode(mode)
             }
             if terminalFocusRequest(for: responder) != nil {
                 return .mainPanelFind
@@ -547,13 +451,13 @@ final class MainWindowFocusController {
                 return .mainPanelFind
             }
             if case .rightSidebar(let mode) = intent {
-                return findShortcutTarget(forRightSidebarMode: mode)
+                return MainWindowFindShortcutTarget.forRightSidebarMode(mode)
             }
             return .mainPanelFind
         }
 
         if case .rightSidebar(let mode) = intent {
-            return findShortcutTarget(forRightSidebarMode: mode)
+            return MainWindowFindShortcutTarget.forRightSidebarMode(mode)
         }
         return .mainPanelFind
     }
@@ -572,7 +476,7 @@ final class MainWindowFocusController {
             return workspace.focusedTerminalPanel
         }()
         guard let terminalPanel else { return false }
-        rightSidebarFocusState = .inactive
+        rightSidebarFocus.state = .inactive
         intent = .mainPanel(workspaceId: workspace.id, panelId: terminalPanel.id)
         publishFeedFocusSnapshot()
         workspace.focusPanel(terminalPanel.id)
@@ -582,10 +486,6 @@ final class MainWindowFocusController {
             respectForeignFirstResponder: false
         )
         return terminalPanel.hostedView.isSurfaceViewFirstResponder()
-    }
-
-    private func findShortcutTarget(forRightSidebarMode mode: RightSidebarMode) -> MainWindowFindShortcutTarget {
-        mode == .files ? .rightSidebarFileSearch : .none
     }
 
     private func selectedFocusedPanelIsBrowser() -> Bool {
@@ -643,7 +543,7 @@ final class MainWindowFocusController {
             window.makeFirstResponder(nil)
         }
 
-        rightSidebarFocusState = .inactive
+        rightSidebarFocus.state = .inactive
         if clearUnavailableIntent, case .rightSidebar = intent {
             intent = nil
         }
@@ -675,7 +575,7 @@ final class MainWindowFocusController {
     }
 
     private func focusRegisteredRightSidebarEndpointIfNeeded(mode: RightSidebarMode) {
-        guard let request = rightSidebarFocusState.request else {
+        guard let request = rightSidebarFocus.state.request else {
             return
         }
         guard case .rightSidebar(let targetMode) = intent,
@@ -683,74 +583,13 @@ final class MainWindowFocusController {
               request.mode == mode else {
             return
         }
-        let result = focusRightSidebarEndpoint(mode: mode, target: request.target)
+        let result = hostRouter.focusRightSidebarEndpoint(mode: mode, target: request.target)
         if result {
-            rightSidebarFocusState = .focused(mode: mode, target: request.target)
-        } else if request.target == .host, focusFallbackRightSidebarHost() {
-            rightSidebarFocusState = .focused(mode: mode, target: .host)
+            rightSidebarFocus.state = .focused(mode: mode, target: request.target)
+        } else if request.target == .host, hostRouter.focusFallbackRightSidebarHost(window: window) {
+            rightSidebarFocus.state = .focused(mode: mode, target: .host)
         }
         publishFeedFocusSnapshot()
-    }
-
-    private func beginRightSidebarFocusRequest(mode: RightSidebarMode, target: RightSidebarFocusTarget) {
-        nextRightSidebarFocusRequestId &+= 1
-        rightSidebarFocusState = .requested(
-            RightSidebarFocusRequest(
-                id: nextRightSidebarFocusRequestId,
-                mode: mode,
-                target: target
-            )
-        )
-    }
-
-    private func rightSidebarFocusTarget(
-        mode: RightSidebarMode,
-        focusFirstItem: Bool
-    ) -> RightSidebarFocusTarget {
-        switch mode {
-        case .files:
-            return .outline
-        case .find:
-            return .searchField
-        case .sessions, .customSidebar:
-            return .host
-        case .feed:
-            return focusFirstItem ? .firstItem : .host
-        case .dock:
-            return focusFirstItem ? .firstItem : .host
-        }
-    }
-
-    private func focusRightSidebarEndpoint(
-        mode: RightSidebarMode,
-        target: RightSidebarFocusTarget
-    ) -> Bool {
-        switch mode {
-        case .files:
-            return fileExplorerHost?.focusOutline() == true
-        case .find:
-            return fileSearchHost?.focusSearchField() == true
-        case .sessions, .customSidebar:
-            return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
-        case .feed:
-            if target == .firstItem {
-                feedHost?.focusFirstItemFromCoordinator()
-            }
-            return feedHost?.focusHostFromCoordinator() == true
-        case .dock:
-            if target == .firstItem {
-                dockHost?.focusFirstItemFromCoordinator()
-            }
-            return dockHost?.focusHostFromCoordinator() == true
-        }
-    }
-
-    private func focusFallbackRightSidebarHost() -> Bool {
-        guard let window,
-              let host = rightSidebarHost else {
-            return false
-        }
-        return window.makeFirstResponder(host)
     }
 
     private func yieldCurrentTerminalSurfaceFocus(reason: String) {
@@ -769,7 +608,7 @@ final class MainWindowFocusController {
     }
 
     private func isFeedKeyboardIntentActive() -> Bool {
-        if rightSidebarFocusState.mode == .feed {
+        if rightSidebarFocus.state.mode == .feed {
             return true
         }
         if let responder = window?.firstResponder,
@@ -780,10 +619,7 @@ final class MainWindowFocusController {
     }
 
     private func publishFeedFocusSnapshot(force: Bool = false) {
-        let snapshot = feedFocusSnapshot()
-        guard force || snapshot != lastPublishedFeedFocusSnapshot else { return }
-        lastPublishedFeedFocusSnapshot = snapshot
-        feedHost?.applyFocusSnapshotFromController(snapshot)
+        hostRouter.publishFeedFocusSnapshot(feedFocusSnapshot(), force: force)
     }
 
     func syncBonsplitTabShortcutHintEligibility() {
@@ -797,38 +633,19 @@ final class MainWindowFocusController {
     }
 
     private func rightSidebarModeOwning(_ responder: NSResponder) -> RightSidebarMode? {
-        if let host = rightSidebarHost, responder === host {
-            return fileExplorerState?.mode ?? rememberedRightSidebarMode
-        }
-        if fileExplorerHost?.ownsKeyboardFocus(responder) == true {
-            return .files
-        }
-        if fileSearchHost?.ownsKeyboardFocus(responder) == true {
-            return .find
-        }
-        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
-            return .feed
-        }
-        if dockHost?.ownsKeyboardFocus(responder) == true {
-            return .dock
-        }
-        return nil
+        hostRouter.rightSidebarModeOwning(
+            responder,
+            fallbackMode: fileExplorerState?.mode ?? rememberedRightSidebarMode
+        )
     }
 
-    private struct TerminalFocusRequest {
-        let workspaceId: UUID
-        let panelId: UUID
-    }
-
-    private func terminalFocusRequest(for responder: NSResponder?) -> TerminalFocusRequest? {
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
-              let workspaceId = ghosttyView.tabId,
-              let panelId = ghosttyView.terminalSurface?.id else {
+    private func terminalFocusRequest(for responder: NSResponder?) -> TerminalSurfaceFocusOwner? {
+        guard let owner = surfaceFocusResolver.owningTerminalSurfaceFocus(for: responder) else {
             return nil
         }
-        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
+        if surfaceFocusResolver.isRightSidebarDockSurface(id: owner.panelId) {
             return nil
         }
-        return TerminalFocusRequest(workspaceId: workspaceId, panelId: panelId)
+        return owner
     }
 }

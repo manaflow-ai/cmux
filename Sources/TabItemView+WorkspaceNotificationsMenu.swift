@@ -20,11 +20,11 @@ extension TabItemView {
         .disabled(targetIds.isEmpty)
     }
 
-    private func workspaceNotificationMenuItems(_ targetIds: [UUID]) -> [TerminalNotification] {
+    func workspaceNotificationMenuItems(_ targetIds: [UUID]) -> [TerminalNotification] {
         notificationStore.notifications(forTabIds: targetIds)
     }
 
-    private func workspaceNotificationMenuTitle(_ notification: TerminalNotification) -> String {
+    func workspaceNotificationMenuTitle(_ notification: TerminalNotification) -> String {
         let timeText = notification.createdAt.formatted(date: .abbreviated, time: .shortened)
         let title = workspaceNotificationMenuText(notification.title, limit: 80)
         let detail = workspaceNotificationMenuText(
@@ -47,7 +47,7 @@ extension TabItemView {
         return "\(prefix)..."
     }
 
-    private func openWorkspaceContextMenuNotification(_ notification: TerminalNotification) {
+    func openWorkspaceContextMenuNotification(_ notification: TerminalNotification) {
         guard AppDelegate.shared?.openTerminalNotification(notification) == true else {
             NSSound.beep()
             return

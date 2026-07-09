@@ -411,10 +411,6 @@ extension ControlSurfaceContext {
         surfaceID: UUID?
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
-    func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
-        .err(code: "internal_error", message: "", data: nil)
-    }
-
     func controlSurfaceReorder(
         surfaceID: UUID,
         inputs: ControlSurfaceReorderInputs,

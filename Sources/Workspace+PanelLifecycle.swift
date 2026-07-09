@@ -10,31 +10,6 @@ extension Workspace {
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
-    var agentPIDs: [String: pid_t] {
-        get { sidebarAgentRuntimeObservation.agentPIDs }
-        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
-    }
-
-    var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] {
-        get { sidebarAgentRuntimeObservation.agentPIDProcessIdentitiesByKey }
-        set { sidebarAgentRuntimeObservation.setAgentPIDProcessIdentitiesByKey(newValue) }
-    }
-
-    var agentPIDPanelIdsByKey: [String: UUID] {
-        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
-        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
-    }
-
-    var agentPIDKeysByPanelId: [UUID: Set<String>] {
-        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
-    }
-
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
-        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
-    }
-
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -350,8 +325,7 @@ extension Workspace {
 
     /// Clears a panel's restored agent snapshot and resume metadata, then refreshes the tab's agent brand mark.
     func clearRestoredAgentSnapshot(panelId: UUID) {
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        agentHibernationCoordinator.clearRestoredAgentSnapshot(panelId: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
@@ -420,11 +394,10 @@ extension Workspace {
         }
 
         let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
-        removePendingTerminalInputObservers(forPanelId: panelId)
+        pendingTerminalInput.removeObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
-        discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
@@ -453,10 +426,13 @@ extension Workspace {
         untrackRemoteTerminalSurface(panelId)
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        removeSurfaceMappings(forPanelId: panelId)
+        if let tabId {
+            paneTree.removeSurfaceMapping(forSurfaceId: tabId)
+        } else {
+            paneTree.removeSurfaceMappings(forPanelId: panelId)
+        }
 
         panelDirectories.removeValue(forKey: panelId)
-        panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
@@ -486,7 +462,7 @@ extension Workspace {
             lastTerminalConfigInheritancePanelId = nil
         }
         if clearSurfaceNotifications {
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+            hostEnvironment?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {

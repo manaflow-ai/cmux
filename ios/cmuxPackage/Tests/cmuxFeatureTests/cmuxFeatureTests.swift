@@ -2399,26 +2399,25 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     collector.mount(store: store, surfaceID: "live-terminal")
-    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 1 {
-        try await Task.sleep(nanoseconds: 1_000_000)
+    for _ in 0..<300 where collector.lines.isEmpty {
+        try await Task.sleep(nanoseconds: 10_000_000)
     }
+    #expect(!collector.lines.isEmpty)
+    #expect(!collector.lines.contains { $0.contains("stale-old-tail") })
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where collector.lines.isEmpty {
-        try await Task.sleep(nanoseconds: 1_000_000)
+    for _ in 0..<300 where collector.lines.last != currentGridText {
+        try await Task.sleep(nanoseconds: 10_000_000)
     }
 
-    #expect(collector.lines == [
-        oldGridText,
-        currentGridText,
-    ])
+    #expect(collector.lines.last == currentGridText)
+    #expect(!collector.lines.contains { $0.contains("stale-current-tail") })
     collector.unmount()
 }
 

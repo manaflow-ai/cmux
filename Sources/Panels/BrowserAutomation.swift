@@ -350,7 +350,7 @@ enum BrowserProfileAutomation {
     @MainActor
     private static func liveBrowserPanelCount(profileID: UUID) -> Int {
         guard let app = AppDelegate.shared else { return 0 }
-        return app.mainWindowContexts.values.reduce(0) { contextCount, context in
+        return app.registeredMainWindows.reduce(0) { contextCount, context in
             contextCount + context.tabManager.tabs.reduce(0) { workspaceCount, workspace in
                 workspaceCount + workspace.panels.values.reduce(0) { panelCount, panel in
                     guard let browserPanel = panel as? BrowserPanel,
@@ -373,7 +373,7 @@ enum BrowserImportAutomation {
 
         let browser = try selectedBrowser(from: browsers, params: params)
         let sourceProfiles = try selectedSourceProfiles(from: browser, params: params)
-        let domainFilters = BrowserDataImporter.parseDomainFilters(domainFilterText(from: params))
+        let domainFilters = BrowserDataImportService.parseDomainFilters(domainFilterText(from: params))
 
         let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
             let destinationProfiles = BrowserProfileStore.shared.profiles
@@ -395,17 +395,23 @@ enum BrowserImportAutomation {
                     ]
                 )
             } else {
-                plan = BrowserImportPlanResolver.defaultPlan(
+                plan = BrowserImportPlanResolver().defaultPlan(
                     selectedSourceProfiles: sourceProfiles,
                     destinationProfiles: destinationProfiles,
                     preferredSingleDestinationProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID
                 )
             }
 
-            return try BrowserImportPlanResolver.realize(plan: plan)
+            return try BrowserImportPlanResolver().realize(plan: plan)
         }
 
-        return await BrowserDataImporter.importData(
+        let importService = await MainActor.run {
+            BrowserDataImportService(
+                sink: BrowserProfileStore.shared,
+                strings: .appLocalized
+            )
+        }
+        return await importService.importData(
             from: browser,
             plan: realizedPlan,
             scope: .cookiesOnly,

@@ -1,19 +1,7 @@
+import CmuxPanes
 import Foundation
 
 extension AppDelegate {
-    /// Starts the per-pane runaway-memory guardrail and the central
-    /// memory-pressure monitor. The pane guardrail keeps its existing
-    /// process-tree accounting timer; global memory pressure is handled through
-    /// responder registration so future reclaim paths are one conformance away.
-    func startPaneMemoryGuardrailIfNeeded() {
-        let guardrail = PaneMemoryGuardrail.shared
-        guardrail.paneProvider = { [weak self] in
-            self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.start()
-        startMemoryPressureMonitorIfNeeded()
-    }
-
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
         paneMemoryGuardrailTabManagers().flatMap { manager in
             manager.tabs.flatMap { workspace in
@@ -22,7 +10,7 @@ extension AppDelegate {
         }
     }
 
-    private func startMemoryPressureMonitorIfNeeded() {
+    func startMemoryPressureMonitorIfNeeded() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
@@ -84,7 +72,7 @@ extension AppDelegate {
             managers.append(manager)
         }
 
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             append(context.tabManager)
         }
         for route in recoverableMainWindowRoutes() {
@@ -111,5 +99,13 @@ extension AppDelegate {
                 foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
             )
         }
+    }
+
+    /// Closes the surface the pane-memory guardrail flagged, resolving the owning
+    /// tab manager for `workspaceId`. Backs the guardrail's `onRequestClosePane`.
+    @discardableResult
+    func closePaneForMemoryGuardrail(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard let manager = tabManagerFor(tabId: workspaceId) ?? tabManager else { return false }
+        return manager.closeSurface(tabId: workspaceId, surfaceId: panelId)
     }
 }

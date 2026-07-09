@@ -2,6 +2,9 @@ import AppKit
 import Bonsplit
 import Combine
 import Foundation
+import CmuxRemoteWorkspace
+import enum CmuxWorkspaces.SessionSidebarSelection
+import struct CmuxWorkspaces.SessionSidebarSnapshot
 import Testing
 
 #if canImport(cmux_DEV)
@@ -293,7 +296,7 @@ struct CmuxDurableDeepLinkRestoreTests {
             AppDelegate.shared = appDelegate
             ClosedItemHistoryStore.shared.removeAll()
             defer {
-                for context in Array(appDelegate.mainWindowContexts.values) {
+                for context in appDelegate.registeredMainWindows {
                     appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
                 }
                 ClosedItemHistoryStore.shared.removeAll()
@@ -327,7 +330,7 @@ struct CmuxDurableDeepLinkRestoreTests {
             #expect(appDelegate.reopenClosedHistoryItem(id: recordId, shouldActivate: false))
 
             let restoredContext = try #require(
-                appDelegate.mainWindowContexts.values.first { $0.windowId != liveWindowId }
+                appDelegate.registeredMainWindows.first { $0.windowId != liveWindowId }
             )
             let restoredWorkspace = try #require(restoredContext.tabManager.tabs.first)
             #expect(restoredWorkspace.stableId != liveStableWorkspaceId)

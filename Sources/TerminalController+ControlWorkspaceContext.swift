@@ -1,6 +1,8 @@
+import Bonsplit
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 
@@ -84,9 +86,9 @@ extension TerminalController: ControlWorkspaceContext {
             if ws.id == selectedId {
                 selectedIndex = index
             }
-            return controlWorkspaceSummary(ws)
+            return ws.controlWorkspaceSummary
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(windowID: windowId, workspaces: summaries, selectedIndex: selectedIndex)
     }
 
@@ -101,12 +103,12 @@ extension TerminalController: ControlWorkspaceContext {
         // still answered .ok with "workspace": null.
         let workspace = tabManager.tabs.first(where: { $0.id == workspaceId })
         let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             workspaceID: workspaceId,
             index: index,
-            summary: workspace.map { controlWorkspaceSummary($0) }
+            summary: workspace.map { $0.controlWorkspaceSummary }
         )
     }
 
@@ -124,6 +126,83 @@ extension TerminalController: ControlWorkspaceContext {
         }
     }
 
+    func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let beforeIds = Set(tabManager.tabs.map(\.id))
+        let didStart = AppDelegate.shared?.performCloudVMAction(
+            tabManager: tabManager,
+            debugSource: "rpc.workspace.cloud_vm_open"
+        ) ?? false
+        let createdWorkspace = tabManager.tabs.first { workspace in
+            !beforeIds.contains(workspace.id)
+                && workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading })
+        }
+
+        guard didStart || createdWorkspace != nil else {
+            return .err(code: "unavailable", message: "Cloud VM action could not be started", data: nil)
+        }
+
+        let workspace = createdWorkspace ?? tabManager.selectedWorkspace
+        let workspaceId = workspace?.id
+        let surfaceId = workspace?.focusedPanelId
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "started": didStart,
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": v2OrNull(workspaceId?.uuidString),
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": v2OrNull(surfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+        ])
+    }
+
+    func v2WorkspaceCloudVMTerminalReady(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+            return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
+        }
+        guard let command = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: "initial_command is required",
+                data: ["workspace_id": workspaceId.uuidString]
+            )
+        }
+
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        guard let panel = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+            workspaceId: workspaceId,
+            initialCommand: command,
+            focus: focus
+        ) else {
+            return .err(
+                code: "not_found",
+                message: "Cloud VM loading surface not found",
+                data: ["workspace_id": workspaceId.uuidString]
+            )
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": panel.id.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+        ])
+    }
+
     // MARK: - Select / close / move
 
     func controlSelectWorkspace(
@@ -138,9 +217,9 @@ extension TerminalController: ControlWorkspaceContext {
         }
         // If this workspace belongs to another window, bring it forward so focus
         // is visible.
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         if let windowId {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.selectWorkspace(ws)
@@ -154,7 +233,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound
         }
@@ -170,10 +249,10 @@ extension TerminalController: ControlWorkspaceContext {
         windowID: UUID,
         focusRequested: Bool
     ) -> ControlWorkspaceMoveToWindowResolution {
-        guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+        guard let srcTM = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID) else {
             return .workspaceNotFound
         }
-        guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowID) else {
+        guard let dstTM = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowID) else {
             return .windowNotFound
         }
         guard let ws = srcTM.detachWorkspace(tabId: workspaceID) else {
@@ -182,7 +261,7 @@ extension TerminalController: ControlWorkspaceContext {
         let focus = v2FocusAllowed(requested: focusRequested)
         dstTM.attachWorkspace(ws, select: focus)
         if focus {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowID)
             setActiveTabManager(dstTM)
         }
         return .resolved
@@ -220,7 +299,7 @@ extension TerminalController: ControlWorkspaceContext {
         if !dryRun {
             _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             plan: ControlWorkspaceReorderPlanItem(
@@ -242,7 +321,7 @@ extension TerminalController: ControlWorkspaceContext {
         let result = tabManager.reorderWorkspaces(orderedWorkspaceIds: workspaceIDs, dryRun: dryRun)
         switch result {
         case .success(let planned):
-            let windowId = AppDelegate.shared?.windowId(for: tabManager)
+            let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
             let plans = planned.map {
                 ControlWorkspaceReorderPlanItem(
                     workspaceID: $0.workspaceId,
@@ -269,7 +348,7 @@ extension TerminalController: ControlWorkspaceContext {
             return resolveTabManager(routing: routing)
         }
         for workspaceId in workspaceIDs {
-            if let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
+            if let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId) {
                 return owner
             }
         }
@@ -283,7 +362,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         message: String?
     ) -> ControlWorkspacePromptSubmitResolution {
-        guard let tabManager = (AppDelegate.shared?.tabManagerFor(tabId: workspaceID))
+        guard let tabManager = (appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID))
             ?? resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
@@ -296,7 +375,7 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         let preview = tabManager.tabs.first(where: { $0.id == workspaceID })?.latestSubmittedMessage
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             iMessageModeEnabled: iMessageModeEnabled,
@@ -319,7 +398,7 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         tabManager.setCustomTitle(tabId: workspaceID, title: title)
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(windowID: windowId)
     }
 
@@ -330,13 +409,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.selectNextTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
@@ -345,13 +424,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.selectPreviousTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
@@ -360,13 +439,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard let before = tabManager.selectedTabId else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.navigateBack()
         guard let after = tabManager.selectedTabId, after != before else { return .notFound }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(workspaceID: after, windowID: windowId)
     }
 
@@ -413,6 +492,107 @@ extension TerminalController: ControlWorkspaceContext {
         return tabManager.tabs.first(where: { $0.id == workspaceId })
     }
 
+    // MARK: - Set auto title
+
+    func controlWorkspaceAutoNamingEnabled() -> Bool {
+        AutomationCatalogSection().workspaceAutoNamingSettings(in: .standard).enabled
+    }
+
+    func controlWorkspaceAutoTitleProbe(
+        routing: ControlRoutingSelectors,
+        hasWorkspaceID: Bool,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceAutoTitleProbe {
+        let autoNaming = AutomationCatalogSection().workspaceAutoNamingSettings(in: .standard)
+        let enabled = autoNaming.enabled
+        let summarizer = autoNaming.summarizerAgentSlug
+
+        // The user-owned key is only present when the request carried a
+        // `workspace_id` AND a TabManager resolved; its value is nil (JSON null)
+        // when the workspace is missing or its title is not user-owned.
+        guard hasWorkspaceID,
+              let workspaceID,
+              let tabManager = resolveTabManager(routing: routing) else {
+            return ControlWorkspaceAutoTitleProbe(
+                enabled: enabled,
+                summarizerAgentSlug: summarizer,
+                includeUserOwned: false,
+                userOwned: nil
+            )
+        }
+        var userOwned: Bool?
+        if let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) {
+            userOwned = workspace.effectiveCustomTitleSource == .user
+        }
+        return ControlWorkspaceAutoTitleProbe(
+            enabled: enabled,
+            summarizerAgentSlug: summarizer,
+            includeUserOwned: true,
+            userOwned: userOwned
+        )
+    }
+
+    func controlRecordAutoNamingFailure(rawCategory: String, agent: String) {
+        AutoNamingStatusStore.record(
+            rawCategory: rawCategory,
+            agent: agent,
+            at: Date().timeIntervalSince1970
+        )
+    }
+
+    func controlApplyWorkspaceAutoTitle(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        title: String,
+        panelID: UUID?,
+        panelOnlyIfMultiple: Bool
+    ) -> ControlWorkspaceSetAutoTitleResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return .notFound
+        }
+        let workspaceApplied = tabManager.setCustomTitle(tabId: workspaceID, title: title, source: .auto)
+        var panelApplied: Bool?
+        if let panelID {
+            // Hook payloads carry surface ids; accept either a panel id
+            // or a surface id for the tab target.
+            let resolvedPanelId = workspace.panels[panelID] != nil
+                ? panelID
+                : workspace.panelIdFromSurfaceId(TabID(uuid: panelID))
+            if let resolvedPanelId,
+               !(panelOnlyIfMultiple && workspace.panels.count < 2) {
+                panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+            }
+        }
+
+        // A title landed, so the naming agent is working again: clear any stale
+        // failure the Settings status line may be showing.
+        if workspaceApplied {
+            AutoNamingStatusStore.clear()
+        }
+        return .applied(workspaceApplied: workspaceApplied, panelApplied: panelApplied)
+    }
+
+    // MARK: - Env
+
+    func controlWorkspaceEnv(routing: ControlRoutingSelectors) -> ControlWorkspaceEnvResolution {
+        v2RefreshKnownRefs()
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let workspace = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+            return .notFound
+        }
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
+        return .resolved(
+            windowID: windowId,
+            workspaceID: workspace.id,
+            env: workspace.workspaceEnvironment
+        )
+    }
+
     // MARK: - Remote
 
     func controlResolveRemoteWorkspaceID(
@@ -427,16 +607,16 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         clearConfiguration: Bool
     ) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
         workspace.disconnectRemoteConnection(clearConfiguration: clearConfiguration)
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -444,7 +624,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         surfaceID: UUID?
     ) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
@@ -453,11 +633,11 @@ extension TerminalController: ControlWorkspaceContext {
         }
         workspace.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -465,30 +645,30 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         foregroundAuthToken: String?
     ) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
         workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
         notifyRemotePTYControllerAvailabilityChanged()
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
     func controlWorkspaceRemoteStatus(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -496,197 +676,91 @@ extension TerminalController: ControlWorkspaceContext {
         params typedParams: [String: JSONValue],
         workspaceID workspaceId: UUID
     ) -> ControlCallResult {
-        // The configure body validates ~40 params against the app's
-        // `WorkspaceRemote*` types, so it stays app-side. Bridge the typed params
-        // back to the `[String: Any]` shape the legacy `v2*` param helpers expect
-        // so the acceptance is byte-identical.
-        let params: [String: Any] = typedParams.mapValues(\.foundationObject)
-
-        guard let destination = v2String(params, "destination") else {
+        // Parameter extraction and workspace/owner resolution stay app-side; the
+        // pure ~40-param validation and `WorkspaceRemote*` assembly live in
+        // `WorkspaceRemoteConfiguration.validated(...)` in CmuxCore. The typed
+        // `JSONValue` payload is parsed once into the Sendable
+        // `ControlConfigureWorkspaceRemoteParams` by the coordinator (the
+        // byte-faithful coercions, including the configure-specific
+        // `NSNumber`-based numeric/boolean readers, live in the package alongside
+        // the other command param accessors).
+        let parsed = controlCommandCoordinator.configureWorkspaceRemoteParams(typedParams)
+        guard let destination = parsed.destination else {
             return .err(code: "invalid_params", message: "Missing destination", data: nil)
         }
 
-        var sshPort: Int?
-        if v2HasNonNullParam(params, "port") {
-            guard let parsedPort = v2StrictInt(params, "port"),
-                  parsedPort > 0,
-                  parsedPort <= 65535 else {
-                return .err(code: "invalid_params", message: "port must be 1-65535", data: nil)
-            }
-            sshPort = parsedPort
-        }
-
-        var localProxyPort: Int?
-        if v2HasNonNullParam(params, "local_proxy_port") {
-            guard let parsedLocalProxyPort = v2StrictInt(params, "local_proxy_port"),
-                  parsedLocalProxyPort > 0,
-                  parsedLocalProxyPort <= 65535 else {
-                return .err(code: "invalid_params", message: "local_proxy_port must be 1-65535", data: nil)
-            }
-            localProxyPort = parsedLocalProxyPort
-        }
-
-        let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sshOptions = v2StringArray(params, "ssh_options") ?? []
-        let transportRaw = v2RawString(params, "transport")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
-        let autoConnect = v2Bool(params, "auto_connect") ?? true
-        var relayPort: Int?
-        if v2HasNonNullParam(params, "relay_port") {
-            guard let parsedRelayPort = v2StrictInt(params, "relay_port"),
-                  parsedRelayPort > 0,
-                  parsedRelayPort <= 65535 else {
-                return .err(code: "invalid_params", message: "relay_port must be 1-65535", data: nil)
-            }
-            relayPort = parsedRelayPort
-        }
-        let relayID = v2RawString(params, "relay_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let relayToken = v2RawString(params, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localSocketPath = v2RawString(params, "local_socket_path")
-        let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
-        let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let managedCloudVMID = v2RawString(params, "managed_cloud_vm_id")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if v2HasNonNullParam(params, "persistent_daemon_slot") {
-            guard let persistentDaemonSlot,
-                  !persistentDaemonSlot.isEmpty,
-                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
-                  persistentDaemonSlot != ".",
-                  persistentDaemonSlot != ".." else {
-                return .err(
-                    code: "invalid_params",
-                    message: "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'",
-                    data: nil
-                )
-            }
-        }
-        let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketSessionID = v2RawString(params, "daemon_websocket_session_id")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketExpiresAtUnix = (params["daemon_websocket_expires_at_unix"] as? Int64)
-            ?? Int64((params["daemon_websocket_expires_at_unix"] as? Double) ?? 0)
-        let rawDaemonHeaders = params["daemon_websocket_headers"] as? [String: Any] ?? [:]
-        let daemonWebSocketHeaders = rawDaemonHeaders.reduce(into: [String: String]()) { result, pair in
-            if let value = pair.value as? String {
-                result[pair.key] = value
-            }
-        }
-        let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
-        if let daemonWebSocketURL,
-           !daemonWebSocketURL.isEmpty,
-           let daemonWebSocketToken,
-           !daemonWebSocketToken.isEmpty,
-           let daemonWebSocketSessionID,
-           !daemonWebSocketSessionID.isEmpty {
-            daemonWebSocketEndpoint = WorkspaceRemoteWebSocketDaemonEndpoint(
-                url: daemonWebSocketURL,
-                headers: daemonWebSocketHeaders,
-                token: daemonWebSocketToken,
-                sessionId: daemonWebSocketSessionID,
-                expiresAtUnix: daemonWebSocketExpiresAtUnix
-            )
-        } else {
-            daemonWebSocketEndpoint = nil
-        }
-        let preserveAfterTerminalExit = v2Bool(params, "preserve_after_terminal_exit") ?? false
-        if v2HasNonNullParam(params, "preserve_after_terminal_exit"),
-           v2Bool(params, "preserve_after_terminal_exit") == nil {
-            return .err(
-                code: "invalid_params",
-                message: "preserve_after_terminal_exit must be a boolean",
-                data: nil
-            )
-        }
-        let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
-        if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
-            return .err(
-                code: "invalid_params",
-                message: "preserve_after_terminal_exit is required when persistent_daemon_slot is set",
-                data: nil
-            )
-        }
-        if preserveAfterTerminalExit,
-           transport == .ssh,
-           !skipDaemonBootstrap,
-           daemonWebSocketEndpoint == nil,
-           persistentDaemonSlot == nil {
-            persistentDaemonSlot = "ssh-\(workspaceId.uuidString.lowercased())"
-        }
-        if relayPort != nil {
-            guard let relayID, !relayID.isEmpty else {
-                return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
-            }
-            guard let relayToken,
-                  relayToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
-                return .err(code: "invalid_params", message: "relay_token must be 64 lowercase hex characters when relay_port is set", data: nil)
-            }
+        let config: WorkspaceRemoteConfiguration
+        switch WorkspaceRemoteConfiguration.validated(
+            transportRaw: parsed.transportRaw,
+            destination: destination,
+            portPresent: parsed.portPresent,
+            portValue: parsed.portValue,
+            localProxyPortPresent: parsed.localProxyPortPresent,
+            localProxyPortValue: parsed.localProxyPortValue,
+            relayPortPresent: parsed.relayPortPresent,
+            relayPortValue: parsed.relayPortValue,
+            identityFile: parsed.identityFile,
+            sshOptions: parsed.sshOptions,
+            relayID: parsed.relayID,
+            relayToken: parsed.relayToken,
+            foregroundAuthToken: parsed.foregroundAuthToken,
+            localSocketPath: parsed.localSocketPath,
+            managedCloudVMID: parsed.managedCloudVMID,
+            hasExplicitAgentSocketPath: parsed.hasExplicitAgentSocketPath,
+            agentSocketPath: parsed.agentSocketPath,
+            terminalStartupCommand: parsed.terminalStartupCommand,
+            persistentDaemonSlotPresent: parsed.persistentDaemonSlotPresent,
+            persistentDaemonSlotValue: parsed.persistentDaemonSlotRaw,
+            daemonWebSocketURL: parsed.daemonWebSocketURL,
+            daemonWebSocketToken: parsed.daemonWebSocketToken,
+            daemonWebSocketSessionID: parsed.daemonWebSocketSessionID,
+            daemonWebSocketExpiresAtUnix: parsed.daemonWebSocketExpiresAtUnix,
+            daemonWebSocketHeaders: parsed.daemonWebSocketHeaders,
+            preservePresent: parsed.preservePresent,
+            preserveValue: parsed.preserveValue,
+            skipDaemonBootstrap: parsed.skipDaemonBootstrap,
+            workspaceID: workspaceId
+        ) {
+        case .failure(let error):
+            return .err(code: error.code, message: error.message, data: nil)
+        case .success(let validatedConfig):
+            config = validatedConfig
         }
 
 #if DEBUG
         cmuxDebugLog(
-            "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
-            "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
-            "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
-            "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
-            "sshOptions=\(sshOptions.joined(separator: "|"))"
+            controlCommandCoordinator.configureWorkspaceRemoteRequestLogLine(
+                workspaceID: workspaceId,
+                destination: destination,
+                transportRaw: config.transport.rawValue,
+                port: config.port,
+                autoConnect: parsed.autoConnect,
+                relayPort: config.relayPort,
+                localSocketPath: config.localSocketPath,
+                agentSocketPath: parsed.agentSocketPath,
+                sshOptions: parsed.sshOptions
+            )
         )
 #endif
 
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceId.uuidString),
-                "workspace_ref": controlWorkspaceRefValue(workspaceId),
+                "workspace_ref": controlCommandCoordinator.workspaceRefValue(workspaceId),
             ]))
         }
 
-        let config = WorkspaceRemoteConfiguration(
-            transport: transport,
-            destination: destination,
-            port: sshPort,
-            identityFile: identityFile?.isEmpty == true ? nil : identityFile,
-            sshOptions: sshOptions,
-            localProxyPort: localProxyPort,
-            relayPort: relayPort,
-            relayID: relayID?.isEmpty == true ? nil : relayID,
-            relayToken: relayToken?.isEmpty == true ? nil : relayToken,
-            localSocketPath: localSocketPath,
-            managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
-            terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
-            foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
-            agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
-                sshOptions: sshOptions,
-                explicitAgentSocketPath: agentSocketPath,
-                explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
-            ),
-            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
-            preserveAfterTerminalExit: preserveAfterTerminalExit,
-            persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
-            skipDaemonBootstrap: skipDaemonBootstrap
-        )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        workspace.configureRemoteConnection(config, autoConnect: parsed.autoConnect)
         notifyRemotePTYControllerAvailabilityChanged()
 
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .ok(.object([
-            "window_id": controlWindowOrNull(windowId),
-            "window_ref": controlWindowRefValue(windowId),
+            "window_id": controlCommandCoordinator.windowIDValue(windowId),
+            "window_ref": controlCommandCoordinator.windowRefValue(windowId),
             "workspace_id": .string(workspace.id.uuidString),
-            "workspace_ref": controlWorkspaceRefValue(workspace.id),
-            "remote": JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
+            "workspace_ref": controlCommandCoordinator.workspaceRefValue(workspace.id),
+            "remote": workspace.controlRemoteStatusJSON,
         ]))
     }
 
@@ -699,20 +773,20 @@ extension TerminalController: ControlWorkspaceContext {
             panelId: surfaceId,
             preferredWorkspaceId: workspaceId
         )
-        let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+        let fallbackOwner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound
         }
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
             clearedRemotePTYSession: outcome.clearedRemotePTYSession,
             untrackedRemoteTerminal: outcome.untrackedRemoteTerminal,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -721,37 +795,336 @@ extension TerminalController: ControlWorkspaceContext {
         surfaceID surfaceId: UUID,
         relayPort: Int
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
         workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
-    // MARK: - Ref helpers (mint through the shared registry the coordinator owns)
+    // MARK: - v1 line-protocol witnesses
 
-    /// The `workspace:N` ref JSON value for the configure result, minted through
-    /// the same handle registry the coordinator uses so refs stay consistent.
-    private func controlWorkspaceRefValue(_ uuid: UUID) -> JSONValue {
-        .string(controlCommandCoordinator.ensureRef(kind: .workspace, uuid: uuid))
+    // The byte-faithful bodies of the former `TerminalController` v1 workspace
+    // cases, moved here verbatim so the coordinator's `handleWorkspaceV1`
+    // dispatch owns the routing while the app-coupled bodies stay app-resident.
+    // These read the controller's active `TabManager` directly (distinct from
+    // the routing-based `workspace.*` resolutions), so they cannot reuse the
+    // typed resolutions above.
+
+    func controlListWorkspacesV1() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var result: String = ""
+        v2MainSync {
+            let rows = tabManager.tabs.enumerated().map { index, tab in
+                ControlWorkspaceV1Listing.Row(
+                    isSelected: tab.id == tabManager.selectedTabId,
+                    index: index,
+                    id: tab.id,
+                    title: tab.title
+                )
+            }
+            result = ControlWorkspaceV1Listing(rows: rows).output
+        }
+        return result
     }
 
-    /// The `window:N` ref JSON value (or `null` when absent) for the configure
-    /// result.
-    private func controlWindowRefValue(_ uuid: UUID?) -> JSONValue {
-        guard let uuid else { return .null }
-        return .string(controlCommandCoordinator.ensureRef(kind: .window, uuid: uuid))
+    func controlNewWorkspaceV1(args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title: String? = trimmed.isEmpty ? nil : trimmed
+
+        var newTabId: UUID?
+        let focus = socketCommandAllowsInAppFocusMutations()
+        v2MainSync {
+            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
+            newTabId = workspace.id
+        }
+        return "OK \(newTabId?.uuidString ?? "unknown")"
     }
 
-    /// The window id JSON value (or `null` when absent).
-    private func controlWindowOrNull(_ uuid: UUID?) -> JSONValue {
-        guard let uuid else { return .null }
-        return .string(uuid.uuidString)
+    func controlNewSplitV1(args: String) -> String {
+        // v1 socket error for a left/up split directed at a mirror workspace
+        // (the coordinator-side v1 `new_pane` carries the same wording via its
+        // sidebar context).
+        let mirrorDirectionError =
+            "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
+
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let directionArg: String
+        let panelArg: String
+        switch ControlWorkspaceV1SplitArguments(rawArguments: args) {
+        case .empty:
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        case let .tokens(direction, panel):
+            directionArg = direction
+            panelArg = panel
+        }
+
+        guard let direction = SplitDirection(controlToken: directionArg) else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        var result = "ERROR: Failed to create split"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            // If panel arg provided, resolve it; otherwise use focused panel
+            let surfaceId: UUID?
+            if !panelArg.isEmpty {
+                surfaceId = resolveSurfaceId(from: panelArg, tab: tab)
+                if surfaceId == nil {
+                    result = "ERROR: Panel not found"
+                    return
+                }
+            } else {
+                surfaceId = tab.focusedPanelId
+            }
+
+            guard let targetSurface = surfaceId else {
+                result = "ERROR: No surface to split"
+                return
+            }
+
+            if tab.isRemoteTmuxMirror, direction.insertFirst {
+                // Routed tmux `split-window` cannot insert before the target
+                // pane; reject before mutating the remote session.
+                result = mirrorDirectionError
+                return
+            }
+
+            switch tab.newTerminalSplitOutcome(
+                from: targetSurface,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst
+            ) {
+            case .created(let panel):
+                result = "OK \(panel.id.uuidString)"
+            case .routedToRemote:
+                result = "OK routed-to-remote-tmux"
+            case .failed:
+                break
+            }
+        }
+        return result
+    }
+
+    func controlCloseWorkspaceV1(arg: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        guard case let .uuid(uuid) = ControlWorkspaceV1Selector(rawArgument: arg) else {
+            return "ERROR: Invalid tab ID"
+        }
+
+        var result = "ERROR: Tab not found"
+        v2MainSync {
+            if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                guard tabManager.canCloseWorkspace(tab) else {
+                    result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
+                tabManager.closeTab(tab)
+                result = "OK"
+            }
+        }
+        return result
+    }
+
+    func controlSelectWorkspaceV1(arg: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var success = false
+        v2MainSync {
+            switch ControlWorkspaceV1Selector(rawArgument: arg) {
+            case let .uuid(uuid):
+                if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                    tabManager.selectTab(tab)
+                    success = true
+                }
+            case let .index(index):
+                if index >= 0, index < tabManager.tabs.count {
+                    tabManager.selectTab(at: index)
+                    success = true
+                }
+            case .unparseable:
+                break
+            }
+        }
+        return success ? "OK" : "ERROR: Tab not found"
+    }
+
+    func controlCurrentWorkspaceV1() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var result: String = ""
+        v2MainSync {
+            if let id = tabManager.selectedTabId {
+                result = id.uuidString
+            }
+        }
+        return result.isEmpty ? "ERROR: No tab selected" : result
+    }
+
+    // MARK: - workspace.action
+
+    func controlWorkspaceColorPalette() -> [ControlWorkspaceColorPaletteEntry] {
+        WorkspaceTabColorSettings().palette().map {
+            ControlWorkspaceColorPaletteEntry(name: $0.name, hex: $0.hex)
+        }
+    }
+
+    func controlWorkspaceActionResolveTarget(
+        routing: ControlRoutingSelectors,
+        requestedWorkspaceID: UUID?
+    ) -> ControlWorkspaceActionTarget? {
+        guard let tabManager = resolveTabManager(routing: routing) else { return nil }
+        guard let workspaceId = requestedWorkspaceID ?? tabManager.selectedTabId,
+              tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return ControlWorkspaceActionTarget(workspaceID: workspaceId, windowID: windowId)
+    }
+
+    func controlWorkspaceActionSetPinned(workspaceID: UUID, pinned: Bool) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        resolved.tabManager.setPinned(resolved.workspace, pinned: pinned)
+    }
+
+    func controlWorkspaceActionSetCustomTitle(workspaceID: UUID, title: String) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        _ = resolved.tabManager.setCustomTitle(tabId: workspaceID, title: title)
+    }
+
+    func controlWorkspaceActionClearCustomTitle(workspaceID: UUID) -> String {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return "" }
+        resolved.tabManager.clearCustomTitle(tabId: workspaceID)
+        return resolved.workspace.title
+    }
+
+    func controlWorkspaceActionSetCustomDescription(workspaceID: UUID, description: String) -> String? {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return nil }
+        resolved.tabManager.setCustomDescription(tabId: workspaceID, description: description)
+        return resolved.workspace.customDescription
+    }
+
+    func controlWorkspaceActionClearCustomDescription(workspaceID: UUID) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        resolved.tabManager.clearCustomDescription(tabId: workspaceID)
+    }
+
+    func controlWorkspaceActionReorder(
+        workspaceID: UUID,
+        direction: ControlWorkspaceActionReorderDirection
+    ) -> ControlWorkspaceActionReorderOutcome {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return .notFound }
+        let tabManager = resolved.tabManager
+        guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspaceID }) else {
+            return .notFound
+        }
+        let targetIndex: Int
+        switch direction {
+        case .up:
+            targetIndex = max(currentIndex - 1, 0)
+        case .down:
+            targetIndex = min(currentIndex + 1, tabManager.tabs.count - 1)
+        }
+        _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: targetIndex)
+        return .reordered(index: tabManager.tabs.firstIndex(where: { $0.id == workspaceID }))
+    }
+
+    func controlWorkspaceActionMoveTop(workspaceID: UUID) -> Int? {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return nil }
+        resolved.tabManager.moveTabToTop(workspaceID)
+        return resolved.tabManager.tabs.firstIndex(where: { $0.id == workspaceID })
+    }
+
+    func controlWorkspaceActionClose(
+        workspaceID: UUID,
+        scope: ControlWorkspaceActionCloseScope
+    ) -> ControlWorkspaceActionCloseOutcome {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return .notFound }
+        let tabManager = resolved.tabManager
+        let workspace = resolved.workspace
+        let candidates: [Workspace]
+        switch scope {
+        case .others:
+            candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
+        case .above:
+            guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                return .notFound
+            }
+            candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
+        case .below:
+            guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                return .notFound
+            }
+            if index + 1 < tabManager.tabs.count {
+                candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
+            } else {
+                candidates = []
+            }
+        }
+        let closed = controlWorkspaceActionCloseWorkspaces(candidates, keeping: workspace, in: tabManager)
+        return .closed(closed)
+    }
+
+    func controlWorkspaceActionMarkRead(workspaceID: UUID) {
+        appEnvironment?.notificationStore?.markRead(forTabId: workspaceID)
+    }
+
+    func controlWorkspaceActionMarkUnread(workspaceID: UUID) {
+        appEnvironment?.notificationStore?.markUnread(forTabId: workspaceID)
+    }
+
+    func controlWorkspaceActionSetTabColor(workspaceID: UUID, hex: String?) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        resolved.tabManager.setTabColor(tabId: workspaceID, color: hex)
+    }
+
+    // MARK: - workspace.action resolution helpers (private)
+
+    /// Re-resolves the owning `TabManager` and `Workspace` for a
+    /// `workspace.action` mutation witness. The action target was already
+    /// validated to exist in this same synchronous call, so the owner lookup
+    /// returns the identical TabManager the routing resolved.
+    private func controlWorkspaceActionResolveWorkspace(
+        _ workspaceID: UUID
+    ) -> (tabManager: TabManager, workspace: Workspace)? {
+        guard let tabManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return nil
+        }
+        return (tabManager, workspace)
+    }
+
+    /// The byte-faithful twin of the legacy `closeWorkspaces(_:)` nested helper:
+    /// closes each candidate that still exists and is not the target workspace,
+    /// counting only the ones actually removed.
+    private func controlWorkspaceActionCloseWorkspaces(
+        _ workspaces: [Workspace],
+        keeping workspace: Workspace,
+        in tabManager: TabManager
+    ) -> Int {
+        var closed = 0
+        for candidate in workspaces where candidate.id != workspace.id {
+            let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
+            guard existedBefore else { continue }
+            tabManager.closeWorkspace(candidate)
+            if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
+                closed += 1
+            }
+        }
+        return closed
     }
 }

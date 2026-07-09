@@ -26,7 +26,8 @@ extension ContentView {
                 commandId: "palette.layout.saveCurrent",
                 title: { _ in String(localized: "command.savedLayout.saveCurrent.title", defaultValue: "Save Layout as Template…") },
                 subtitle: workspaceSubtitle,
-                shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .saveLayoutTemplate)?.displayString,
+                shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .saveLayoutTemplate)
+                    .map { KeyboardShortcutSettings.Action.saveLayoutTemplate.displayedShortcutString(for: $0) },
                 keywords: ["save", "layout", "template", "preset", "workspace", "split"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }

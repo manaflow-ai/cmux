@@ -6,7 +6,7 @@ import Testing
 final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     // Mutations are serialized by the URL loading system; a lock-free actor
     // box keeps captured requests for assertions.
-    nonisolated(unsafe) static let recorder = RequestRecorder()
+    static let recorder = RequestRecorder()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }

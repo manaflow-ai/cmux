@@ -3,6 +3,8 @@ import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
+import CmuxNotifications
 import CmuxTerminal
 import CmuxWorkspaces
 
@@ -13,21 +15,6 @@ struct AgentHibernationPanelState {
 
     var agentDisplayName: String {
         agent.agentDisplayName
-    }
-}
-
-enum AgentHibernationResumePreparation: Equatable {
-    case unavailable
-    case resumed(queuedStartupInput: Bool)
-
-    var didResume: Bool {
-        if case .resumed = self { return true }
-        return false
-    }
-
-    var queuedStartupInput: Bool {
-        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
-        return false
     }
 }
 
@@ -795,7 +782,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationDefaultsToggle.paneFlash.isEnabled() else { return }
 
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:
@@ -803,9 +790,9 @@ final class TerminalPanel: Panel, ObservableObject {
                 onRequestWorkspacePaneFlash(reason)
                 return
             }
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: TerminalPaneFlashStyle(reason: reason))
         case .surface, .tmuxActivePane:
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: TerminalPaneFlashStyle(reason: reason))
         }
     }
 

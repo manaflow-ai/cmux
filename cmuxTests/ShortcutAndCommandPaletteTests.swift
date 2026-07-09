@@ -19,7 +19,9 @@ import struct CmuxSettings.QuitConfirmationStore
 import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
 import struct CmuxSettings.SettingCatalog
+import struct CmuxSettings.ShortcutDisplayFormatter
 import struct CmuxSettings.UserDefaultsSettingsClient
+import protocol CmuxSidebar.FeedKeyboardFocusResponder
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -545,32 +547,32 @@ final class FullScreenShortcutTests: XCTestCase {
 
     func testInlineTextHandlingDisablesPaletteSelectionNavigationRouting() {
         XCTAssertTrue(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: -1,
                 isInteractive: true,
                 usesInlineTextHandling: false
-            )
+            ).shouldRoute
         )
         XCTAssertFalse(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: -1,
                 isInteractive: true,
                 usesInlineTextHandling: true
-            )
+            ).shouldRoute
         )
         XCTAssertFalse(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: nil,
                 isInteractive: true,
                 usesInlineTextHandling: false
-            )
+            ).shouldRoute
         )
         XCTAssertFalse(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: 1,
                 isInteractive: false,
                 usesInlineTextHandling: false
-            )
+            ).shouldRoute
         )
     }
 }
@@ -579,90 +581,54 @@ final class FullScreenShortcutTests: XCTestCase {
 final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
     func testDoesNotConsumeWhenPaletteIsNotVisible() {
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: false,
-                normalizedFlags: [.command],
-                chars: "n",
-                keyCode: 45
-            )
+            CommandPaletteKeystroke(keyCode: 45, modifierFlags: [.command], characters: "n")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: false)
         )
     }
 
     func testConsumesAppCommandShortcutsWhenPaletteIsVisible() {
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "n",
-                keyCode: 45
-            )
+            CommandPaletteKeystroke(keyCode: 45, modifierFlags: [.command], characters: "n")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "t",
-                keyCode: 17
-            )
+            CommandPaletteKeystroke(keyCode: 17, modifierFlags: [.command], characters: "t")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command, .shift],
-                chars: ",",
-                keyCode: 43
-            )
+            CommandPaletteKeystroke(keyCode: 43, modifierFlags: [.command, .shift], characters: ",")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 
     func testAllowsClipboardAndUndoShortcutsForPaletteTextEditing() {
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "v",
-                keyCode: 9
-            )
+            CommandPaletteKeystroke(keyCode: 9, modifierFlags: [.command], characters: "v")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "z",
-                keyCode: 6
-            )
+            CommandPaletteKeystroke(keyCode: 6, modifierFlags: [.command], characters: "z")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command, .shift],
-                chars: "z",
-                keyCode: 6
-            )
+            CommandPaletteKeystroke(keyCode: 6, modifierFlags: [.command, .shift], characters: "z")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 
     func testAllowsSystemAndEditingKeyEquivalentsForPaletteTextEditing() {
         for (chars, keyCode) in [(" ", UInt16(49)), ("", UInt16(123)), ("", UInt16(51))] {
             XCTAssertFalse(
-                shouldConsumeShortcutWhileCommandPaletteVisible(
-                    isCommandPaletteVisible: true,
-                    normalizedFlags: [.command],
-                    chars: chars,
-                    keyCode: keyCode
-                )
+                CommandPaletteKeystroke(keyCode: keyCode, modifierFlags: [.command], characters: chars)
+                    .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
             )
         }
     }
 
     func testConsumesEscapeWhenPaletteIsVisible() {
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [],
-                chars: "",
-                keyCode: 53
-            )
+            CommandPaletteKeystroke(keyCode: 53, modifierFlags: [], characters: "")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 }
@@ -757,32 +723,32 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
         let panelId = UUID()
         XCTAssertTrue(
-            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+            CommandPaletteBrowserAddressBarRestorePolicy(
                 focusedPanelIsBrowser: true,
                 focusedBrowserAddressBarPanelId: panelId,
                 focusedPanelId: panelId
-            )
+            ).shouldRestore
         )
     }
 
     func testDoesNotRestoreBrowserAddressBarWhenFocusedPanelIsNotBrowser() {
         let panelId = UUID()
         XCTAssertFalse(
-            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+            CommandPaletteBrowserAddressBarRestorePolicy(
                 focusedPanelIsBrowser: false,
                 focusedBrowserAddressBarPanelId: panelId,
                 focusedPanelId: panelId
-            )
+            ).shouldRestore
         )
     }
 
     func testDoesNotRestoreBrowserAddressBarWhenAnotherPanelHadAddressBarFocus() {
         XCTAssertFalse(
-            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+            CommandPaletteBrowserAddressBarRestorePolicy(
                 focusedPanelIsBrowser: true,
                 focusedBrowserAddressBarPanelId: UUID(),
                 focusedPanelId: UUID()
-            )
+            ).shouldRestore
         )
     }
 
@@ -923,7 +889,7 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     func testFirstEntryPinsToTopAnchor() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 0,
             resultCount: 20
         )
@@ -931,7 +897,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 
     func testLastEntryPinsToBottomAnchor() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 19,
             resultCount: 20
         )
@@ -939,7 +905,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 
     func testMiddleEntryUsesNilAnchorForMinimalScroll() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 6,
             resultCount: 20
         )
@@ -947,7 +913,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 
     func testEmptyResultsProduceNoAnchor() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 0,
             resultCount: 0
         )
@@ -975,29 +941,25 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
 
         XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: controlShortcut,
+            controlShortcut.titlebarHintShouldShow(
                 alwaysShowShortcutHints: true,
                 modifierPressed: false
             )
         )
         XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: controlShortcut,
+            controlShortcut.titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
         )
         XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: commandShortcut,
+            commandShortcut.titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
         )
         XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: .unbound,
+            StoredShortcut.unbound.titlebarHintShouldShow(
                 alwaysShowShortcutHints: true,
                 modifierPressed: true
             )
@@ -1349,7 +1311,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(resolvedShortcut, customShortcut)
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.focusRightSidebar.displayedShortcutString(for: resolvedShortcut),
-            customShortcut.displayString
+            ShortcutDisplayFormatter().displayString(customShortcut)
         )
     }
 
@@ -1387,7 +1349,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1406,7 +1369,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1423,7 +1387,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let itemId = UUID()
         let workspaceId = UUID()
@@ -1447,7 +1412,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
 
@@ -1466,7 +1432,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
 
@@ -1497,7 +1464,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: window,
             tabManager: TabManager(),
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
 
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
@@ -1523,7 +1491,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1630,12 +1599,12 @@ final class DevBuildBannerDebugSettingsTests: XCTestCase {
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
-        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 0, 0])
+        XCTAssertEqual(ShortcutHintLanePlanner(intervals: intervals, minSpacing: 4).lanes, [0, 0, 0])
     }
 
     func testAssignLanesStacksOverlappingIntervalsIntoAdditionalLanes() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 22...38, 40...56]
-        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 1, 2, 0])
+        XCTAssertEqual(ShortcutHintLanePlanner(intervals: intervals, minSpacing: 4).lanes, [0, 1, 2, 0])
     }
 }
 
@@ -1643,7 +1612,7 @@ final class ShortcutHintLanePlannerTests: XCTestCase {
 final class ShortcutHintHorizontalPlannerTests: XCTestCase {
     func testAssignRightEdgesResolvesOverlapWithMinimumSpacing() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 30...46]
-        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+        let rightEdges = ShortcutHintHorizontalPlanner(intervals: intervals, minSpacing: 6).rightEdges
 
         XCTAssertEqual(rightEdges.count, intervals.count)
 
@@ -1658,13 +1627,13 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
 
     func testAssignRightEdgesKeepsAlreadySeparatedIntervalsInPlace() {
         let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
-        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
+        let rightEdges = ShortcutHintHorizontalPlanner(intervals: intervals, minSpacing: 4).rightEdges
         XCTAssertEqual(rightEdges, [12, 32, 52])
     }
 
     func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
         let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
-        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+        let rightEdges = ShortcutHintHorizontalPlanner(intervals: intervals, minSpacing: 6).rightEdges
 
         let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
             let width = interval.upperBound - interval.lowerBound
@@ -2100,18 +2069,18 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
-        let enclosure: [String: Any] = [
-            "url": "https://example.com/cmux.zip",
-            "length": "1024",
-            "sparkle:version": displayVersion,
-            "sparkle:shortVersionString": displayVersion,
-        ]
-        let dict: [String: Any] = [
-            "title": "cmux \(displayVersion)",
-            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
-            "enclosure": enclosure,
-        ]
-        return SUAppcastItem(dictionary: dict)
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        archiver.encode(displayVersion, forKey: "displayVersionString")
+        archiver.encode(URL(string: "https://example.com/cmux.zip"), forKey: "fileURL")
+        archiver.encode("application", forKey: "SUAppcastItemInstallationType")
+        archiver.encode(displayVersion, forKey: "versionString")
+        archiver.encode([String: String](), forKey: "propertiesDictionary")
+        archiver.encode(0, forKey: "SUAppcastItemSigningValidationStatus")
+        archiver.finishEncoding()
+        guard let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: archiver.encodedData) else { return nil }
+        unarchiver.requiresSecureCoding = true
+        defer { unarchiver.finishDecoding() }
+        return SUAppcastItem(coder: unarchiver)
     }
 }
 

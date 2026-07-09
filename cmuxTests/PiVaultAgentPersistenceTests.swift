@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxWorkspaces
 import XCTest
 
@@ -280,7 +281,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-123",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -309,7 +310,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-123",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -339,7 +340,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-123",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -371,7 +372,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-{{cwd}}",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -1096,7 +1097,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -1109,7 +1110,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(loadedAgent.sessionId, sessionPath)
         XCTAssertEqual(
             loadedAgent.resumeCommand,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "'env' 'PI_CODING_AGENT_SESSION_DIR=\(tempDir.path)' '/opt/homebrew/bin/pi' '--session' '\(sessionPath)' '--session-dir' '\(tempDir.path)'",
                 workingDirectory: "/tmp/pi repo"
             )
@@ -1132,7 +1133,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             gitBranch: nil
         )
         return AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(

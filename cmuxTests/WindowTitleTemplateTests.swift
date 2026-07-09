@@ -284,7 +284,7 @@ struct WindowTitleTemplateTests {
         workspace.disconnectRemoteConnection()
         manager.refreshWindowTitle()
         #expect(window.title == "[cmux:01234567]")
-        #expect(manager.gitProbeDirectory(for: workspace, panelId: remotePanelId) == nil)
+        #expect(manager.gitProbeDirectory(workspaceId: workspace.id, panelId: remotePanelId) == nil)
     }
 
     @MainActor

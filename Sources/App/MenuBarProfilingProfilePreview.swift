@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 enum MenuBarProfilingProfilePreview {
     static let recipient = "founders@manaflow.com"

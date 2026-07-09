@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 enum PaneChromeSettings {
     static let paneBorderColorKey = "paneBorderColor"
@@ -25,6 +26,6 @@ enum PaneChromeSettings {
 
     private static func normalizedColorHex(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
-        return WorkspaceTabColorSettings.normalizedHex(rawValue)
+        return WorkspaceTabColorSettings().normalizedHex(rawValue)
     }
 }

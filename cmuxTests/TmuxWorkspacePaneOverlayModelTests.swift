@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import CmuxCore
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,10 +13,10 @@ import Testing
 struct TmuxWorkspacePaneOverlayModelTests {
     @Test @MainActor
     func tracksActivePaneBorder() {
-        let model = TmuxWorkspacePaneOverlayModel()
+        let model = CmuxWorkspaces.TmuxWorkspacePaneOverlayModel()
         let borderRect = CGRect(x: 8, y: 12, width: 320, height: 180)
 
-        model.apply(TmuxWorkspacePaneOverlayRenderState(
+        model.apply(CmuxCore.TmuxWorkspacePaneOverlayRenderState(
             workspaceId: UUID(),
             unreadRects: [],
             flashRect: nil,

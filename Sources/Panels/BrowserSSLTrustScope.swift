@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 
 struct BrowserSSLTrustScope: Hashable {
     let scheme: String

@@ -15,9 +15,10 @@ import UserNotifications
 import Combine
 import CmuxTerminal
 import CmuxBrowser
+import CMUXAgentLaunch
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
-@_implementationOnly import XCTest
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -26,12 +27,14 @@ import enum CmuxSettings.KiroNotificationLevel
 // ambiguous. These tests exercise the app-side paths, so pin the app types.
 private typealias StoredShortcut = cmux_DEV.StoredShortcut
 private typealias ShortcutStroke = cmux_DEV.ShortcutStroke
-private typealias AppIconMode = cmux_DEV.AppIconMode
+// `AppIconMode` now lives only in CmuxSettings (the app-target duplicate was
+// drained); pin the package type for these app-side paths.
+private typealias AppIconMode = CmuxSettings.AppIconMode
 #elseif canImport(cmux)
 @testable import cmux
 private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = cmux.ShortcutStroke
-private typealias AppIconMode = cmux.AppIconMode
+private typealias AppIconMode = CmuxSettings.AppIconMode
 #endif
 
 @MainActor
@@ -607,7 +610,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             chordKey: "d"
         )
 
-        XCTAssertEqual(shortcut.displayString, "⌃B D")
+        XCTAssertEqual(ShortcutDisplayFormatter().displayString(shortcut), "⌃B D")
         XCTAssertNil(shortcut.keyEquivalent)
         XCTAssertNil(shortcut.menuItemKeyEquivalent)
     }
@@ -648,7 +651,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         {"key":"d","command":true,"shift":false,"option":false,"control":false}
         """.data(using: .utf8)!
 
-        let shortcut = try JSONDecoder().decode(StoredShortcut.self, from: data)
+        let shortcut = try JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut
 
         XCTAssertEqual(shortcut.key, "d")
         XCTAssertFalse(shortcut.hasChord)
@@ -874,10 +877,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-        AppIconSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
+
+    private var appIconModeKey: String { AppCatalogSection().appIcon.userDefaultsKey }
 
     func testSettingsFileStoreParsesSingleStrokeChordAndNumberedChord() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -1227,7 +1231,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
         let defaults = UserDefaults.standard
-        let forkKey = AgentConversationForkDefaultSettings.key
+        let forkKey = AgentConversationForkDestination.defaultDestinationDefaultsKey
         let inheritanceKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
         let previousForkValue = defaults.object(forKey: forkKey)
         let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
@@ -1276,7 +1280,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
+        XCTAssertEqual(AgentConversationForkDestination.configuredDefault(), .right)
         XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
@@ -1329,13 +1333,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
         let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let appIconModeKey = appIconModeKey
+        let previousMode = defaults.object(forKey: appIconModeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousMode {
-                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+                defaults.set(previousMode, forKey: appIconModeKey)
             } else {
-                defaults.removeObject(forKey: AppIconSettings.modeKey)
+                defaults.removeObject(forKey: appIconModeKey)
             }
 
             if let previousBackups {
@@ -1345,7 +1350,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: appIconModeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -1363,56 +1368,29 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
-        var imageRequestCount = 0
-        var runtimeIconSetCount = 0
-        var dockTileNotificationCount = 0
-        AppIconSettings.setLiveEnvironmentProviderForTesting {
-            AppIconSettings.Environment(
-                isApplicationFinishedLaunching: { false },
-                imageForMode: { _ in
-                    imageRequestCount += 1
-                    return nil
-                },
-                setApplicationIconImage: { _ in
-                    runtimeIconSetCount += 1
-                },
-                startAppearanceObservation: {
-                    startObservationCallCount += 1
-                },
-                stopAppearanceObservation: {
-                    stopObservationCallCount += 1
-                },
-                notifyDockTilePlugin: {
-                    dockTileNotificationCount += 1
-                }
-            )
-        }
-
+        // The managed-config reload path applies the icon through the shared
+        // `appIconApplier`, which early-returns before any AppKit work because
+        // `appIconLaunchReporter` reports not-finished-launching under XCTest.
+        // The apply gating itself is covered in `AppIconSettingsTests`.
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
-        XCTAssertEqual(startObservationCallCount, 0)
-        XCTAssertEqual(stopObservationCallCount, 0)
-        XCTAssertEqual(imageRequestCount, 0)
-        XCTAssertEqual(runtimeIconSetCount, 0)
-        XCTAssertEqual(dockTileNotificationCount, 0)
+        XCTAssertEqual(defaults.string(forKey: appIconModeKey), AppIconMode.automatic.rawValue)
     }
 
     func testSettingsFileStoreCanReplayAutomaticAppIconSettingTwiceWithoutTouchingAppKit() throws {
         let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let appIconModeKey = appIconModeKey
+        let previousMode = defaults.object(forKey: appIconModeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousMode {
-                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+                defaults.set(previousMode, forKey: appIconModeKey)
             } else {
-                defaults.removeObject(forKey: AppIconSettings.modeKey)
+                defaults.removeObject(forKey: appIconModeKey)
             }
 
             if let previousBackups {
@@ -1422,7 +1400,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: appIconModeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -1440,33 +1418,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
-        var imageRequestCount = 0
-        var runtimeIconSetCount = 0
-        var dockTileNotificationCount = 0
-        AppIconSettings.setLiveEnvironmentProviderForTesting {
-            AppIconSettings.Environment(
-                isApplicationFinishedLaunching: { false },
-                imageForMode: { _ in
-                    imageRequestCount += 1
-                    return nil
-                },
-                setApplicationIconImage: { _ in
-                    runtimeIconSetCount += 1
-                },
-                startAppearanceObservation: {
-                    startObservationCallCount += 1
-                },
-                stopAppearanceObservation: {
-                    stopObservationCallCount += 1
-                },
-                notifyDockTilePlugin: {
-                    dockTileNotificationCount += 1
-                }
-            )
-        }
-
+        // Replaying twice exercises the idempotent persist path; the shared
+        // `appIconApplier` never touches AppKit because the launch reporter is
+        // not finished-launching under XCTest.
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
@@ -1478,12 +1432,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
-        XCTAssertEqual(startObservationCallCount, 0)
-        XCTAssertEqual(stopObservationCallCount, 0)
-        XCTAssertEqual(imageRequestCount, 0)
-        XCTAssertEqual(runtimeIconSetCount, 0)
-        XCTAssertEqual(dockTileNotificationCount, 0)
+        XCTAssertEqual(defaults.string(forKey: appIconModeKey), AppIconMode.automatic.rawValue)
     }
 
     func testSettingsFileStoreRejectsModifierFreeFirstStroke() throws {
@@ -1845,7 +1794,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             control: true,
             chordKey: "c"
         )
-        let encodedShortcut = try XCTUnwrap(try? JSONEncoder().encode(invalidShortcut))
+        let encodedShortcut = try XCTUnwrap(try? JSONEncoder().encode(FlatStoredShortcutPersistence(invalidShortcut)))
         let defaults = UserDefaults.standard
         defaults.set(encodedShortcut, forKey: SystemWideHotkeySettings.legacyShortcutKey)
 
@@ -1857,7 +1806,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let migratedData = try XCTUnwrap(
             defaults.data(forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey)
         )
-        let storedShortcut = try XCTUnwrap(try? JSONDecoder().decode(StoredShortcut.self, from: migratedData))
+        let storedShortcut = try XCTUnwrap(try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: migratedData).storedShortcut)
         XCTAssertEqual(storedShortcut, invalidShortcut)
         XCTAssertNil(storedShortcut.carbonHotKeyRegistration)
     }
@@ -2048,14 +1997,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {
         let defaults = UserDefaults.standard
-        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings().paletteKey) as? [String: String]
         let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
         let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
-            WorkspaceTabColorSettings.reset(defaults: defaults)
+            WorkspaceTabColorSettings().reset(defaults: defaults)
             if let previousPalette {
-                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings().paletteKey)
             }
             if let previousLegacyOverrides {
                 defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
@@ -2070,7 +2019,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        WorkspaceTabColorSettings.reset(defaults: defaults)
+        WorkspaceTabColorSettings().reset(defaults: defaults)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -2097,21 +2046,21 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+        let palette = WorkspaceTabColorSettings().palette(defaults: defaults)
         XCTAssertEqual(palette.map(\.name), ["Blue", "Neon Mint"])
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
     }
 
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
-        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings().paletteKey) as? [String: String]
         let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
         let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
-            WorkspaceTabColorSettings.reset(defaults: defaults)
+            WorkspaceTabColorSettings().reset(defaults: defaults)
             if let previousPalette {
-                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings().paletteKey)
             }
             if let previousLegacyOverrides {
                 defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
@@ -2126,7 +2075,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        WorkspaceTabColorSettings.reset(defaults: defaults)
+        WorkspaceTabColorSettings().reset(defaults: defaults)
         defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
         defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
@@ -2154,7 +2103,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults).map(\.name), ["Neon Mint"])
+        XCTAssertEqual(WorkspaceTabColorSettings().palette(defaults: defaults).map(\.name), ["Neon Mint"])
 
         let missingSettingsURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
         _ = KeyboardShortcutSettingsFileStore(
@@ -2163,7 +2112,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        let restored = WorkspaceTabColorSettings.palette(defaults: defaults)
+        let restored = WorkspaceTabColorSettings().palette(defaults: defaults)
         XCTAssertEqual(restored.first(where: { $0.name == "Blue" })?.hex, "#010203")
         XCTAssertEqual(restored.first(where: { $0.name == "Custom 1" })?.hex, "#778899")
         XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
@@ -2826,20 +2775,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
 }
 
 
-final class WorkspaceShortcutMapperTests: XCTestCase {
-    func testCommandNineMapsToLastWorkspaceIndex() {
-        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forDigit: 9, workspaceCount: 1), 0)
-        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forDigit: 9, workspaceCount: 4), 3)
-        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forDigit: 9, workspaceCount: 12), 11)
-    }
-
-    func testCommandDigitBadgesUseNineForLastWorkspaceWhenNeeded() {
-        XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 0, workspaceCount: 12), 1)
-        XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 7, workspaceCount: 12), 8)
-        XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 11, workspaceCount: 12), 9)
-        XCTAssertNil(WorkspaceShortcutMapper.digitForWorkspace(at: 8, workspaceCount: 12))
-    }
-}
 @MainActor
 final class WorkspaceCustomDescriptionTests: XCTestCase {
     func testSetCustomDescriptionPreservesMeaningfulLeadingAndTrailingWhitespace() {
@@ -2965,7 +2900,7 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
-    private final class DetachedWorkspaceTestPanel: Panel {
+    private final class DetachedWorkspaceTestPanel: @preconcurrency Panel {
         let objectWillChange = ObservableObjectPublisher()
         let id: UUID
         let stableSurfaceIdentity = PanelStableSurfaceIdentity()
@@ -2985,7 +2920,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
@@ -3000,7 +2935,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDisabledInheritanceLeavesNewWorkspaceCwdUnsetForGhosttyConfigFallback() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
@@ -3015,7 +2950,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
@@ -3033,7 +2968,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitWorkspaceWorkingDirectoryWinsWhenInheritanceIsDisabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let explicitCwd = "/tmp/cmux-explicit-\(UUID().uuidString)"
             let manager = TabManager(
@@ -3217,10 +3152,9 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
-            title: String,
+            title: String, explicitTitle: String?,
             workingDirectory: String?,
-            portOrdinal: Int,
-            configTemplate: CmuxSurfaceConfigTemplate?,
+            portOrdinal: Int, inheritedTerminalFontPoints: Float?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
@@ -3229,14 +3163,13 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialBrowserOmnibarVisible: Bool,
             initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
-            allowTextBoxFocusDefault: Bool
+            allowTextBoxFocusDefault: Bool, chromeInheritanceSource: Workspace?
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
-                title: title,
+                title: title, explicitTitle: explicitTitle,
                 workingDirectory: workingDirectory,
-                portOrdinal: portOrdinal,
-                configTemplate: configTemplate,
+                portOrdinal: portOrdinal, inheritedTerminalFontPoints: inheritedTerminalFontPoints,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
@@ -3245,7 +3178,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault, chromeInheritanceSource: chromeInheritanceSource
             )
         }
     }
@@ -3521,17 +3454,14 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             injectedConfig = config
         }
 
-        override func inheritedTerminalConfigForNewWorkspace(
-            workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
-            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        override func inheritedTerminalFontPointsForNewWorkspace(workspace: Workspace?) -> Float? {
+            injectedConfig?.fontSize ?? super.inheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
         }
 
         override func makeWorkspaceForCreation(
-            title: String,
+            title: String, explicitTitle: String?,
             workingDirectory: String?,
-            portOrdinal: Int,
-            configTemplate: CmuxSurfaceConfigTemplate?,
+            portOrdinal: Int, inheritedTerminalFontPoints: Float?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
@@ -3540,14 +3470,13 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialBrowserOmnibarVisible: Bool,
             initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
-            allowTextBoxFocusDefault: Bool
+            allowTextBoxFocusDefault: Bool, chromeInheritanceSource: Workspace?
         ) -> Workspace {
-            capturedConfigTemplate = configTemplate
+            capturedConfigTemplate = workspaceCreationConfigTemplate(inheritedTerminalFontPoints: inheritedTerminalFontPoints)
             return super.makeWorkspaceForCreation(
-                title: title,
+                title: title, explicitTitle: explicitTitle,
                 workingDirectory: workingDirectory,
-                portOrdinal: portOrdinal,
-                configTemplate: configTemplate,
+                portOrdinal: portOrdinal, inheritedTerminalFontPoints: inheritedTerminalFontPoints,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
@@ -3556,7 +3485,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault, chromeInheritanceSource: chromeInheritanceSource
             )
         }
     }
@@ -3671,14 +3600,14 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
 
 final class WorkspaceTabColorSettingsTests: XCTestCase {
     func testNormalizedHexAcceptsAndNormalizesValidInput() {
-        XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("#abc123"), "#ABC123")
-        XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("  aBcDeF "), "#ABCDEF")
-        XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#1234"))
-        XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#GG1234"))
+        XCTAssertEqual(WorkspaceTabColorSettings().normalizedHex("#abc123"), "#ABC123")
+        XCTAssertEqual(WorkspaceTabColorSettings().normalizedHex("  aBcDeF "), "#ABCDEF")
+        XCTAssertNil(WorkspaceTabColorSettings().normalizedHex("#1234"))
+        XCTAssertNil(WorkspaceTabColorSettings().normalizedHex("#GG1234"))
     }
 
     func testBuiltInPaletteMatchesOriginalPRPalette() {
-        let palette = WorkspaceTabColorSettings.defaultPalette
+        let palette = WorkspaceTabColorSettings().defaultPalette
         XCTAssertEqual(palette.count, 16)
         XCTAssertEqual(palette.first?.name, "Red")
         XCTAssertEqual(palette.first?.hex, "#C0392B")
@@ -3694,7 +3623,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults), WorkspaceTabColorSettings.defaultPalette)
+        XCTAssertEqual(WorkspaceTabColorSettings().palette(defaults: defaults), WorkspaceTabColorSettings().defaultPalette)
     }
 
     func testSetColorRoundTripFallsBackWhenResetToBase() {
@@ -3705,25 +3634,25 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let first = WorkspaceTabColorSettings.defaultPalette[0]
+        let first = WorkspaceTabColorSettings().defaultPalette[0]
         XCTAssertEqual(
-            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings().currentColorHex(named: first.name, defaults: defaults),
             first.hex
         )
 
-        WorkspaceTabColorSettings.setColor(named: first.name, hex: "#00aa33", defaults: defaults)
+        WorkspaceTabColorSettings().setColor(named: first.name, hex: "#00aa33", defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings().currentColorHex(named: first.name, defaults: defaults),
             "#00AA33"
         )
-        XCTAssertNotNil(defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey))
+        XCTAssertNotNil(defaults.dictionary(forKey: WorkspaceTabColorSettings().paletteKey))
 
-        WorkspaceTabColorSettings.setColor(named: first.name, hex: first.hex, defaults: defaults)
+        WorkspaceTabColorSettings().setColor(named: first.name, hex: first.hex, defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings().currentColorHex(named: first.name, defaults: defaults),
             first.hex
         )
-        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings.paletteKey))
+        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings().paletteKey))
     }
 
     func testAddCustomColorCreatesNamedEntriesAndDeduplicatesByHex() {
@@ -3735,20 +3664,20 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(
-            WorkspaceTabColorSettings.addCustomColor(" #00aa33 ", defaults: defaults),
+            WorkspaceTabColorSettings().addCustomColor(" #00aa33 ", defaults: defaults),
             "#00AA33"
         )
         XCTAssertEqual(
-            WorkspaceTabColorSettings.addCustomColor("#112233", defaults: defaults),
+            WorkspaceTabColorSettings().addCustomColor("#112233", defaults: defaults),
             "#112233"
         )
         XCTAssertEqual(
-            WorkspaceTabColorSettings.addCustomColor("#00AA33", defaults: defaults),
+            WorkspaceTabColorSettings().addCustomColor("#00AA33", defaults: defaults),
             "#00AA33"
         )
-        XCTAssertNil(WorkspaceTabColorSettings.addCustomColor("nope", defaults: defaults))
+        XCTAssertNil(WorkspaceTabColorSettings().addCustomColor("nope", defaults: defaults))
 
-        let customEntries = WorkspaceTabColorSettings.customPaletteEntries(defaults: defaults)
+        let customEntries = WorkspaceTabColorSettings().customPaletteEntries(defaults: defaults)
         XCTAssertEqual(customEntries.map(\.name), ["Custom 1", "Custom 2"])
         XCTAssertEqual(customEntries.map(\.hex), ["#00AA33", "#112233"])
     }
@@ -3761,12 +3690,12 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        var palette = Dictionary(uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) })
+        var palette = Dictionary(uniqueKeysWithValues: WorkspaceTabColorSettings().defaultPalette.map { ($0.name, $0.hex) })
         palette.removeValue(forKey: "Red")
         palette["Neon Mint"] = "#00F5D4"
-        WorkspaceTabColorSettings.persistPaletteMap(palette, defaults: defaults)
+        WorkspaceTabColorSettings().persistPaletteMap(palette, defaults: defaults)
 
-        let resolved = WorkspaceTabColorSettings.palette(defaults: defaults)
+        let resolved = WorkspaceTabColorSettings().palette(defaults: defaults)
         XCTAssertFalse(resolved.contains(where: { $0.name == "Red" }))
         XCTAssertEqual(resolved.first?.name, "Crimson")
         XCTAssertEqual(resolved.last?.name, "Neon Mint")
@@ -3784,7 +3713,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
         defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
 
-        let resolved = WorkspaceTabColorSettings.palette(defaults: defaults)
+        let resolved = WorkspaceTabColorSettings().palette(defaults: defaults)
         XCTAssertEqual(
             resolved.first(where: { $0.name == "Blue" })?.hex,
             "#010203"
@@ -3803,21 +3732,21 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        WorkspaceTabColorSettings.persistPaletteMap(["Neon Mint": "#00F5D4"], defaults: defaults)
+        WorkspaceTabColorSettings().persistPaletteMap(["Neon Mint": "#00F5D4"], defaults: defaults)
         defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
         defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
 
-        WorkspaceTabColorSettings.reset(defaults: defaults)
+        WorkspaceTabColorSettings().reset(defaults: defaults)
 
-        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings.paletteKey))
+        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings().paletteKey))
         XCTAssertNil(defaults.object(forKey: "workspaceTabColor.defaultOverrides"))
         XCTAssertNil(defaults.object(forKey: "workspaceTabColor.customColors"))
-        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults), WorkspaceTabColorSettings.defaultPalette)
+        XCTAssertEqual(WorkspaceTabColorSettings().palette(defaults: defaults), WorkspaceTabColorSettings().defaultPalette)
     }
 
     func testDisplayColorLightModeKeepsOriginalHex() {
         let originalHex = "#1A5276"
-        let rendered = WorkspaceTabColorSettings.displayNSColor(
+        let rendered = WorkspaceTabColorSettings().displayNSColor(
             hex: originalHex,
             colorScheme: .light
         )
@@ -3828,7 +3757,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
     func testDisplayColorDarkModeBrightensColor() {
         let originalHex = "#1A5276"
         guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorSettings.displayNSColor(
+              let rendered = WorkspaceTabColorSettings().displayNSColor(
                   hex: originalHex,
                   colorScheme: .dark
               ) else {
@@ -3843,7 +3772,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
     func testDisplayColorDarkModeKeepsGrayscaleNeutral() {
         let originalHex = "#808080"
         guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorSettings.displayNSColor(
+              let rendered = WorkspaceTabColorSettings().displayNSColor(
                   hex: originalHex,
                   colorScheme: .dark
               ),
@@ -3860,7 +3789,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
     func testDisplayColorForceBrightensInLightMode() {
         let originalHex = "#1A5276"
         guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorSettings.displayNSColor(
+              let rendered = WorkspaceTabColorSettings().displayNSColor(
                   hex: originalHex,
                   colorScheme: .light,
                   forceBright: true
@@ -4079,11 +4008,11 @@ final class WorkspaceReorderTests: XCTestCase {
         _ = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4100,11 +4029,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let third = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4120,7 +4049,7 @@ final class WorkspaceReorderTests: XCTestCase {
         let first = manager.tabs[0]
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { _ in
@@ -4141,11 +4070,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let second = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4214,7 +4143,7 @@ final class WorkspaceReorderTests: XCTestCase {
         _ = manager.addWorkspace()
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { _ in
@@ -4295,11 +4224,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let fourth = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -6565,11 +6494,18 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
+        // `Workspace` is `@Observable`, so it no longer exposes `objectWillChange`.
+        // The signal these tests are about — "the workspace republished its
+        // sidebar projection" — is the aggregate `sidebarObservationPublisher`
+        // (which fans in the focused git-branch/PR state and de-dups), so observe
+        // that directly. It is the same publisher the sibling
+        // `testSidebarObservationPublisher…` test uses.
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink { _ in
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
         let baselinePublishCount = publishCount
@@ -6598,11 +6534,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
+        // See the git-branch test above: observe the aggregate sidebar projection
+        // publisher rather than the retired `objectWillChange`.
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink { _ in
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
         workspace.updatePanelPullRequest(
@@ -7079,17 +7018,17 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(
-            AgentConversationForkDefaultSettings.current(defaults: defaults),
+            AgentConversationForkDestination.configuredDefault(defaults: defaults),
             .right,
             "Missing setting should use the product default"
         )
 
-        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
-        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .newTab)
+        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
+        XCTAssertEqual(AgentConversationForkDestination.configuredDefault(defaults: defaults), .newTab)
 
-        defaults.set("unsupported", forKey: AgentConversationForkDefaultSettings.key)
+        defaults.set("unsupported", forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
         XCTAssertEqual(
-            AgentConversationForkDefaultSettings.current(defaults: defaults),
+            AgentConversationForkDestination.configuredDefault(defaults: defaults),
             .right,
             "Invalid settings file values should fall back to the product default"
         )
@@ -7099,15 +7038,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
         // and should reach the default right-split path through the context-menu dispatcher.
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
+        let previousValue = defaults.object(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentConversationForkDefaultSettings.key)
+                defaults.set(previousValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+                defaults.removeObject(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+        defaults.removeObject(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
 
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -7179,15 +7118,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() throws {
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
+        let previousValue = defaults.object(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentConversationForkDefaultSettings.key)
+                defaults.set(previousValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+                defaults.removeObject(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             }
         }
-        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
+        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
 
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)

@@ -13,7 +13,7 @@ final class MobilePairingWindowController: ReleasingWindowController {
     static let shared = MobilePairingWindowController()
 
     /// The pairing window's identifier. Listed in
-    /// `cmuxAuxiliaryWindowIdentifiers` (cmuxApp.swift) so the standard close
+    /// `AuxiliaryWindowRegistry.default` (CmuxFoundation) so the standard close
     /// shortcut closes this window instead of a terminal tab in the main
     /// window behind it; referenced from the Cmd+W regression test.
     static let windowIdentifier = "cmux.mobilePairingWindow"

@@ -89,11 +89,25 @@ final class AgentChatSessionRegistry {
             eventMask: .exit,
             queue: .global(qos: .utility)
         )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.handleProcessExit(sessionID: sessionID, pid: pid) }
-        }
+        source.setEventHandler(handler: processExitEventHandler(sessionID: sessionID, pid: pid))
         exitWatchers[sessionID] = (pid: pid, source: source)
         source.resume()
+    }
+
+    /// Built by a `nonisolated` helper so the closure is NOT inferred
+    /// `@MainActor`: the process source fires on a utility queue, and entering a
+    /// main-actor closure there traps (`swift_task_isCurrentExecutor` →
+    /// `dispatch_assert_queue_fail`) on macOS 26 / Swift 6 — same class as the
+    /// PaneMemoryGuardrailService launch crash. The handler only captures
+    /// Sendable values and hops to main before touching registry state.
+    nonisolated private func processExitEventHandler(sessionID: String, pid: Int) -> @Sendable () -> Void {
+        { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.handleProcessExit(sessionID: sessionID, pid: pid)
+                }
+            }
+        }
     }
 
     var observeInFlight: AgentChatObservationInFlight?

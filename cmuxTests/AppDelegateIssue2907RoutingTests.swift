@@ -1,5 +1,6 @@
 import XCTest
 import CmuxTerminal
+import CmuxWorkspaces
 import AppKit
 import Bonsplit
 
@@ -1188,6 +1189,17 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(app.tabManagerFor(windowId: browserOnlyWindowId))
         XCTAssertFalse(app.listMainWindowSummaries().contains { $0.windowId == browserOnlyWindowId })
         XCTAssertTrue(app.tabManagerFor(windowId: terminalWindowId) === terminalManager)
+    }
+
+    func testWindowRegistryTabManagerForFindsRegisteredWindowlessContext() {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        XCTAssertTrue(app.environment.windowRegistry.tabManagerFor(windowId: windowId) === manager)
     }
 
     func testWorkspaceCreationContinuesAfterStaleActiveContextDiscard() throws {

@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import CmuxWorkspaces
 
 nonisolated enum PanelTitleUpdateCoalescingSettings {
     private nonisolated static let terminalSettings = SettingCatalog().terminal
@@ -24,5 +25,54 @@ nonisolated enum PanelTitleUpdateCoalescingSettings {
 
     nonisolated static func configuredDelayMilliseconds(settings: any SettingsReading) -> Int {
         Int((delay(settings: settings) * 1_000).rounded())
+    }
+}
+
+@MainActor
+final class PanelTitleUpdateCoalescer: TitleFlushDelayScheduling {
+    typealias Cancellation = @MainActor () -> Void
+
+    private var pendingCancellation: Cancellation?
+    private var pendingAction: (() -> Void)?
+    private let defaultDelay: TimeInterval
+    private let schedule: (_ delay: TimeInterval, _ action: @escaping @MainActor () -> Void) -> Cancellation
+
+    init(
+        delay: TimeInterval = PanelTitleUpdateCoalescingSettings.defaultDelay,
+        schedule: @escaping (_ delay: TimeInterval, _ action: @escaping @MainActor () -> Void) -> Cancellation = { delay, action in
+            let workItem = DispatchWorkItem {
+                MainActor.assumeIsolated {
+                    action()
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: workItem)
+            return {
+                workItem.cancel()
+            }
+        }
+    ) {
+        self.defaultDelay = max(0, delay)
+        self.schedule = schedule
+    }
+
+    func signal(_ action: @escaping () -> Void) {
+        signal(delay: defaultDelay, action)
+    }
+
+    func signal(delay: TimeInterval, _ action: @escaping () -> Void) {
+        precondition(Thread.isMainThread, "PanelTitleUpdateCoalescer must be used on the main thread")
+        pendingAction = action
+        pendingCancellation?()
+        pendingCancellation = schedule(max(0, delay)) { [weak self] in
+            self?.flush()
+        }
+    }
+
+    private func flush() {
+        precondition(Thread.isMainThread, "PanelTitleUpdateCoalescer must be used on the main thread")
+        pendingCancellation = nil
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        action()
     }
 }

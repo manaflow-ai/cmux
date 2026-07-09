@@ -12,6 +12,8 @@ import CmuxSidebarGit
 import CmuxSidebar
 import CmuxTerminal
 import CmuxSettings
+import struct CmuxWorkspaces.TmuxOverlayExperimentSettings
+import enum CmuxWorkspaces.TmuxOverlayExperimentTarget
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -200,7 +202,7 @@ private func runProcess(
     )
 }
 
-private func runGit(
+@discardableResult private func runGit(
     _ arguments: [String],
     in directoryURL: URL,
     file: StaticString = #filePath,
@@ -417,7 +419,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
         )
 
-        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        workspace.reconnectRemoteConnection(surfaceId: remotePanelId)
         let reattachedPanel = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
         XCTAssertEqual(reattachedPanel.surface.initialCommand, startupCommand)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
@@ -489,7 +491,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        workspace.reconnectRemoteConnection(surfaceId: remotePanelId)
         let replacement = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
         let reconnectCommand = try XCTUnwrap(replacement.surface.debugInitialCommand())
         XCTAssertTrue(reconnectCommand.contains("vm-pty-attach"), reconnectCommand)
@@ -1349,7 +1351,7 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         manager.setCustomTitle(tabId: third.id, title: "Gamma")
 
         var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
-        manager.confirmCloseHandler = { title, message, acceptCmdD in
+        manager.workspaceClosing.confirmCloseHandler = { title, message, acceptCmdD in
             prompts.append((title, message, acceptCmdD))
             return true
         }
@@ -1382,7 +1384,7 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         manager.setCustomTitle(tabId: second.id, title: "Beta")
 
         var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
-        manager.confirmCloseHandler = { title, message, acceptCmdD in
+        manager.workspaceClosing.confirmCloseHandler = { title, message, acceptCmdD in
             prompts.append((title, message, acceptCmdD))
             return false
         }
@@ -1428,7 +1430,7 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         manager.setCustomTitle(tabId: third.id, title: "Gamma")
 
         var promptCount = 0
-        manager.confirmCloseHandler = { _, _, _ in
+        manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return false
         }
@@ -1450,7 +1452,7 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         manager.setSidebarSelectedWorkspaceIds([manager.tabs[0].id, second.id])
 
         var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
-        manager.confirmCloseHandler = { title, message, acceptCmdD in
+        manager.workspaceClosing.confirmCloseHandler = { title, message, acceptCmdD in
             prompts.append((title, message, acceptCmdD))
             return false
         }
@@ -1495,7 +1497,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         }
 
         var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
-        manager.confirmCloseHandler = { title, message, acceptCmdD in
+        manager.workspaceClosing.confirmCloseHandler = { title, message, acceptCmdD in
             prompts.append((title, message, acceptCmdD))
             return true
         }
@@ -1537,7 +1539,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
             TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
         }
 
-        manager.confirmCloseHandler = { _, _, _ in true }
+        manager.workspaceClosing.confirmCloseHandler = { _, _, _ in true }
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
         XCTAssertEqual(manager.tabs.count, 1)
@@ -1563,7 +1565,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         }
 
         var promptCount = 0
-        manager.confirmCloseHandler = { _, _, _ in
+        manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return true
         }
@@ -1728,7 +1730,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
         var promptCount = 0
-        manager.confirmCloseHandler = { _, _, _ in
+        manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return false
         }
@@ -1755,7 +1757,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
 
         var promptCount = 0
-        manager.confirmCloseHandler = { _, _, _ in
+        manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return false
         }
@@ -1806,7 +1808,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertEqual(pinnedWorkspace.panels.count, 1)
 
         var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
-        manager.confirmCloseHandler = { title, message, acceptCmdD in
+        manager.workspaceClosing.confirmCloseHandler = { title, message, acceptCmdD in
             prompts.append((title, message, acceptCmdD))
             return false
         }
@@ -1847,7 +1849,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             return
         }
 
-        manager.confirmCloseHandler = { _, _, _ in true }
+        manager.workspaceClosing.confirmCloseHandler = { _, _, _ in true }
 
         manager.closeCurrentPanelWithConfirmation()
         drainMainQueue()
@@ -2056,7 +2058,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
             var promptCount = 0
-            manager.confirmCloseHandler = { _, _, _ in
+            manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
                 return false
             }
@@ -2095,7 +2097,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             }
 
             var promptCount = 0
-            manager.confirmCloseHandler = { _, _, _ in
+            manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
                 return false
             }
@@ -2145,7 +2147,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(panelNeedsConfirmation)
 
             var promptCount = 0
-            manager.confirmCloseHandler = { _, _, _ in
+            manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
                 return false
             }
@@ -3319,7 +3321,6 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
         )
     }
 }
-
 
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {

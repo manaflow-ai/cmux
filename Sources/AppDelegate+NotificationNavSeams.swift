@@ -34,7 +34,7 @@ final class NotificationNavSeamAdapter:
     MainWindowContextResolving,
     UnreadWorkspaceTargeting,
     NotificationOpenRouting,
-    FinderRevealing,
+    NotificationPopoverPresenting,
     FocusedNotificationResolving
 {
     weak var owner: AppDelegate?
@@ -155,18 +155,14 @@ final class NotificationNavSeamAdapter:
         owner?.tabTitle(forTabId: tabId) ?? nil
     }
 
-    // MARK: FinderRevealing
+    // MARK: NotificationPopoverPresenting
 
-    func fileExists(atPath path: String) -> Bool {
-        owner?.finderFileExists(atPath: path) ?? false
+    func surfaceWindowForMenuBarNotificationsPopover() {
+        owner?.surfaceWindowForMenuBarNotificationsPopover()
     }
 
-    func selectFileInFinder(path: String) -> Bool {
-        owner?.finderSelectFile(path: path) ?? false
-    }
-
-    func openDirectoryInFinder(path: String) -> Bool {
-        owner?.finderOpenDirectory(path: path) ?? false
+    func presentMenuBarNotificationsPopover() {
+        owner?.presentMenuBarNotificationsPopover()
     }
 
     // MARK: FocusedNotificationResolving
@@ -250,18 +246,7 @@ extension AppDelegate {
 
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
-        return notificationStore.notifications.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows
-            )
-        }
+        return notificationStore.notifications.map(\.navSnapshot)
     }
 
     var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
@@ -280,16 +265,6 @@ extension AppDelegate {
         notificationStore?.markRead(id: id)
     }
 
-    /// Maps the app-target click action onto the package's value-typed action.
-    static func navClickAction(
-        _ action: TerminalNotificationClickAction
-    ) -> NotificationNavClickAction {
-        switch action {
-        case .revealInFinder(let path):
-            return .revealInFinder(path: path)
-        }
-    }
-
     /// Whether `notification` is openable by the jump-to-latest scan. A thin
     /// shim over `NotificationNavSnapshot.isOpenableForJump`, kept so the legacy
     /// predicate name and its unit test remain valid (and prove the package
@@ -300,17 +275,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            panelId: notification.panelId,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction),
-            scrollRow: notification.scrollPosition?.row,
-            scrollTotalRows: notification.scrollPosition?.totalRows
-        )
-        .isOpenableForJump(
+        notification.navSnapshot.isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
         )
@@ -406,7 +371,7 @@ extension AppDelegate {
         scrollRow: Int?,
         scrollTotalRows: Int?
     ) -> Bool {
-        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+        guard let context = registeredMainWindow(forWindowId: windowId) else {
             return false
         }
         // openNotificationInContext takes the nested MainWindowContext directly.
@@ -480,4 +445,37 @@ extension AppDelegate {
         return FocusedNotificationTarget(tabId: target.tabId, surfaceId: target.surfaceId)
     }
 
+}
+
+/// Value-bridge from the app-target click action onto the package's value-typed
+/// ``NotificationNavClickAction``. Lives on the owning type per CONVENTIONS §9
+/// (operations on a type are extensions on that type), replacing the former
+/// `AppDelegate.navClickAction(_:)` static helper (a §10 namespace-on-AppDelegate
+/// anti-pattern). Byte-identical to the previous mapping.
+extension TerminalNotificationClickAction {
+    var navClickAction: NotificationNavClickAction {
+        switch self {
+        case .revealInFinder(let path):
+            return .revealInFinder(path: path)
+        }
+    }
+}
+
+/// Value-bridge from the app-target notification onto the package navigation
+/// snapshot the coordinator consumes. Lives on the owning type per CONVENTIONS
+/// §9, replacing the inline snapshot construction that was duplicated at each
+/// call site.
+extension TerminalNotification {
+    var navSnapshot: NotificationNavSnapshot {
+        NotificationNavSnapshot(
+            id: id,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            isRead: isRead,
+            clickAction: clickAction?.navClickAction,
+            scrollRow: scrollPosition?.row,
+            scrollTotalRows: scrollPosition?.totalRows
+        )
+    }
 }

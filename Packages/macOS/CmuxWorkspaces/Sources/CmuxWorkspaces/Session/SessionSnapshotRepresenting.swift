@@ -14,3 +14,12 @@ public protocol SessionSnapshotRepresenting: Codable, Sendable {
     /// the file instead of writing it) and is treated as unusable.
     var hasWindows: Bool { get }
 }
+
+extension SessionSnapshotRepresenting {
+    /// The schema version freshly created snapshots carry. Persisted
+    /// snapshots whose `version` differs are treated as unusable. Faithful
+    /// relocation of the legacy `SessionSnapshotSchema.currentVersion`
+    /// constant from `Sources/SessionPersistence.swift`; the value is
+    /// unchanged.
+    public static var currentSchemaVersion: Int { 1 }
+}

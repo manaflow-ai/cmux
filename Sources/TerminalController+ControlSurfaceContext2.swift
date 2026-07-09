@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
@@ -99,12 +100,13 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        // The coordinator pre-validates the same token set; if parseSplitDirection
-        // ever drifts this still surfaces as the legacy invalid_params error.
-        guard let direction = parseSplitDirection(inputs.directionRaw) else {
+        // The coordinator pre-validates the same token set; if the direction
+        // token table ever drifts this still surfaces as the legacy
+        // invalid_params error.
+        guard let direction = SplitDirection(controlToken: inputs.directionRaw) else {
             return .invalidDirection
         }
-        let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
+        let panelType = inputs.typeRaw.flatMap { PanelType(normalizedControlToken: v2NormalizedToken($0)) } ?? .terminal
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
@@ -224,7 +226,7 @@ extension TerminalController {
             guard let requestedSurfaceId = inputs.requestedSurfaceID else {
                 return .surfaceNotFoundForID(nil)
             }
-            guard let located = AppDelegate.shared?.locateSurface(surfaceId: requestedSurfaceId),
+            guard let located = appEnvironment?.windowRegistry.locateSurface(surfaceId: requestedSurfaceId),
                   let locatedWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
                 return .surfaceNotFoundForID(requestedSurfaceId)
             }
@@ -285,7 +287,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
+        let panelType = inputs.typeRaw.flatMap { PanelType(normalizedControlToken: v2NormalizedToken($0)) } ?? .terminal
 
         var providerID: AgentSessionProviderID = .codex
         var rendererKind: AgentSessionRendererKind = .react
@@ -482,7 +484,7 @@ extension TerminalController {
             return .lastSurface
         }
         // Socket API must be non-interactive: bypass close-confirmation gating.
-        guard controlCloseSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: true) else {
+        guard ws.closeSurfaceRecordingHistory(surfaceId: surfaceId, force: true) else {
             return .closeFailed(surfaceId)
         }
         return .closed(

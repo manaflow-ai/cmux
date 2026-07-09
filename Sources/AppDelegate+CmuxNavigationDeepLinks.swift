@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteWorkspace
 import Foundation
 
 extension AppDelegate {
@@ -114,11 +115,11 @@ extension AppDelegate {
 
     private func cmuxNavigationWorkspaceLookup() -> (
         descriptors: [CmuxNavigationTargetResolver.WorkspaceDescriptor],
-        contextByWorkspaceId: [UUID: MainWindowContext]
+        contextByWorkspaceId: [UUID: RegisteredMainWindow]
     ) {
         var descriptors: [CmuxNavigationTargetResolver.WorkspaceDescriptor] = []
-        var contextByWorkspaceId: [UUID: MainWindowContext] = [:]
-        for context in mainWindowContexts.values.sorted(by: { $0.windowId.uuidString < $1.windowId.uuidString }) {
+        var contextByWorkspaceId: [UUID: RegisteredMainWindow] = [:]
+        for context in registeredMainWindows.sorted(by: { $0.windowId.uuidString < $1.windowId.uuidString }) {
             for workspace in context.tabManager.tabs {
                 descriptors.append(workspace.cmuxNavigationDescriptor)
                 contextByWorkspaceId[workspace.id] = context
@@ -137,7 +138,7 @@ extension AppDelegate {
 
     func liveStableIdentitySet() -> Set<UUID> {
         var identities: Set<UUID> = []
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             identities.formUnion(context.tabManager.liveStableIdentitySet())
         }
         return identities

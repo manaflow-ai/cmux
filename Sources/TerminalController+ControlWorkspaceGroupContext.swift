@@ -58,7 +58,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         let groups = tabManager.workspaceGroups.map {
             controlWorkspaceGroupSnapshot($0, tabManager: tabManager)
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(windowID: windowId, groups: groups)
     }
 
@@ -274,7 +274,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .notFound
         }
         let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
+        let configStore = AppDelegate.shared?.configStore(forTabManager: tabManager)
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
             ?? configured
@@ -360,8 +360,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
               let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
             return .notFound
         }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         // Route through selectWorkspace so the explicit-resume notification

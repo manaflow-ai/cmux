@@ -41,10 +41,10 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 extension Workspace {
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {
         let confirmationManager = owningTabManager
-            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-            ?? AppDelegate.shared?.tabManager
+            ?? hostEnvironment?.windowRegistry.tabManagerFor(tabId: id)
+            ?? hostEnvironment?.environment.mainWindowRouter.activeTabManager
 
-        guard confirmationManager?.isCloseConfirmationInFlight != true else { return }
+        guard confirmationManager?.workspaceClosing.isCloseConfirmationInFlight != true else { return }
 
         let candidates = tabIds.compactMap { tabId -> (tabId: TabID, panelId: UUID?)? in
             let panelId = panelIdFromSurfaceId(tabId)
@@ -60,7 +60,7 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmClose(
+        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? .standard).shouldConfirmClose(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
         ) {
@@ -72,7 +72,7 @@ extension Workspace {
                     )
                 }
             )
-            guard confirmationManager.confirmClose(
+            guard confirmationManager.workspaceClosing.confirmClose(
                 title: prompt.title,
                 message: prompt.message,
                 acceptCmdD: false

@@ -29,9 +29,11 @@ extension TabManager {
         }
         // A remote tmux mirror workspace rename propagates to `rename-session`,
         // but only when the write landed (an `.auto` write rejected over a
-        // user-set title must not desync the remote session name).
+        // user-set title must not desync the remote session name) and the caller
+        // wants propagation (`false` when the mirror itself is applying a remote
+        // rename, to avoid a rename loop).
         if applied, propagateToRemoteTmux, tabs[index].isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
+            appEnvironment?.remoteTmuxController.handleMirrorWorkspaceRenamed(
                 workspaceId: tabId,
                 title: title
             )

@@ -1,6 +1,12 @@
 import XCTest
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxBrowser
+import CmuxFoundation
+import CmuxSettings
+import CmuxWindowing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -48,16 +54,16 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 
     func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
         let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldBlock(localURL, rawAllowlist: nil))
 
         let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldBlock(localhostSubdomainURL, rawAllowlist: nil))
 
         let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldBlock(insecureURL, rawAllowlist: nil))
 
         let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldBlock(httpsURL, rawAllowlist: nil))
     }
 
     func testPreparedNavigationRequestPreservesOriginalMethodBodyAndHeaders() throws {
@@ -68,7 +74,12 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
-        let prepared = browserPreparedNavigationRequest(request)
+        let webView = CapturingBrowserLoadWebView(
+            frame: .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        _ = webView.browserLoadRequest(request)
+        let prepared = try XCTUnwrap(webView.capturedRequest)
 
         XCTAssertEqual(prepared.url, url)
         XCTAssertEqual(prepared.httpMethod, "POST")
@@ -81,18 +92,18 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
         var bypassHostOnce: String? = "neverssl.com"
 
-        XCTAssertTrue(browserShouldConsumeOneTimeInsecureHTTPBypass(
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldConsumeOneTimeBypass(
             insecureURL,
             bypassHostOnce: &bypassHostOnce
         ))
         XCTAssertNil(bypassHostOnce)
 
         // Subsequent visits should prompt again unless host was saved.
-        XCTAssertFalse(browserShouldConsumeOneTimeInsecureHTTPBypass(
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldConsumeOneTimeBypass(
             insecureURL,
             bypassHostOnce: &bypassHostOnce
         ))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldBlock(insecureURL, rawAllowlist: nil))
     }
 
     func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
@@ -104,52 +115,62 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let url = try XCTUnwrap(URL(string: "http://persist-me.test"))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldBlock(url, defaults: defaults))
 
         BrowserInsecureHTTPSettings.addAllowedHost("persist-me.test", defaults: defaults)
         let persisted = defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
         XCTAssertNotNil(persisted)
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("persist-me.test", defaults: defaults))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldBlock(url, defaults: defaults))
     }
 
     func testAllowlistSelectionPersistsForProceedAndOpenExternal() {
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertFirstButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertSecondButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertThirdButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertSecondButtonReturn,
             suppressionEnabled: false
         ))
     }
 }
 
+private final class CapturingBrowserLoadWebView: WKWebView {
+    private(set) var capturedRequest: URLRequest?
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        capturedRequest = request
+        return nil
+    }
+}
+
 final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
-        XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
+        let policy = TitlebarControlsSizingPolicy()
+        XCTAssertFalse(policy.shouldSchedule(previous: .zero, current: .zero))
         XCTAssertTrue(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            policy.shouldSchedule(
                 previous: .zero,
                 current: NSSize(width: 240, height: 38)
             )
         )
         XCTAssertFalse(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            policy.shouldSchedule(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 240.2, height: 38.1)
             )
         )
         XCTAssertTrue(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            policy.shouldSchedule(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 247, height: 38)
             )
@@ -157,14 +178,15 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testLayoutApplyPolicySkipsEquivalentSnapshots() {
+        let policy = TitlebarControlsSizingPolicy()
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
-        XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
+        XCTAssertTrue(policy.shouldApplyLayout(previous: nil, next: baseline))
+        XCTAssertFalse(policy.shouldApplyLayout(previous: baseline, next: baseline))
 
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
@@ -172,7 +194,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+        XCTAssertTrue(policy.shouldApplyLayout(previous: baseline, next: changed))
 
         let offsetChanged = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
@@ -180,25 +202,25 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 1,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
+        XCTAssertTrue(policy.shouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testTitlebarControlsListenForWindowGeometryChanges() {
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willEnterFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEnterFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willExitFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didExitFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didResizeNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didEndLiveResizeNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.willEnterFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didEnterFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.willExitFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didExitFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didChangeScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didChangeBackingPropertiesNotification))
     }
 
     func testShortcutHintVerticalOffsetTucksPillIntoBottomOfButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
-            let hintHeight = titlebarShortcutHintHeight(for: config)
-            let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
+            let hintHeight = config.shortcutHintHeight
+            let verticalOffset = config.shortcutHintVerticalOffset
 
             XCTAssertLessThan(verticalOffset, config.buttonSize)
             XCTAssertGreaterThan(verticalOffset + hintHeight, config.buttonSize)
@@ -206,12 +228,12 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testShortcutHintVerticalGapStaysTuckedAgainstButtonLane() {
-        XCTAssertEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
+        XCTAssertEqual(TitlebarControlsStyleConfig.shortcutHintVerticalGap, -3, accuracy: 0.001)
     }
 
     func testTitlebarControlsUseNeutralVisualLift() {
         XCTAssertEqual(
-            TitlebarControlsVisualMetrics.liftedYOffset(3),
+            TitlebarControlsVisualMetrics.standard.liftedYOffset(3),
             3,
             accuracy: 0.001
         )
@@ -233,26 +255,26 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsUseDeterministicContentSize() {
-        let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
+        let classic = TitlebarControlsStyle.classic.config.contentSize()
         XCTAssertEqual(classic.width, 152, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
-        let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
+        let compact = TitlebarControlsStyle.compact.config.contentSize()
         XCTAssertEqual(compact.width, 139, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 
     func testTitlebarControlsLeadingOffsetDoesNotDoubleApplyTrafficLightPosition() {
         let snapshot = MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset,
+            leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
         )
         let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
 
         XCTAssertEqual(
-            TitlebarControlsLayoutMetrics.leadingOffset(
+            TitlebarControlsStyleConfig.leadingOffset(
                 trafficLightFrame: trafficLightFrame,
                 debugSnapshot: snapshot
             ),
@@ -264,13 +286,13 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testTitlebarControlsLeadingOffsetDoesNotFollowSidebarTrailingEdge() {
         let snapshot = MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: 150,
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
         )
 
         XCTAssertEqual(
-            TitlebarControlsLayoutMetrics.leadingOffset(
+            TitlebarControlsStyleConfig.leadingOffset(
                 trafficLightFrame: NSRect(x: 18, y: 7, width: 14, height: 14),
                 debugSnapshot: snapshot
             ),
@@ -280,8 +302,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
+        let yOffset = TitlebarControlsStyleConfig.yOffset(
             contentHeight: WindowChromeMetrics.appTitlebarHeight,
             containerHeight: 32,
             trafficLightFrame: NSRect(x: 20, y: 7, width: 14, height: 14),
@@ -292,10 +314,10 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsBalanceTopAndBottomAgainstTrafficLights() {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         let trafficLightFrame = NSRect(x: 20, y: 7, width: 14, height: 14)
         let contentHeight = WindowChromeMetrics.appTitlebarHeight
-        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+        let yOffset = TitlebarControlsStyleConfig.yOffset(
             contentHeight: contentHeight,
             containerHeight: 32,
             trafficLightFrame: trafficLightFrame,
@@ -312,8 +334,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsVerticalOffsetFallsBackToTitlebarCenter() {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
+        let yOffset = TitlebarControlsStyleConfig.yOffset(
             contentHeight: WindowChromeMetrics.appTitlebarHeight,
             containerHeight: 32,
             trafficLightFrame: nil,
@@ -328,7 +350,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             let config = style.config
 
             XCTAssertLessThan(
-                titlebarNotificationBadgeFontSize(for: config),
+                config.notificationBadgeFontSize,
                 8,
                 "Expected a compact notification badge font for style \(style)"
             )
@@ -350,7 +372,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverTrackingEnabledForEveryTitlebarStyle() {
         for style in TitlebarControlsStyle.allCases {
             XCTAssertTrue(
-                titlebarControlsShouldTrackButtonHover(config: style.config),
+                style.config.shouldTrackButtonHover,
                 "Expected hover tracking for titlebar style \(style)"
             )
         }
@@ -391,25 +413,25 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverAndPressedStatesHaveVisibleDelta() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
-            let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
-            let hoverForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: false)
-            let pressedForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: true)
+            let idleForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false)
+            let hoverForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: false)
+            let pressedForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: true)
 
             XCTAssertGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
             XCTAssertGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
             XCTAssertGreaterThan(
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
-                titlebarControlBackgroundOpacity(config: config, isHovering: false, isPressed: false),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: false),
+                config.controlBackgroundOpacity(isHovering: false, isPressed: false),
                 "Expected hover background delta for style \(style)"
             )
             XCTAssertGreaterThan(
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: true),
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: true),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: false),
                 "Expected pressed background delta for style \(style)"
             )
             XCTAssertGreaterThanOrEqual(
-                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: true),
-                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: false),
+                config.controlBorderOpacity(isHovering: true, isPressed: true),
+                config.controlBorderOpacity(isHovering: true, isPressed: false),
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
             )
         }
@@ -417,43 +439,42 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testStandaloneTitlebarHoverMatchesSplitButtonActiveSegment() {
         let compactConfig = TitlebarControlsStyle.compact.config
-        let standaloneHoverOpacity = max(
-            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
-            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true)
-        )
+        let standaloneHoverOpacity = compactConfig.controlBackgroundOpacity(isHovering: true, isPressed: false)
+        let activeHoverOpacity = compactConfig.controlBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true)
+        let passiveHoverOpacity = activeHoverOpacity > 0 ? 0.016 : 0
 
         XCTAssertEqual(
-            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            activeHoverOpacity,
             standaloneHoverOpacity,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            passiveHoverOpacity,
             0.016,
             accuracy: 0.001
         )
         XCTAssertLessThan(
-            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
-            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            passiveHoverOpacity,
+            standaloneHoverOpacity,
             "The inactive half of the compound plus/cloud control should be lighter than a normal hovered titlebar icon."
         )
         XCTAssertEqual(
-            titlebarControlActiveHoverBackgroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+            compactConfig.controlBackgroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
             0,
             accuracy: 0.001
         )
     }
 
     func testIdleTitlebarButtonsStayReadableButMuted() {
-        let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+        let idleForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false)
 
         XCTAssertGreaterThanOrEqual(idleForeground, 0.84)
         XCTAssertLessThan(idleForeground, 1.0)
     }
 
     func testPressedStateDoesNotScaleTitlebarButtons() {
-        XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
-        XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
+        XCTAssertEqual(TitlebarControlsStyleConfig.controlPressedScale(isPressed: false), 1, accuracy: 0.001)
+        XCTAssertEqual(TitlebarControlsStyleConfig.controlPressedScale(isPressed: true), 1, accuracy: 0.001)
     }
 
     func testDisabledStateMutesTitlebarButtons() {
@@ -461,12 +482,12 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let config = style.config
 
             XCTAssertLessThan(
-                titlebarControlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
-                titlebarControlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+                TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
+                TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
                 "Expected disabled foreground to stay muted for style \(style)"
             )
             XCTAssertEqual(
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false, isEnabled: false),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
                 0,
                 "Expected disabled titlebar button hover to have no active background for style \(style)"
             )
@@ -475,50 +496,50 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
         XCTAssertTrue(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
-            ),
+            ).capturesHit,
             "Expected the hidden minimal-mode hover tracker to capture passive hover so controls reveal"
         )
 
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: false,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
-            ),
+            ).capturesHit,
             "Expected revealed minimal-mode buttons to receive mouseMoved so their hover style can update"
         )
     }
 
     func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .leftMouseDown,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
-            )
+            ).capturesHit
         )
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 1,
                 boundsContainsPoint: true
-            )
+            ).capturesHit
         )
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: false
-            )
+            ).capturesHit
         )
     }
 }
@@ -544,12 +565,12 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         fallback.addSubview(buttonAnchor)
 
         XCTAssertTrue(
-            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
+            NSView.preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
         )
 
         buttonAnchor.isHidden = true
         XCTAssertTrue(
-            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+            NSView.preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
         )
     }
 
@@ -580,7 +601,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         otherContentView.addSubview(buttonAnchor)
 
         XCTAssertTrue(
-            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+            NSView.preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
         )
     }
 
@@ -616,6 +637,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
     }
 }
 
+@MainActor
 final class AppIconAppearanceObserverTests: XCTestCase {
     private final class ObservationToken: AppIconAppearanceObservation {
         private(set) var invalidateCallCount = 0
@@ -625,6 +647,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
         }
     }
 
+    @MainActor
     private final class Harness {
         var isFinishedLaunching = false
         var isDark = false
@@ -636,6 +659,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
         private(set) var didFinishLaunchingHandler: (() -> Void)?
         private(set) var appearanceHandler: (() -> Void)?
         let observation = ObservationToken()
+        let launchObservation = ObservationToken()
 
         lazy var environment = AppIconAppearanceObserver.Environment(
             isApplicationFinishedLaunching: { [unowned self] in
@@ -649,19 +673,16 @@ final class AppIconAppearanceObserverTests: XCTestCase {
             addDidFinishLaunchingObserver: { [unowned self] handler in
                 self.didFinishLaunchingObserverCount += 1
                 self.didFinishLaunchingHandler = handler
-                return NSObject()
+                return self.launchObservation
             },
-            removeObserver: { _ in },
             currentAppearanceIsDark: { [unowned self] in
                 self.currentAppearanceIsDarkCallCount += 1
                 return self.isDark
             },
-            imageForName: { [unowned self] imageName in
+            applyIconImage: { [unowned self] imageName in
                 self.imageRequests.append(imageName)
-                return NSImage(size: NSSize(width: 1, height: 1))
-            },
-            setApplicationIconImage: { [unowned self] _ in
                 self.appliedIconCount += 1
+                return true
             }
         )
 

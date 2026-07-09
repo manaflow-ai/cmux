@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 /// Coalesces and defers `.ghosttyDidFocusSurface` focus broadcasts so that emitting

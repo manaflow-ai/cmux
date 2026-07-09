@@ -1,15 +1,12 @@
 import AppKit
+import CmuxBrowser
 import UniformTypeIdentifiers
 
-enum BrowserScreenshotError: LocalizedError {
-    case captureAreaTooLarge
-    case emptySnapshot
-    case invalidSelection
-    case invalidImageRepresentation
-    case pasteboardWriteFailed
-    case webContentMetricsUnavailable
-
-    var errorDescription: String? {
+// BrowserScreenshotError's cases live in CmuxBrowser; its localized
+// LocalizedError descriptions stay app-side so String(localized:) resolves
+// against the app bundle that owns the browser.screenshot.error.* catalog.
+extension BrowserScreenshotError: @retroactive LocalizedError {
+    public var errorDescription: String? {
         switch self {
         case .captureAreaTooLarge:
             return String(

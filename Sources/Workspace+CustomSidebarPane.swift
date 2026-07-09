@@ -1,6 +1,8 @@
 import Bonsplit
 import Foundation
 import CmuxWorkspaces
+import CmuxSidebar
+import CmuxCommandPalette
 
 extension Workspace {
     func customSidebarSessionSnapshot(for panel: any Panel) -> SessionCustomSidebarPanelSnapshot? {
@@ -100,7 +102,7 @@ extension Workspace {
             return nil
         }
 
-        bindSurface(newTabId, toPanelId: customPanel.id)
+        paneTree.bindSurface(newTabId, toPanelId: customPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -115,7 +117,7 @@ extension Workspace {
         if shouldFocusNewTab {
             focusPanel(customPanel.id)
         } else if let previousFocusedPanelId {
-            preserveFocusAfterNonFocusSplit(
+            preserveSurfaceFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: customPanel.id,
                 previousHostedView: previousHostedView
@@ -149,7 +151,7 @@ extension Workspace {
             isLoading: false,
             isPinned: false
         )
-        bindSurface(newTab.id, toPanelId: customPanel.id)
+        paneTree.bindSurface(newTab.id, toPanelId: customPanel.id)
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         isProgrammaticSplit = true
@@ -162,7 +164,7 @@ extension Workspace {
         ) else {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
-            removeSurfaceMapping(forSurfaceId: newTab.id)
+            paneTree.removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
 

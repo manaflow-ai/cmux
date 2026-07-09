@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFeedback
 import Foundation
+import CmuxWorkspaces
 
 @MainActor
 final class MenuBarProfilingProgressWindowController: NSWindowController {

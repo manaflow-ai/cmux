@@ -1,4 +1,7 @@
 import AppKit
+import struct CmuxWorkspaces.CmuxPaneDefinition
+import struct CmuxWorkspaces.CmuxSurfaceDefinition
+import struct CmuxWorkspaces.CmuxWorkspaceDefinition
 import Foundation
 import Testing
 

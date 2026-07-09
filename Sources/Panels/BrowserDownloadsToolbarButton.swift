@@ -1,4 +1,7 @@
 import SwiftUI
+import CmuxUpdater
+import CmuxSettings
+import CmuxBrowserUI
 
 /// Safari/Chrome-style downloads button for the browser omnibar. Shows a
 /// popover listing recent downloads with Open / Show in Finder actions.

@@ -1,5 +1,7 @@
 import Foundation
+import CMUXAgentLaunch
 import CmuxCore
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
@@ -261,10 +263,9 @@ import Testing
                 autoResume: true
             )
 
-            let startupInput = try #require(binding.startupInputWithLauncherScript(
-                allowLauncherScript: false,
-                repairPortableAgentExecutable: false
-            ))
+            let startupInput = try #require(
+                binding.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
+            )
             #expect(
                 startupInput.contains("'\(executablePath)' 'resume' 'session-remote-local-looking-cli'"),
                 "\(startupInput)"
@@ -290,12 +291,18 @@ import Testing
         """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
 
-        let suiteName = "cmux-session-resume-binding-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previousAutoResume = UserDefaults.standard.object(forKey: autoResumeKey)
+        defer {
+            if let previousAutoResume {
+                UserDefaults.standard.set(previousAutoResume, forKey: autoResumeKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: autoResumeKey)
+            }
+        }
+        UserDefaults.standard.set(true, forKey: autoResumeKey)
 
-        let remoteWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let remoteWorkspace = Workspace()
         remoteWorkspace.setCustomTitle("Remote Workspace With Local Resume Binding")
         remoteWorkspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -359,7 +366,7 @@ import Testing
         #expect(persistedLocalPanel.terminal?.isRemoteTerminal == false)
         #expect(persistedLocalPanel.terminal?.resumeBinding?.command.contains(staleExecutablePath) == true)
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace()
         restoredWorkspace.restoreSessionSnapshot(snapshot)
         let restoredLocalPanel = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -540,7 +547,7 @@ import Testing
     }
 
     private func launcherScriptPath(from command: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
+        let words = try #require(command.surfaceResumeCommandTokens())
         #expect(words.first == "/bin/zsh", "\(command)")
         return try #require(words.dropFirst().first, "Expected /bin/zsh launcher script command, saw: \(command)")
     }

@@ -23,7 +23,11 @@ bool ghostty_surface_clear_selection(void *surface) {
 }
 
 void ghostty_config_diagnostics_count(void) {}
+void ghostty_config_get(void) {}
 void ghostty_config_get_diagnostic(void) {}
+void ghostty_config_load_file(void) {}
+void ghostty_config_load_string(void) {}
+void ghostty_surface_read_selection(void) {}
 void ghostty_string_free(ghostty_string_s string) {
     (void)string;
 }
@@ -69,4 +73,14 @@ ghostty_string_s ghostty_surface_tty_name(void *surface) {
         return (ghostty_string_s){0};
     }
     return (ghostty_string_s){.ptr = cmux_test_tty_name, .len = strlen(cmux_test_tty_name), .sentinel = false};
+}
+
+void ghostty_set_window_background_blur(void *app, void *window) {
+    (void)app;
+    (void)window;
+}
+
+uint32_t ghostty_surface_key_translation_mods(void *surface, uint32_t mods) {
+    (void)surface;
+    return mods;
 }

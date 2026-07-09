@@ -1,87 +1,91 @@
 import AppKit
 import CmuxFoundation
+import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
 
-enum GhosttyDefaultBackgroundUpdateScope: Int {
-    case unscoped = 0
-    case app = 1
-    case surface = 2
+/// The runtime appearance/background-change notification dispatcher, drained out
+/// of this app-target file into `CmuxTerminal` as
+/// ``CmuxTerminal/TerminalDefaultBackgroundNotificationDispatcher``.
+///
+/// The alias keeps the legacy `GhosttyApp` construction and `signal(...)` call
+/// sites byte-identical while the implementation, its coalescer, and the
+/// appearance `userInfo` keys live in the package. The broadly-shared
+/// `GhosttyNotificationKey` event vocabulary below stays here until its own
+/// slice; its appearance-key raw values match the package's
+/// ``CmuxTerminal/TerminalDefaultBackgroundUserInfoKey`` byte-for-byte, so a
+/// payload built in the package is read here unchanged.
+typealias GhosttyDefaultBackgroundNotificationDispatcher = TerminalDefaultBackgroundNotificationDispatcher
 
-    var logLabel: String {
-        switch self {
-        case .unscoped: return "unscoped"
-        case .app: return "app"
-        case .surface: return "surface"
-        }
+/// Read-only forwards for the default-appearance state drained off `GhosttyApp`
+/// into ``CmuxTerminal/TerminalDefaultAppearanceState`` (held as
+/// `GhosttyApp.appearanceState`). These keep every legacy
+/// `GhosttyApp.shared.defaultBackgroundColor` / `app.defaultBackgroundBlur` /
+/// `effectiveTerminalColorSchemePreference` read site (main window, browser
+/// panel, right-sidebar style, titlebar accessory, workspace content, sidebar,
+/// tab manager, debug controls) byte-identical. The setters live on the model;
+/// the only writer is its scope-arbitrated `applyDefaultBackground`.
+extension GhosttyApp {
+    /// The resolved terminal background color.
+    var defaultBackgroundColor: NSColor { appearanceState.defaultBackgroundColor }
+
+    /// The resolved terminal background opacity.
+    var defaultBackgroundOpacity: Double { appearanceState.defaultBackgroundOpacity }
+
+    /// The resolved terminal background blur.
+    var defaultBackgroundBlur: GhosttyBackgroundBlur { appearanceState.defaultBackgroundBlur }
+
+    /// The resolved terminal foreground color.
+    var defaultForegroundColor: NSColor { appearanceState.defaultForegroundColor }
+
+    /// The resolved terminal cursor color.
+    var defaultCursorColor: NSColor { appearanceState.defaultCursorColor }
+
+    /// The resolved terminal cursor text color.
+    var defaultCursorTextColor: NSColor { appearanceState.defaultCursorTextColor }
+
+    /// The resolved terminal selection background color.
+    var defaultSelectionBackground: NSColor { appearanceState.defaultSelectionBackground }
+
+    /// The resolved terminal selection foreground color.
+    var defaultSelectionForeground: NSColor { appearanceState.defaultSelectionForeground }
+
+    /// The terminal color-scheme preference derived from the resolved background.
+    var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference {
+        appearanceState.effectiveTerminalColorSchemePreference
     }
 }
 
-/// Coalesces Ghostty appearance notifications so consumers only observe the
-/// latest runtime terminal colors for a burst of updates.
-@MainActor
-final class GhosttyDefaultBackgroundNotificationDispatcher {
-    private let coalescer: NotificationBurstCoalescer
-    private let postNotification: @MainActor ([AnyHashable: Any]) -> Void
-    private var pendingUserInfo: [AnyHashable: Any]?
-    private var pendingEventId: UInt64 = 0
-    private var pendingSource: String = "unspecified"
-    private let logEvent: (@MainActor (String) -> Void)?
+/// The app-side seam ``CmuxTerminal/TerminalAppearanceCoordinator`` calls back
+/// through for the cold appearance-sync effects that must stay on `GhosttyApp`:
+/// the live `ghostty_app_t` color-scheme write, the configuration reload, the
+/// background debug log, and the reload-reentrancy depth. The `ghostty_app_t`
+/// handle never crosses into the package; `appearanceHasGhosttyApp` reports its
+/// presence and `appearanceApplyGhosttyRuntimeColorScheme` performs the
+/// `ghostty_app_set_color_scheme` against the private handle here.
+extension GhosttyApp: TerminalAppearanceHosting {
+    var appearanceBackgroundLogEnabled: Bool { backgroundLogEnabled }
 
-    init(
-        delay: TimeInterval = 1.0 / 30.0,
-        coalescer: NotificationBurstCoalescer? = nil,
-        logEvent: (@MainActor (String) -> Void)? = nil,
-        postNotification: @escaping @MainActor ([AnyHashable: Any]) -> Void = { userInfo in
-            NotificationCenter.default.post(
-                name: .ghosttyDefaultBackgroundDidChange,
-                object: nil,
-                userInfo: userInfo
-            )
-        }
-    ) {
-        self.coalescer = coalescer ?? NotificationBurstCoalescer(delay: delay)
-        self.logEvent = logEvent
-        self.postNotification = postNotification
+    func appearanceLogBackground(_ message: String) {
+        logBackground(message)
     }
 
-    @MainActor
-    func signal(
-        backgroundColor: NSColor,
-        opacity: Double,
-        eventId: UInt64,
+    var appearanceHasGhosttyApp: Bool { app != nil }
+
+    func appearanceApplyGhosttyRuntimeColorScheme(_ runtimeColorScheme: ghostty_color_scheme_e) {
+        guard let app else { return }
+        ghostty_app_set_color_scheme(app, runtimeColorScheme)
+    }
+
+    func appearanceReloadConfiguration(
         source: String,
-        foregroundColor: NSColor,
-        cursorColor: NSColor,
-        cursorTextColor: NSColor,
-        selectionBackground: NSColor,
-        selectionForeground: NSColor
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        pendingEventId = eventId
-        pendingSource = source
-        pendingUserInfo = [
-            GhosttyNotificationKey.backgroundColor: backgroundColor,
-            GhosttyNotificationKey.backgroundOpacity: opacity,
-            GhosttyNotificationKey.backgroundEventId: NSNumber(value: eventId),
-            GhosttyNotificationKey.backgroundSource: source,
-            GhosttyNotificationKey.foregroundColor: foregroundColor,
-            GhosttyNotificationKey.cursorColor: cursorColor,
-            GhosttyNotificationKey.cursorTextColor: cursorTextColor,
-            GhosttyNotificationKey.selectionBackground: selectionBackground,
-            GhosttyNotificationKey.selectionForeground: selectionForeground,
-        ]
-        logEvent?(
-            "bg notify queued id=\(eventId) source=\(source) color=\(backgroundColor.hexString()) fg=\(foregroundColor.hexString()) opacity=\(String(format: "%.3f", opacity))"
+        reloadConfiguration(
+            source: source,
+            reloadSettingsFromFile: false,
+            preferredColorScheme: preferredColorScheme
         )
-        coalescer.signal { [self] in
-            guard let userInfo = pendingUserInfo else { return }
-            let eventId = pendingEventId
-            let source = pendingSource
-            pendingUserInfo = nil
-            logEvent?("bg notify flushed id=\(eventId) source=\(source)")
-            logEvent?("bg notify posting id=\(eventId) source=\(source)")
-            postNotification(userInfo)
-            logEvent?("bg notify posted id=\(eventId) source=\(source)")
-        }
     }
 }
 

@@ -1,5 +1,12 @@
 import Bonsplit
+import CmuxWorkspaces
 import Foundation
+
+private typealias ConfigLayoutNode = CmuxWorkspaces.CmuxLayoutNode
+private typealias ConfigPaneDefinition = CmuxWorkspaces.CmuxPaneDefinition
+private typealias ConfigSplitDefinition = CmuxWorkspaces.CmuxSplitDefinition
+private typealias ConfigSplitDirection = CmuxWorkspaces.CmuxSplitDirection
+private typealias ConfigSurfaceDefinition = CmuxWorkspaces.CmuxSurfaceDefinition
 
 /// Snapshot of a live workspace as a reusable `type: "workspace"` config
 /// action (saved as a workspace layout from the new-workspace menu).
@@ -53,7 +60,7 @@ struct WorkspaceConfigActionSnapshot {
         }
     }
 
-    private func collectSurfaceValues(_ value: (CmuxSurfaceDefinition) -> String?) -> [String] {
+    private func collectSurfaceValues(_ value: (ConfigSurfaceDefinition) -> String?) -> [String] {
         guard let layout = definition.layout else { return [] }
         var values: [String] = []
         Self.walkSurfaces(layout) { surface in
@@ -64,7 +71,7 @@ struct WorkspaceConfigActionSnapshot {
         return values
     }
 
-    private static func walkSurfaces(_ node: CmuxLayoutNode, visit: (CmuxSurfaceDefinition) -> Void) {
+    private static func walkSurfaces(_ node: ConfigLayoutNode, visit: (ConfigSurfaceDefinition) -> Void) {
         switch node {
         case .pane(let pane):
             for surface in pane.surfaces {
@@ -129,7 +136,7 @@ extension Workspace {
         workspaceCwd: String,
         liveCommands: [UUID: String],
         skippedPanelCount: inout Int
-    ) -> CmuxLayoutNode? {
+    ) -> ConfigLayoutNode? {
         switch node {
         case .split(let split):
             let first = configCaptureLayoutNode(
@@ -146,8 +153,8 @@ extension Workspace {
             )
             switch (first, second) {
             case (let first?, let second?):
-                return .split(CmuxSplitDefinition(
-                    direction: split.orientation == "vertical" ? .vertical : .horizontal,
+                return .split(ConfigSplitDefinition(
+                    direction: split.orientation == "vertical" ? ConfigSplitDirection.vertical : .horizontal,
                     split: (split.dividerPosition * 100).rounded() / 100,
                     children: [first, second]
                 ))
@@ -162,7 +169,7 @@ extension Workspace {
             guard let paneId = bonsplitController.allPaneIds.first(where: { $0.id.uuidString == pane.id }) else {
                 return nil
             }
-            let surfaces = bonsplitController.tabs(inPane: paneId).compactMap { tab -> CmuxSurfaceDefinition? in
+            let surfaces = bonsplitController.tabs(inPane: paneId).compactMap { tab -> ConfigSurfaceDefinition? in
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
                 return configCaptureSurfaceDefinition(
                     panelId: panelId,
@@ -172,7 +179,7 @@ extension Workspace {
                 )
             }
             guard !surfaces.isEmpty else { return nil }
-            return .pane(CmuxPaneDefinition(surfaces: surfaces))
+            return .pane(ConfigPaneDefinition(surfaces: surfaces))
         }
     }
 
@@ -181,12 +188,12 @@ extension Workspace {
         workspaceCwd: String,
         liveCommands: [UUID: String],
         skippedPanelCount: inout Int
-    ) -> CmuxSurfaceDefinition? {
+    ) -> ConfigSurfaceDefinition? {
         let customName = panelCustomTitles[panelId]
         let focus: Bool? = (panelId == focusedPanelId) ? true : nil
         switch panels[panelId] {
         case is TerminalPanel:
-            var surface = CmuxSurfaceDefinition(type: .terminal)
+            var surface = ConfigSurfaceDefinition(type: .terminal)
             surface.name = customName
             surface.cwd = configCaptureSurfaceCwd(panelDirectories[panelId], workspaceCwd: workspaceCwd)
             if let liveCommand = liveCommands[panelId] {
@@ -200,19 +207,19 @@ extension Workspace {
             surface.focus = focus
             return surface
         case let browser as BrowserPanel:
-            var surface = CmuxSurfaceDefinition(type: .browser)
+            var surface = ConfigSurfaceDefinition(type: .browser)
             surface.name = customName
             surface.url = browser.currentURL?.absoluteString
             surface.focus = focus
             return surface
         case let project as ProjectPanel:
-            var surface = CmuxSurfaceDefinition(type: .project)
+            var surface = ConfigSurfaceDefinition(type: .project)
             surface.name = customName
             surface.url = Self.configCaptureAbbreviatedPath(project.projectURL.path)
             surface.focus = focus
             return surface
         case let agentSession as AgentSessionPanel:
-            var surface = CmuxSurfaceDefinition(type: .terminal)
+            var surface = ConfigSurfaceDefinition(type: .terminal)
             surface.name = customName
             surface.command = agentSession.currentProviderID.executableName
             surface.cwd = configCaptureSurfaceCwd(agentSession.workingDirectory, workspaceCwd: workspaceCwd)
@@ -236,7 +243,7 @@ extension Workspace {
 
     /// A single plain terminal (no command, name, or divergent cwd) carries no
     /// information beyond the workspace itself — drop the layout entirely.
-    private static func configCaptureSimplifiedLayout(_ layout: CmuxLayoutNode?) -> CmuxLayoutNode? {
+    private static func configCaptureSimplifiedLayout(_ layout: ConfigLayoutNode?) -> ConfigLayoutNode? {
         guard case .pane(let pane)? = layout, pane.surfaces.count == 1 else { return layout }
         let surface = pane.surfaces[0]
         let isPlainTerminal = surface.type == .terminal

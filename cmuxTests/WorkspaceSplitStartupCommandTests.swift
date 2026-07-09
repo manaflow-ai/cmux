@@ -1,13 +1,24 @@
 import XCTest
 import CmuxTerminal
+import CmuxWorkspaces
 import Bonsplit
 import AppKit
 import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias AppCmuxLayoutNode = cmux_DEV.CmuxLayoutNode
+private typealias AppCmuxPaneDefinition = cmux_DEV.CmuxPaneDefinition
+private typealias AppCmuxSplitDefinition = cmux_DEV.CmuxSplitDefinition
+private typealias AppCmuxSurfaceDefinition = cmux_DEV.CmuxSurfaceDefinition
+private typealias AppCmuxSurfaceType = cmux_DEV.CmuxSurfaceType
 #elseif canImport(cmux)
 @testable import cmux
+private typealias AppCmuxLayoutNode = cmux.CmuxLayoutNode
+private typealias AppCmuxPaneDefinition = cmux.CmuxPaneDefinition
+private typealias AppCmuxSplitDefinition = cmux.CmuxSplitDefinition
+private typealias AppCmuxSurfaceDefinition = cmux.CmuxSurfaceDefinition
+private typealias AppCmuxSurfaceType = cmux.CmuxSurfaceType
 #endif
 
 private func workspaceSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
@@ -92,15 +103,15 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
     func testCustomLayoutSplitRatioSurvivesInitialBonsplitViewLayout() throws {
         let workspace = Workspace()
         let expectedDividerPosition = 0.33
-        let layout = CmuxLayoutNode.split(CmuxSplitDefinition(
+        let layout = AppCmuxLayoutNode.split(AppCmuxSplitDefinition(
             direction: .horizontal,
             split: expectedDividerPosition,
             children: [
-                .pane(CmuxPaneDefinition(surfaces: [
-                    CmuxSurfaceDefinition(type: .terminal, name: "Left")
+                .pane(AppCmuxPaneDefinition(surfaces: [
+                    AppCmuxSurfaceDefinition(type: AppCmuxSurfaceType.terminal, name: "Left")
                 ])),
-                .pane(CmuxPaneDefinition(surfaces: [
-                    CmuxSurfaceDefinition(type: .terminal, name: "Right")
+                .pane(AppCmuxPaneDefinition(surfaces: [
+                    AppCmuxSurfaceDefinition(type: AppCmuxSurfaceType.terminal, name: "Right")
                 ]))
             ]
         ))

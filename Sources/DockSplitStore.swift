@@ -6,6 +6,10 @@ import CmuxCore
 import CmuxTerminal
 import Observation
 import SwiftUI
+import CmuxWorkspaces
+import CmuxSidebar
+import CmuxCommandPalette
+import CmuxBrowser
 
 @MainActor
 @Observable
@@ -35,8 +39,7 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
-    @ObservationIgnored
-    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
+    @ObservationIgnored var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
@@ -621,9 +624,8 @@ final class DockSplitStore: BonsplitDelegate {
                         title: resolvedTitle
                     )
                     let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-                    let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
-                        ? .some(self.terminalTabAgentIconAsset(forPanelId: terminal.id))
-                        : nil
+                    let iconAsset = didMutateTitleDerivedAgent ? self.terminalTabAgentIconAsset(forPanelId: terminal.id) : nil
+                    let iconAssetUpdate: String?? = didMutateTitleDerivedAgent ? .some(iconAsset) : nil
                     guard titleUpdate != nil || iconAssetUpdate != nil else { return }
                     self.bonsplitController.updateTab(
                         tabId,

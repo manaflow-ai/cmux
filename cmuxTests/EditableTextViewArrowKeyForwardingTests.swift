@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import CmuxShortcuts
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -23,10 +24,9 @@ struct EditableTextViewArrowKeyForwardingTests {
     @Test(arguments: [123, 124, 125, 126] as [UInt16])
     func routesPlainArrowWhenEditableTextViewFirstResponder(keyCode: UInt16) {
         #expect(
-            shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+            ([] as NSEvent.ModifierFlags).shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: keyCode,
-                firstResponderIsEditableTextView: true,
-                flags: []
+                firstResponderIsEditableTextView: true
             ),
             "Expected editable text view to own plain arrow keyCode \(keyCode)"
         )
@@ -40,10 +40,9 @@ struct EditableTextViewArrowKeyForwardingTests {
         for flags in flagSets {
             for keyCode in [123, 124, 125, 126] as [UInt16] {
                 #expect(
-                    shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+                    flags.shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                         keyCode: keyCode,
-                        firstResponderIsEditableTextView: true,
-                        flags: flags
+                        firstResponderIsEditableTextView: true
                     ),
                     "Expected editable text view to own modified arrow keyCode \(keyCode) flags \(flags.rawValue)"
                 )
@@ -54,10 +53,9 @@ struct EditableTextViewArrowKeyForwardingTests {
     @Test(arguments: [123, 124, 125, 126] as [UInt16])
     func doesNotForwardWhenResponderIsNotEditableTextView(keyCode: UInt16) {
         #expect(
-            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+            !([] as NSEvent.ModifierFlags).shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: keyCode,
-                firstResponderIsEditableTextView: false,
-                flags: []
+                firstResponderIsEditableTextView: false
             )
         )
     }
@@ -65,11 +63,10 @@ struct EditableTextViewArrowKeyForwardingTests {
     @Test
     func doesNotForwardDuringMarkedTextComposition() {
         #expect(
-            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+            !([] as NSEvent.ModifierFlags).shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: 125,
                 firstResponderIsEditableTextView: true,
-                firstResponderHasMarkedText: true,
-                flags: []
+                firstResponderHasMarkedText: true
             )
         )
     }
@@ -77,10 +74,9 @@ struct EditableTextViewArrowKeyForwardingTests {
     @Test
     func doesNotForwardNonArrowKeys() {
         #expect(
-            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+            !([] as NSEvent.ModifierFlags).shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: 0,
-                firstResponderIsEditableTextView: true,
-                flags: []
+                firstResponderIsEditableTextView: true
             )
         )
     }
@@ -90,10 +86,9 @@ struct EditableTextViewArrowKeyForwardingTests {
         // Cmd+Option+Arrow is reserved for cmux pane-focus shortcuts and must
         // not be claimed by the text view.
         #expect(
-            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+            !([.command, .option] as NSEvent.ModifierFlags).shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: keyCode,
-                firstResponderIsEditableTextView: true,
-                flags: [.command, .option]
+                firstResponderIsEditableTextView: true
             )
         )
     }

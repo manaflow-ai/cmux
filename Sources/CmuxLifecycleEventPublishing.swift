@@ -231,7 +231,7 @@ extension Workspace {
 
 @MainActor
 private enum MainWindowKeyRegainRefresh {
-    static func refresh(window: NSWindow, context: AppDelegate.MainWindowContext) {
+    static func refresh(window: NSWindow, context: AppDelegate.RegisteredMainWindow) {
         // Window focus regain owns the redraw invariant. Cursor tracking and
         // focused subviews can update themselves only after this invalidation.
         invalidateContentDisplayTree(window: window)

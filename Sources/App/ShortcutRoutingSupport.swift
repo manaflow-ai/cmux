@@ -1,6 +1,10 @@
+import CmuxSettings
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxCommandPalette
+import CmuxWindowing
+import CmuxWorkspaces
 import Foundation
 import CmuxTerminal
 
@@ -9,12 +13,10 @@ func browserOmnibarSelectionDeltaForControlNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String
 ) -> Int? {
-    guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [.control] else { return nil }
-    if chars == "n" { return 1 }
-    if chars == "p" { return -1 }
-    return nil
+    flags.browserOmnibarSelectionDeltaForControlNavigation(
+        hasFocusedAddressBar: hasFocusedAddressBar,
+        chars: chars
+    )
 }
 
 func browserOmnibarSelectionDeltaForArrowNavigation(
@@ -22,14 +24,10 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     flags: NSEvent.ModifierFlags,
     keyCode: UInt16
 ) -> Int? {
-    guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [] else { return nil }
-    switch keyCode {
-    case 125: return 1
-    case 126: return -1
-    default: return nil
-    }
+    flags.browserOmnibarSelectionDeltaForArrowNavigation(
+        hasFocusedAddressBar: hasFocusedAddressBar,
+        keyCode: keyCode
+    )
 }
 
 func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
@@ -37,8 +35,10 @@ func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
     firstResponderHasMarkedText: Bool,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard hasFocusedAddressBar, firstResponderHasMarkedText else { return false }
-    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
+    flags.browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+        hasFocusedAddressBar: hasFocusedAddressBar,
+        firstResponderHasMarkedText: firstResponderHasMarkedText
+    )
 }
 
 func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
@@ -71,18 +71,17 @@ func shortcutRoutingShouldBypassForPrintableOptionText(
 private func shortcutRoutingTextIsPrintable(_ text: String?) -> Bool {
     guard let text, !text.isEmpty else { return false }
     return text.unicodeScalars.allSatisfy { scalar in
-        guard !isControlCharacterScalar(scalar) else { return false }
+        guard !scalar.isTerminalControlCharacter else { return false }
         return scalar.value < 0xF700 || scalar.value > 0xF8FF
     }
 }
 
 func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
-    browserOmnibarNormalizedModifierFlags(flags) == [.control]
+    flags.browserOmnibarShouldContinueControlNavigationRepeat
 }
 
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    return normalizedFlags == [] || normalizedFlags == [.shift]
+    flags.browserOmnibarShouldSubmitOnReturn
 }
 
 func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
@@ -150,149 +149,6 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags.isEmpty
-}
-
-/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
-func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsTerminal: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
-    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
-}
-
-struct BrowserAddressBarTrackingContext {
-    let trackedPanelMatchesWebView: Bool
-    let omnibarResponderActive: Bool
-    let preferredFocusIntentIsAddressBar: Bool
-    let suppressesWebViewFocus: Bool
-    let pointerInitiatedWebFocus: Bool
-    let liveOmnibarFieldExists: Bool
-}
-
-/// Decision order:
-/// 1. Reject WebView focus from another panel.
-/// 2. Preserve if an omnibar responder is already active.
-/// 3. Require address-bar focus intent.
-/// 4. Let pointer-initiated WebView focus clear tracking.
-/// 5. Preserve if WebView focus is suppressed or a live omnibar field exists.
-func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-    _ context: BrowserAddressBarTrackingContext
-) -> Bool {
-    guard context.trackedPanelMatchesWebView else { return false }
-    if context.omnibarResponderActive { return true }
-    guard context.preferredFocusIntentIsAddressBar else { return false }
-    guard !context.pointerInitiatedWebFocus else { return false }
-    return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
-}
-
-func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsCommandPaletteFieldEditor: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsCommandPaletteFieldEditor else { return false }
-    guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 123 || keyCode == 124 else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    switch normalizedFlags {
-    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
-        return true
-    default:
-        return false
-    }
-}
-
-/// Whether an arrow keyDown belongs to a focused standalone editable text
-/// responder (text-box input, file-preview editor, …) so it should be
-/// forwarded to `firstResponder.keyDown` rather than swallowed by the original
-/// `NSWindow.performKeyEquivalent`.
-///
-/// Owns the four arrows (keyCodes 123–126) for the modifier combos a text
-/// editor handles itself: plain (move), Shift (extend selection), Option
-/// (word/paragraph), and Command (line/document boundary) plus their Shift
-/// combos. Cmd+Option+Arrow is excluded so it still reaches cmux's pane-focus
-/// shortcuts. Marked text (IME composition) is left to the input method.
-private func standaloneTextResponderOwnsArrowKeyDown(
-    keyCode: UInt16,
-    firstResponderHasMarkedText: Bool,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard !firstResponderHasMarkedText else { return false }
-    guard (123...126).contains(keyCode) else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    switch normalizedFlags {
-    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
-        return true
-    default:
-        return false
-    }
-}
-
-func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsTextBoxInput: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsTextBoxInput else { return false }
-    return standaloneTextResponderOwnsArrowKeyDown(
-        keyCode: keyCode,
-        firstResponderHasMarkedText: firstResponderHasMarkedText,
-        flags: flags
-    )
-}
-
-/// Whether an arrow keyDown should be forwarded straight to the focused
-/// standalone editable text view instead of falling through to the original
-/// `NSWindow.performKeyEquivalent`, which swallows plain arrows before the
-/// view's `keyDown` runs.
-///
-/// This generalizes the per-surface arrow-forwarding seam (browser, omnibar,
-/// command palette, text-box input) to cover the whole class of standalone
-/// editable `NSTextView`s cmux hosts, the file-preview editor today, any
-/// future one tomorrow. Field editors (the omnibar / command-palette / find
-/// field editors) are excluded by the caller because they have their own
-/// dedicated routing or work through the normal field-editor path. Shares the
-/// keyCode/modifier policy with ``shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown``
-/// via ``standaloneTextResponderOwnsArrowKeyDown(keyCode:firstResponderHasMarkedText:flags:)``.
-func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsEditableTextView: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsEditableTextView else { return false }
-    return standaloneTextResponderOwnsArrowKeyDown(
-        keyCode: keyCode,
-        firstResponderHasMarkedText: firstResponderHasMarkedText,
-        flags: flags
-    )
-}
-
-/// Ctrl-N / Ctrl-P navigate the mention-completion popover (and emacs-style line
-/// movement) inside the terminal textbox. Like plain arrows, the window's
-/// `performKeyEquivalent` claims these before they reach the textbox `keyDown`, so
-/// they must be routed to the first responder explicitly. Scoped to the textbox so
-/// terminal/browser Ctrl-N/Ctrl-P are unaffected.
-func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
-    charactersIgnoringModifiers: String?,
-    firstResponderIsTextBoxInput: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsTextBoxInput else { return false }
-    guard !firstResponderHasMarkedText else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [.control] else { return false }
-    let key = charactersIgnoringModifiers?.lowercased()
-    return key == "n" || key == "p"
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
@@ -422,62 +278,19 @@ func shouldHandleCommandPaletteShortcutEvent(
     return false
 }
 
-enum BrowserZoomShortcutAction: Equatable {
-    case zoomIn
-    case zoomOut
-    case reset
-}
-
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
     literalChars: String? = nil
 ) -> BrowserZoomShortcutAction? {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    let hasCommand = normalizedFlags.contains(.command)
-    let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
-
-    guard hasOnlyCommandAndOptionalShift else { return nil }
-    let keys = browserZoomShortcutKeyCandidates(
+    BrowserZoomShortcutAction.resolve(
+        flags: flags,
         chars: chars,
+        keyCode: keyCode,
         literalChars: literalChars,
-        keyCode: keyCode
+        layoutCharacter: { KeyboardLayout.character(forKeyCode: $0) }
     )
-
-    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
-        return .zoomIn
-    }
-
-    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
-        return .zoomOut
-    }
-
-    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
-        return .reset
-    }
-
-    return nil
-}
-
-func browserZoomShortcutKeyCandidates(
-    chars: String,
-    literalChars: String?,
-    keyCode: UInt16
-) -> Set<String> {
-    var keys: Set<String> = [chars.lowercased()]
-
-    if let literalChars, !literalChars.isEmpty {
-        keys.insert(literalChars.lowercased())
-    }
-
-    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
-        keys.insert(layoutChar)
-    }
-
-    return keys
 }
 
 func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
@@ -524,40 +337,6 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
-// Main-actor isolated: TerminalSurface.searchState carries the legacy
-// main-thread-only contract as compiler-enforced isolation after the
-// CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.
-@MainActor
-@discardableResult
-func startOrFocusTerminalSearch(
-    _ terminalSurface: TerminalSurface,
-    initialNeedle: String = "",
-    searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
-    }
-) -> Bool {
-    if terminalSurface.searchState != nil {
-        if !initialNeedle.isEmpty { terminalSurface.searchState?.needle = initialNeedle }
-        searchFocusNotifier(terminalSurface)
-        return true
-    }
-    if terminalSurface.performBindingAction("start_search") {
-        DispatchQueue.main.async { [weak terminalSurface] in
-            guard let terminalSurface else { return }
-            if let searchState = terminalSurface.searchState {
-                if !initialNeedle.isEmpty { searchState.needle = initialNeedle }
-            } else {
-                terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
-            }
-            searchFocusNotifier(terminalSurface)
-        }
-        return true
-    }
-    terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
-    searchFocusNotifier(terminalSurface)
-    return true
-}
-
 /// Let AppKit own native Cmd+` window cycling so key-window changes do not
 /// re-enter our direct-to-menu shortcut path.
 func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
@@ -600,15 +379,6 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
             return false
         }
     }
-}
-
-func cmuxIsWebInspectorClassName(_ className: String) -> Bool {
-    className.contains("WKInspector") || className.contains("WebInspector")
-}
-
-func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
-    cmuxIsWebInspectorClassName(String(describing: type(of: object))) ||
-        cmuxIsWebInspectorClassName(NSStringFromClass(type(of: object)))
 }
 
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
@@ -665,14 +435,14 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
 
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
-    if cmuxIsWebInspectorObject(responder) {
+    if responder.isCmuxWebInspectorObject {
         return true
     }
     guard let view = responder as? NSView else { return false }
     var node: NSView? = view
     var hops = 0
     while let current = node, hops < 64 {
-        if cmuxIsWebInspectorObject(current) {
+        if current.isCmuxWebInspectorObject {
             return true
         }
         node = current.superview
@@ -754,7 +524,7 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
 func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
     _ event: NSEvent,
     pageURL: URL?,
-    inlineVSCodeURLMatcher: (URL?) -> Bool = { VSCodeServeWebController.shared.isServeWebURL($0) },
+    inlineVSCodeURLMatcher: (URL?) -> Bool = { AppDelegate.shared?.vscodeServeWebController.isServeWebURL($0) ?? false },
     shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
 ) -> Bool {
     guard inlineVSCodeURLMatcher(pageURL) else { return false }
@@ -832,46 +602,21 @@ func browserZoomShortcutTraceCandidate(
     keyCode: UInt16,
     literalChars: String? = nil
 ) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    guard normalizedFlags.contains(.command) else { return false }
-
-    let keys = browserZoomShortcutKeyCandidates(
+    BrowserZoomShortcutAction.traceCandidate(
+        flags: flags,
         chars: chars,
+        keyCode: keyCode,
         literalChars: literalChars,
-        keyCode: keyCode
+        layoutCharacter: { KeyboardLayout.character(forKeyCode: $0) }
     )
-    if keys.contains("=") || keys.contains("+") || keys.contains("-") || keys.contains("_") || keys.contains("0") {
-        return true
-    }
-    switch keyCode {
-    case 24, 27, 29, 69, 78, 82: // ANSI and keypad zoom keys
-        return true
-    default:
-        return false
-    }
 }
 
 func browserZoomShortcutTraceFlagsString(_ flags: NSEvent.ModifierFlags) -> String {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    var parts: [String] = []
-    if normalizedFlags.contains(.command) { parts.append("Cmd") }
-    if normalizedFlags.contains(.shift) { parts.append("Shift") }
-    if normalizedFlags.contains(.option) { parts.append("Opt") }
-    if normalizedFlags.contains(.control) { parts.append("Ctrl") }
-    return parts.isEmpty ? "none" : parts.joined(separator: "+")
+    BrowserZoomShortcutAction.traceFlagsString(flags)
 }
 
 func browserZoomShortcutTraceActionString(_ action: BrowserZoomShortcutAction?) -> String {
-    guard let action else { return "none" }
-    switch action {
-    case .zoomIn: return "zoomIn"
-    case .zoomOut: return "zoomOut"
-    case .reset: return "reset"
-    }
+    BrowserZoomShortcutAction.traceActionString(action)
 }
 #endif
 
@@ -898,11 +643,6 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 
-enum WindowMoveSuppressionReason: String {
-    case folderDrag
-    case bonsplitPaneTabDrag
-}
-
 func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
     guard event.type == .leftMouseDown else {
         return false
@@ -921,28 +661,30 @@ func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMove
     return nil
 }
 
+@MainActor
 func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     window: NSWindow,
     event: NSEvent,
     pressedMouseButtons: Int = NSEvent.pressedMouseButtons
 ) -> WindowMoveSuppressionReason? {
-    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+    if let activeReason = window.activeWindowMoveSuppressionSequenceReason {
         if event.type == .leftMouseDown {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
         } else if event.type == .leftMouseUp || event.type == .leftMouseDragged || (pressedMouseButtons & 0x1) != 0 {
-            ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+            window.ensureWindowMoveSuppressionSequenceIsImmovable()
             return activeReason
         } else {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
         }
     }
 
     guard let reason = windowMoveSuppressionReason(window: window, event: event) else {
         return nil
     }
-    return beginWindowMoveSuppressionSequence(window: window, reason: reason)
+    return window.beginWindowMoveSuppressionSequence(reason: reason)
 }
 
+@MainActor
 func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
-    activeWindowMoveSuppressionSequenceReason(window: window) != nil && event.type == .leftMouseUp
+    window.activeWindowMoveSuppressionSequenceReason != nil && event.type == .leftMouseUp
 }

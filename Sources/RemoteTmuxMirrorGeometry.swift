@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 
 /// The feed-forward sizing math for mirrored tmux windows: one value type
 /// holding the measured render constants, exposing the two pure functions the

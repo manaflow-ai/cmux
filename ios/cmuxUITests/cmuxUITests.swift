@@ -354,7 +354,7 @@ final class cmuxUITests: XCTestCase {
         )
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        RunLoop.current.run(until: Date().addingTimeInterval(5))
+        try await Task.sleep(nanoseconds: 5_000_000_000)
         await assertHostSelection(
             workspaceID: "workspace-3",
             terminalID: "workspace-3-terminal-1",

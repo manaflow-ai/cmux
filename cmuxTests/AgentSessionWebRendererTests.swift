@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -27,9 +28,9 @@ struct AgentSessionWebRendererTests {
             .appendingPathComponent("webviews-app", isDirectory: true)
             .appendingPathComponent("diff-viewer.html", isDirectory: false)
 
-        expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(expected, expected: expected))
-        expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(equivalent, expected: expected))
-        expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(otherBundledFile, expected: expected))
-        expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
+        expectTrue(expected.isTrustedShellURL(expected: expected))
+        expectTrue(equivalent.isTrustedShellURL(expected: expected))
+        expectFalse(otherBundledFile.isTrustedShellURL(expected: expected))
+        expectFalse(URL(string: "https://example.com")?.isTrustedShellURL(expected: expected) ?? false)
     }
 }

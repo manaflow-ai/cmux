@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The typed twins of the former `TerminalControllerV2ParamParsingSupport`
 /// helpers, operating on `[String: JSONValue]` (the coordinator receives typed
@@ -10,7 +10,10 @@ internal import Foundation
 /// Sendable enum the app maps.
 extension ControlCommandCoordinator {
     /// `v2RawString`: the raw string value, untrimmed, or `nil`.
-    func rawString(_ params: [String: JSONValue], _ key: String) -> String? {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reuses this
+    /// raw read (the former app-side `jvRawString`).
+    public func rawString(_ params: [String: JSONValue], _ key: String) -> String? {
         guard case .string(let value)? = params[key] else { return nil }
         return value
     }
@@ -23,7 +26,10 @@ extension ControlCommandCoordinator {
 
     /// `v2StringArray`: a JSON string array (trimmed, empties dropped); a single
     /// trimmed non-empty string yields a one-element array; otherwise `nil`.
-    func stringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reuses this
+    /// array coercion (the former app-side `jvStringArray`).
+    public func stringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {
         if case .array(let raw)? = params[key] {
             return raw.compactMap { element -> String? in
                 guard case .string(let value) = element else { return nil }
@@ -220,5 +226,33 @@ extension ControlCommandCoordinator {
         guard let uuid else { return .null }
         let surfaceRef = handles.ensureRef(kind: .surface, uuid: uuid)
         return .string(surfaceRef.replacingOccurrences(of: "surface:", with: "tab:"))
+    }
+
+    /// The `workspace:N` ref JSON value for a workspace id, minted through the
+    /// same handle registry the coordinator uses so refs stay consistent.
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness shapes its
+    /// `workspace_ref` payload values (the former app-side
+    /// `controlWorkspaceRefValue`).
+    public func workspaceRefValue(_ uuid: UUID) -> JSONValue {
+        .string(handles.ensureRef(kind: .workspace, uuid: uuid))
+    }
+
+    /// The `window:N` ref JSON value (or JSON `null` when absent).
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness shapes its
+    /// `window_ref` payload value (the former app-side `controlWindowRefValue`).
+    public func windowRefValue(_ uuid: UUID?) -> JSONValue {
+        guard let uuid else { return .null }
+        return .string(handles.ensureRef(kind: .window, uuid: uuid))
+    }
+
+    /// The window id JSON value (or JSON `null` when absent).
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness shapes its
+    /// `window_id` payload value (the former app-side `controlWindowOrNull`).
+    public func windowIDValue(_ uuid: UUID?) -> JSONValue {
+        guard let uuid else { return .null }
+        return .string(uuid.uuidString)
     }
 }

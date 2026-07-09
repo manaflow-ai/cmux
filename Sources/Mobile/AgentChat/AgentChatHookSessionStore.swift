@@ -5,7 +5,7 @@ import Foundation
 /// the `cmux hooks` CLI maintains, yielding terminal bindings and transcript
 /// paths for agent sessions.
 ///
-/// Mirrors `FeedJumpResolver.lookup`'s tolerant parsing (nested `sessions`
+/// Mirrors `HookSessionResolver.lookup`'s tolerant parsing (nested `sessions`
 /// dict with a flat-layout fallback) but surfaces the additional fields the
 /// chat service needs (`cwd`, `transcriptPath`, `pid`).
 struct AgentChatHookSessionStore: Sendable {

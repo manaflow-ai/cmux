@@ -1,6 +1,4 @@
 #if DEBUG
-public import Foundation
-
 /// A DEBUG-only override of terminal config loading used by the startup
 /// appearance preview debug panel.
 ///

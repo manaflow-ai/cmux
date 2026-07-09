@@ -128,7 +128,7 @@ extension ControlCommandCoordinator {
     /// until then it lets the domain build standalone without touching the
     /// integrator-owned umbrella file.
     var sidebarContext: (any ControlSidebarContext)? {
-        context as? any ControlSidebarContext
+        context
     }
 
     // MARK: - Option parsing (ported twins)
@@ -346,8 +346,8 @@ extension ControlCommandCoordinator {
     }
 
     /// The explicit shell-integration scope when both `--tab` and `--panel`
-    /// are UUIDs (the legacy `explicitSocketScope`, which stays app-side for
-    /// its unit tests).
+    /// are UUIDs (the same parse as `SidebarReplacementPolicy.explicitSocketScope`
+    /// in `CmuxSidebar`, which the app uses on its sidebar control path).
     nonisolated func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
         guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tabRaw.isEmpty,

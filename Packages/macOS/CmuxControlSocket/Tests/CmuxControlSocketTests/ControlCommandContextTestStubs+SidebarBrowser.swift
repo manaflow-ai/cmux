@@ -6,6 +6,199 @@ import Foundation
 // actually exercises (the per-domain companion to the shared
 // `ControlCommandContextTestStubs.swift`).
 
+extension ControlBrowserContext {
+    func controlBrowserRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
+
+    func controlBrowserOpenSplit(
+        routing: ControlRoutingSelectors,
+        rawURLString: String?,
+        respectExternalOpenRules: Bool,
+        diffViewerToken: String?,
+        diffViewerFiles: [JSONValue]?,
+        explicitSourceSurfaceID: UUID?,
+        requestedFocus: Bool,
+        showOmnibar: Bool,
+        transparentBackground: Bool,
+        bypassRemoteProxyParam: Bool?
+    ) -> ControlBrowserOpenSplitResolution { .tabManagerUnavailable }
+
+    func controlBrowserReactGrabToggle(
+        routing: ControlRoutingSelectors,
+        browserSurfaceID: UUID?,
+        returnSurfaceID: UUID?
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserDevToolsToggle(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserConsoleShow(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserFocusModeSet(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool,
+        intent: ControlBrowserFocusModeIntent
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserZoomSet(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool,
+        direction: ControlBrowserZoomDirection
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserClearDefaultHistory() {}
+
+    func controlBrowserCurrentURL(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlBrowserURLResolution { .notFound }
+
+    func controlBrowserFocusWebView(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlBrowserFocusWebViewResolution { .notFound }
+
+    func controlBrowserIsWebViewFocused(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlBrowserIsWebViewFocusedResolution {
+        ControlBrowserIsWebViewFocusedResolution(focused: false)
+    }
+
+    func controlBrowserCookiesGet(
+        params: [String: JSONValue],
+        nameFilter: String?,
+        domainFilter: String?,
+        pathFilter: String?
+    ) -> ControlBrowserCookiesGetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserCookiesSet(
+        params: [String: JSONValue],
+        cookieRows: [JSONValue]
+    ) -> ControlBrowserCookiesSetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserCookiesClear(
+        params: [String: JSONValue],
+        nameFilter: String?,
+        domainFilter: String?,
+        clearAll: Bool
+    ) -> ControlBrowserCookiesClearResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStorageGet(
+        params: [String: JSONValue],
+        key: String?
+    ) -> ControlBrowserStorageGetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStorageSet(
+        params: [String: JSONValue],
+        key: String,
+        value: JSONValue
+    ) -> ControlBrowserStorageSetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStorageClear(
+        params: [String: JSONValue]
+    ) -> ControlBrowserStorageClearResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserRecordUnsupportedNetworkRequest(
+        surfaceID: UUID,
+        action: String,
+        params: [String: JSONValue]
+    ) {}
+
+    func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue] { [] }
+
+    func controlBrowserAddInitScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddInitScriptResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserAddScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddScriptResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserAddStyle(
+        params: [String: JSONValue],
+        css: String
+    ) -> ControlBrowserAddStyleResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserDialogRespond(
+        params: [String: JSONValue],
+        accept: Bool,
+        text: String?
+    ) -> ControlBrowserDialogRespondResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserImportDialog(
+        params: [String: JSONValue]
+    ) -> ControlBrowserImportDialogResolution { .opened(scopeRawValue: nil) }
+
+    func controlBrowserGetTitle(
+        params: [String: JSONValue]
+    ) -> ControlBrowserGetTitleResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserFrameSelect(
+        params: [String: JSONValue],
+        rawSelector: String
+    ) -> ControlBrowserFrameSelectResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserFrameMain(
+        params: [String: JSONValue]
+    ) -> ControlBrowserFrameMainResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserScreenshot(
+        params: [String: JSONValue]
+    ) -> ControlBrowserScreenshotResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserConsoleList(
+        params: [String: JSONValue],
+        clear: Bool
+    ) -> ControlBrowserConsoleListResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserErrorsList(
+        params: [String: JSONValue],
+        clear: Bool
+    ) -> ControlBrowserErrorsListResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStateSave(
+        params: [String: JSONValue],
+        path: String
+    ) -> ControlBrowserStateSaveResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStateLoad(
+        params: [String: JSONValue],
+        path: String
+    ) -> ControlBrowserStateLoadResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserTabList(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabListResolution { .tabManagerUnavailable }
+
+    func controlBrowserTabNew(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors,
+        rawURLString: String?
+    ) -> ControlBrowserTabNewResolution { .tabManagerUnavailable }
+
+    func controlBrowserTabSwitch(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabSwitchResolution { .tabManagerUnavailable }
+
+    func controlBrowserTabClose(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabCloseResolution { .tabManagerUnavailable }
+}
+
 extension ControlBrowserPanelContext {
     func controlBrowserPanelTabManagerAvailable() -> Bool { false }
     func controlBrowserPanelAvailabilityEnabled() -> Bool { false }

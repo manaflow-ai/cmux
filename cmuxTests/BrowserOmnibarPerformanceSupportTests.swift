@@ -1,4 +1,6 @@
 import XCTest
+import CmuxBrowser
+import CmuxBrowserUI
 import Foundation
 
 #if canImport(cmux_DEV)
@@ -117,7 +119,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
             isUserEditing: true
         )
 
-        let effects = omnibarReduce(state: &state, event: .bufferChanged("go"))
+        let effects = state.reduce(.bufferChanged("go"))
 
         XCTAssertTrue(effects.shouldRefreshSuggestions)
         XCTAssertTrue(effects.shouldClearInlineCompletion)
@@ -134,7 +136,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
             isUserEditing: true
         )
 
-        let effects = omnibarReduce(state: &state, event: .bufferChanged("go"))
+        let effects = state.reduce(.bufferChanged("go"))
 
         XCTAssertTrue(effects.shouldRefreshSuggestions)
         XCTAssertFalse(effects.shouldClearInlineCompletion)
@@ -151,7 +153,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
             isUserEditing: true
         )
 
-        let effects = omnibarReduce(state: &state, event: .escape)
+        let effects = state.reduce(.escape)
 
         XCTAssertTrue(effects.shouldSelectAll)
         XCTAssertTrue(effects.shouldCancelPendingSuggestionRefresh)

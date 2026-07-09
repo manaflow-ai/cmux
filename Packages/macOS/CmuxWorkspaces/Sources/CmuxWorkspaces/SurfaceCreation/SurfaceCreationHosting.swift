@@ -1,0 +1,356 @@
+public import Foundation
+public import Bonsplit
+
+/// The live-state seam ``SurfaceCreationCoordinator`` calls back through when it
+/// orchestrates the terminal-config-inheritance walk for a freshly created
+/// surface.
+///
+/// The inheritance walk is pure ordering and arithmetic over panel identities
+/// (`UUID`), font points (`Float`), and the Sendable `CmuxSurfaceConfigTemplate`,
+/// so it belongs in the package. The reads and writes it drives, however, are
+/// app-target live state that cannot move until the workspace god model and its
+/// `TerminalPanel` are themselves packaged (the Wave-4 decomposition): the
+/// ordered candidate panels (which require reads of the bonsplit layout, the
+/// workspace panel registry, and the focused/remembered panels), the per-panel
+/// Ghostty surface probe (the C bridges `ghostty_surface_inherited_config` and
+/// the runtime font-size probe, taken under one ARC pin), and the per-panel
+/// lineage/font bookkeeping the workspace persists. The host owns all of that;
+/// the coordinator owns only the decision of which candidate to use and how to
+/// combine the font points.
+///
+/// The seam is intentionally coarse: one method gathers every live read for a
+/// candidate (so the panel/surface are pinned exactly once, as the legacy body
+/// did), and one method applies every write for the chosen candidate (in the
+/// legacy order: seed lineage, remember the source, record the last-known font).
+/// A conformer reproduces the legacy private `Workspace` helpers exactly:
+/// `terminalPanelConfigInheritanceCandidates(preferredPanelId:inPane:)` (the
+/// ordered candidate panel IDs), `inheritedTerminalConfig`'s per-candidate read
+/// block, and the `terminalInheritanceFontPointsByPanelId` /
+/// `lastTerminalConfigInheritanceFontPoints` /
+/// `rememberTerminalConfigInheritanceSource` writes.
+@MainActor
+public protocol SurfaceCreationHosting: AnyObject {
+    /// The candidate terminal panel IDs used as the inheritance source, already
+    /// ordered by the workspace's priority rule (preferred panel, the preferred
+    /// pane's selected terminal, the focused terminal, the last remembered
+    /// source, the preferred pane's terminal tabs in order, then every terminal
+    /// panel sorted by `id.uuidString`) and de-duplicated. Mirrors the legacy
+    /// `Workspace.terminalPanelConfigInheritanceCandidates(preferredPanelId:inPane:)`
+    /// mapped to `\.id`.
+    func configInheritanceCandidatePanelIds(
+        preferredPanelId: UUID?,
+        inPane preferredPaneId: PaneID?
+    ) -> [UUID]
+
+    /// Gathers the three live reads for `panelId` under a single ARC pin of the
+    /// panel and its Ghostty surface, or `nil` when the panel no longer exposes
+    /// a live surface (the legacy walk skipped such a candidate via
+    /// `guard let sourceSurface`). One call performs the
+    /// `cmuxInheritedSurfaceConfig(sourceSurface:context:)` C bridge, the
+    /// `terminalInheritanceFontPointsByPanelId[panelId]` lineage-root read, and
+    /// the `cmuxCurrentSurfaceFontSizePoints` runtime probe, exactly as the
+    /// legacy per-candidate block did inside one
+    /// `withExtendedLifetime((terminalPanel, surface))`.
+    func probeInheritanceCandidate(panelId: UUID) -> SurfaceInheritanceCandidateProbe?
+
+    /// Applies the writes for the chosen live candidate, mirroring the legacy
+    /// body's order and conditions exactly. When `rootedFontPoints` is non-`nil`
+    /// (the coordinator resolved a positive lineage value) it seeds
+    /// `terminalInheritanceFontPointsByPanelId[panelId]`; it then always calls
+    /// `rememberTerminalConfigInheritanceSource(_:)`; and it records
+    /// `finalConfigFontPoints` as `lastTerminalConfigInheritanceFontPoints` only
+    /// when that value is positive.
+    func commitInheritanceSelection(
+        panelId: UUID,
+        rootedFontPoints: Float?,
+        finalConfigFontPoints: Float
+    )
+
+    /// The last-known inheritance font points used to synthesize a fallback
+    /// config when no live candidate is found, mirroring the read of
+    /// `lastTerminalConfigInheritanceFontPoints` in the legacy fallback branch.
+    var lastKnownInheritanceFontPoints: Float? { get }
+
+    /// Emits the DEBUG-only `zoom.inherit fallback=lastKnownFont …` log line the
+    /// legacy fallback branch logged. A no-op in release builds.
+    func logInheritanceFallback(fontPoints: Float)
+
+    // MARK: Create-tab live state
+
+    /// The bonsplit pane that currently holds focus, used to decide whether a new
+    /// surface auto-focuses when the caller passes no explicit `focus`, mirroring
+    /// the legacy `focus ?? (bonsplitController.focusedPaneId == paneId)` read.
+    /// Shared witness with `SplitMoveReorderHosting.focusedBonsplitPaneId`.
+    var focusedBonsplitPaneId: PaneID? { get }
+
+    /// The currently focused pane's panel id, captured before the new surface is
+    /// registered so the non-focus-split branch can restore it. Mirrors the
+    /// legacy `let previousFocusedPanelId = focusedPanelId` read.
+    var focusedPanelId: UUID? { get }
+
+    /// The focused terminal panel's hosted Ghostty scroll view as an opaque
+    /// reference, captured before registration and handed back to
+    /// ``preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId:splitPanelId:previousHostedView:)``.
+    /// The package never names the app's `GhosttySurfaceScrollView`, so the host
+    /// carries it as `AnyObject?` and downcasts in the witness. Mirrors the legacy
+    /// `let previousHostedView = focusedTerminalPanel?.hostedView` read.
+    var focusedTerminalHostedView: AnyObject? { get }
+
+    /// Constructs the app's `ProjectPanel` for `projectURL`, registers it in the
+    /// workspace panel and panel-title registries, and returns its Sendable
+    /// descriptor. Mirrors the legacy
+    /// `let projectPanel = ProjectPanel(projectURL: url); panels[projectPanel.id]
+    /// = projectPanel; panelTitles[projectPanel.id] = projectPanel.displayTitle`
+    /// prelude. The registries stay app-side behind this witness.
+    func registerProjectPanel(projectURL: URL) -> SurfaceTabDescriptor
+
+    /// Creates the bonsplit tab for an already-registered surface descriptor and,
+    /// on success, records the surface→panel mapping. Returns the new tab id, or
+    /// `nil` when `bonsplitController.createTab` fails (the caller then rolls the
+    /// registration back via ``discardPanelRegistration(id:)``). Mirrors the
+    /// legacy `bonsplitController.createTab(title:icon:kind:isDirty:isLoading:
+    /// isPinned:inPane:)` call and the subsequent
+    /// `surfaceIdToPanelId[newTabId] = projectPanel.id` write.
+    func createSurfaceTab(descriptor: SurfaceTabDescriptor, kind: String, inPane paneId: PaneID) -> TabID?
+
+    /// Reorders the new tab to `index` within its pane, mirroring the legacy
+    /// `bonsplitController.reorderTab(newTabId, toIndex: targetIndex)`. Shared
+    /// witness with `SplitMoveReorderHosting.reorderTab(_:toIndex:)`.
+    @discardableResult
+    func reorderTab(_ tabId: TabID, toIndex index: Int) -> Bool
+
+    /// Publishes the `cmux.surface.created` lifecycle event for the new surface,
+    /// mirroring the legacy `publishCmuxSurfaceCreated(…)` call. Shared witness
+    /// with the `Workspace` lifecycle-event method.
+    func publishCmuxSurfaceCreated(_ surfaceId: UUID, paneId: PaneID?, kind: String, origin: String, focused: Bool)
+
+    /// Focuses the pane that received the new surface, mirroring the legacy
+    /// `bonsplitController.focusPane(paneId)`. Shared witness with
+    /// `SplitMoveReorderHosting.focusPane(_:)`.
+    func focusPane(_ paneId: PaneID)
+
+    /// Selects the new tab, mirroring the legacy
+    /// `bonsplitController.selectTab(newTabId)`. Shared witness with
+    /// `SplitMoveReorderHosting.selectTab(_:)`.
+    func selectTab(_ tabId: TabID)
+
+    /// Applies the workspace's tab-selection side effects for the focused new tab,
+    /// mirroring the legacy `applyTabSelection(tabId:inPane:)`. Shared witness with
+    /// `SplitMoveReorderHosting.applyTabSelection(tabId:inPane:)`.
+    func applyTabSelection(tabId: TabID, inPane paneId: PaneID)
+
+    /// Preserves focus on the previously focused panel when a new surface is
+    /// created without focus intent, mirroring the legacy
+    /// `preserveFocusAfterNonFocusSplit(preferredPanelId:splitPanelId:previousHostedView:)`.
+    /// `previousHostedView` is the opaque value from ``focusedTerminalHostedView``;
+    /// the witness downcasts it to the app's hosted-view type.
+    func preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId: UUID?, splitPanelId: UUID, previousHostedView: AnyObject?)
+
+    /// Rolls back a panel registration when tab creation fails, mirroring the
+    /// legacy `panels.removeValue(forKey:); panelTitles.removeValue(forKey:)`
+    /// failure branch.
+    func discardPanelRegistration(id: UUID)
+
+    /// Reloads the registered project panel after the tab is wired up, mirroring
+    /// the legacy `projectPanel.reload()`. The host resolves the typed panel by
+    /// `id` and reloads it; a no-op if the id no longer maps to a project panel.
+    func reloadProjectPanel(id: UUID)
+
+    // MARK: Markdown create + split live state
+
+    /// The pane that currently owns `panelId`, mirroring the legacy
+    /// `Workspace.paneId(forPanelId:)` guard at the head of `newMarkdownSplit`.
+    /// Returns `nil` when the panel is not in any pane (the split then fails).
+    func paneId(forPanelId panelId: UUID) -> PaneID?
+
+    /// Constructs the app's `MarkdownPanel` for `filePath` (with the optional
+    /// `fontSize` the split path threads through), registers it in the workspace
+    /// panel and panel-title registries, and returns its Sendable descriptor.
+    /// Mirrors the legacy `let markdownPanel = MarkdownPanel(workspaceId: id,
+    /// filePath: filePath, fontSize: fontSize); panels[markdownPanel.id] =
+    /// markdownPanel; panelTitles[markdownPanel.id] = markdownPanel.displayTitle`
+    /// prelude shared by `newMarkdownSurface`, `newMarkdownSplit`, and
+    /// `splitPaneWithMarkdown`. The descriptor's `isDirty` carries
+    /// `markdownPanel.isDirty` (markdown panels are not unconditionally clean).
+    /// The registries stay app-side behind this witness.
+    func registerMarkdownPanel(filePath: String, fontSize: Double?) -> SurfaceTabDescriptor
+
+    /// Splits `paneId` with a new tab built from `descriptor` (+ `kind`), toggling
+    /// `isProgrammaticSplit` around the bonsplit call exactly as the legacy split
+    /// bodies did. Mirrors the legacy `let newTab = Bonsplit.Tab(title:icon:kind:
+    /// isDirty:isLoading:isPinned:); surfaceIdToPanelId[newTab.id] = panel.id;
+    /// isProgrammaticSplit = true; defer { isProgrammaticSplit = false };
+    /// bonsplitController.splitPane(paneId, orientation:, withTab: newTab,
+    /// insertFirst:)`. On a failed split it removes the surface→panel mapping it
+    /// just set (the legacy `surfaceIdToPanelId.removeValue(forKey: newTab.id)`)
+    /// and returns `nil`; the caller then rolls back the panel registration via
+    /// ``discardPanelRegistration(id:)``. Returns the new pane id on success.
+    ///
+    /// The `defer` resets `isProgrammaticSplit` when this witness returns, i.e.
+    /// right after `splitPane`. That matches the legacy scope for observers: the
+    /// only reader of `isProgrammaticSplit` is the synchronous `didSplit` layout
+    /// callback that fires inside `splitPane`; nothing the caller runs afterwards
+    /// (publish, focus, subscription install) reads it.
+    func splitSurface(
+        _ paneId: PaneID,
+        orientation: SplitOrientation,
+        withTab descriptor: SurfaceTabDescriptor,
+        kind: String,
+        insertFirst: Bool
+    ) -> PaneID?
+
+    /// Publishes the `cmux.split.created` + surface-created lifecycle events for a
+    /// new split pane, mirroring the legacy `publishCmuxSplitCreated(_:sourcePaneId:
+    /// orientation:surfaceId:kind:origin:focused:)` call. Shared witness with the
+    /// `Workspace` lifecycle-event method.
+    func publishCmuxSplitCreated(
+        _ paneId: PaneID,
+        sourcePaneId: PaneID?,
+        orientation: SplitOrientation,
+        surfaceId: UUID?,
+        kind: String,
+        origin: String,
+        focused: Bool
+    )
+
+    /// Defers reparent-focus on the previously hosted Ghostty view until the next
+    /// layout follow-up, mirroring the legacy
+    /// `suppressReparentFocusUntilLayoutFollowUp(previousHostedView, reason:)` in
+    /// the focused `newMarkdownSplit` branch. `previousHostedView` is the opaque
+    /// value from ``focusedTerminalHostedView``; the witness downcasts it to the
+    /// app's hosted-view type.
+    func suppressReparentFocusUntilLayoutFollowUp(_ hostedView: AnyObject?, reason: String)
+
+    /// Focuses the panel `panelId`, mirroring the legacy `focusPanel(_:)` call (all
+    /// default arguments) in the focused split branches of `newMarkdownSplit` and
+    /// `splitPaneWithMarkdown`.
+    func focusSurfacePanel(_ panelId: UUID)
+
+    /// Selects the tab backing `panelId`, mirroring the legacy
+    /// `bonsplitController.selectTab(newTab.id)` in `splitPaneWithMarkdown`. The
+    /// host resolves the just-created tab id from its surface→panel mapping
+    /// (`surfaceIdFromPanelId`), which ``splitSurface(_:orientation:withTab:kind:insertFirst:)``
+    /// set immediately before; a no-op if the mapping is gone.
+    func selectSurfaceTab(panelId: UUID)
+
+    /// Installs the markdown panel's title/dirty Combine subscription after the
+    /// tab is wired up, mirroring the legacy `installMarkdownPanelSubscription(_:)`
+    /// call. The host resolves the typed `MarkdownPanel` by `id`; a no-op if the id
+    /// no longer maps to a markdown panel.
+    func installMarkdownPanelSubscription(id: UUID)
+
+    // MARK: FilePreview create + split live state
+
+    /// Constructs the app's `FilePreviewPanel` for `filePath`, registers it in the
+    /// workspace panel and panel-title registries, and returns its Sendable
+    /// descriptor. Mirrors the legacy `let filePreviewPanel =
+    /// FilePreviewPanel(workspaceId: id, filePath: filePath); panels[…] = …;
+    /// panelTitles[…] = filePreviewPanel.displayTitle` prelude shared by
+    /// `newFilePreviewSurface` and `splitPaneWithFilePreview`. Unlike the project
+    /// and markdown registrations, the descriptor's `displayIcon` carries the
+    /// already-resolved tab icon (`RenderableSystemSymbol.resolvedSurfaceTabIcon(
+    /// filePreviewPanel.displayIcon)`), because the legacy file-preview bodies
+    /// resolved the icon before handing it to bonsplit; the app type
+    /// `RenderableSystemSymbol` stays app-side in this witness. The descriptor's
+    /// `isDirty` carries `filePreviewPanel.isDirty`. The registries stay app-side
+    /// behind this witness.
+    func registerFilePreviewPanel(filePath: String) -> SurfaceTabDescriptor
+
+    /// Focuses the file-preview panel `id` by calling the panel's own
+    /// `FilePreviewPanel.focus()`, mirroring the legacy `filePreviewPanel.focus()`
+    /// call in the focused branch of `newFilePreviewSurface` and in
+    /// `splitPaneWithFilePreview`. This is the panel's intrinsic focus (restore the
+    /// preferred focus intent), distinct from the workspace's `focusPanel(_:)`
+    /// (``focusSurfacePanel(_:)``). The host resolves the typed `FilePreviewPanel`
+    /// by `id`; a no-op if the id no longer maps to a file-preview panel.
+    func focusFilePreviewPanel(id: UUID)
+
+    /// Installs the file-preview panel's title/dirty/icon Combine subscription
+    /// after the tab is wired up, mirroring the legacy
+    /// `installFilePreviewPanelSubscription(_:)` call. The host resolves the typed
+    /// `FilePreviewPanel` by `id`; a no-op if the id no longer maps to a
+    /// file-preview panel.
+    func installFilePreviewPanelSubscription(id: UUID)
+
+    // MARK: Agent-session create live state
+
+    /// The workspace's current working directory, read as the default working
+    /// directory for a new agent session when the caller passes none. Mirrors the
+    /// legacy `let directory = workingDirectory ?? currentDirectory` read at the
+    /// head of `Workspace.newAgentSessionSurface`.
+    var currentDirectory: String { get }
+
+    /// Constructs the app's `AgentSessionPanel` for the given provider/renderer
+    /// (carried as their frozen `rawValue` strings, because the package cannot name
+    /// `AgentSessionProviderID`/`AgentSessionRendererKind`) and `workingDirectory`,
+    /// registers it in the workspace panel and panel-title registries, records the
+    /// directory in `panelDirectories` when it is non-empty (exactly the legacy
+    /// `if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    /// panelDirectories[agentPanel.id] = directory }` guard), and returns its
+    /// Sendable descriptor. The descriptor's `displayIcon` carries the raw
+    /// `agentPanel.displayIcon` (like the project/markdown registrations, not the
+    /// resolved icon the file-preview registration carries) and `isDirty` carries
+    /// `agentPanel.isDirty`. Both rawValues always round-trip for live callers (the
+    /// app forwarder passes `providerID.rawValue`/`rendererKind.rawValue` from real
+    /// enum cases); the witness reconstructs them via the failable inits and the
+    /// app's own defaults are unreachable backstops. The registries stay app-side
+    /// behind this witness.
+    func registerAgentSessionPanel(
+        providerIDRawValue: String,
+        rendererKindRawValue: String,
+        workingDirectory: String
+    ) -> SurfaceTabDescriptor
+
+    /// Focuses the agent-session panel `id` by calling the panel's own
+    /// `AgentSessionPanel.focus()`, mirroring the legacy `agentPanel.focus()` call
+    /// in the focused branch of `newAgentSessionSurface`. This is the panel's
+    /// intrinsic focus, distinct from the workspace's `focusPanel(_:)`
+    /// (``focusSurfacePanel(_:)``). The host resolves the typed `AgentSessionPanel`
+    /// by `id`; a no-op if the id no longer maps to an agent-session panel.
+    func focusAgentSessionPanel(id: UUID)
+
+    /// Installs the agent-session panel's title/dirty subscription after the tab is
+    /// wired up, mirroring the legacy `installAgentSessionPanelSubscription(_:)`
+    /// call. The host resolves the typed `AgentSessionPanel` by `id`; a no-op if the
+    /// id no longer maps to an agent-session panel.
+    func installAgentSessionPanelSubscription(id: UUID)
+
+    // MARK: Extension-browser create live state
+
+    /// Constructs the app's `CMUXSidebarExtensionBrowserPanel` for `title`,
+    /// registers it in the workspace panel and panel-title registries, and returns
+    /// its Sendable descriptor. Mirrors the legacy `let extensionBrowserPanel =
+    /// CMUXSidebarExtensionBrowserPanel(title: title); panels[…] = …; panelTitles[…]
+    /// = extensionBrowserPanel.displayTitle` prelude. The descriptor's `displayIcon`
+    /// carries the raw `extensionBrowserPanel.displayIcon` (like the project/markdown
+    /// registrations, not resolved like file-preview) and `isDirty` is `false`. The
+    /// registries stay app-side behind this witness.
+    func registerExtensionBrowserPanel(title: String) -> SurfaceTabDescriptor
+
+    /// Focuses the extension-browser panel `id` by calling the panel's own
+    /// `CMUXSidebarExtensionBrowserPanel.focus()`, mirroring the legacy
+    /// `extensionBrowserPanel.focus()` call in the focused branch of
+    /// `newSidebarExtensionBrowserSurface`. The host resolves the typed panel by
+    /// `id`; a no-op if the id no longer maps to an extension-browser panel.
+    func focusExtensionBrowserPanel(id: UUID)
+
+    // MARK: Right-sidebar-tool create live state
+
+    /// Constructs the app's `RightSidebarToolPanel` for the right-sidebar mode
+    /// (carried as its frozen `RightSidebarMode` `rawValue` string, because the
+    /// package cannot name the app's `RightSidebarToolPanel` and the
+    /// `RightSidebarMode` enum is owned by a sibling UI package the workspace
+    /// package does not depend on), registers it in the workspace panel and
+    /// panel-title registries, and returns its Sendable descriptor. Mirrors the
+    /// legacy `let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode);
+    /// panels[toolPanel.id] = toolPanel; panelTitles[toolPanel.id] =
+    /// toolPanel.displayTitle` prelude. The descriptor's `displayIcon` carries the
+    /// raw `toolPanel.displayIcon` (like the project/extension-browser
+    /// registrations, not the resolved icon the file-preview registration carries)
+    /// and `isDirty` is `false`, matching the legacy `createTab(isDirty: false)`
+    /// literal. The `rawValue` always round-trips for live callers (the app
+    /// forwarder passes `mode.rawValue` from a real enum case), so the failable
+    /// init's backstop is an unreachable default. The registries stay app-side
+    /// behind this witness.
+    func registerRightSidebarToolPanel(modeRawValue: String) -> SurfaceTabDescriptor
+}

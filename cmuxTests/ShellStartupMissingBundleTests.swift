@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CMUXAgentLaunch
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -179,7 +180,7 @@ struct ShellStartupMissingBundleTests {
         """
         try (
             "#!/bin/zsh\n"
-                + TerminalStartupReturnShellScript.commandThenReturnLines(command: childProbeCommand).joined(separator: "\n")
+                + TerminalStartupReturnShellScript().commandThenReturnLines(command: childProbeCommand).joined(separator: "\n")
                 + "\n"
         )
         .write(to: returnScriptURL, atomically: true, encoding: .utf8)

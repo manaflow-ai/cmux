@@ -21,10 +21,10 @@ extension AppDelegate {
     }
 
     func handleSavedLayoutShortcut(_ event: NSEvent) -> Bool {
-        guard matchConfiguredShortcut(event: event, action: .saveLayoutTemplate) else {
+        guard matchesSavedLayoutSaveShortcut(event: event) else {
             return false
         }
-        requestSavedLayoutSave(preferredWindow: commandPaletteWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow)
+        requestSavedLayoutSave(preferredWindow: savedLayoutSaveRequestWindow(for: event))
         return true
     }
 
@@ -58,7 +58,7 @@ extension AppDelegate {
 
     @objc private func performSavedLayoutContextMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? SavedLayoutContextMenuActionBox,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
+              let context = registeredMainWindow(forWindowId: box.windowId),
               resolvedWindow(for: context) != nil else {
             NSSound.beep()
             return

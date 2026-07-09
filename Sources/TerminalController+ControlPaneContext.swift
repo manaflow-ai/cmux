@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// The pane-domain witnesses are the byte-faithful bodies of the former
@@ -194,7 +195,7 @@ extension TerminalController: ControlPaneContext {
             return .paneNotFound(paneID)
         }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         if tabManager.selectedTabId != ws.id {
@@ -286,11 +287,11 @@ extension TerminalController: ControlPaneContext {
             return .tabManagerUnavailable
         }
         guard let directionRaw = inputs.directionRaw,
-              let direction = parseSplitDirection(directionRaw) else {
+              let direction = SplitDirection(controlToken: directionRaw) else {
             return .invalidDirection
         }
 
-        let panelType: PanelType = inputs.typeRaw.flatMap { self.panelType(forRawToken: $0) } ?? .terminal
+        let panelType: PanelType = inputs.typeRaw.flatMap { PanelType(normalizedControlToken: v2NormalizedToken($0)) } ?? .terminal
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
@@ -410,28 +411,6 @@ extension TerminalController: ControlPaneContext {
         )
     }
 
-    /// The byte-faithful twin of `v2PanelType`, mapping a raw token to a
-    /// `PanelType` (used only by the create path; the coordinator passes the raw
-    /// string so Bonsplit/PanelType stay app-side).
-    private func panelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal":
-            return .terminal
-        case "browser":
-            return .browser
-        case "markdown":
-            return .markdown
-        case "filepreview":
-            return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
-        case "agentsession":
-            return .agentSession
-        default:
-            return nil
-        }
-    }
-
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped
     /// onto ``ControlPaneCreateResolution``.
     private func browserDisabledCreateResolution(
@@ -474,9 +453,8 @@ extension TerminalController: ControlPaneContext {
         }
 
         let tree = ws.bonsplitController.treeSnapshot()
-        var candidates: [V2PaneResizeCandidate] = []
-        let trace = v2PaneResizeCollectCandidates(
-            node: tree,
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = tree.collectResizeCandidates(
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
@@ -507,7 +485,7 @@ extension TerminalController: ControlPaneContext {
             return .noAbsoluteSplitAncestor(paneID: paneUUID, absoluteAxis: inputs.absoluteAxis)
         }
 
-        guard let direction = inputs.direction.flatMap(V2PaneResizeDirection.init(rawValue:)) else {
+        guard let direction = inputs.direction.flatMap(ResizeDirection.init(rawValue:)) else {
             // Unreachable: the coordinator pre-validates the relative path.
             return .noAdjacentBorder(paneID: paneUUID, direction: inputs.direction ?? "")
         }
@@ -716,34 +694,19 @@ extension TerminalController: ControlPaneContext {
             return .missingSurface
         }
 
-        var moveParams: [String: Any] = [
-            "surface_id": surfaceId.uuidString,
-            "pane_id": targetPaneID.uuidString,
+        // The surface-move logic now lives on the coordinator
+        // (`ControlCommandCoordinator.surfaceMove`); `pane.join` forwards the
+        // resolved move through the same public entry `surface.move` dispatches
+        // to, so both surfaces share one path (the legacy `pane.join` delegated to
+        // `v2SurfaceMove`).
+        var moveParams: [String: JSONValue] = [
+            "surface_id": .string(surfaceId.uuidString),
+            "pane_id": .string(targetPaneID.uuidString),
         ]
         if hasFocusParam {
-            moveParams["focus"] = focus
+            moveParams["focus"] = .bool(focus)
         }
-        return .moved(v2SurfaceMoveControlResult(params: moveParams))
-    }
-
-    /// Runs the legacy `v2SurfaceMove` and bridges its Foundation-shaped
-    /// `V2CallResult` to the typed `ControlCallResult` (the exact pattern
-    /// `bridgeMobileResult` uses), so `pane.join` forwards the surface-move
-    /// outcome byte-faithfully. `v2SurfaceMove` is currently `private`; the
-    /// integrator must relax it to at least `internal` (it lives in
-    /// `TerminalController.swift`, which this extension cannot reach while
-    /// `private`).
-    private func v2SurfaceMoveControlResult(params: [String: Any]) -> ControlCallResult {
-        switch v2SurfaceMove(params: params) {
-        case let .ok(payload):
-            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
-        case let .err(code, message, data):
-            return .err(
-                code: code,
-                message: message,
-                data: data.flatMap { JSONValue(foundationObject: $0) }
-            )
-        }
+        return .moved(controlCommandCoordinator.surfaceMove(moveParams))
     }
 
     // MARK: - last

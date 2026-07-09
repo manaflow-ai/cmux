@@ -68,7 +68,7 @@ extension GhosttyNSView {
               let app = AppDelegate.shared else {
             return []
         }
-        return app.workspaceMoveTargets(forSurface: surfaceId)
+        return app.environment.mainWindowRouter.workspaceMoveTargets(forSurface: surfaceId)
     }
 
     @objc func moveCurrentSurfaceToNewWorkspace(_ sender: Any?) {

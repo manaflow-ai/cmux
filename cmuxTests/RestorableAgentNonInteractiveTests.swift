@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import XCTest
 
 #if canImport(cmux_DEV)

@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminal
+import CmuxTerminalCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -383,14 +384,14 @@ struct GhosttyTerminalStartupEnvironmentTests {
             ],
             protectedKeys: ["PATH", "CMUX_SURFACE_ID"],
             additionalEnvironment: [
-                SessionScrollbackReplayStore.environmentKey: replayPath
+                SessionScrollbackReplay.environmentKey: replayPath
             ],
             initialEnvironmentOverrides: [
                 "CMUX_INITIAL_ENV_TOKEN": "token-123"
             ]
         )
 
-        expectEqual(merged[SessionScrollbackReplayStore.environmentKey], replayPath)
+        expectEqual(merged[SessionScrollbackReplay.environmentKey], replayPath)
         expectEqual(merged["CMUX_INITIAL_ENV_TOKEN"], "token-123")
     }
 

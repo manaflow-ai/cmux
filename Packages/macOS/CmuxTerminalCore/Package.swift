@@ -24,6 +24,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CMUXDebugLog"),
+        .package(path: "../CmuxCore"),
     ],
     targets: [
         // The same libghostty the app links; the terminal core's value types and
@@ -39,11 +40,23 @@ let package = Package(
                 "GhosttyKit",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxCore", package: "CmuxCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            // GhosttyKit's static archive carries C++ objects (the Metal shader
+            // compiler: spirv-cross/glslang, plus <fstream>/<filesystem>). When
+            // this target is realized as a dynamic PackageProduct.framework (it
+            // is, once CmuxCore pulls it into the shared-framework diamond), the
+            // framework link must resolve those std:: symbols itself; the app
+            // target links -lc++ via OTHER_LDFLAGS, but a package framework does
+            // not inherit it. Link the C++ runtime here so the framework is
+            // self-sufficient. Harmless when the target is statically merged.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
         // Test-only stand-in for the @_silgen_name libghostty symbol bound by

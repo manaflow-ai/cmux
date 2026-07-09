@@ -266,7 +266,7 @@ public struct ClaudeTranscriptParser: Sendable {
         let callID = block["id"]?.string
         let input = block["input"]
         let kinds = toolUseKinds(toolName: toolName, input: input)
-        for (index, kind) in kinds.enumerated() {
+        for kind in kinds {
             let message = ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
                 seq: seq,

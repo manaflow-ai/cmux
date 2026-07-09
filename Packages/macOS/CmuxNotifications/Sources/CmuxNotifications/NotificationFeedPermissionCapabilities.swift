@@ -17,3 +17,17 @@ public struct NotificationFeedPermissionCapabilities: Sendable, Equatable {
         self.supportsAll = supportsAll
     }
 }
+
+public extension NotificationFeedPermissionCapabilities {
+    /// The notification category identifier whose registered actions match this
+    /// capability set. The supported modes are concatenated in `Once`/`Always`/`All`
+    /// order onto the `CMUXFeedPermission` prefix; a set with no supported modes
+    /// falls back to the deny-only `CMUXFeedPermissionDeny` category.
+    var notificationCategoryIdentifier: String {
+        var suffix = ""
+        if supportsOnce { suffix += "Once" }
+        if supportsAlways { suffix += "Always" }
+        if supportsAll { suffix += "All" }
+        return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
+    }
+}

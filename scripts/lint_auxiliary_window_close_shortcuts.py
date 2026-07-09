@@ -10,8 +10,10 @@ import sys
 
 
 DEFAULT_ROOTS = ("Sources",)
-OWNER_LIST_PATH = pathlib.Path("Sources/cmuxApp.swift")
-OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
+OWNER_LIST_PATH = pathlib.Path(
+    "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/AuxiliaryWindowRegistry.swift"
+)
+OWNER_LIST_NAME = "AuxiliaryWindowRegistry.default"
 
 # Hidden/internal bootstrap windows should not take Cmd+W away from the active
 # main window. Add to this set only when a window is intentionally not user
@@ -66,10 +68,16 @@ def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
         raise ValueError(f"missing {OWNER_LIST_PATH}") from None
 
     parse_text = strip_line_comments(text)
-    marker = f"private let {OWNER_LIST_NAME}"
-    marker_index = parse_text.find(marker)
-    if marker_index < 0:
+    # The production identifier set is the `static let `default`` registry's
+    # `identifiers:` literal, e.g.
+    # `public static let `default` = AuxiliaryWindowRegistry(identifiers: [...])`.
+    marker_match = re.search(
+        r"static\s+let\s+`?default`?\s*=\s*AuxiliaryWindowRegistry\(\s*identifiers\s*:",
+        parse_text,
+    )
+    if marker_match is None:
         raise ValueError(f"missing {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
+    marker_index = marker_match.start()
 
     list_start = parse_text.find("[", marker_index)
     if list_start < 0:

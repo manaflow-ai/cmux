@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The app-bundle-resolved localized strings for `surface.respawn`.
 ///

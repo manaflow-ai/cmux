@@ -156,7 +156,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 (3, try #require(makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: secondWindow.windowNumber)))
             ]
 
-            try withTemporaryShortcut(action: .selectSurfaceByNumber) {
+            withTemporaryShortcut(action: .selectSurfaceByNumber) {
                 for cycle in 0..<10 {
                     for (digit, event) in digitEvents {
 #if DEBUG

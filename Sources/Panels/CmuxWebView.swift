@@ -1,132 +1,18 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
+#if DEBUG
+import CmuxTestSupport
+#endif
 
 extension WKWebView {
-    nonisolated private static var cmuxSetPageMutedSelector: Selector {
-        NSSelectorFromString("_setPageMuted:")
-    }
-
-    nonisolated private static var cmuxMediaMutedStateAudio: Int {
-        1 << 0
-    }
-
-    @discardableResult
-    func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
-        let selector = Self.cmuxSetPageMutedSelector
-        guard responds(to: selector),
-              let implementation = method(for: selector) else {
-            return false
-        }
-
-        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, Int) -> Void
-        let function = unsafeBitCast(implementation, to: SetPageMutedFunction.self)
-        function(self, selector, muted ? Self.cmuxMediaMutedStateAudio : 0)
-        return true
-    }
-
-    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
-        switch fullscreenState {
-        case .notInFullscreen:
-            return false
-        case .enteringFullscreen, .inFullscreen, .exitingFullscreen:
-            return true
-        @unknown default:
-            return true
-        }
-    }
-
     func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
         guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
         guard let expectedWindow else { return true }
         return window !== expectedWindow
-    }
-}
-
-struct BrowserImageCopyPasteboardPayload {
-    let imageData: Data
-    let mimeType: String?
-    let sourceURL: URL?
-}
-
-enum BrowserFocusModeKeyDecision: Equatable {
-    case inactive
-    case forwardToWebView
-    case consume
-}
-
-enum BrowserImageCopyPasteboardBuilder {
-    private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
-    private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
-    private static let urlPasteboardType = NSPasteboard.PasteboardType(UTType.url.identifier)
-
-    static func makePasteboardItems(from payload: BrowserImageCopyPasteboardPayload) -> [NSPasteboardItem] {
-        guard let imageItem = imagePasteboardItem(from: payload) else { return [] }
-
-        var items = [imageItem]
-        if let sourceURL = payload.sourceURL {
-            // Keep the URL as a secondary item so image-aware paste targets can
-            // prefer the binary image payload without losing the textual fallback.
-            items.append(urlPasteboardItem(for: sourceURL))
-        }
-        return items
-    }
-
-    private static func imagePasteboardItem(from payload: BrowserImageCopyPasteboardPayload) -> NSPasteboardItem? {
-        let item = NSPasteboardItem()
-        var wroteImageType = false
-
-        if let image = NSImage(data: payload.imageData) {
-            if let tiffData = image.tiffRepresentation, !tiffData.isEmpty {
-                item.setData(tiffData, forType: tiffPasteboardType)
-                wroteImageType = true
-            }
-            if let pngData = pngData(for: image), !pngData.isEmpty {
-                item.setData(pngData, forType: pngPasteboardType)
-                wroteImageType = true
-            }
-        }
-
-        if let sourceType = sourceImageType(mimeType: payload.mimeType, sourceURL: payload.sourceURL) {
-            item.setData(payload.imageData, forType: NSPasteboard.PasteboardType(sourceType.identifier))
-            wroteImageType = true
-        }
-
-        return wroteImageType ? item : nil
-    }
-
-    private static func urlPasteboardItem(for url: URL) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(url.absoluteString, forType: .string)
-        item.setString(url.absoluteString, forType: urlPasteboardType)
-        return item
-    }
-
-    private static func sourceImageType(mimeType: String?, sourceURL: URL?) -> UTType? {
-        if let mimeType,
-           let type = UTType(mimeType: mimeType),
-           type.conforms(to: .image) {
-            return type
-        }
-
-        if let pathExtension = sourceURL?.pathExtension,
-           !pathExtension.isEmpty,
-           let type = UTType(filenameExtension: pathExtension),
-           type.conforms(to: .image) {
-            return type
-        }
-
-        return nil
-    }
-
-    private static func pngData(for image: NSImage) -> Data? {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            return nil
-        }
-        return bitmap.representation(using: .png, properties: [:])
     }
 }
 
@@ -139,193 +25,15 @@ final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
-    private struct MiddleClickIntent {
-        let webViewID: ObjectIdentifier
-        let uptime: TimeInterval
-    }
-
-    private static var lastMiddleClickIntent: MiddleClickIntent?
-    private static let middleClickIntentMaxAge: TimeInterval = 0.8
-    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    // The freshness value, the age/identity predicate, and the process-wide
+    // single-slot storage live in CmuxBrowser (BrowserMiddleClickIntent +
+    // BrowserMiddleClickIntentTracker); this static holds the one tracker and
+    // forwards WKWebView identities + uptime captures into it.
+    private static let middleClickIntentTracker = BrowserMiddleClickIntentTracker()
+    private static let pasteAsPlainTextFocusContract = BrowserPasteAsPlainTextFocusContract()
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
-    private static let pasteAsPlainTextSharedHelpersScriptSource = """
-    const __cmuxPasteAsPlainTextHelpers = (() => {
-      const existing = window.__cmuxPasteAsPlainTextHelpers;
-      if (existing) return existing;
-
-      const supportedTextInputTypes = new Set([
-        "",
-        "text",
-        "search",
-        "tel",
-        "url",
-        "email",
-        "password",
-        "number",
-        "date",
-        "datetime-local",
-        "month",
-        "time",
-        "week"
-      ]);
-
-      const deepestActiveElement = (root) => {
-        let active = root?.activeElement ?? null;
-        while (active) {
-          const shadowActive = active.shadowRoot?.activeElement ?? null;
-          if (shadowActive && shadowActive !== active) {
-            active = shadowActive;
-            continue;
-          }
-
-          const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
-          if (tagName === "IFRAME") {
-            try {
-              const frameActive = active.contentDocument?.activeElement ?? null;
-              if (frameActive && frameActive !== active) {
-                active = frameActive;
-                continue;
-              }
-            } catch (_) {}
-          }
-
-          break;
-        }
-        return active;
-      };
-
-      const isPlainTextTextControl = (el) => {
-        if (!el || el.disabled || el.readOnly) return false;
-
-        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName === "TEXTAREA") return true;
-        if (tagName !== "INPUT") return false;
-
-        const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
-        return supportedTextInputTypes.has(type);
-      };
-
-      const isFocusedCrossOriginFrameElement = (el) => {
-        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName !== "IFRAME") return false;
-        try {
-          void el.contentDocument;
-          return false;
-        } catch (_) {
-          return true;
-        }
-      };
-
-      const resolvedCandidateElement = (el) => {
-        if (!el) return deepestActiveElement(document);
-
-        const shadowActive = el.shadowRoot?.activeElement ?? null;
-        if (shadowActive && shadowActive !== el) {
-          return deepestActiveElement(el.shadowRoot) ?? shadowActive;
-        }
-
-        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName === "IFRAME") {
-          try {
-            return deepestActiveElement(el.contentDocument) ?? el;
-          } catch (_) {}
-        }
-
-        return el;
-      };
-
-      const editableTarget = (el) => {
-        const candidate = resolvedCandidateElement(el);
-        if (!candidate) return null;
-        if (isPlainTextTextControl(candidate)) return candidate;
-        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
-        if (candidate.isContentEditable) return candidate;
-        return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
-      };
-
-      const helpers = {
-        deepestActiveElement,
-        isPlainTextTextControl,
-        isFocusedCrossOriginFrameElement,
-        resolvedCandidateElement,
-        editableTarget,
-        canPasteAsPlainTextInto(el) {
-          return !!editableTarget(el);
-        }
-      };
-      window.__cmuxPasteAsPlainTextHelpers = helpers;
-      return helpers;
-    })();
-    """
-    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
-    (() => {
-      try {
-        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
-        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
-
-        const handler = (() => {
-          try {
-            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
-          } catch (_) {
-            return null;
-          }
-        })();
-
-        \(pasteAsPlainTextSharedHelpersScriptSource)
-
-        const publishState = { lastCanPaste: null };
-
-        const publish = (canPaste) => {
-          if (publishState.lastCanPaste === canPaste) return;
-          publishState.lastCanPaste = canPaste;
-          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
-          try {
-            handler?.postMessage({ canPaste });
-          } catch (_) {}
-        };
-
-        window.__cmuxCanPasteAsPlainTextIntoCurrentFocus = () => {
-          return __cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(document.activeElement);
-        };
-
-        const publishForElement = (el) => {
-          publish(__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(el));
-        };
-
-        document.addEventListener("focusin", (ev) => {
-          publishForElement(ev && ev.target ? ev.target : document.activeElement);
-        }, true);
-        document.addEventListener("focusout", () => {
-          requestAnimationFrame(() => publishForElement(document.activeElement));
-        }, true);
-        document.addEventListener("selectionchange", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("input", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("change", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("mousedown", (ev) => {
-          const target = ev && ev.target ? ev.target : null;
-          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
-            publish(false);
-          }
-        }, true);
-        window.addEventListener("beforeunload", () => {
-          publish(false);
-        }, true);
-
-        publishForElement(document.activeElement);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    })();
-    """
     private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
         func userContentController(
             _ userContentController: WKUserContentController,
@@ -348,19 +56,14 @@ final class CmuxWebView: WKWebView {
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
-        guard let intent = lastMiddleClickIntent else { return false }
-
-        let age = ProcessInfo.processInfo.systemUptime - intent.uptime
-        if age > middleClickIntentMaxAge {
-            lastMiddleClickIntent = nil
-            return false
-        }
-
-        return intent.webViewID == ObjectIdentifier(webView)
+        return middleClickIntentTracker.hasRecentIntent(
+            forWebViewID: ObjectIdentifier(webView),
+            asOf: ProcessInfo.processInfo.systemUptime
+        )
     }
 
     private static func recordMiddleClickIntent(for webView: CmuxWebView) {
-        lastMiddleClickIntent = MiddleClickIntent(
+        middleClickIntentTracker.record(
             webViewID: ObjectIdentifier(webView),
             uptime: ProcessInfo.processInfo.systemUptime
         )
@@ -377,9 +80,17 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
-    private static var cmuxDownloadDelegateKey: UInt8 = 0
-    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
+    // The V-key hardware position + flag-normalization that decide whether a key
+    // event is the paste-as-plain-text command equivalent live in CmuxBrowser
+    // (BrowserPasteAsPlainTextShortcut); this holds the one shortcut and forwards
+    // each event's keyCode + modifierFlags into it.
+    private static let pasteAsPlainTextShortcut = BrowserPasteAsPlainTextShortcut()
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    // Session-download members restored during the main merge: the conflict
+    // resolver kept our CmuxWebView but dropped main's session-download system
+    // (its consumers, e.g. CmuxWebView+ScriptedDownloads / BrowserSessionDownloadSaver,
+    // were kept).
+    private static var cmuxDownloadDelegateKey: UInt8 = 0
     var onSessionDownloadEvent: (([String: Any]) -> Void)?
     private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
         parentWindow: { [weak self] in self?.window },
@@ -390,16 +101,6 @@ final class CmuxWebView: WKWebView {
             self?.runContextMenuFallback(action: action, target: target, sender: sender, traceID: traceID, reason: reason)
         }
     )
-    /// Called when "Open Link in New Tab" context menu is selected.
-    /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
-    var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
-    /// Called for physical mouse back/forward buttons so BrowserPanel can use
-    /// its restored-session history fallback instead of raw WKWebView history.
-    var onMouseBackButton: (() -> Void)?
-    var onMouseForwardButton: (() -> Void)?
-    var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
-    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
-    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
     var cmuxDownloadDelegate: WKDownloadDelegate? {
         get {
             objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
@@ -413,6 +114,25 @@ final class CmuxWebView: WKWebView {
             )
         }
     }
+    private func notifySessionDownloadEvent(_ event: [String: Any]) {
+        if Thread.isMainThread {
+            onSessionDownloadEvent?(event)
+        } else {
+            Task { @MainActor [weak self] in
+                self?.onSessionDownloadEvent?(event)
+            }
+        }
+    }
+    /// Called when "Open Link in New Tab" context menu is selected.
+    /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
+    var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called for physical mouse back/forward buttons so BrowserPanel can use
+    /// its restored-session history fallback instead of raw WKWebView history.
+    var onMouseBackButton: (() -> Void)?
+    var onMouseForwardButton: (() -> Void)?
+    var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
+    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
@@ -448,7 +168,7 @@ final class CmuxWebView: WKWebView {
 
         userContentController.add(
             Self.sharedPasteAsPlainTextFocusMessageHandler,
-            name: Self.pasteAsPlainTextFocusMessageHandlerName
+            name: Self.pasteAsPlainTextFocusContract.messageHandlerName
         )
         objc_setAssociatedObject(
             userContentController,
@@ -487,11 +207,11 @@ final class CmuxWebView: WKWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            let event = BrowserFirstResponderEvent(pointerInitiated: pointerFocusAllowanceDepth > 0)
             NotificationCenter.default.post(
-                name: .browserDidBecomeFirstResponderWebView,
+                name: BrowserFirstResponderEvent.notificationName,
                 object: self,
-                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+                userInfo: event.userInfo
             )
         }
 #if DEBUG
@@ -528,9 +248,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
+        pasteAsPlainTextShortcut.matches(keyCode: event.keyCode, modifierFlags: event.modifierFlags)
     }
 
     private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
@@ -576,17 +294,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private func pageCanAcceptPlainTextPaste() -> Bool {
-        let script = """
-        (() => {
-            try {
-                const fn = window.__cmuxCanPasteAsPlainTextIntoCurrentFocus;
-                return typeof fn === 'function' ? !!fn() : false;
-            } catch (_) {
-                return false;
-            }
-        })();
-        """
-
+        let script = Self.pasteAsPlainTextFocusContract.focusedTargetQueryScriptSource
         let evaluation = evaluateJavaScriptSynchronously(script)
         let canPaste = evaluation.completed && ((evaluation.result as? Bool) ?? false)
 #if DEBUG
@@ -990,113 +698,15 @@ final class CmuxWebView: WKWebView {
 
     func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
+        cmuxDebugLog(Self.contextDownloadLogRedactor.redact(message()))
 #endif
     }
 
     #if DEBUG
-    private static let contextDownloadFieldPattern = try! NSRegularExpression(
-        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
-        options: []
-    )
-
-    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
-        let nsMessage = message as NSString
-        let fullRange = NSRange(location: 0, length: nsMessage.length)
-        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
-        guard !matches.isEmpty else { return message }
-
-        var result = ""
-        var cursor = 0
-        var matchIndex = 0
-
-        while matchIndex < matches.count {
-            let match = matches[matchIndex]
-            let fieldStart = match.range.location
-            if cursor < fieldStart {
-                result += nsMessage.substring(
-                    with: NSRange(location: cursor, length: fieldStart - cursor)
-                )
-            }
-
-            let separatorRange = match.range(at: 1)
-            if separatorRange.length > 0 {
-                result += " "
-            }
-
-            let keyRange = match.range(at: 2)
-            let key = nsMessage.substring(with: keyRange)
-            let valueStart = match.range.location + match.range.length
-            let sensitive = shouldRedactContextDownloadField(key)
-            let valueEnd: Int
-
-            if sensitive && key.lowercased() == "payload" {
-                valueEnd = nsMessage.length
-                matchIndex = matches.count
-            } else {
-                valueEnd = matchIndex + 1 < matches.count
-                    ? matches[matchIndex + 1].range.location
-                    : nsMessage.length
-                matchIndex += 1
-            }
-
-            let valueLength = max(0, valueEnd - valueStart)
-            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
-
-            if sensitive {
-                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
-            } else {
-                result += nsMessage.substring(
-                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
-                )
-            }
-
-            cursor = valueEnd
-        }
-
-        if cursor < nsMessage.length {
-            result += nsMessage.substring(
-                with: NSRange(location: cursor, length: nsMessage.length - cursor)
-            )
-        }
-
-        return result
-    }
-
-    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized == "referer" ||
-            normalized == "path" ||
-            normalized == "payload" ||
-            normalized.hasSuffix("url")
-    }
-
-    private static func redactedContextDownloadValue(key: String, value: String) -> String {
-        guard value != "nil", !value.isEmpty else { return value }
-
-        if shouldTreatContextDownloadFieldAsURL(key),
-           let url = URL(string: value),
-           let scheme = url.scheme?.lowercased(),
-           !scheme.isEmpty {
-            switch scheme {
-            case "http", "https":
-                return "\(scheme)://\(url.host ?? "unknown")"
-            case "data":
-                return "data:<redacted>"
-            case "file":
-                return "file:<redacted>"
-            default:
-                return "\(scheme):<redacted>"
-            }
-        }
-
-        return "<redacted>"
-    }
-
-    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized == "referer" || normalized.hasSuffix("url")
-    }
+    /// Compiles the redaction regex once per process (matching the original
+    /// static-`let` pattern lifetime) and owns the field-redaction logic, now in
+    /// `CmuxBrowser.BrowserContextDownloadLogRedactor`.
+    private static let contextDownloadLogRedactor = BrowserContextDownloadLogRedactor()
     #endif
 
     private static func selectorName(_ selector: Selector?) -> String {
@@ -1108,9 +718,9 @@ final class CmuxWebView: WKWebView {
         let identifier = item.identifier?.rawValue ?? "nil"
         let title = item.title
         let actionName = Self.selectorName(item.action)
-        let idToken = Self.normalizedContextMenuToken(identifier)
-        let titleToken = Self.normalizedContextMenuToken(title)
-        let actionToken = Self.normalizedContextMenuToken(actionName)
+        let idToken = identifier.normalizedBrowserContextMenuToken
+        let titleToken = title.normalizedBrowserContextMenuToken
+        let actionToken = actionName.normalizedBrowserContextMenuToken
         guard idToken.contains("download")
             || titleToken.contains("download")
             || actionToken.contains("download") else {
@@ -1121,164 +731,15 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private struct ParsedDataURL {
-        let data: Data
-        let mimeType: String?
-    }
-
-    private static func parseDataURL(_ url: URL) -> ParsedDataURL? {
-        let absolute = url.absoluteString
-        guard absolute.hasPrefix("data:"),
-              let commaIndex = absolute.firstIndex(of: ",") else {
-            return nil
-        }
-
-        let headerStart = absolute.index(absolute.startIndex, offsetBy: 5)
-        let header = String(absolute[headerStart..<commaIndex])
-        let payloadStart = absolute.index(after: commaIndex)
-        let payload = String(absolute[payloadStart...])
-
-        let segments = header.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
-        let mimeType = segments.first.flatMap { $0.isEmpty ? nil : $0 }
-        let isBase64 = segments.dropFirst().contains { $0.caseInsensitiveCompare("base64") == .orderedSame }
-
-        if isBase64 {
-            guard let data = Data(base64Encoded: payload, options: [.ignoreUnknownCharacters]) else {
-                return nil
-            }
-            return ParsedDataURL(data: data, mimeType: mimeType)
-        }
-
-        guard let decoded = payload.removingPercentEncoding else { return nil }
-        return ParsedDataURL(data: Data(decoded.utf8), mimeType: mimeType)
-    }
-
-    private static func filenameExtension(forMIMEType mimeType: String?) -> String? {
-        guard let mimeType, !mimeType.isEmpty else { return nil }
-        if #available(macOS 11.0, *) {
-            if let preferred = UTType(mimeType: mimeType)?.preferredFilenameExtension, !preferred.isEmpty {
-                return preferred
-            }
-        }
-        switch mimeType.lowercased() {
-        case "image/jpeg":
-            return "jpg"
-        case "image/png":
-            return "png"
-        case "image/webp":
-            return "webp"
-        case "image/gif":
-            return "gif"
-        case "text/html":
-            return "html"
-        case "text/plain":
-            return "txt"
-        default:
-            return nil
-        }
-    }
-
-    private static func suggestedFilenameForDataURL(
-        mimeType: String?,
-        suggestedFilename: String?
-    ) -> String {
-        if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !suggested.isEmpty {
-            return BrowserDownloadFilenameResolver().suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
-        }
-        let ext = filenameExtension(forMIMEType: mimeType) ?? "bin"
-        let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
-        return "\(base).\(ext)"
-    }
-
-    private static func normalizedContextMenuToken(_ value: String?) -> String {
-        guard let value else { return "" }
-        let lowered = value.lowercased()
-        let alphanumerics = CharacterSet.alphanumerics
-        let scalars = lowered.unicodeScalars.filter { alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars))
-    }
-
-    private func isDownloadImageMenuItem(_ item: NSMenuItem) -> Bool {
-        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
-        if identifier.contains("downloadimage") {
-            return true
-        }
-
-        let title = Self.normalizedContextMenuToken(item.title)
-        if title.contains("downloadimage") {
-            return true
-        }
-
-        if let action = item.action {
-            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
-            if actionName.contains("downloadimage") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isDownloadLinkedFileMenuItem(_ item: NSMenuItem) -> Bool {
-        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
-        if identifier.contains("downloadlinkedfile")
-            || identifier.contains("downloadlinktodisk") {
-            return true
-        }
-
-        let title = Self.normalizedContextMenuToken(item.title)
-        if title.contains("downloadlinkedfile")
-            || title.contains("downloadlinktodisk") {
-            return true
-        }
-
-        if let action = item.action {
-            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
-            if actionName.contains("downloadlinkedfile")
-                || actionName.contains("downloadlinktodisk") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isCopyImageMenuItem(_ item: NSMenuItem) -> Bool {
-        let tokens = [
-            Self.normalizedContextMenuToken(item.identifier?.rawValue),
-            Self.normalizedContextMenuToken(item.title),
-            item.action.map { Self.normalizedContextMenuToken(NSStringFromSelector($0)) } ?? "",
-        ]
-
-        for token in tokens where !token.isEmpty {
-            if token.contains("copyimageaddress")
-                || token.contains("copyimageurl")
-                || token.contains("copyimagelocation") {
-                return false
-            }
-            if token == "copyimage"
-                || token.contains("copyimagetoclipboard")
-                || token.contains("copyimage") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isDownloadableScheme(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https" || scheme == "file"
-    }
-
-    private func isDataURLScheme(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "data"
-    }
-
-    private func isDownloadSupportedScheme(_ url: URL) -> Bool {
-        return isDownloadableScheme(url) || isDataURLScheme(url)
+    /// Bridges an AppKit `NSMenuItem` to the string-only
+    /// `BrowserContextMenuItemClassifier` in `CmuxBrowser`, which owns the
+    /// download/copy token matching.
+    private static func contextMenuItemClassifier(for item: NSMenuItem) -> BrowserContextMenuItemClassifier {
+        BrowserContextMenuItemClassifier(
+            identifier: item.identifier?.rawValue,
+            title: item.title,
+            actionName: item.action.map { NSStringFromSelector($0) }
+        )
     }
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
@@ -1291,73 +752,6 @@ final class CmuxWebView: WKWebView {
         }
         return action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:))
-    }
-
-    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = comps.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
-        let candidates = ["imgurl", "mediaurl", "url", "q"]
-        for key in candidates {
-            guard let raw = map[key], !raw.isEmpty,
-                  let decoded = raw.removingPercentEncoding ?? raw as String?,
-                  let candidate = URL(string: decoded),
-                  isDownloadableScheme(candidate) else {
-                continue
-            }
-            return candidate
-        }
-        // Some links are wrapped as /url?...
-        if comps.path.lowercased() == "/url" {
-            for key in ["url", "q"] {
-                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
-    private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        resolveGoogleRedirectURL(url) ?? url
-    }
-
-    private func isLikelyFaviconURL(_ url: URL) -> Bool {
-        let lower = url.absoluteString.lowercased()
-        if lower.contains("favicon") { return true }
-        let name = url.lastPathComponent.lowercased()
-        return name.hasPrefix("favicon")
-    }
-
-    private func isLikelyImageURL(_ url: URL) -> Bool {
-        if isDataURLScheme(url) {
-            guard let parsed = Self.parseDataURL(url),
-                  let mime = parsed.mimeType?.lowercased() else {
-                return false
-            }
-            return mime.hasPrefix("image/")
-        }
-        guard isDownloadableScheme(url) else { return false }
-        let ext = url.pathExtension.lowercased()
-        if [
-            "jpg", "jpeg", "png", "webp", "gif", "bmp",
-            "svg", "avif", "heic", "heif", "tif", "tiff", "ico"
-        ].contains(ext) {
-            return true
-        }
-        let lower = url.absoluteString.lowercased()
-        if lower.contains("imgurl=")
-            || lower.contains("mediaurl=")
-            || lower.contains("encrypted-tbn")
-            || lower.contains("format=jpg")
-            || lower.contains("format=jpeg")
-            || lower.contains("format=png")
-            || lower.contains("format=webp")
-            || lower.contains("format=gif") {
-            return true
-        }
-        return false
     }
 
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
@@ -1390,125 +784,10 @@ final class CmuxWebView: WKWebView {
     /// Resolve the topmost image URL near a point, accounting for overlay layers.
     private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
         let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const normalize = (raw) => {
-                if (!raw || typeof raw !== 'string') return '';
-                const trimmed = raw.trim();
-                if (!trimmed) return '';
-                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
-                return trimmed;
-            };
-            const firstSrcsetURL = (srcset) => {
-                if (!srcset || typeof srcset !== 'string') return '';
-                const first = srcset.split(',').map((part) => part.trim()).find(Boolean);
-                if (!first) return '';
-                const urlPart = first.split(/\\s+/)[0];
-                return normalize(urlPart);
-            };
-            const firstBackgroundURL = (value) => {
-                if (!value || value === 'none') return '';
-                const match = /url\\((['"]?)(.*?)\\1\\)/.exec(value);
-                if (!match || !match[2]) return '';
-                return normalize(match[2]);
-            };
-            const collectChain = (start) => {
-                const out = [];
-                const seen = new Set();
-                const pushParents = (node) => {
-                    while (node && !seen.has(node)) {
-                        seen.add(node);
-                        out.push(node);
-                        node = node.parentElement;
-                    }
-                };
-                pushParents(start);
-                if (start && start.tagName === 'PICTURE' && start.querySelector) {
-                    const img = start.querySelector('img');
-                    if (img) pushParents(img);
-                }
-                return out;
-            };
-            const candidateFromElement = (el) => {
-                if (!el) return '';
-                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
-                if (el.tagName === 'IMG') {
-                    const imageCandidates = [
-                        normalize(el.currentSrc || ''),
-                        attr('src'),
-                        firstSrcsetURL(attr('srcset')),
-                        attr('data-src'),
-                        attr('data-iurl'),
-                        attr('data-lazy-src'),
-                        attr('data-original'),
-                    ];
-                    const foundImage = imageCandidates.find(Boolean);
-                    if (foundImage) return foundImage;
-                }
-                const genericAttrs = [
-                    'src', 'data-src', 'data-iurl', 'data-lazy-src',
-                    'data-original', 'data-image', 'data-image-url',
-                    'data-thumb', 'data-thumbnail-url', 'content'
-                ];
-                for (const name of genericAttrs) {
-                    const v = attr(name);
-                    if (v) return v;
-                }
-                const inlineBg = firstBackgroundURL(el.style && el.style.backgroundImage ? el.style.backgroundImage : '');
-                if (inlineBg) return inlineBg;
-                try {
-                    const computed = window.getComputedStyle(el);
-                    const computedBg = firstBackgroundURL(computed ? computed.backgroundImage : '');
-                    if (computedBg) return computedBg;
-                } catch (_) {}
-                if (el.querySelector) {
-                    const nestedImg = el.querySelector('img[src],img[srcset],img[data-src],img[data-iurl],source[srcset]');
-                    if (nestedImg) {
-                        const nestedCandidates = [
-                            normalize(nestedImg.currentSrc || ''),
-                            normalize(nestedImg.getAttribute ? nestedImg.getAttribute('src') : ''),
-                            firstSrcsetURL(nestedImg.getAttribute ? nestedImg.getAttribute('srcset') : ''),
-                            normalize(nestedImg.getAttribute ? (nestedImg.getAttribute('data-src') || nestedImg.getAttribute('data-iurl') || '') : '')
-                        ];
-                        const foundNested = nestedCandidates.find(Boolean);
-                        if (foundNested) return foundNested;
-                    }
-                    const nestedBg = el.querySelector('[style*="background-image"]');
-                    if (nestedBg) {
-                        const styleValue = nestedBg.getAttribute ? nestedBg.getAttribute('style') : '';
-                        const bgURL = firstBackgroundURL(styleValue || '');
-                        if (bgURL) return bgURL;
-                    }
-                }
-                return '';
-            };
-            const tryNodes = (nodes) => {
-                for (const start of nodes) {
-                    for (const el of collectChain(start)) {
-                        const found = candidateFromElement(el);
-                        if (found) return found;
-                    }
-                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
-                        const inner = start.shadowRoot.elementFromPoint(x, y);
-                        if (inner) {
-                            for (const el of collectChain(inner)) {
-                                const found = candidateFromElement(el);
-                                if (found) return found;
-                            }
-                        }
-                    }
-                }
-                return '';
-            };
-            const all = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const foundFromAll = tryNodes(all);
-            if (foundFromAll) return foundFromAll;
-            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
-            return candidateFromElement(single) || '';
-        })();
-        """
+        let js = BrowserContextMenuPointProbe(
+            x: Double(cssPoint.x),
+            y: Double(cssPoint.y)
+        ).imageURLResolverScript
         evaluateJavaScript(js) { result, _ in
             guard let src = result as? String, !src.isEmpty,
                   let url = URL(string: src) else {
@@ -1522,35 +801,10 @@ final class CmuxWebView: WKWebView {
     private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
 #if DEBUG
         let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const clip = (value, max = 180) => {
-                if (value == null) return '';
-                const s = String(value);
-                return s.length > max ? s.slice(0, max) + '…' : s;
-            };
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const entries = [];
-            const limit = Math.min(nodes.length, 8);
-            for (let i = 0; i < limit; i++) {
-                const el = nodes[i];
-                if (!el) continue;
-                entries.push({
-                    tag: clip((el.tagName || '').toLowerCase()),
-                    id: clip(el.id || ''),
-                    cls: clip(typeof el.className === 'string' ? el.className : ''),
-                    href: clip(el.href || ''),
-                    src: clip(el.src || ''),
-                    currentSrc: clip(el.currentSrc || ''),
-                    dataHref: clip(el.getAttribute ? el.getAttribute('data-href') : ''),
-                    dataSrc: clip(el.getAttribute ? el.getAttribute('data-src') : '')
-                });
-            }
-            return JSON.stringify({count: nodes.length, entries});
-        })();
-        """
+        let js = BrowserContextMenuPointProbe(
+            x: Double(cssPoint.x),
+            y: Double(cssPoint.y)
+        ).elementStackInspectorScript
         evaluateJavaScript(js) { [weak self] result, _ in
             guard let self,
                   let payload = result as? String,
@@ -1622,44 +876,10 @@ final class CmuxWebView: WKWebView {
         if Thread.isMainThread {
             onContextMenuDownloadStateChanged?(downloading)
         } else {
-            Task { @MainActor [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 self?.onContextMenuDownloadStateChanged?(downloading)
             }
         }
-    }
-
-    private func notifySessionDownloadEvent(_ event: [String: Any]) {
-        if Thread.isMainThread {
-            onSessionDownloadEvent?(event)
-        } else {
-            Task { @MainActor [weak self] in
-                self?.onSessionDownloadEvent?(event)
-            }
-        }
-    }
-
-    private func finishSessionDownload(
-        data: Data,
-        saveName: String,
-        sourceURL: URL?,
-        traceID: String,
-        logCategory: String,
-        sender: Any?,
-        fallbackAction: Selector?,
-        fallbackTarget: AnyObject?,
-        failureFallbackReason: String?
-    ) {
-        sessionDownloadSaver.finish(
-            data: data,
-            saveName: saveName,
-            sourceURL: sourceURL,
-            traceID: traceID,
-            logCategory: logCategory,
-            sender: sender,
-            fallbackAction: fallbackAction,
-            fallbackTarget: fallbackTarget,
-            failureFallbackReason: failureFallbackReason
-        )
     }
 
     func downloadURLViaSession(
@@ -1670,7 +890,7 @@ final class CmuxWebView: WKWebView {
         fallbackTarget: AnyObject?,
         traceID: String
     ) {
-        guard isDownloadSupportedScheme(url) else {
+        guard BrowserDownloadURLClassifier(url: url).isDownloadSupportedScheme else {
             debugContextDownload(
                 "browser.ctxdl.request trace=\(traceID) stage=rejectUnsupportedScheme url=\(url.absoluteString)"
             )
@@ -1692,7 +912,7 @@ final class CmuxWebView: WKWebView {
 
         if scheme == "data" {
             DispatchQueue.main.async {
-                guard let parsed = Self.parseDataURL(url) else {
+                guard let parsed = ParsedDataURL(dataURL: url) else {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
                         "browser.ctxdl.data trace=\(traceID) stage=parseFailure urlLength=\(url.absoluteString.count)"
@@ -1707,7 +927,7 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let saveName = Self.suggestedFilenameForDataURL(
+                let saveName = BrowserDownloadFilenameResolver().suggestedFilenameForDataURL(
                     mimeType: parsed.mimeType,
                     suggestedFilename: suggestedFilename
                 )
@@ -1715,17 +935,39 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
                 )
 
-                self.finishSessionDownload(
-                    data: parsed.data,
-                    saveName: saveName,
-                    sourceURL: url,
-                    traceID: traceID,
-                    logCategory: "data",
-                    sender: sender,
-                    fallbackAction: fallbackAction,
-                    fallbackTarget: fallbackTarget,
-                    failureFallbackReason: "data_save_write_error"
+                let savePanel = NSSavePanel()
+                savePanel.nameFieldStringValue = saveName
+                savePanel.canCreateDirectories = true
+                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                self.notifyContextMenuDownloadState(false)
+                self.debugContextDownload(
+                    "browser.ctxdl.data trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
                 )
+                savePanel.begin { result in
+                    guard result == .OK, let destURL = savePanel.url else {
+                        self.debugContextDownload(
+                            "browser.ctxdl.data trace=\(traceID) stage=savePrompt result=cancel"
+                        )
+                        return
+                    }
+                    do {
+                        try parsed.data.write(to: destURL, options: .atomic)
+                        self.debugContextDownload(
+                            "browser.ctxdl.data trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
+                        )
+                    } catch {
+                        self.debugContextDownload(
+                            "browser.ctxdl.data trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                        )
+                        self.runContextMenuFallback(
+                            action: fallbackAction,
+                            target: fallbackTarget,
+                            sender: sender,
+                            traceID: traceID,
+                            reason: "data_save_write_error"
+                        )
+                    }
+                }
             }
             return
         }
@@ -1735,21 +977,37 @@ final class CmuxWebView: WKWebView {
                 do {
                     let data = try Data(contentsOf: url)
                     self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=<redacted>"
+                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=\(url.path)"
                     )
                     let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
-                    self.finishSessionDownload(
-                        data: data,
-                        saveName: saveName,
-                        sourceURL: url,
-                        traceID: traceID,
-                        logCategory: "file",
-                        sender: sender,
-                        fallbackAction: fallbackAction,
-                        fallbackTarget: fallbackTarget,
-                        failureFallbackReason: nil
+                    let savePanel = NSSavePanel()
+                    savePanel.nameFieldStringValue = saveName
+                    savePanel.canCreateDirectories = true
+                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                    // Download is already complete; we're now waiting for user save choice.
+                    self.notifyContextMenuDownloadState(false)
+                    self.debugContextDownload(
+                        "browser.ctxdl.file trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
                     )
+                    savePanel.begin { result in
+                        guard result == .OK, let destURL = savePanel.url else {
+                            self.debugContextDownload(
+                                "browser.ctxdl.file trace=\(traceID) stage=savePrompt result=cancel"
+                            )
+                            return
+                        }
+                        do {
+                            try data.write(to: destURL, options: .atomic)
+                            self.debugContextDownload(
+                                "browser.ctxdl.file trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
+                            )
+                        } catch {
+                            self.debugContextDownload(
+                                "browser.ctxdl.file trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                            )
+                        }
+                    }
                 } catch {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
@@ -1769,18 +1027,12 @@ final class CmuxWebView: WKWebView {
 
         let cookieStore = configuration.websiteDataStore.httpCookieStore
         cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: Self.cookiesForDownloadRequest(cookies, url: url))
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
+            let request = BrowserDownloadRequestBuilder(
+                url: url,
+                cookies: Self.cookiesForDownloadRequest(cookies, url: url),
+                referer: self.url?.absoluteString,
+                userAgent: self.customUserAgent
+            ).urlRequest
             self.debugContextDownload(
                 "browser.ctxdl.request trace=\(traceID) stage=dispatch method=\(request.httpMethod ?? "GET") cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
             )
@@ -1816,17 +1068,39 @@ final class CmuxWebView: WKWebView {
                     }
                     let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
 
-                    self.finishSessionDownload(
-                        data: data,
-                        saveName: saveName,
-                        sourceURL: url,
-                        traceID: traceID,
-                        logCategory: "response",
-                        sender: sender,
-                        fallbackAction: fallbackAction,
-                        fallbackTarget: fallbackTarget,
-                        failureFallbackReason: "save_write_error"
+                    let savePanel = NSSavePanel()
+                    savePanel.nameFieldStringValue = saveName
+                    savePanel.canCreateDirectories = true
+                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                    self.notifyContextMenuDownloadState(false)
+                    self.debugContextDownload(
+                        "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
                     )
+                    savePanel.begin { result in
+                        guard result == .OK, let destURL = savePanel.url else {
+                            self.debugContextDownload(
+                                "browser.ctxdl.response trace=\(traceID) stage=savePrompt result=cancel"
+                            )
+                            return
+                        }
+                        do {
+                            try data.write(to: destURL, options: .atomic)
+                            self.debugContextDownload(
+                                "browser.ctxdl.response trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
+                            )
+                        } catch {
+                            self.debugContextDownload(
+                                "browser.ctxdl.response trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                            )
+                            self.runContextMenuFallback(
+                                action: fallbackAction,
+                                target: fallbackTarget,
+                                sender: sender,
+                                traceID: traceID,
+                                reason: "save_write_error"
+                            )
+                        }
+                    }
                 }
             }.resume()
         }
@@ -1850,15 +1124,6 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private func inferredImageMIMEType(from url: URL) -> String? {
-        guard !url.pathExtension.isEmpty,
-              let type = UTType(filenameExtension: url.pathExtension),
-              type.conforms(to: .image) else {
-            return nil
-        }
-        return type.preferredMIMEType
-    }
-
     private func resolveContextMenuCopyImageSourceURL(
         at point: NSPoint,
         completion: @escaping (URL?) -> Void
@@ -1867,8 +1132,8 @@ final class CmuxWebView: WKWebView {
             guard let self else { return completion(nil) }
 
             if let imageURL {
-                let normalized = self.normalizedLinkedDownloadURL(imageURL)
-                if self.isDownloadSupportedScheme(normalized) {
+                let normalized = BrowserDownloadURLClassifier(url: imageURL).normalizedLinkedDownloadURL
+                if BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme {
                     completion(normalized)
                     return
                 }
@@ -1880,9 +1145,9 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let normalized = self.normalizedLinkedDownloadURL(fallbackLinkURL)
-                guard self.isDownloadSupportedScheme(normalized),
-                      self.isLikelyImageURL(normalized) else {
+                let normalized = BrowserDownloadURLClassifier(url: fallbackLinkURL).normalizedLinkedDownloadURL
+                guard BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme,
+                      BrowserDownloadURLClassifier(url: normalized).isLikelyImageURL else {
                     completion(nil)
                     return
                 }
@@ -1895,116 +1160,19 @@ final class CmuxWebView: WKWebView {
     private func fetchContextMenuImageCopyPayload(
         from sourceURL: URL,
         traceID: String,
-        completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
+        completion: @escaping @MainActor @Sendable (BrowserImageCopyPasteboardPayload?) -> Void
     ) {
-        let scheme = sourceURL.scheme?.lowercased() ?? ""
-        debugContextDownload(
-            "browser.ctxcopy.fetch trace=\(traceID) stage=start scheme=\(scheme) url=\(sourceURL.absoluteString)"
+        // Logic lives in CmuxBrowser; bind the live webview state (cookie store,
+        // page URL, user agent) and the DEBUG logger here, where they originate.
+        BrowserImageCopyPasteboardPayload.fetchForContextMenuCopy(
+            from: sourceURL,
+            cookieStore: { self.configuration.websiteDataStore.httpCookieStore },
+            referer: { self.url?.absoluteString },
+            userAgent: { self.customUserAgent },
+            traceID: traceID,
+            log: { self.debugContextDownload($0) },
+            completion: completion
         )
-
-        if scheme == "data" {
-            guard let parsed = Self.parseDataURL(sourceURL), !parsed.data.isEmpty else {
-                debugContextDownload(
-                    "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
-                )
-                completion(nil)
-                return
-            }
-            debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
-            )
-            completion(
-                BrowserImageCopyPasteboardPayload(
-                    imageData: parsed.data,
-                    mimeType: parsed.mimeType,
-                    sourceURL: nil
-                )
-            )
-            return
-        }
-
-        if scheme == "file" {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let data = try? Data(contentsOf: sourceURL)
-                DispatchQueue.main.async {
-                    guard let data, !data.isEmpty else {
-                        self.debugContextDownload(
-                            "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadFailure path=\(sourceURL.path)"
-                        )
-                        completion(nil)
-                        return
-                    }
-
-                    self.debugContextDownload(
-                        "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadSuccess bytes=\(data.count) path=\(sourceURL.path)"
-                    )
-                    completion(
-                        BrowserImageCopyPasteboardPayload(
-                            imageData: data,
-                            mimeType: self.inferredImageMIMEType(from: sourceURL),
-                            sourceURL: nil
-                        )
-                    )
-                }
-            }
-            return
-        }
-
-        guard scheme == "http" || scheme == "https" else {
-            debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=unsupportedScheme url=\(sourceURL.absoluteString)"
-            )
-            completion(nil)
-            return
-        }
-
-        let cookieStore = configuration.websiteDataStore.httpCookieStore
-        cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: sourceURL)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
-
-            self.debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
-            )
-
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                DispatchQueue.main.async {
-                    guard let data, !data.isEmpty, error == nil else {
-                        self.debugContextDownload(
-                            "browser.ctxcopy.fetch trace=\(traceID) stage=networkFailure status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(response?.mimeType ?? "nil") error=\(error?.localizedDescription ?? "unknown")"
-                        )
-                        completion(nil)
-                        return
-                    }
-
-                    let resolvedURL = response?.url.flatMap {
-                        let scheme = $0.scheme?.lowercased() ?? ""
-                        return (scheme == "http" || scheme == "https") ? $0 : nil
-                    } ?? sourceURL
-                    let mimeType = response?.mimeType ?? self.inferredImageMIMEType(from: resolvedURL)
-                    self.debugContextDownload(
-                        "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
-                    )
-                    completion(
-                        BrowserImageCopyPasteboardPayload(
-                            imageData: data,
-                            mimeType: mimeType,
-                            sourceURL: resolvedURL
-                        )
-                    )
-                }
-            }.resume()
-        }
     }
 
     private func writeContextMenuImageCopyPayload(
@@ -2012,28 +1180,11 @@ final class CmuxWebView: WKWebView {
         expectedPasteboardChangeCount: Int,
         traceID: String
     ) -> (wrote: Bool, shouldFallback: Bool) {
-        let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != expectedPasteboardChangeCount {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
-            )
-            return (false, false)
-        }
-
-        let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
-        guard !items.isEmpty else {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"
-            )
-            return (false, true)
-        }
-
-        _ = pasteboard.clearContents()
-        let wrote = pasteboard.writeObjects(items)
-        debugContextDownload(
-            "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
+        payload.writeToContextMenuPasteboard(
+            expectedPasteboardChangeCount: expectedPasteboardChangeCount,
+            traceID: traceID,
+            log: { self.debugContextDownload($0) }
         )
-        return (wrote, !wrote)
     }
 
     // MARK: - Drag-and-drop passthrough
@@ -2045,22 +1196,15 @@ final class CmuxWebView: WKWebView {
     // AppKit only bubbles up through superviews, not siblings.
     //
     // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
-    // file URL types so Finder file drops and HTML drag-and-drop work.
-    private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
-        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
-        NSPasteboard.PasteboardType("public.text"),
-        NSPasteboard.PasteboardType("public.plain-text"),
-        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
-        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
-    ]
-
+    // file URL types so Finder file drops and HTML drag-and-drop work. The blocked-type
+    // set and filter live in CmuxBrowser's `InternalPaneDragTypeFilter`.
     static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
     }
 
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
-        let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
+        let filtered = InternalPaneDragTypeFilter.standard.allowedTypes(from: newTypes)
         if !filtered.isEmpty {
             super.registerForDraggedTypes(filtered)
         }
@@ -2127,7 +1271,7 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuOpenLinkInNewTab(_:))
             }
 
-            if isDownloadImageMenuItem(item) {
+            if Self.contextMenuItemClassifier(for: item).isDownloadImageMenuItem {
                 debugContextDownload(
                     "browser.ctxdl.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -2144,7 +1288,7 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuDownloadImage(_:))
             }
 
-            if isCopyImageMenuItem(item) {
+            if Self.contextMenuItemClassifier(for: item).isCopyImageMenuItem {
                 debugContextDownload(
                     "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -2160,7 +1304,7 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuCopyImage(_:))
             }
 
-            if isDownloadLinkedFileMenuItem(item) {
+            if Self.contextMenuItemClassifier(for: item).isDownloadLinkedFileMenuItem {
                 debugContextDownload(
                     "browser.ctxdl.menu hook kind=linked index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -2320,12 +1464,12 @@ final class CmuxWebView: WKWebView {
                         "browser.ctxdl.resolve trace=\(traceID) kind=image dataURLDetected length=\(url.absoluteString.count)"
                     )
                 } else if scheme == "http" || scheme == "https" || scheme == "file" {
-                    let normalized = self.normalizedLinkedDownloadURL(url)
+                    let normalized = BrowserDownloadURLClassifier(url: url).normalizedLinkedDownloadURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
                     )
-                    if self.isLikelyImageURL(normalized) {
-                        if !self.isLikelyFaviconURL(normalized) {
+                    if BrowserDownloadURLClassifier(url: normalized).isLikelyImageURL {
+                        if !BrowserDownloadURLClassifier(url: normalized).isLikelyFaviconURL {
                             self.startContextMenuDownload(
                                 normalized,
                                 sender: sender,
@@ -2339,7 +1483,7 @@ final class CmuxWebView: WKWebView {
                         self.debugContextDownload(
                             "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=favicon_or_low_confidence"
                         )
-                    } else if self.isDownloadableScheme(normalized), !self.isLikelyFaviconURL(normalized) {
+                    } else if BrowserDownloadURLClassifier(url: normalized).isDownloadableScheme, !BrowserDownloadURLClassifier(url: normalized).isLikelyFaviconURL {
                         // Some image CDNs use extensionless URLs; keep as last-resort candidate.
                         weakImageURL = normalized
                         self.debugContextDownload(
@@ -2359,13 +1503,13 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackLinkURL=\(linkURL?.absoluteString ?? "nil")"
                 )
                 if let linkURL {
-                    let normalizedLink = self.normalizedLinkedDownloadURL(linkURL)
+                    let normalizedLink = BrowserDownloadURLClassifier(url: linkURL).normalizedLinkedDownloadURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedFallbackLinkURL=\(normalizedLink.absoluteString)"
                     )
-                    if self.isDownloadableScheme(normalizedLink),
-                       self.isLikelyImageURL(normalizedLink),
-                       !self.isLikelyFaviconURL(normalizedLink) {
+                    if BrowserDownloadURLClassifier(url: normalizedLink).isDownloadableScheme,
+                       BrowserDownloadURLClassifier(url: normalizedLink).isLikelyImageURL,
+                       !BrowserDownloadURLClassifier(url: normalizedLink).isLikelyFaviconURL {
                         self.startContextMenuDownload(
                             normalizedLink,
                             sender: sender,
@@ -2452,11 +1596,11 @@ final class CmuxWebView: WKWebView {
                 "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"
             )
             if let url {
-                let normalized = self.normalizedLinkedDownloadURL(url)
+                let normalized = BrowserDownloadURLClassifier(url: url).normalizedLinkedDownloadURL
                 self.debugContextDownload(
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(normalized.absoluteString)"
                 )
-                if self.isDownloadSupportedScheme(normalized) {
+                if BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme {
                     self.startContextMenuDownload(
                         normalized,
                         sender: sender,
@@ -2474,7 +1618,7 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
+                if let imageURL, BrowserDownloadURLClassifier(url: imageURL).isDownloadableScheme {
                     self.startContextMenuDownload(
                         imageURL,
                         sender: sender,
@@ -2484,7 +1628,7 @@ final class CmuxWebView: WKWebView {
                     )
                     return
                 }
-                if let imageURL, self.isDataURLScheme(imageURL) {
+                if let imageURL, BrowserDownloadURLClassifier(url: imageURL).isDataURLScheme {
                     dataImageURL = imageURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackDataURLDetected length=\(imageURL.absoluteString.count)"
@@ -2520,11 +1664,11 @@ final class CmuxWebView: WKWebView {
                         )
                         return
                     }
-                    let normalized = self.normalizedLinkedDownloadURL(fallbackURL)
+                    let normalized = BrowserDownloadURLClassifier(url: fallbackURL).normalizedLinkedDownloadURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedNearestAnchorURL=\(normalized.absoluteString)"
                     )
-                    guard self.isDownloadSupportedScheme(normalized) else {
+                    guard BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme else {
                         if let dataImageURL {
                             self.debugContextDownload(
                                 "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"

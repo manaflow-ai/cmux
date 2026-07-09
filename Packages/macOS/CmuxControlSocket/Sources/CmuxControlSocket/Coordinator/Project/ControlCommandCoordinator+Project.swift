@@ -10,7 +10,7 @@ extension ControlCommandCoordinator {
     /// ``ControlCommandContext``; the conformer is the same object either
     /// way).
     var projectContext: (any ControlProjectContext)? {
-        context as? any ControlProjectContext
+        context
     }
 
     /// Dispatches the project-domain methods this coordinator owns; returns

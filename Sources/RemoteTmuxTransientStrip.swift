@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxRemoteWorkspace
 import SwiftUI
 
 /// A transient divider strip matching ``RemoteTmuxDividerStrip`` while panes

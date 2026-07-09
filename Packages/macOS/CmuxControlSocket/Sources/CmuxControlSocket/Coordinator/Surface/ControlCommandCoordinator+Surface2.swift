@@ -7,14 +7,8 @@ internal import Foundation
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
 
-    // MARK: - move
-
-    /// `surface.move` — move a surface (delegates to the still-app-side
-    /// surface-move logic; the app bridges the result byte-faithfully).
-    func surfaceMove(_ params: [String: JSONValue]) -> ControlCallResult {
-        context?.controlSurfaceMove(params: params)
-            ?? .err(code: "internal_error", message: "Failed to move surface", data: nil)
-    }
+    // `surface.move` lives in `ControlCommandCoordinator+SurfaceMove.swift`
+    // (its own file, given the routing/branch orchestration it owns).
 
     // MARK: - reorder
 

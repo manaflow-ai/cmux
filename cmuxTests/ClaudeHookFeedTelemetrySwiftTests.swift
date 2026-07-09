@@ -266,7 +266,7 @@ private func bindUnixSocket(at path: String) throws -> Int32 {
         Darwin.close(fd)
         throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
     }
-    _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+    withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
         pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { pathBuffer in
             for index in 0..<utf8.count {
                 pathBuffer[index] = CChar(bitPattern: utf8[index])

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxSidebar
 import CmuxSettings
 import SwiftUI
 import Testing
@@ -15,7 +16,7 @@ import Testing
 struct HiddenRightSidebarContentMountingTests {
     @Test func coldHiddenRightSidebarDoesNotMountContent() {
         #expect(
-            !RightSidebarContentMountPolicy.shouldMountContent(
+            !RightSidebarMode.shouldMountContent(
                 isRightSidebarVisible: false,
                 hasMountedContent: false
             )
@@ -24,7 +25,7 @@ struct HiddenRightSidebarContentMountingTests {
 
     @Test func hiddenRightSidebarKeepsContentMountedAfterInitialMount() {
         #expect(
-            RightSidebarContentMountPolicy.shouldMountContent(
+            RightSidebarMode.shouldMountContent(
                 isRightSidebarVisible: false,
                 hasMountedContent: true
             )
@@ -68,7 +69,6 @@ struct HiddenRightSidebarContentMountingTests {
             fileExplorerState: fileExplorerState,
             sessionIndexStore: SessionIndexStore(),
             titlebarHeight: 36,
-            windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },

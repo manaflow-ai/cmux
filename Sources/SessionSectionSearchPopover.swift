@@ -1,0 +1,464 @@
+// SessionSectionSearchPopover.swift
+//
+// The Sessions sidebar "Show more" search popover subsystem, split out of
+// SessionIndexView.swift. SectionPopoverView drives the paged/snapshot search
+// state machine; PopoverRow renders one result row, driving its relative-time
+// label off CmuxAppKitSupportUI's RelativeTimestampSchedule; SectionPopoverHost
+// hosts the SwiftUI body inside a real NSPopover so the search field can take
+// first responder in cmux's focus-managed environment.
+//
+// These types stay in the app target alongside their app-side seam values
+// (SessionIndexStore.SearchScope/SearchOutcome, IndexSection, SectionKey,
+// SessionAgent, SessionEntry, DirectorySnapshot); this is a file split, not a
+// package move.
+
+import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
+import SwiftUI
+
+// MARK: - "Show more" popover with search
+
+private struct SectionPopoverView: View {
+    let section: IndexSection
+    /// Closure-typed search handle. The popover never holds a reference to
+    /// `SessionIndexStore`; the parent view is the only owner.
+    let search: SessionSearchFn
+    /// Closure that returns the full merged snapshot for a directory.
+    /// Used on the empty-query directory-scope scroll path so pagination
+    /// is an in-memory array slice, not repeated store round-trips.
+    let loadSnapshot: DirectorySnapshotFn
+    let onResume: ((SessionEntry) -> Void)?
+    let onDismiss: () -> Void
+
+    @State private var query: String = ""
+    @FocusState private var searchFieldFocused: Bool
+
+    /// Paged/snapshot search state machine for this popover. Recreated (reset
+    /// to its initial state) whenever the popover's SwiftUI identity changes,
+    /// matching the prior view-local `@State` reset.
+    @State private var model = SectionPopoverSearchModel()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                sectionIconView
+                Text(section.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                TextField(
+                    String(localized: "sessionIndex.popover.searchPlaceholder",
+                           defaultValue: "Search Vault"),
+                    text: $query
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($searchFieldFocused)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            if !model.errorMessages.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.errorMessages, id: \.self) { msg in
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.orange)
+                            Text(msg)
+                                .font(.system(size: 11))
+                                .foregroundColor(.primary.opacity(0.85))
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.10))
+            }
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if model.isLoading && model.loaded.isEmpty {
+                        loadingRow
+                    } else if model.loaded.isEmpty {
+                        Text(String(localized: "sessionIndex.popover.noMatches",
+                                    defaultValue: "No matches"))
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(model.loaded) { entry in
+                            PopoverRow(entry: entry) {
+                                onResume?(entry)
+                                onDismiss()
+                            }
+                            .equatable()
+                        }
+                        if model.hasMore {
+                            // Always visible while more pages exist. Serves
+                            // as both the "Loading..." indicator and the
+                            // pagination sentinel; its .onAppear fires
+                            // loadMore() when it scrolls into view.
+                            loadingRow
+                                .onAppear { model.loadMore(section: section, search: search) }
+                        } else {
+                            Text(String(localized: "sessionIndex.popover.endOfList",
+                                        defaultValue: "You've reached the end"))
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 8)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.bottom, 10)
+            }
+            .frame(height: 420)
+        }
+        // ScrollView is pinned at fixed 420; the outer VStack's natural
+        // height (chrome + 420) then drives NSHostingController's
+        // preferred content size via sizingOptions. Do NOT pin an outer
+        // fixed height; it made SwiftUI center-distribute slack space
+        // and squashed the top header padding.
+        .frame(width: 360)
+        .background(
+            EscapeKeyCatcher { onDismiss() }
+        )
+        // Single SwiftUI-owned lifecycle for the initial load and every
+        // query change. `.task(id: query)` auto-cancels on view disappear
+        // AND on any `query` change, so we don't need onAppear +
+        // onChange + onDisappear + a manual generation counter to
+        // discard superseded fetches. The 200ms pause doubles as a
+        // debounce: rapid keystrokes bump `id:` which cancels this task
+        // before the sleep completes, preventing an unnecessary search.
+        .task(id: query) {
+            // Any pagination task from the previous query lifecycle is now
+            // superseded. Cancel explicitly; reassigning `loadTask =
+            // Task { ... }` later doesn't cancel the previous handle on its
+            // own, so without this a stale page could still land and
+            // append rows that don't match the new query.
+            model.cancelPagination()
+
+            if !searchFieldFocused {
+                searchFieldFocused = true
+            }
+
+            // The load body runs inside this SwiftUI-owned task, so its
+            // cancellation (on view disappear or any `query` change)
+            // propagates into the awaited model call exactly as before.
+            await model.load(
+                query: query,
+                section: section,
+                search: search,
+                loadSnapshot: loadSnapshot
+            )
+        }
+        .onDisappear {
+            // .task(id: query) auto-cancels on disappear, but the
+            // separate loadTask slot (used by loadMore) is ours to
+            // manage. Cancel it so a fetch in flight when the popover
+            // closes doesn't keep running to completion.
+            model.handleDisappear()
+        }
+    }
+
+    private var loadingRow: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var sectionIconView: some View {
+        switch section.icon {
+        case .agent(let agent):
+            AgentIconImage(agent: agent, size: 14)
+        case .folder:
+            Image(systemName: "folder")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        }
+    }
+}
+
+private struct PopoverRow: View, Equatable {
+    let entry: SessionEntry
+    let onActivate: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
+        lhs.entry == rhs.entry
+    }
+
+    @ViewBuilder
+    private var modifiedText: some View {
+        TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
+            Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
+        }
+        .font(.system(size: 11).monospacedDigit())
+        .foregroundColor(.secondary.opacity(0.7))
+        .fixedSize()
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            AgentIconImage(agent: entry.agent, size: 12)
+            // Flatten newlines so titles containing `<command-message>…\n…`
+            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
+            // always constrain a Text that has hard line breaks in the
+            // source string.
+            Text(entry.displayTitle.singleLineFlattened)
+                .font(.system(size: 12))
+                .foregroundColor(.primary.opacity(0.92))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            modifiedText
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+        .onHover { isHovered = $0 }
+        .onTapGesture(count: 2) { onActivate() }
+        .onDrag {
+            entry.dragItemProvider()
+        }
+        .help(entry.cwdLabel ?? entry.displayTitle)
+        .contextMenu {
+            SessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+        }
+    }
+}
+
+// MARK: - NSPopover host
+
+/// Hosts SectionPopoverView in a real NSPopover. SwiftUI's native `.popover()`
+/// doesn't reliably let the embedded TextField become first responder in cmux's
+/// focus-managed environment because the terminal keeps grabbing focus back.
+struct SectionPopoverHost: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let section: IndexSection
+    /// Closure-typed search handle passed through to the SwiftUI popover
+    /// body. The host no longer holds a `SessionIndexStore` reference.
+    let search: SessionSearchFn
+    let loadSnapshot: DirectorySnapshotFn
+    let onResume: ((SessionEntry) -> Void)?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        context.coordinator.anchorView = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.anchorView = nsView
+        coordinator.update(
+            section: section,
+            search: search,
+            loadSnapshot: loadSnapshot,
+            onResume: onResume
+        )
+        if isPresented {
+            coordinator.present()
+        } else {
+            coordinator.dismiss()
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.dismiss()
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        @Binding var isPresented: Bool
+        weak var anchorView: NSView?
+        private(set) var debugRefreshContentCallCount = 0
+        var debugIsPopoverShown: Bool { popover?.isShown == true }
+
+        private let hostingController: NSHostingController<AnyView> = {
+            NSHostingController(rootView: AnyView(EmptyView()))
+            // DO NOT set sizingOptions here. sizingOptions =
+            // [.preferredContentSize] makes NSHostingController
+            // continuously rewrite its preferredContentSize from SwiftUI
+            // layout; NSPopover observes preferredContentSize and will
+            // override any manual popover.contentSize we set. On first
+            // open SwiftUI layout settles over multiple passes and
+            // preferredContentSize briefly reports a partial height —
+            // NSPopover latches onto that and renders squished (evidence:
+            // /tmp/cmux-debug-spin-fix.log, refreshContent logged
+            // fitting=360x486 at present, but visible popover was ~280).
+            // Instead we drive popover.contentSize manually from
+            // fittingSize on every updateNSView / present call.
+        }()
+        private var popover: NSPopover?
+        private var currentSection: IndexSection?
+        private var currentSearch: SessionSearchFn?
+        private var currentLoadSnapshot: DirectorySnapshotFn?
+        private var currentOnResume: ((SessionEntry) -> Void)?
+        private var lastRenderedSection: IndexSection?
+        private var lastRenderedPresentationCount: Int?
+        /// Bumped on every present(). Used as the SwiftUI view identity so each
+        /// open gets fresh view-local state.
+        private var presentationCount = 0
+
+        init(isPresented: Binding<Bool>) {
+            _isPresented = isPresented
+        }
+
+        func update(
+            section: IndexSection,
+            search: @escaping SessionSearchFn,
+            loadSnapshot: @escaping DirectorySnapshotFn,
+            onResume: ((SessionEntry) -> Void)?
+        ) {
+            currentSection = section
+            currentSearch = search
+            currentLoadSnapshot = loadSnapshot
+            currentOnResume = onResume
+            // When hidden, defer rebuilding the hosting view until `present()`.
+            // Rewriting rootView + forcing layout on every parent re-render was
+            // the 100% CPU loop behind #3010.
+            guard popover?.isShown == true else { return }
+            // Rows capture stable closure bundles above the list boundary, so
+            // the section snapshot is the meaningful input here. Skipping
+            // identical visible-section updates avoids re-laying out the popover
+            // during unrelated parent re-renders while still refreshing when the
+            // visible content actually changes.
+            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
+            refreshContent()
+        }
+
+        private func refreshContent() {
+            guard let section = currentSection,
+                  let search = currentSearch,
+                  let loadSnapshot = currentLoadSnapshot else { return }
+            debugRefreshContentCallCount += 1
+            let onResume = currentOnResume
+            let identity = presentationCount
+            hostingController.rootView = AnyView(
+                SectionPopoverView(
+                    section: section,
+                    search: search,
+                    loadSnapshot: loadSnapshot,
+                    onResume: onResume
+                ) { [weak self] in
+                    self?.closeFromContent()
+                }
+                // Tied to presentationCount so reopening the popover discards
+                // the prior open's view-local search and scroll state.
+                .id(identity)
+            )
+            lastRenderedSection = section
+            lastRenderedPresentationCount = presentationCount
+            hostingController.view.invalidateIntrinsicContentSize()
+            hostingController.view.layoutSubtreeIfNeeded()
+            updateContentSize()
+        }
+
+        func present() {
+            guard let anchorView, anchorView.window != nil else {
+                isPresented = false
+                return
+            }
+            anchorView.superview?.layoutSubtreeIfNeeded()
+            let popover = popover ?? makePopover()
+            // Only bump identity on a hidden-to-shown transition. Bumping on every
+            // updateNSView (which fires on parent re-renders, e.g. ObservedObject
+            // store changes) would reset SectionPopoverView's view-local state
+            // on every tick.
+            if !popover.isShown {
+                presentationCount += 1
+                refreshContent()
+            }
+            updateContentSize()
+            guard !popover.isShown else { return }
+            popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
+        }
+
+        func dismiss() {
+            popover?.performClose(nil)
+        }
+
+        func closeFromContent() {
+            isPresented = false
+            dismiss()
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            if isPresented {
+                isPresented = false
+            }
+        }
+
+        private func makePopover() -> NSPopover {
+            let p = NSPopover()
+            p.behavior = .transient
+            p.animates = true
+            p.contentViewController = hostingController
+            p.delegate = self
+            self.popover = p
+            return p
+        }
+
+        private func updateContentSize() {
+            let fitting = hostingController.view.fittingSize
+            guard fitting.width > 0, fitting.height > 0 else { return }
+            popover?.contentSize = NSSize(
+                width: ceil(max(fitting.width, 360)),
+                height: ceil(min(fitting.height, 480))
+            )
+        }
+    }
+}
+

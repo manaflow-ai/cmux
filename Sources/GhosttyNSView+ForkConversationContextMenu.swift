@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 
 extension GhosttyNSView {
     func appendCurrentSurfaceContextMenuItems(to menu: NSMenu) {
@@ -25,7 +26,7 @@ extension GhosttyNSView {
             return true
         }
 
-        let defaultDestination = AgentConversationForkDefaultSettings.current()
+        let defaultDestination = AgentConversationForkDestination.configuredDefault()
         let primaryItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
             action: #selector(forkCurrentAgentConversation(_:)),
@@ -107,7 +108,7 @@ extension GhosttyNSView {
            let representedDestination = AgentConversationForkDestination(rawValue: rawDestination) {
             destination = representedDestination
         } else {
-            destination = AgentConversationForkDefaultSettings.current()
+            destination = AgentConversationForkDestination.configuredDefault()
         }
 
         guard workspace.forkAgentConversationFromContextMenu(

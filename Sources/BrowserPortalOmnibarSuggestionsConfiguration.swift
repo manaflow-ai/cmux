@@ -1,3 +1,4 @@
+import CmuxBrowser
 import SwiftUI
 
 struct BrowserPortalOmnibarSuggestionsConfiguration {

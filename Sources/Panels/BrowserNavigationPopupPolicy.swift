@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import WebKit
+import CmuxBrowser
 
 func browserNavigationShouldOpenInNewTab(
     navigationType: WKNavigationType,

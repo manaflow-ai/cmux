@@ -241,7 +241,7 @@ import Testing
             trackedPathEventGeneration: generation
         )
         var changedIndexStatus = try #require(reader.statusWithoutRecording(atPath: indexPath))
-        changedIndexStatus = GitFileStatus(
+        changedIndexStatus = GitIndexFileStatus(
             mode: changedIndexStatus.mode,
             size: changedIndexStatus.size,
             mtimeSeconds: changedIndexStatus.mtimeSeconds + 1,

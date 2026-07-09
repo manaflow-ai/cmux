@@ -1,5 +1,3 @@
-public import Foundation
-
 /// The system-notification surface for cross-device dismiss-sync: clearing
 /// already-delivered banners, enumerating them for the reconcile sweep, and
 /// setting the app-icon badge.

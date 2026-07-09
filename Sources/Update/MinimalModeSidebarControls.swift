@@ -1,13 +1,16 @@
 import AppKit
 import Combine
+import CmuxNotifications
+import CmuxSidebar
 import CmuxTestSupport
+import CmuxWindowing
 import SwiftUI
 
 struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
     var isEnabled = true
     var requiresRevealedState = false
-    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void
+    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint, NSEvent?) -> Void
 
     func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
         let view = MinimalModeSidebarControlActionView()
@@ -105,7 +108,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         didSet { syncButtons() }
     }
     var telemetryPrefix = "minimalSidebarClickProxy"
-    var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
+    var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint, NSEvent?) -> Void)?
     private var cancellables: Set<AnyCancellable> = []
     private let buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton]
 
@@ -196,7 +199,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastHitTestSlot"] = slot.debugName
-                payload["\(telemetryPrefix)LastHitTestPoint"] = windowDragHandleFormatPoint(point)
+                payload["\(telemetryPrefix)LastHitTestPoint"] = point.titlebarDragPointDescription
                 payload["\(telemetryPrefix)LastHitTestWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
                 payload["\(telemetryPrefix)LastHitTestRevealed"] = String(isRevealed)
             }
@@ -215,7 +218,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             super.mouseDown(with: event)
             return
         }
-        performAction(slot: slot, anchorView: self, locationInWindow: event.locationInWindow)
+        performAction(slot: slot, anchorView: self, locationInWindow: event.locationInWindow, event: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -227,7 +230,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         }
         switch slot {
         case .toggleSidebar:
-            CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
+            CmuxExtensionSidebarSelection().showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
         case .cloudVM:
@@ -268,13 +271,19 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     fileprivate func performButtonAction(_ sender: MinimalModeSidebarControlButton) {
         let localPoint = sender.frame.center
-        performAction(slot: sender.slot, anchorView: sender, locationInWindow: convert(localPoint, to: nil))
+        performAction(
+            slot: sender.slot,
+            anchorView: sender,
+            locationInWindow: convert(localPoint, to: nil),
+            event: NSApp.currentEvent
+        )
     }
 
     private func performAction(
         slot: MinimalModeSidebarControlActionSlot,
         anchorView: NSView,
-        locationInWindow: NSPoint
+        locationInWindow: NSPoint,
+        event: NSEvent?
     ) {
         guard isEnabled else { return }
 
@@ -282,7 +291,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastAction"] = slot.debugName
-                payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(convert(locationInWindow, from: nil))
+                payload["\(telemetryPrefix)LastPoint"] = convert(locationInWindow, from: nil).titlebarDragPointDescription
                 payload["\(telemetryPrefix)WindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
                 payload["\(telemetryPrefix)LastActionRevealed"] = String(isRevealed)
             }
@@ -292,7 +301,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if let window {
             MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
         }
-        onAction?(slot, anchorView, locationInWindow)
+        onAction?(slot, anchorView, locationInWindow, event)
     }
 
     private func observeRevealState() {

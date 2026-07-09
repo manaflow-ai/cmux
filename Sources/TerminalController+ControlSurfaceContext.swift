@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxWorkspaces
 import Foundation
 import GhosttyKit
 
@@ -61,7 +62,7 @@ extension TerminalController: ControlSurfaceContext {
         from binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceResumeBinding? {
         guard let binding else { return nil }
-        let effective = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        let effective = SurfaceResumeApprovalStore().applyingStoredApproval(to: binding)
         return ControlSurfaceResumeBinding(
             name: effective.name,
             kind: effective.kind,
@@ -291,7 +292,7 @@ extension TerminalController: ControlSurfaceContext {
             return .workspaceNotFound
         }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         if tabManager.selectedTabId != ws.id {

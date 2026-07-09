@@ -1,12 +1,16 @@
+import CMUXAgentLaunch
+import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
         var lines: [String] = [
             "{",
-            "  \"$schema\": \"\(schemaURLString)\",",
-            "  \"schemaVersion\": \(currentSchemaVersion),",
+            "  \"$schema\": \"\(CmuxSettingsFileSchema.current.schemaURLString)\",",
+            "  \"schemaVersion\": \(CmuxSettingsFileSchema.current.version),",
             "",
             "  // This file uses JSON with comments (JSONC).",
             "  // Uncomment and edit any setting to make it file-managed.",
@@ -59,11 +63,11 @@ extension CmuxSettingsFileStore {
                 "app": [
                     "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
-                    "appIcon": AppIconSettings.defaultMode.rawValue,
+                    "appIcon": AppCatalogSection().appIcon.defaultValue.rawValue,
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": SettingCatalog().app.newWorkspacePlacement.defaultValue.rawValue,
-                    "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
+                    "forkConversationDefaultDestination": AgentConversationForkDestination.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
@@ -113,13 +117,13 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "notifications": [
-                    "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
+                    "dockBadge": NotificationDefaultsToggle.dockBadge.defaultValue,
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
-                    "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
-                    "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "unreadPaneRing": NotificationDefaultsToggle.paneRing.defaultValue,
+                    "paneFlash": NotificationDefaultsToggle.paneFlash.defaultValue,
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
-                    "command": NotificationSoundSettings.defaultCustomCommand,
+                    "command": NotificationCustomCommandRunner.defaultCommand,
                     "hooksMode": "append",
                     "hooks": [],
                 ],
@@ -153,7 +157,7 @@ extension CmuxSettingsFileStore {
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
-                        uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                        uniqueKeysWithValues: WorkspaceTabColorSettings().defaultPalette.map { ($0.name, $0.hex) }
                     ),
                 ],
             ],

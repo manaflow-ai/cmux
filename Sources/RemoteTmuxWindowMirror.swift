@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxRemoteWorkspace
 import CmuxTerminal
 import Foundation
 import Observation
@@ -496,3 +497,9 @@ final class RemoteTmuxWindowMirror {
         activePaneId = nil
     }
 }
+
+/// The pane-close command surface ``RemoteTmuxMirrorCoordinator`` drives. The
+/// requirements (`requestKillPane`, `paneForegroundState`, `queryPaneActivity`)
+/// are already implemented above; this conformance lets the coordinator close a
+/// pane without importing the UI-coupled window-mirror type.
+extension RemoteTmuxWindowMirror: RemoteTmuxMirrorPaneCloseControlling {}

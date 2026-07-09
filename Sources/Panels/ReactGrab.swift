@@ -397,14 +397,17 @@ extension BrowserPanel {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
-        webView.evaluateJavaScript(combined) { [weak self] _, error in
+        do {
+            _ = try await webView.evaluateJavaScript(combined)
             #if DEBUG
-            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=none")
             #endif
-            if let error {
-                NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
-                Task { @MainActor in self?.isReactGrabActive = false }
-            }
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error.localizedDescription)")
+            #endif
+            NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
+            isReactGrabActive = false
         }
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.end")

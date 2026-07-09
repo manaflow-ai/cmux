@@ -12,6 +12,25 @@ public enum PortScanKickReason: String, Sendable {
     /// A passive refresh (prompt return, idle poll): a single immediate scan.
     case refresh
 
+    /// Parses a reported port-scan kick reason (the control socket's `reason`
+    /// argument) into a burst policy.
+    ///
+    /// The token is trimmed and lowercased, then matched against the accepted
+    /// aliases (`command`/`running`/`foreground`/`start` → ``command``;
+    /// `refresh`/`prompt`/`idle` → ``refresh``). An unrecognized token yields
+    /// `nil` so the control path can reject it as `invalid_params`. Alias set
+    /// is frozen wire behavior.
+    public static func parseReported(_ rawReason: String) -> PortScanKickReason? {
+        switch rawReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "command", "running", "foreground", "start":
+            return .command
+        case "refresh", "prompt", "idle":
+            return .refresh
+        default:
+            return nil
+        }
+    }
+
     /// Seconds from the burst start at which each scan pass fires.
     var burstOffsets: [Double] {
         switch self {

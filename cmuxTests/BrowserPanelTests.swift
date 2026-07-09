@@ -9,6 +9,7 @@ import UserNotifications
 import Darwin
 import Testing
 import CmuxBrowser
+import CmuxBrowserUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -361,7 +362,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let baseColor = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
         let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
 
-        guard let actual = resolvedBrowserChromeBackgroundColor(
+        guard let actual = BrowserChromeStyle.resolvedBrowserChromeBackgroundColor(
             for: .dark,
             themeBackgroundColor: themeBackground,
             drawsBackground: false
@@ -384,7 +385,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
 
         XCTAssertEqual(
-            resolvedBrowserChromeColorScheme(
+            BrowserChromeStyle.resolvedBrowserChromeColorScheme(
                 for: .dark,
                 themeBackgroundColor: darkTranslucentBackground,
                 windowBackgroundColor: .white
@@ -455,7 +456,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
 
         guard
-            let actual = resolvedBrowserChromeBackgroundColor(
+            let actual = BrowserChromeStyle.resolvedBrowserChromeBackgroundColor(
                 for: colorScheme,
                 themeBackgroundColor: themeBackground,
                 drawsBackground: true
@@ -857,7 +858,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
         let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
 
-        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+        guard let actual = BrowserChromeStyle.resolvedBrowserOmnibarPillBackgroundColor(
             for: .light,
             themeBackgroundColor: themeBackground
         ).usingColorSpace(.sRGB) else {
@@ -878,7 +879,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
 
         guard
-            let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            let actual = BrowserChromeStyle.resolvedBrowserOmnibarPillBackgroundColor(
                 for: colorScheme,
                 themeBackgroundColor: themeBackground
             ).usingColorSpace(.sRGB),
@@ -1463,19 +1464,19 @@ final class WindowBrowserHostViewTests: XCTestCase {
         host.addSubview(inspectorSplit)
 
         XCTAssertTrue(
-            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
-                appSplit,
+            BrowserPortalSplitResizeDecision(
+                splitView: appSplit,
                 window: window,
                 hostView: host
-            ),
+            ).treatsSplitResizeAsExternalGeometry,
             "App layout splits should still trigger browser portal geometry sync"
         )
         XCTAssertFalse(
-            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
-                inspectorSplit,
+            BrowserPortalSplitResizeDecision(
+                splitView: inspectorSplit,
                 window: window,
                 hostView: host
-            ),
+            ).treatsSplitResizeAsExternalGeometry,
             "Hosted DevTools/internal splits should not trigger browser portal geometry sync"
         )
     }
@@ -4275,9 +4276,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
 
         var state = OmnibarState()
-        let effects = omnibarReduce(
-            state: &state,
-            event: .focusGained(currentURLString: field.stringValue)
+        let effects = state.reduce(.focusGained(currentURLString: field.stringValue)
         )
         let coordinator = makeCoordinator()
         coordinator.parentField = field
@@ -4313,13 +4312,9 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
 
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: field.stringValue))
-        let effects = omnibarReduce(
-            state: &state,
-            event: .focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    selectionIntent: .preserveFieldEditorSelection
-                )
+        _ = state.reduce(.focusGained(currentURLString: field.stringValue))
+        let effects = state.reduce(.focusReasserted(
+                shouldSelectAll: BrowserAddressBarFocusSelectionIntent.preserveFieldEditorSelection.shouldSelectAll
             )
         )
 

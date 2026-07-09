@@ -10,4 +10,25 @@ public enum PanelShellActivityState: String, Sendable, Equatable {
     case promptIdle
     /// A foreground command is currently running.
     case commandRunning
+
+    /// Parses a reported shell-activity token (the control socket's
+    /// `state`/`shell_state`/`activity` argument) into a classification.
+    ///
+    /// The token is trimmed and lowercased, then matched against the accepted
+    /// aliases (`prompt`/`idle` → ``promptIdle``; `running`/`busy`/`command` →
+    /// ``commandRunning``; `unknown`/`clear` → ``unknown``). An unrecognized
+    /// token yields `nil` so the control path can reject it as
+    /// `invalid_params`. Alias set is frozen wire behavior.
+    public static func parseReported(_ rawState: String) -> PanelShellActivityState? {
+        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "prompt", "idle":
+            return .promptIdle
+        case "running", "busy", "command":
+            return .commandRunning
+        case "unknown", "clear":
+            return .unknown
+        default:
+            return nil
+        }
+    }
 }

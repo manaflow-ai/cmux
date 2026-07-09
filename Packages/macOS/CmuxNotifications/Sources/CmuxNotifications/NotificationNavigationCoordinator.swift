@@ -30,6 +30,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     private let openRouting: any NotificationOpenRouting
     private let clickRouting: any NotificationClickRouting
     private let focusedResolving: any FocusedNotificationResolving
+    private let popoverPresenting: any NotificationPopoverPresenting
     private let explicitFocusedJump: ((UUID?, UUID?) -> UUID?)?
     /// The focused-mark state machine. Lazy so its default jump closure can
     /// capture `self` (allowed only after all stored properties are initialized);
@@ -68,6 +69,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         openRouting: any NotificationOpenRouting,
         clickRouting: any NotificationClickRouting,
         focusedResolving: any FocusedNotificationResolving,
+        popoverPresenting: any NotificationPopoverPresenting,
         focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
     ) {
         self.store = store
@@ -76,7 +78,20 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         self.openRouting = openRouting
         self.clickRouting = clickRouting
         self.focusedResolving = focusedResolving
+        self.popoverPresenting = popoverPresenting
         self.explicitFocusedJump = focusedJump
+    }
+
+    // MARK: Popover
+
+    /// Shows the notifications popover from the menu bar: surfaces (or creates)
+    /// and brings to front the target main window, then presents the popover.
+    /// Mirrors `AppDelegate.showNotificationsPopoverFromMenuBar()`; the window
+    /// resolve-or-create, `bringToFront`, and the delayed `NSPopover` present
+    /// stay app-side behind ``NotificationPopoverPresenting``.
+    public func showNotificationsPopoverFromMenuBar() {
+        popoverPresenting.surfaceWindowForMenuBarNotificationsPopover()
+        popoverPresenting.presentMenuBarNotificationsPopover()
     }
 
     // MARK: Focused-mark

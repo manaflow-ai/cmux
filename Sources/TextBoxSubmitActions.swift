@@ -1,6 +1,7 @@
 import AppKit
 import CmuxWorkspaces
 import SwiftUI
+import CMUXAgentLaunch
 
 extension TextBoxInputContainer {
     static let pendingProviderLaunchTimeoutSeconds: TimeInterval = 12
@@ -509,7 +510,7 @@ extension TextBoxInputContainer {
             )
         }
 
-        guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
+        guard let command = action.command(forPrompt: parts.textBoxFormattedSubmissionText) else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: terminalAgentContext,

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteWorkspace
 import Testing
 
 #if canImport(cmux_DEV)

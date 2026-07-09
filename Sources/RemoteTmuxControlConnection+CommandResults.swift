@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteWorkspace
 
 extension RemoteTmuxControlConnection {
 
@@ -13,7 +14,7 @@ extension RemoteTmuxControlConnection {
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
-               let completion = activityQueryCompletions.removeValue(forKey: token) {
+               let completion = activityQueries.removeCompletion(for: token) {
                 completion(nil)
             }
             // A rejected per-window size normally means the server predates
@@ -154,8 +155,8 @@ extension RemoteTmuxControlConnection {
                 case .applyClientSize:
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
-                    if let size = lastClientSize {
-                        send("refresh-client -C \(size.columns)x\(size.rows)")
+                    if let size = clientSize.lastClientSize {
+                        send(commandBuilder.clientResizeCommand(columns: size.columns, rows: size.rows))
                     }
                 case nil:
                     break
@@ -177,8 +178,7 @@ extension RemoteTmuxControlConnection {
             // tmux's real prompt cursor — otherwise echoed input lands a line below
             // the prompt. The `.paneState` seed then repositions the cursor within
             // the visible screen.
-            let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
-            if let data = painted.data(using: .utf8) {
+            if let data = mirrorSeed.capturePaint(rows: lines) {
                 observers.emitPaneOutput(paneId, data)
             }
         case let .paneState(paneId):
@@ -198,10 +198,10 @@ extension RemoteTmuxControlConnection {
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
         case let .activityQuery(token):
-            guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
+            guard let completion = activityQueries.removeCompletion(for: token) else { break }
             var states: [Int: PaneForegroundState] = [:]
             for line in lines {
-                guard let parsed = Self.parseActivityQueryLine(line) else { continue }
+                guard let parsed = commandBuilder.parseActivityQueryLine(line) else { continue }
                 states[parsed.paneId] = parsed.state
             }
             // The fresh answer flows back into the cache, so the synchronous
@@ -216,9 +216,9 @@ extension RemoteTmuxControlConnection {
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
+                observers.emitPaneOutput(paneId, mirrorSeed.altScreenEnter)
             } else {
-                observers.emitPaneOutput(paneId, Self.altScreenExitSequence)
+                observers.emitPaneOutput(paneId, mirrorSeed.altScreenExit)
             }
         case .perWindowSize:
             // A successful per-window size push replies with an empty block;

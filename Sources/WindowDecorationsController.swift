@@ -1,5 +1,8 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxTestSupport
+import CmuxWindowing
 
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
@@ -7,7 +10,7 @@ final class WindowDecorationsController {
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
     private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
-    private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+    private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
     private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
         keyOptions: .weakMemory,
         valueOptions: .strongMemory
@@ -25,7 +28,7 @@ final class WindowDecorationsController {
         while let view = enumerator?.nextObject() as? NSView {
             view.removeFromSuperview()
         }
-        WindowMouseMovedEventsCoordinator.disableOwner(self)
+        WindowMouseMovedEventsCoordinator.shared.disableOwner(self)
     }
 
     func start() {
@@ -37,10 +40,10 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
-        if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
-            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+        if window.isMainWorkspaceWindow, WorkspacePresentationModeSettings.isMinimal() {
+            WindowMouseMovedEventsCoordinator.shared.enable(for: window, owner: self)
         } else {
-            WindowMouseMovedEventsCoordinator.disable(for: window, owner: self)
+            WindowMouseMovedEventsCoordinator.shared.disable(for: window, owner: self)
         }
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
@@ -56,7 +59,7 @@ final class WindowDecorationsController {
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
-        for name in TitlebarWindowGeometryNotifications.names {
+        for name in [Notification.Name].titlebarWindowGeometry {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
         observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -66,7 +69,7 @@ final class WindowDecorationsController {
 
     private func applyDefaultsDrivenDecorationChangeIfNeeded() {
         let currentMode = WorkspacePresentationModeSettings.mode()
-        let currentTitlebarSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let currentTitlebarSnapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         guard currentMode != lastKnownPresentationMode || currentTitlebarSnapshot != lastKnownTitlebarDebugSnapshot else { return }
         lastKnownPresentationMode = currentMode
         lastKnownTitlebarDebugSnapshot = currentTitlebarSnapshot
@@ -128,7 +131,8 @@ final class WindowDecorationsController {
                 self.performMinimalModeSidebarControlAction(
                     slot,
                     window: window,
-                    locationInWindow: locationInWindow
+                    locationInWindow: locationInWindow,
+                    event: event
                 )
                 return nil
             }
@@ -192,7 +196,8 @@ final class WindowDecorationsController {
         performMinimalModeSidebarControlAction(
             actionSlot,
             window: window,
-            locationInWindow: locationInWindow
+            locationInWindow: locationInWindow,
+            event: event
         )
         return true
     }
@@ -209,10 +214,10 @@ final class WindowDecorationsController {
             width: window.frame.width,
             height: window.frame.height
         )
-        guard isMinimalModeWindowTitlebarClickCandidate(
+        guard MinimalModeTitlebarBand.isMinimalModeWindowTitlebarClickCandidate(
             isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
             isFullScreen: window.styleMask.contains(.fullScreen),
-            isMainWindow: isMainWorkspaceWindow(window),
+            isMainWindow: window.isMainWorkspaceWindow,
             locationInWindow: locationInWindow,
             contentBounds: contentBounds,
             titlebarBandHeight: minimalModeTitlebarDoubleClickBandHeight(for: window)
@@ -226,27 +231,25 @@ final class WindowDecorationsController {
         }
 
         let windowNumber = window.windowNumber
-        let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-            clickCount: event.clickCount,
-            timestamp: event.timestamp,
-            locationInWindow: locationInWindow,
+        let currentClick = MinimalModeTitlebarClickRecord(
             windowNumber: windowNumber,
+            timestamp: event.timestamp,
+            locationInWindow: locationInWindow
+        )
+        let isDoubleClick = currentClick.formsDoubleClick(
+            clickCount: event.clickCount,
             previous: lastMinimalModeTitlebarClick,
             doubleClickInterval: NSEvent.doubleClickInterval,
-            doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
+            doubleClickIntervalTolerance: MinimalModeTitlebarClickRecord.syntheticDoubleClickTolerance
         )
 
         guard isDoubleClick else {
-            lastMinimalModeTitlebarClick = MinimalModeTitlebarClickRecord(
-                windowNumber: windowNumber,
-                timestamp: event.timestamp,
-                locationInWindow: locationInWindow
-            )
+            lastMinimalModeTitlebarClick = currentClick
             return false
         }
 
         lastMinimalModeTitlebarClick = nil
-        let result = handleTitlebarDoubleClick(window: window, behavior: .standardAction)
+        let result = TitlebarDoubleClickHandlingResult.handle(window: window, behavior: .standardAction)
         #if DEBUG
         cmuxDebugLog(
             "titlebar.minimalWindowDoubleClick.result=\(String(describing: result)) point=\(NSStringFromPoint(locationInWindow)) band=\(String(format: "%.1f", minimalModeTitlebarDoubleClickBandHeight(for: window)))"
@@ -264,7 +267,7 @@ final class WindowDecorationsController {
 
         let screenPoint = NSEvent.mouseLocation
         for window in NSApp.windows.reversed() {
-            guard isMainWorkspaceWindow(window),
+            guard window.isMainWorkspaceWindow,
                   window.isVisible,
                   !window.isMiniaturized,
                   window.frame.insetBy(dx: -1, dy: -1).contains(screenPoint) else {
@@ -295,8 +298,8 @@ final class WindowDecorationsController {
             payload["minimalSidebarWindowMonitorLastEventType"] = String(describing: event.type)
             payload["minimalSidebarWindowMonitorLastEventWindowNumber"] = event.window.map { String($0.windowNumber) } ?? "nil"
             payload["minimalSidebarWindowMonitorLastTargetWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
-            payload["minimalSidebarWindowMonitorLastPoint"] = locationInWindow.map(windowDragHandleFormatPoint) ?? "nil"
-            payload["minimalSidebarWindowMonitorLastScreenPoint"] = windowDragHandleFormatPoint(NSEvent.mouseLocation)
+            payload["minimalSidebarWindowMonitorLastPoint"] = locationInWindow.map(\.titlebarDragPointDescription) ?? "nil"
+            payload["minimalSidebarWindowMonitorLastScreenPoint"] = NSEvent.mouseLocation.titlebarDragPointDescription
             payload["minimalSidebarWindowMonitorLastIsHovering"] = isHovering.map(String.init) ?? "nil"
             payload["minimalSidebarWindowMonitorLastSlot"] = slot?.debugName ?? "nil"
         }
@@ -315,7 +318,7 @@ final class WindowDecorationsController {
             let count = (payload["minimalSidebarWindowSendEventLeftMouseDownCount"] as? String).flatMap(Int.init) ?? 0
             payload["minimalSidebarWindowSendEventLeftMouseDownCount"] = String(count + 1)
             payload["minimalSidebarWindowSendEventLastWindowNumber"] = String(window.windowNumber)
-            payload["minimalSidebarWindowSendEventLastPoint"] = windowDragHandleFormatPoint(locationInWindow)
+            payload["minimalSidebarWindowSendEventLastPoint"] = locationInWindow.titlebarDragPointDescription
             payload["minimalSidebarWindowSendEventLastIsHovering"] = String(isHovering)
             payload["minimalSidebarWindowSendEventLastSlot"] = slot?.debugName ?? "nil"
         }
@@ -326,6 +329,7 @@ final class WindowDecorationsController {
         _ slot: MinimalModeSidebarControlActionSlot,
         window: NSWindow,
         locationInWindow: NSPoint,
+        event: NSEvent?,
         anchorView: NSView? = nil
     ) {
         #if DEBUG
@@ -352,16 +356,17 @@ final class WindowDecorationsController {
                     debugSource: "titlebar.minimalSidebarControl"
                 )
             case .cloudVM:
-                guard let anchorView else { return }
+                guard let anchorView, let event else { return }
                 _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
                     anchorView: anchorView,
+                    event: event,
                     debugSource: "titlebar.minimalSidebar.cloudMenu"
                 )
             case .focusHistoryBack:
-                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
+                guard FocusHistoryNavigationAvailability.current(preferredWindow: window).canNavigateBack else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()
             case .focusHistoryForward:
-                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateForward else { return }
+                guard FocusHistoryNavigationAvailability.current(preferredWindow: window).canNavigateForward else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateForward()
             }
         }
@@ -380,10 +385,10 @@ final class WindowDecorationsController {
     }
 
     private func applyMinimalModeSidebarTitlebarClickTarget(to window: NSWindow) {
-        let shouldInstall = isMainWorkspaceWindow(window)
+        let shouldInstall = window.isMainWorkspaceWindow
             && WorkspacePresentationModeSettings.isMinimal()
             && !window.styleMask.contains(.fullScreen)
-            && minimalModeSidebarTitlebarControlsAreAvailable(in: window)
+            && window.minimalModeSidebarTitlebarControlsAreAvailable
         guard shouldInstall,
               let contentView = window.contentView else {
             #if DEBUG
@@ -408,13 +413,14 @@ final class WindowDecorationsController {
         target.isEnabled = true
         target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"
-        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow in
+        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow, event in
             let anchorView = target
             guard let self, let window else { return }
             self.performMinimalModeSidebarControlAction(
                 slot,
                 window: window,
                 locationInWindow: locationInWindow,
+                event: event,
                 anchorView: anchorView
             )
         }
@@ -425,11 +431,10 @@ final class WindowDecorationsController {
         }
 
         let contentBounds = contentView.bounds
-        let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(
-            window: window,
+        let trafficLightFrameInContent = window.minimalModeTrafficLightFrameInContentCoordinates(
             contentView: contentView
         )
-        target.frame = minimalModeSidebarTitlebarControlsFrame(
+        target.frame = MinimalModeSidebarTitlebarControlsMetrics().controlsFrame(
             contentBounds: contentBounds,
             contentViewIsFlipped: contentView.isFlipped,
             trafficLightFrameInContent: trafficLightFrameInContent,

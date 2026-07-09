@@ -13,7 +13,7 @@ extension KeyboardShortcutSettings {
         }
 
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+              let shortcut = try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut else {
             let defaultShortcut = action.defaultShortcut
             return defaultShortcut.isUnbound ? nil : defaultShortcut
         }

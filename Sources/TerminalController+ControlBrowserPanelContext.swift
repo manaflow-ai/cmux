@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 import WebKit
 
@@ -96,7 +97,7 @@ extension TerminalController: ControlBrowserPanelContext {
         guard !webView.isHiddenOrHasHiddenAncestor else { return .webViewHidden }
 
         window.makeFirstResponder(webView)
-        guard Self.responderChainContains(window.firstResponder, target: webView) else {
+        guard window.firstResponder?.responderChain(contains: webView) ?? false else {
             return .focusDidNotMove
         }
         // Some focus churn paths (workspace handoff / omnibar blur) can race this call.
@@ -104,7 +105,7 @@ extension TerminalController: ControlBrowserPanelContext {
         DispatchQueue.main.async { [weak window, weak webView] in
             guard let window, let webView else { return }
             guard webView.window === window else { return }
-            if !Self.responderChainContains(window.firstResponder, target: webView) {
+            if !(window.firstResponder?.responderChain(contains: webView) ?? false) {
                 window.makeFirstResponder(webView)
             }
         }
@@ -115,6 +116,6 @@ extension TerminalController: ControlBrowserPanelContext {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return .panelNotFound }
         let webView = panel.webView
         guard let window = webView.window else { return .focused(false) }
-        return .focused(Self.responderChainContains(window.firstResponder, target: webView))
+        return .focused(window.firstResponder?.responderChain(contains: webView) ?? false)
     }
 }

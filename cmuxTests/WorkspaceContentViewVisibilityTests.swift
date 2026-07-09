@@ -48,11 +48,11 @@ final class WorkspaceContentViewVisibilityTests {
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
-            .environmentObject(tabManager)
+            .environment(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
-            .environmentObject(SidebarState())
-            .environmentObject(SidebarSelectionState())
+            .environment(SidebarState())
+            .environment(SidebarSelectionState())
             .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())
             .environment(
@@ -107,7 +107,7 @@ final class WorkspaceContentViewVisibilityTests {
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
             window.contentView?.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            try? await Task.sleep(nanoseconds: 1_000_000)
             await Task.yield()
         }
     }
@@ -187,6 +187,7 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(
@@ -204,7 +205,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
 
         #expect(
-            WorkspaceContentView.tmuxWorkspacePaneOverlayRect(
+            WorkspacePaneOverlayRectResolver().paneOverlayRect(
                 layoutSnapshot: snapshot,
                 paneId: paneID
             ) ==
@@ -256,7 +257,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
 
         #expect(
-            WorkspaceContentView.tmuxWorkspacePaneUnreadRects(
+            WorkspacePaneOverlayRectResolver().paneUnreadRects(
                 workspace: workspace,
                 notificationStore: store,
                 layoutSnapshot: snapshot

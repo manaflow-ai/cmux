@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxWindowing
 import Foundation
 
 /// `TerminalController` conforms to ``ControlCommandContext`` as the interim
@@ -40,7 +41,7 @@ extension TerminalController: ControlCommandContext {
 /// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
 extension TerminalController: ControlWindowContext {
     func controlWindowSummaries() -> [ControlWindowSummary] {
-        (AppDelegate.shared?.listMainWindowSummaries() ?? []).map { summary in
+        (appEnvironment?.windowRegistry.listMainWindowSummaries() ?? []).map { summary in
             ControlWindowSummary(
                 windowID: summary.windowId,
                 isKeyWindow: summary.isKeyWindow,
@@ -57,32 +58,38 @@ extension TerminalController: ControlWindowContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        guard let windowId = AppDelegate.shared?.windowId(for: tabManager) else {
+        guard let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) else {
             return .windowNotFound
         }
         return .resolved(windowId)
     }
 
     func controlFocusWindow(id: UUID) -> Bool {
-        AppDelegate.shared?.focusMainWindow(windowId: id) ?? false
+        appEnvironment?.mainWindowRouter.focusMainWindow(windowId: id) ?? false
     }
 
     func controlCreateWindowAndActivate() -> UUID? {
-        guard let windowId = AppDelegate.shared?.createMainWindow() else { return nil }
+        guard let windowId = appEnvironment?.mainWindowRouter.createMainWindow() else { return nil }
         // The new window should become key, but setActiveTabManager defensively
         // (preserves the legacy v2WindowCreate side effect and ordering).
-        if let tabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
+        if let tabManager = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) {
             setActiveTabManager(tabManager)
         }
         return windowId
     }
 
     func controlCloseWindow(id: UUID) -> Bool {
-        AppDelegate.shared?.closeMainWindow(windowId: id) ?? false
+        appEnvironment?.mainWindowRouter.closeMainWindow(windowId: id) ?? false
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] {
-        (AppDelegate.shared?.availableDisplays() ?? []).map { display in
+        // Preserve the legacy `AppDelegate.shared?.availableDisplays() ?? []`
+        // nil-guard: before launch wiring (and at teardown) `shared` is nil, and
+        // the command must report no displays rather than read live NSScreen
+        // state. The display-summary body itself is the lifted
+        // `DisplayInfo.connectedDisplays()`.
+        guard AppDelegate.shared != nil else { return [] }
+        return DisplayInfo.connectedDisplays().map { display in
             ControlDisplayInfo(
                 name: display.name,
                 index: display.index,
@@ -101,13 +108,83 @@ extension TerminalController: ControlWindowContext {
     }
 
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? {
-        AppDelegate.shared?.moveMainWindow(windowId: id, toDisplayMatching: query)
+        appEnvironment?.mainWindowRouter.moveWindow(windowId: id, toDisplayMatching: query)
     }
 
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? {
-        guard let result = AppDelegate.shared?.moveAllMainWindows(toDisplayMatching: query) else {
+        guard let result = appEnvironment?.mainWindowRouter.moveAllWindows(toDisplayMatching: query) else {
             return nil
         }
         return ControlMoveAllWindowsResult(display: result.display, windowIDs: result.windowIds)
+    }
+
+    // MARK: - v1 line-protocol witnesses
+
+    // The byte-faithful bodies of the former `TerminalController` v1 window
+    // cases, moved here verbatim so the coordinator's `handleWindowV1` dispatch
+    // owns the routing while the app-coupled bodies stay app-resident. The v1
+    // `list_windows` formatter now lives in the coordinator (built from the
+    // shared `controlWindowSummaries()`), so it has no witness here.
+
+    func controlCurrentWindowV1() -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return "ERROR: No active window" }
+        return windowId.uuidString
+    }
+
+    func controlFocusWindowV1(arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
+
+        let ok = v2MainSync { appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId) ?? false }
+        guard ok else { return "ERROR: Window not found" }
+
+        if let tm = v2MainSync({ appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return "OK"
+    }
+
+    func controlNewWindowV1() -> String {
+        guard let windowId = v2MainSync({ appEnvironment?.mainWindowRouter.createMainWindow() }) else {
+            return "ERROR: Failed to create window"
+        }
+        if let tm = v2MainSync({ appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return "OK \(windowId.uuidString)"
+    }
+
+    func controlCloseWindowV1(arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
+        let ok = v2MainSync { appEnvironment?.mainWindowRouter.closeMainWindow(windowId: windowId) ?? false }
+        return ok ? "OK" : "ERROR: Window not found"
+    }
+
+    func controlMoveWorkspaceToWindowV1(args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage move_workspace_to_window <workspace_id> <window_id>" }
+        guard let wsId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid workspace id" }
+        guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
+
+        var ok = false
+        let focus = socketCommandAllowsInAppFocusMutations()
+        v2MainSync {
+            guard let srcTM = appEnvironment?.windowRegistry.tabManagerFor(tabId: wsId),
+                  let dstTM = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId),
+                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
+                ok = false
+                return
+            }
+            dstTM.attachWorkspace(ws, select: focus)
+            if focus {
+                _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
+                setActiveTabManager(dstTM)
+            }
+            ok = true
+        }
+
+        return ok ? "OK" : "ERROR: Move failed"
     }
 }

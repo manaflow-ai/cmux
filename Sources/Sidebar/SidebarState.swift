@@ -1,11 +1,14 @@
+import CmuxSidebar
 import CmuxWorkspaces
-import Combine
 import CoreGraphics
 import Foundation
+import Observation
 
-final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool
-    @Published var persistedWidth: CGFloat
+@MainActor
+@Observable
+final class SidebarState {
+    var isVisible: Bool
+    var persistedWidth: CGFloat
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
         self.isVisible = isVisible
@@ -19,26 +22,28 @@ final class SidebarState: ObservableObject {
 }
 
 enum SidebarResizeInteraction {
+    /// Which side of a divider the resizer band lives on. Maps one-for-one onto
+    /// ``CmuxSidebar/SidebarResizerBandPolicy/Edge``; the band math is owned by the
+    /// package and this app-side `Edge` forwards into ``bandPolicy``.
     enum Edge {
         case leading
         case trailing
 
-        private var hitWidthBeforeDivider: CGFloat {
+        fileprivate var policyEdge: SidebarResizerBandPolicy.Edge {
             switch self {
             case .leading:
-                return SidebarResizeInteraction.sidebarSideHitWidth
+                return .leading
             case .trailing:
-                return SidebarResizeInteraction.contentSideHitWidth
+                return .trailing
             }
         }
 
         func handleX(dividerX: CGFloat) -> CGFloat {
-            dividerX - hitWidthBeforeDivider
+            SidebarResizeInteraction.bandPolicy.handleX(for: policyEdge, dividerX: dividerX)
         }
 
         func hitRange(dividerX: CGFloat) -> ClosedRange<CGFloat> {
-            let minX = handleX(dividerX: dividerX)
-            return minX...(minX + SidebarResizeInteraction.totalHitWidth)
+            SidebarResizeInteraction.bandPolicy.hitRange(for: policyEdge, dividerX: dividerX)
         }
     }
 
@@ -51,8 +56,17 @@ enum SidebarResizeInteraction {
     static let contentSideHitWidth: CGFloat = 4
 
     static var totalHitWidth: CGFloat {
-        sidebarSideHitWidth + contentSideHitWidth
+        bandPolicy.totalHitWidth
     }
+
+    /// The single source of truth for the resizer hit-band geometry, owned by
+    /// `CmuxSidebar`. Built once from the fixed app-side hit-width constants; the
+    /// app's overlay Views and the portal hit-test paths read their band math from
+    /// here so the geometry lives in exactly one place.
+    static let bandPolicy = SidebarResizerBandPolicy(
+        sidebarSideHitWidth: sidebarSideHitWidth,
+        contentSideHitWidth: contentSideHitWidth
+    )
 }
 
 enum SidebarSelectedWorkspaceScrollPolicy {

@@ -8,7 +8,6 @@ import Foundation
 // agent).
 
 extension ControlSystemContext {
-    func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue { .object([:]) }
     func controlSystemTreeWindows(
         requestedWindowID: UUID?,
         includeAllWindows: Bool,
@@ -21,7 +20,14 @@ extension ControlSystemContext {
             windows: []
         )
     }
+    func controlSystemTopWorkspaceNode(
+        workspaceID: UUID,
+        index: Int,
+        selected: Bool
+    ) -> ControlSystemTopWorkspaceNode? { nil }
     func controlAuthPasswordRequired() -> Bool { false }
+    func controlSystemSocketPath() -> String { "" }
+    func controlSystemAccessModeRawValue() -> String { "" }
     func controlSessionRestorePrevious() -> ControlSessionRestoreResolution {
         .noSnapshot(message: "No previous session snapshot available")
     }
@@ -30,9 +36,6 @@ extension ControlSystemContext {
     }
     func controlFeedbackOpen(workspaceID: UUID?, windowID: UUID?, requestedActivate: Bool) {}
     func controlExtensionSidebarSnapshot(routing: ControlRoutingSelectors) -> ControlExtensionSidebarSnapshot? { nil }
-    func controlWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult {
-        .err(code: "unavailable", message: "TabManager not available", data: nil)
-    }
     func controlTabAction(
         routing: ControlRoutingSelectors,
         actionKey: String?,
@@ -48,4 +51,6 @@ extension ControlSystemContext {
     #if DEBUG
     func controlMobileDevStackAuthSetToken(_ token: String?) {}
     #endif
+
+    func controlHelpTextV1() -> String { "" }
 }

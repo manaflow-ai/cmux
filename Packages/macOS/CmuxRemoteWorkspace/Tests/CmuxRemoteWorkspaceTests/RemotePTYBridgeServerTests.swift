@@ -21,10 +21,14 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
 
     func emit(_ event: RemotePTYBridgeEvent) {
         lock.lock()
-        let onEvent = _onEvent
         let queue = _eventQueue
         lock.unlock()
-        queue?.async { onEvent?(event) }
+        queue?.async { [self] in
+            lock.lock()
+            let onEvent = _onEvent
+            lock.unlock()
+            onEvent?(event)
+        }
     }
 
     func attachBridgePTY(

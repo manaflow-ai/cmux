@@ -18,7 +18,7 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     var hasNotificationStore: Bool {
-        AppDelegate.shared?.notificationStore != nil
+        appEnvironment?.notificationStore != nil
     }
 
     // focusedPanelId(in:) is already witnessed by the SidebarGitHosting
@@ -41,8 +41,7 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return panelId(forSurfaceOrPanelId: surfaceId, in: workspace)
+        panelIdResolver.panelId(forSurfaceOrPanelId: surfaceId, inWorkspaceId: workspaceId)
     }
 
     func workspaceHasManualPanelUnread(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -54,38 +53,38 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func storeHasManualUnread(workspaceId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: workspaceId) ?? false
+        appEnvironment?.notificationStore?.hasManualUnread(forTabId: workspaceId) ?? false
     }
 
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasRestoredUnreadIndicator(forTabId: workspaceId) ?? false
+        appEnvironment?.notificationStore?.hasRestoredUnreadIndicator(forTabId: workspaceId) ?? false
     }
 
     func storeHasUnreadNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
+        appEnvironment?.notificationStore?.hasUnreadNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        AppDelegate.shared?.notificationStore?
+        appEnvironment?.notificationStore?
             .hasVisibleNotificationIndicator(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
-        AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
+        appEnvironment?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
     }
 
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.clearManualUnread(forTabId: workspaceId) ?? false
+        appEnvironment?.notificationStore?.clearManualUnread(forTabId: workspaceId) ?? false
     }
 
     @discardableResult
     func storeClearRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: workspaceId) ?? false
+        appEnvironment?.notificationStore?.clearRestoredUnreadIndicator(forTabId: workspaceId) ?? false
     }
 
     func storeClearFocusedReadIndicator(workspaceId: UUID, surfaceId: UUID?) {
-        AppDelegate.shared?.notificationStore?.clearFocusedReadIndicator(forTabId: workspaceId, surfaceId: surfaceId)
+        appEnvironment?.notificationStore?.clearFocusedReadIndicator(forTabId: workspaceId, surfaceId: surfaceId)
     }
 
     func workspaceClearManualUnread(workspaceId: UUID, panelId: UUID) {

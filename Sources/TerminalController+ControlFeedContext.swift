@@ -1,4 +1,6 @@
+import CMUXAgentLaunch
 import CmuxControlSocket
+import CmuxFeedUI
 import Foundation
 
 /// The feed-domain (workstream) witnesses are the byte-faithful bodies of the
@@ -13,15 +15,20 @@ import Foundation
 /// `feed.exit_plan.reply`) stay on the app-side socket-worker path.
 extension TerminalController: ControlFeedContext {
     func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool {
-        FeedCoordinator.shared.resolvePossibleSurface(for: workstreamID)
+        FeedCoordinator.shared.socketRouter.resolvePossibleSurface(for: workstreamID)
     }
 
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] {
-        FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly).map { item in
-            // `FeedSocketEncoding.itemDict` only ever produces valid JSON
-            // (strings, bools, arrays, nested dicts), so the bridge never fails;
-            // the empty-object fallback exists solely to keep the map total.
-            JSONValue(foundationObject: FeedSocketEncoding.itemDict(item)) ?? .object([:])
+        let permissionActionPolicy = FeedPermissionActionPolicy()
+        return FeedCoordinator.shared.socketRouter.snapshot(pendingOnly: pendingOnly).map { item in
+            // `WorkstreamItem.socketEncodedDictionary` only ever produces valid
+            // JSON (strings, bools, arrays, nested dicts), so the bridge never
+            // fails; the empty-object fallback exists solely to keep the map total.
+            JSONValue(
+                foundationObject: item.socketEncodedDictionary(
+                    codexCapabilityToolInputJSON: permissionActionPolicy.codexCapabilityToolInputJSON
+                )
+            ) ?? .object([:])
         }
     }
 }

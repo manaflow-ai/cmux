@@ -1,4 +1,6 @@
 import SwiftUI
+import CmuxRemoteWorkspace
+import CmuxBrowserUI
 
 struct BrowserPDFDocumentToolbarButtons: View {
     let panel: BrowserPanel

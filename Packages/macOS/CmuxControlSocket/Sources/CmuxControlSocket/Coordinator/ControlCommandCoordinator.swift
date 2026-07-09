@@ -81,10 +81,17 @@ public final class ControlCommandCoordinator {
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
         if let result = handleDebug(request) { return result }
-        // The v2 browser.* domain stays app-side: PR 5778 moved its
-        // JS-evaluating methods onto the socket-worker lane (nonisolated
+        if let result = handleBrowser(request) { return result }
+        if let result = handleBrowserReadOnly(request) { return result }
+        if let result = handleBrowserConsoleErrorsState(request) { return result }
+        if let result = handleBrowserTabs(request) { return result }
+        if let result = handleBrowserUnsupported(request) { return result }
+        // Only the non-JS-evaluating, main-actor browser.* methods are owned
+        // here (handleBrowser / handleBrowserUnsupported). The JS-evaluating
+        // browser.* methods stay
+        // app-side: PR 5778 moved them onto the socket-worker lane (nonisolated
         // bodies + v2MainSync), which the @MainActor coordinator seam cannot
-        // host; re-lift it against that architecture in a follow-up.
+        // host; re-lift them against that architecture in a follow-up.
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
         return nil
@@ -177,6 +184,55 @@ public final class ControlCommandCoordinator {
         handles.removeRef(kind: kind, uuid: uuid)
     }
 
+    // MARK: - Ref aggregations
+
+    /// The stable `kind:N` refs for a batch of workspace ids, minting any that
+    /// do not yet exist (the legacy `v2WorkspaceRefs`).
+    ///
+    /// - Parameter ids: The workspace identifiers to ref.
+    /// - Returns: A map from each id to its ref string.
+    public func v2WorkspaceRefs(for ids: [UUID]) -> [UUID: String] {
+        var refs: [UUID: String] = [:]
+        refs.reserveCapacity(ids.count)
+        for id in ids {
+            refs[id] = ensureRef(kind: .workspace, uuid: id)
+        }
+        return refs
+    }
+
+    /// The workspace, optional pane, and surface refs for one location, minting
+    /// each as needed (the legacy `v2WorkspacePaneAndSurfaceRefs`).
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace identifier.
+    ///   - paneId: The pane identifier, or `nil`.
+    ///   - surfaceId: The surface identifier.
+    /// - Returns: The minted refs.
+    public func v2WorkspacePaneAndSurfaceRefs(
+        workspaceId: UUID,
+        paneId: UUID?,
+        surfaceId: UUID
+    ) -> (workspaceRef: String, paneRef: String?, surfaceRef: String) {
+        return (
+            workspaceRef: ensureRef(kind: .workspace, uuid: workspaceId),
+            paneRef: paneId.map { ensureRef(kind: .pane, uuid: $0) },
+            surfaceRef: ensureRef(kind: .surface, uuid: surfaceId)
+        )
+    }
+
+    /// The `tab:N` ref for an optional surface id as a wire value: the surface
+    /// ref re-prefixed `surface:` → `tab:`, or `NSNull` when absent (the legacy
+    /// `v2TabRef`; returns `Any` because callers fold it into Foundation
+    /// `[String: Any]` payloads).
+    ///
+    /// - Parameter uuid: The surface identifier, or `nil`.
+    /// - Returns: The `tab:N` ref string, or `NSNull`.
+    public func v2TabRef(uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        let surfaceRef = ensureRef(kind: .surface, uuid: uuid)
+        return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
+    }
+
     // MARK: - Wire helpers
 
     /// The `kind:N` ref for an optional id as a JSON value: the ref string, or
@@ -198,9 +254,12 @@ public final class ControlCommandCoordinator {
 
     /// A trimmed, non-empty string param, or `nil` (matches legacy `v2String`:
     /// only a JSON string counts; whitespace-only is treated as absent).
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reads its
+    /// params through this single coercion (the former app-side `jvString`).
     /// `nonisolated`: pure param read, used by the worker-lane bodies'
     /// off-main parse.
-    nonisolated func string(_ params: [String: JSONValue], _ key: String) -> String? {
+    public nonisolated func string(_ params: [String: JSONValue], _ key: String) -> String? {
         guard case .string(let raw)? = params[key] else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -218,7 +277,10 @@ public final class ControlCommandCoordinator {
 
     /// Whether a param is present and not JSON `null` (matches legacy
     /// `v2HasNonNullParam`).
-    func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reuses this
+    /// presence check (the former app-side `jvHasNonNullParam`).
+    public func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
         guard let value = params[key] else { return false }
         if case .null = value { return false }
         return true

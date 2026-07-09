@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxTerminal
 import Foundation
+import CmuxCommandPalette
 
 /// Portal pane-drop routing for the Dock — the Dock equivalent of
 /// `Workspace.portalPaneDropZone` / `performPortalPaneDrop`.

@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSidebar
+import CmuxSidebarUI
 import SwiftUI
 import CmuxSettings
 
@@ -87,6 +88,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
+    /// Measured row height (via `SidebarRowHeightProbe`), used to size the drop
+    /// target's center/edge zones.
+    @State private var rowHeight: CGFloat = 1
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -118,6 +122,100 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     private var pinnedGroupTooltip: String {
         String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
+    }
+
+    private var anchorNameText: some View {
+        Text(name)
+            .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
+            .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    @ViewBuilder
+    private var anchorUnreadBadge: some View {
+        if anchorUnreadCount > 0 {
+            Text("\(anchorUnreadCount)")
+                .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
+                .foregroundStyle(.white)
+                .padding(.horizontal, metrics.unreadHorizontalPadding)
+                .padding(.vertical, metrics.unreadVerticalPadding)
+                .background(Capsule().fill(Color.accentColor))
+                .accessibilityLabel(Text(String.localizedStringWithFormat(
+                    String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
+                    anchorUnreadCount
+                )))
+        }
+    }
+
+    @ViewBuilder
+    private var plusButtonContextMenu: some View {
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                defaultValue: "New Workspace in Group"
+            ),
+            action: onTapPlus
+        )
+        .onAppear {
+            rowInteractionState.contextMenuDidAppear()
+        }
+        .onDisappear {
+            rowInteractionState.contextMenuDidDisappear()
+        }
+        if !cwdContextMenuItems.isEmpty {
+            Divider()
+            ForEach(cwdContextMenuItems) { item in
+                switch item {
+                case .separator:
+                    Divider()
+                case .action(let action):
+                    Button(action.title) {
+                        onRunResolvedItem(action)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.editConfig",
+                defaultValue: "Edit Group Config..."
+            ),
+            action: onEditConfig
+        )
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.openDocs",
+                defaultValue: "Open Workspace Groups Docs"
+            ),
+            action: onOpenDocs
+        )
+    }
+
+    private var anchorRow: some View {
+        HStack(spacing: 6) {
+            CmuxSystemSymbolImage(
+                systemName: displayedIconSymbol,
+                pointSize: metrics.iconFontSize,
+                weight: .semibold,
+                appliesGlobalFontMagnification: true
+            )
+                .foregroundStyle(iconColor)
+                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .accessibilityHidden(true)
+            anchorNameText
+            anchorUnreadBadge
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { onFocusAnchor() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(Text(name))
+        .accessibilityHint(Text(String(
+            localized: "workspaceGroup.focusAnchor.a11y",
+            defaultValue: "Focus the group's anchor workspace"
+        )))
     }
 
     var body: some View {
@@ -155,43 +253,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     )
                 )
 
-            HStack(spacing: 6) {
-                CmuxSystemSymbolImage(
-                    systemName: displayedIconSymbol,
-                    pointSize: metrics.iconFontSize,
-                    weight: .semibold,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(iconColor)
-                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
-                    .accessibilityHidden(true)
-                Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
-                    Text("\(anchorUnreadCount)")
-                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, metrics.unreadHorizontalPadding)
-                        .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
-                        .accessibilityLabel(Text(String.localizedStringWithFormat(
-                            String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                            anchorUnreadCount
-                        )))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture { onFocusAnchor() }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(Text(name))
-            .accessibilityHint(Text(String(
-                localized: "workspaceGroup.focusAnchor.a11y",
-                defaultValue: "Focus the group's anchor workspace"
-            )))
+            anchorRow
 
             let plusVisible = rowInteractionState.shouldShowCloseButton(
                 canCloseWorkspace: true,
@@ -217,49 +279,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 localized: "workspaceGroup.newWorkspaceInGroup.a11y",
                 defaultValue: "New workspace in group"
             )))
-            .contextMenu {
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                        defaultValue: "New Workspace in Group"
-                    ),
-                    action: onTapPlus
-                )
-                .onAppear {
-                    rowInteractionState.contextMenuDidAppear()
-                }
-                .onDisappear {
-                    rowInteractionState.contextMenuDidDisappear()
-                }
-                if !cwdContextMenuItems.isEmpty {
-                    Divider()
-                    ForEach(cwdContextMenuItems) { item in
-                        switch item {
-                        case .separator:
-                            Divider()
-                        case .action(let action):
-                            Button(action.title) {
-                                onRunResolvedItem(action)
-                            }
-                        }
-                    }
-                }
-                Divider()
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.editConfig",
-                        defaultValue: "Edit Group Config..."
-                    ),
-                    action: onEditConfig
-                )
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.openDocs",
-                        defaultValue: "Open Workspace Groups Docs"
-                    ),
-                    action: onOpenDocs
-                )
-            }
+            .contextMenu { plusButtonContextMenu }
         }
         .padding(.vertical, 5)
         .padding(.trailing, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
@@ -276,7 +296,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetX: shortcutHintXOffset,
             offsetY: shortcutHintYOffset
         )
-        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+        .padding(.horizontal, 6)
+        .background { SidebarRowHeightProbe { rowHeight = $0 } }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .sidebarWorkspaceRowHoverTracking($rowInteractionState)
         .opacity(isBeingDragged ? 0.6 : 1)
@@ -284,7 +305,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: isFirstRow,
-                rowSpacing: rowSpacing
+                rowSpacing: rowSpacing,
+                accent: cmuxAccentColor()
             )
         }
         .overlay(alignment: .bottom) {
@@ -292,6 +314,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 isVisible: bottomDropIndicatorVisible,
                 isFirstRow: false,
                 rowSpacing: rowSpacing,
+                accent: cmuxAccentColor(),
                 isBottomEdge: true,
                 leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
@@ -300,11 +323,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .internalOnlyTabDrag()
         .overlay {
             if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
+                SidebarWorkspaceRowMenuTrackingReconciler { _ in
+                    rowInteractionState.contextMenuTrackingDidEnd()
                 }
                 .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
+                    rowInteractionState.contextMenuTrackingDidBegin()
                 }
             }
         }

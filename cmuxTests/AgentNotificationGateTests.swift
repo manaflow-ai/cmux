@@ -1,4 +1,6 @@
+import Foundation
 import Testing
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -103,5 +105,36 @@ import Testing
         #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+    }
+
+    @Test func settingsGateReadsNotificationCatalogSettings() throws {
+        let suiteName = "cmux.tests.agent-notification-gate.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let notifications = NotificationsCatalogSection()
+        let gate = AgentNotificationSettingsGate(
+            settings: UserDefaultsSettingsClient(defaults: defaults),
+            notificationsSettings: notifications
+        )
+
+        #expect(gate.shouldDeliver(nil) == true)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=needs-permission;p=1")) == true)
+        defaults.set(false, forKey: notifications.agentPermissionPrompt.userDefaultsKey)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=needs-permission;p=1")) == false)
+
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=turn-complete;p=1")) == false)
+        defaults.set("always", forKey: notifications.agentTurnComplete.userDefaultsKey)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=turn-complete;p=1")) == true)
+        defaults.set("never", forKey: notifications.agentTurnComplete.userDefaultsKey)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=turn-complete;p=0")) == false)
+        defaults.set("bogus", forKey: notifications.agentTurnComplete.userDefaultsKey)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=turn-complete;p=1")) == false)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=turn-complete;p=0")) == true)
+
+        defaults.set(true, forKey: notifications.agentIdleReminder.userDefaultsKey)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=idle-reminder;p=0")) == true)
+        defaults.set(false, forKey: notifications.agentIdleReminder.userDefaultsKey)
+        #expect(gate.shouldDeliver(AgentNotificationMeta(meta: "c=idle-reminder;p=0")) == false)
     }
 }

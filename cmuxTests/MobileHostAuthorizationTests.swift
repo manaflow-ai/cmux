@@ -83,16 +83,16 @@ struct MobileHostAuthorizationTests {
     }
     #if DEBUG
     @Test func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
-        #expect(MobileHostDevStackAuthPolicy.normalizedToken("   ") == nil)
-        #expect(!MobileHostDevStackAuthPolicy.authorize(
+        #expect(MobileHostDevStackAuthPolicy().normalizedToken("   ") == nil)
+        #expect(!MobileHostDevStackAuthPolicy().authorize(
             providedToken: "cmux-dev-token",
             acceptedToken: nil
         ))
-        #expect(!MobileHostDevStackAuthPolicy.authorize(
+        #expect(!MobileHostDevStackAuthPolicy().authorize(
             providedToken: "cmux-dev-token",
             acceptedToken: "other-token"
         ))
-        #expect(MobileHostDevStackAuthPolicy.authorize(
+        #expect(MobileHostDevStackAuthPolicy().authorize(
             providedToken: " cmux-dev-token ",
             acceptedToken: "cmux-dev-token"
         ))
@@ -714,7 +714,7 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {
-            try MobileHostAuthorizationPolicy.authorizeStackUserID(
+            try MobileHostAuthorizationPolicy().authorizeStackUserID(
                 localUserID: nil,
                 remoteUserID: "user_123"
             )
@@ -722,12 +722,13 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testStackUserIDAuthorizationRequiresMatchingUserID() throws {
         #expect(throws: (any Error).self) {
-            try MobileHostAuthorizationPolicy.authorizeStackUserID(
+            try MobileHostAuthorizationPolicy().authorizeStackUserID(
                 localUserID: "user_local",
                 remoteUserID: "user_remote"
             )
         }
-        try MobileHostAuthorizationPolicy.authorizeStackUserID(
+
+        try MobileHostAuthorizationPolicy().authorizeStackUserID(
             localUserID: " user_123 ",
             remoteUserID: "user_123"
         )
@@ -742,15 +743,16 @@ struct MobileHostAuthorizationTests {
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
-        MobileHostRequestActivity.resetForTesting()
-        MobileHostRequestActivity.beginConnection()
+        MobileHostService.sharedRequestActivity.resetForTesting()
+        MobileHostService.sharedRequestActivity.beginConnection()
         defer {
-            MobileHostRequestActivity.endConnection()
-            MobileHostRequestActivity.resetForTesting()
+            MobileHostService.sharedRequestActivity.endConnection()
+            MobileHostService.sharedRequestActivity.resetForTesting()
         }
-        #expect(!MobileHostRequestActivity.hasActiveRequest)
-        #expect(!MobileHostRequestActivity.hasRecentActivity(within: 60))
-        #expect(MobileHostRequestActivity.quietDelay(for: 60) == 0)
+
+        #expect(!MobileHostService.sharedRequestActivity.hasActiveRequest)
+        #expect(!MobileHostService.sharedRequestActivity.hasRecentActivity(within: 60))
+        #expect(MobileHostService.sharedRequestActivity.quietDelay(for: 60) == 0)
     }
     @Test func testMobileHostConnectionCloseClearsOnlyClosedClientViewportReports() {
         let service = MobileHostService.shared
@@ -1074,7 +1076,7 @@ struct MobileHostAuthorizationTests {
     }
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
-        let capabilities = MobileHostService.mobileHostCapabilities
+        let capabilities = MobileHostCapabilities.advertised.identifiers
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))

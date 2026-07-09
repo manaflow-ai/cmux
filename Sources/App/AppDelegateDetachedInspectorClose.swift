@@ -181,7 +181,7 @@ extension AppDelegate {
         }
 
         appendCandidate(tabManager)
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             appendCandidate(context.tabManager)
         }
         for route in recoverableMainWindowRoutes() {
@@ -208,8 +208,8 @@ extension AppDelegate {
                 }
             }
         }
-        for context in mainWindowContexts.values {
-            context.existingWindowDock()?.forEachPanel { _, panel in
+        for context in registeredMainWindows {
+            existingWindowDock(forWindowId: context.windowId)?.forEachPanel { _, panel in
                 appendPanel(panel)
             }
         }

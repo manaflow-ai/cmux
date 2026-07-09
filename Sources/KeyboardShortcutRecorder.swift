@@ -1,4 +1,4 @@
-import CmuxFoundation
+import CmuxSettings
 import AppKit
 import SwiftUI
 
@@ -7,7 +7,7 @@ struct KeyboardShortcutRecorder: View {
     let label: String
     var subtitle: String? = nil
     @Binding var shortcut: StoredShortcut
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var displayString: (StoredShortcut) -> String = { ShortcutDisplayFormatter().displayString($0) }
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
@@ -31,7 +31,7 @@ struct KeyboardShortcutRecorder: View {
                     Text(label)
                     if let subtitle {
                         Text(subtitle)
-                            .cmuxFont(.caption)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -86,24 +86,24 @@ struct KeyboardShortcutRecorder: View {
             if let validationMessage {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .cmuxFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(.red)
 
                     Text(validationMessage)
-                        .cmuxFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
 
                     if let validationButtonTitle, let onValidationButtonPressed {
                         Button(validationButtonTitle, action: onValidationButtonPressed)
                             .buttonStyle(.link)
-                            .cmuxFont(.caption)
+                            .font(.caption)
                     }
 
                     if let undoButtonTitle, let onUndoButtonPressed {
                         Button(undoButtonTitle, action: onUndoButtonPressed)
                             .buttonStyle(.link)
-                            .cmuxFont(.caption)
+                            .font(.caption)
                     }
                 }
                 .padding(.horizontal, 8)
@@ -184,7 +184,7 @@ final class ShortcutRecorderNSButton: NSButton {
             }
         }
     }
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var displayString: (StoredShortcut) -> String = { ShortcutDisplayFormatter().displayString($0) }
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
@@ -246,7 +246,7 @@ final class ShortcutRecorderNSButton: NSButton {
         if isRecording {
             if let pendingChordStart {
                 let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
-                title = String.localizedStringWithFormat(format, pendingChordStart.displayString)
+                title = String.localizedStringWithFormat(format, ShortcutDisplayFormatter().displayString(pendingChordStart))
             } else {
                 title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }

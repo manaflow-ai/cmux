@@ -9,17 +9,31 @@ final class CoordinatorStubTab: WorkspaceTabRepresenting {
     var groupId: UUID?
     var isPinned: Bool
     var currentDirectory: String
+    var title: String
+    var customColor: String?
 
     init(
         groupId: UUID? = nil,
         isPinned: Bool = false,
-        currentDirectory: String = "/tmp"
+        currentDirectory: String = "/tmp",
+        title: String = ""
     ) {
         self.id = UUID()
         self.groupId = groupId
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
+        self.title = title
     }
+
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {}
+    func setCustomColor(_ hex: String?) { customColor = hex }
+    var focusedPanelId: UUID?
+    var panelTitles: [UUID: String] = [:]
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool { false }
+    func applyProcessTitle(_ title: String) {}
+    // This fake never participates in panel-id resolution.
+    func panelExists(_ panelId: UUID) -> Bool { false }
+    func panelId(forSurfaceId surfaceId: UUID) -> UUID? { nil }
 }
 
 /// Window-side stand-in for group/reorder coordinator tests.
@@ -575,4 +589,5 @@ struct WorkspaceCoordinatorTests {
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         #expect(memberIds.first == b.id)
     }
+
 }

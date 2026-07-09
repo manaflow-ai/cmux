@@ -53,7 +53,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             at: transcriptURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        XCTAssertNil(ClaudeConfigurationRoot.configuredResumeDirectory(root.appendingPathComponent(".claude").path))
+        XCTAssertNil(ClaudeConfigurationProbe().configuredResumeDirectory(root.appendingPathComponent(".claude").path))
 
         let command = try XCTUnwrap(
             makeClaudeSessionEntry(fileURL: transcriptURL).resumeCommand
@@ -83,11 +83,11 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             #"{"oauthAccount":[],"primaryApiKey":"\n\t","apiKey":""}"#
         ] {
             try Data(payload.utf8).write(to: stateURL)
-            XCTAssertNil(ClaudeConfigurationRoot.configuredResumeDirectory(configDir.path))
+            XCTAssertNil(ClaudeConfigurationProbe().configuredResumeDirectory(configDir.path))
         }
 
         try Data(#"{"primaryApiKey":"sk-ant-api03-example"}"#.utf8).write(to: stateURL)
-        XCTAssertEqual(ClaudeConfigurationRoot.configuredResumeDirectory(configDir.path), configDir.path)
+        XCTAssertEqual(ClaudeConfigurationProbe().configuredResumeDirectory(configDir.path), configDir.path)
     }
 
     func testClaudeResumeCommandPreservesConfiguredNonDefaultRoot() throws {
@@ -107,7 +107,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         let stateURL = configDir.appendingPathComponent(".claude.json", isDirectory: false)
         try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
             .write(to: stateURL)
-        let resumeConfigDir = try XCTUnwrap(ClaudeConfigurationRoot.configuredResumeDirectory(configDir.path))
+        let resumeConfigDir = try XCTUnwrap(ClaudeConfigurationProbe().configuredResumeDirectory(configDir.path))
 
         let command = try XCTUnwrap(
             makeClaudeSessionEntry(

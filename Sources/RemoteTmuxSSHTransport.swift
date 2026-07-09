@@ -180,6 +180,60 @@ actor RemoteTmuxSSHTransport {
         return try await Self.runProcess(executable: sshExecutablePath, arguments: sshArgs)
     }
 
+    // MARK: - Control-attach preflight
+
+    /// Ensures the requested session is attachable via a non-interactive tmux
+    /// command. Returns an auth-required outcome when BatchMode SSH cannot prompt;
+    /// returns `nil` when the control stream may be launched.
+    ///
+    /// Runs the BatchMode probe over this transport's shared master so auth/session
+    /// failures are reported synchronously instead of looking like a successful
+    /// attach of the long-lived `tmux -CC` control stream.
+    func preflightControlAttach(
+        sessionName: String,
+        createIfMissing: Bool
+    ) async throws -> [String]? {
+        do {
+            try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfMissing)
+            let existing = try await runTmux(["has-session", "-t", sessionName])
+            if existing.succeeded {
+                return nil
+            }
+            if let sshArgv = authRequiredAttachArgv(result: existing) {
+                return sshArgv
+            }
+
+            guard createIfMissing else {
+                throw RemoteTmuxError.commandFailed(exitCode: existing.exitCode, stderr: existing.stderr)
+            }
+
+            let created = try await runTmux(["new-session", "-d", "-s", sessionName])
+            guard created.succeeded else {
+                if let sshArgv = authRequiredAttachArgv(result: created) {
+                    return sshArgv
+                }
+                throw RemoteTmuxError.commandFailed(exitCode: created.exitCode, stderr: created.stderr)
+            }
+            return nil
+        } catch let error as RemoteTmuxError {
+            if case .commandFailed(_, let stderr) = error,
+               Self.indicatesInteractiveRetryWillHelp(stderr) {
+                return host.interactiveAuthInvocation()
+            }
+            throw error
+        }
+    }
+
+    /// Classifies a failed BatchMode tmux probe: returns the interactive `ssh`
+    /// argv when stderr indicates an interactive retry will help, otherwise `nil`.
+    private func authRequiredAttachArgv(result: RemoteTmuxCommandResult) -> [String]? {
+        guard !result.succeeded,
+              Self.indicatesInteractiveRetryWillHelp(result.stderr) else {
+            return nil
+        }
+        return host.interactiveAuthInvocation()
+    }
+
     /// Opens the shared SSH ControlMaster (if it isn't already up) and confirms it
     /// accepts multiplexed sessions, so the burst of `tmux -CC attach` connections
     /// the controller fires next — each `ControlMaster=auto`

@@ -1,5 +1,5 @@
 internal import CmuxMobileDiagnostics
-public import Foundation
+import Foundation
 
 /// Terminal replay barrier and replay-request lifecycle for
 /// `MobileShellComposite`: delivered-sequence bookkeeping, full-grid

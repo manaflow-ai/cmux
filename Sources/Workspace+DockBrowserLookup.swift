@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxBrowser
 
 extension Workspace {
     func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {

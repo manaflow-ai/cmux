@@ -7,9 +7,11 @@ import Foundation
 /// socket-command policy scope, so each hop would re-apply the identical
 /// thread-local focus-allowance stack — a no-op.
 ///
-/// `notification.create_for_caller` is intentionally NOT moved here: it has its
-/// own self-contained resolver (`TerminalNotificationCallerResolver.swift`) and
-/// stays on the legacy app-side dispatcher.
+/// `notification.create_for_caller`'s witness
+/// (``controlNotificationCreateForCaller(preferredWorkspaceID:preferredSurfaceID:callerTTY:preferTTY:title:subtitle:body:)``)
+/// lives in its self-contained resolver (`TerminalNotificationCallerResolver.swift`),
+/// since its multi-window target pick reuses the resolver's helpers; it conforms
+/// the same ``ControlNotificationContext`` seam this extension declares.
 extension TerminalController: ControlNotificationContext {
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -64,7 +66,7 @@ extension TerminalController: ControlNotificationContext {
         return .delivered(
             workspaceID: ws.id,
             surfaceID: surfaceID,
-            windowID: AppDelegate.shared?.windowId(for: tabManager)
+            windowID: appEnvironment?.windowRegistry.windowId(for: tabManager)
         )
     }
 
@@ -95,7 +97,7 @@ extension TerminalController: ControlNotificationContext {
         return .delivered(
             workspaceID: ws.id,
             surfaceID: surfaceID,
-            windowID: AppDelegate.shared?.windowId(for: tabManager)
+            windowID: appEnvironment?.windowRegistry.windowId(for: tabManager)
         )
     }
 
@@ -251,8 +253,9 @@ extension TerminalController: ControlNotificationContext {
 
     /// Converts a `TerminalNotification` to the Sendable snapshot, pre-rendering
     /// the ISO-8601 `created_at` and resolving the workspace tab title exactly as
-    /// the legacy `notificationPayload` builder did. The date rendering mirrors
-    /// the (file-private) `TerminalController.notificationCreatedAtString`.
+    /// the legacy `notificationPayload` builder did. The date rendering goes
+    /// through the package's `ControlNotificationFieldFormatter`, the single
+    /// source of truth for the ISO-8601 `created_at` shape.
     private static func controlSnapshot(
         _ notification: TerminalNotification,
         surfaceID: UUID? = nil
@@ -264,18 +267,9 @@ extension TerminalController: ControlNotificationContext {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
-            createdAtISO8601: notificationCreatedAtISO8601(notification.createdAt),
+            createdAtISO8601: TerminalController.notificationFieldFormatter.createdAtISO8601(notification.createdAt),
             isRead: notification.isRead,
             tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
         )
-    }
-
-    /// Byte-identical reproduction of the file-private
-    /// `TerminalController.notificationCreatedAtString`.
-    private static func notificationCreatedAtISO8601(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
     }
 }

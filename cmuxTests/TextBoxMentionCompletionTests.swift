@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 import SwiftUI
 import Testing
+import CmuxShortcuts
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,25 +16,21 @@ import Testing
 struct TextBoxMentionCompletionTests {
     @Test
     func testTextBoxControlNavigationRoutingUsesTranslatedCharacters() {
-        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(([.control] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "n",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control]
+            firstResponderIsTextBoxInput: true
         ))
-        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(([.control] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "p",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control]
+            firstResponderIsTextBoxInput: true
         ))
-        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(!(([.control] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "b",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control]
+            firstResponderIsTextBoxInput: true
         )))
-        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(!(([.control, .command] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "n",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control, .command]
+            firstResponderIsTextBoxInput: true
         )))
     }
 
@@ -102,19 +99,19 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
-        #expect(!shouldSynchronizeExternalTextToTextBox(
+        #expect(!TextBoxInputInteractionPolicy().shouldSynchronizeExternalText(
             inlineAttachmentCount: 0,
             plainText: "に",
             externalText: "",
             hasMarkedText: true
         ))
-        #expect(shouldSynchronizeExternalTextToTextBox(
+        #expect(TextBoxInputInteractionPolicy().shouldSynchronizeExternalText(
             inlineAttachmentCount: 0,
             plainText: "に",
             externalText: "",
             hasMarkedText: false
         ))
-        #expect(!shouldSynchronizeExternalTextToTextBox(
+        #expect(!TextBoxInputInteractionPolicy().shouldSynchronizeExternalText(
             inlineAttachmentCount: 1,
             plainText: "に",
             externalText: "",
@@ -124,17 +121,17 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
-        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
+        #expect(!TextBoxInputInteractionPolicy().shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: true
         ))
-        #expect(TextBoxSubmitAvailability.shouldShowPlaceholder(
+        #expect(TextBoxInputInteractionPolicy().shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: false
         ))
-        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
+        #expect(!TextBoxInputInteractionPolicy().shouldShowPlaceholder(
             text: "に",
             attachmentCount: 0,
             hasMarkedText: false
@@ -143,23 +140,23 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
-        #expect(!TextBoxSubmitAvailability.shouldEnableSubmit(
+        #expect(!TextBoxInputInteractionPolicy().shouldEnableSubmit(
             text: "に",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(!TextBoxSubmitAvailability.shouldSubmit(
+        #expect(!TextBoxInputInteractionPolicy().shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(TextBoxSubmitAvailability.shouldEnableSubmit(
+        #expect(TextBoxInputInteractionPolicy().shouldEnableSubmit(
             text: "send",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
-        #expect(TextBoxSubmitAvailability.shouldSubmit(
+        #expect(TextBoxInputInteractionPolicy().shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
@@ -329,15 +326,14 @@ struct TextBoxMentionCompletionTests {
         var translatedKeyCode: UInt16?
         var translatedFlags: NSEvent.ModifierFlags?
 
-        let shortcutKey = textBoxCommandShortcutKey(
-            for: event,
+        let shortcutKey = TextBoxInputInteractionPolicy(
             translateKey: { keyCode, flags in
                 translatedKeyCode = keyCode
                 translatedFlags = flags
                 return "c"
             },
             normalizedCharacters: { _ in "b" }
-        )
+        ).commandShortcutKey(for: event)
 
         #expect(shortcutKey == "c")
         #expect(translatedKeyCode == UInt16(kVK_ANSI_B))
@@ -359,15 +355,14 @@ struct TextBoxMentionCompletionTests {
         var translatedKeyCode: UInt16?
         var translatedFlags: NSEvent.ModifierFlags?
 
-        let shortcutKey = textBoxCommandShortcutKey(
-            for: event,
+        let shortcutKey = TextBoxInputInteractionPolicy(
             translateKey: { keyCode, flags in
                 translatedKeyCode = keyCode
                 translatedFlags = flags
                 return "z"
             },
             normalizedCharacters: { _ in "y" }
-        )
+        ).commandShortcutKey(for: event)
 
         #expect(shortcutKey == "z")
         #expect(translatedKeyCode == UInt16(kVK_ANSI_Y))

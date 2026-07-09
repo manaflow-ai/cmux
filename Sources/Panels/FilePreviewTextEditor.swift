@@ -1,6 +1,7 @@
-import AppKit
-import CmuxFoundation
 import CmuxSettings
+import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -158,7 +159,7 @@ extension SavingTextView {
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
-        textView.applyCurrentPreviewFont()
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -240,13 +241,13 @@ final class SavingTextView: NSTextView {
         installFontMagnificationObserver()
     }
 
-    deinit {}
-
     private func installFontMagnificationObserver() {
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
             self?.applyCurrentPreviewFont()
         }
     }
+
+    deinit {}
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -280,11 +281,11 @@ final class SavingTextView: NSTextView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard FilePreviewInteraction.hasZoomModifier(event) else {
+        guard FilePreviewZoomInteraction.standard.hasZoomModifier(event) else {
             super.scrollWheel(with: event)
             return
         }
-        adjustPreviewFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
+        adjustPreviewFontSize(by: FilePreviewZoomInteraction.standard.zoomFactor(forScroll: event))
     }
 
     override func smartMagnify(with event: NSEvent) {
@@ -297,12 +298,12 @@ final class SavingTextView: NSTextView {
 
     @discardableResult
     func zoomPreviewFontIn() -> Bool {
-        adjustPreviewFontSize(by: FilePreviewInteraction.zoomStep)
+        adjustPreviewFontSize(by: FilePreviewZoomInteraction.standard.step)
     }
 
     @discardableResult
     func zoomPreviewFontOut() -> Bool {
-        adjustPreviewFontSize(by: 1 / FilePreviewInteraction.zoomStep)
+        adjustPreviewFontSize(by: 1 / FilePreviewZoomInteraction.standard.step)
     }
 
     @discardableResult

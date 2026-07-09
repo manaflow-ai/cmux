@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Resolved visibility of the auxiliary detail rows under a sidebar
 /// workspace row (metadata pills, log line, progress, branch/directory,

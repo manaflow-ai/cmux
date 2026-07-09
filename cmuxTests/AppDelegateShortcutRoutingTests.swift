@@ -1,5 +1,11 @@
 import XCTest
+import CMUXAgentLaunch
+import CmuxCommandPaletteUI
+import CmuxFoundation
+import CmuxNotifications
 import CmuxTerminal
+import CmuxWindowing
+import CmuxWorkspaces
 import AppKit
 import Carbon.HIToolbox
 import Combine
@@ -132,32 +138,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     private func ghosttyConfigKeyIsBinding(
-        _ config: ghostty_config_t,
         key: String,
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt32
     ) -> Bool {
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = keyCode
-        keyEvent.mods = ghosttyMods(from: modifiers)
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
-        keyEvent.composing = false
-
-        return key.withCString { ptr in
-            keyEvent.text = ptr
-            return ghostty_config_key_is_binding(config, keyEvent)
+        guard let result = GhosttyApp.shared.debugConfigKeyIsBindingForTesting(
+            key: key,
+            modifiers: modifiers,
+            keyCode: keyCode
+        ) else {
+            XCTFail("Expected loaded Ghostty config")
+            return true
         }
-    }
-
-    private func ghosttyMods(from modifiers: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
-        var rawValue = GHOSTTY_MODS_NONE.rawValue
-        if modifiers.contains(.shift) { rawValue |= GHOSTTY_MODS_SHIFT.rawValue }
-        if modifiers.contains(.control) { rawValue |= GHOSTTY_MODS_CTRL.rawValue }
-        if modifiers.contains(.option) { rawValue |= GHOSTTY_MODS_ALT.rawValue }
-        if modifiers.contains(.command) { rawValue |= GHOSTTY_MODS_SUPER.rawValue }
-        return ghostty_input_mods_e(rawValue: rawValue)
+        return result
     }
 
     override func setUpWithError() throws {
@@ -1365,7 +1358,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
         restoredWorkspace.setCustomTitle("Previous Work")
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_700_000_000,
             windows: [sessionWindowSnapshot(tabManager: restoredManager)]
         )
@@ -1424,7 +1417,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         ))
 
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_700_000_001,
             windows: [sessionWindowSnapshot(tabManager: restoredManager, windowId: oldRestoredWindowId)]
         )
@@ -2451,7 +2444,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         probeWindow.displayIfNeeded()
         XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
 
-        guard let ghosttyConfig = GhosttyApp.shared.config else {
+        guard GhosttyApp.shared.config != nil else {
             XCTFail("Expected loaded Ghostty config")
             return
         }
@@ -2479,7 +2472,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: staleCmdW),
                 "After Close Tab is remapped, Cmd+W must not match the cmux Close Tab action"
             )
-            if ghosttyConfigKeyIsBinding(ghosttyConfig, key: "w", modifiers: [.command], keyCode: 13) {
+            if ghosttyConfigKeyIsBinding(key: "w", modifiers: [.command], keyCode: 13) {
                 XCTFail("After Close Tab is remapped, Ghostty must not retain its super+w close_surface fallback")
                 return
             }
@@ -2533,7 +2526,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // shortcut is driven solely by the configured value. Otherwise a remapped-away ⌘1–9
         // still reaches the focused terminal and switches "tabs", making the rebind look
         // hardcoded.
-        guard let ghosttyConfig = GhosttyApp.shared.config else {
+        guard GhosttyApp.shared.config != nil else {
             XCTFail("Expected loaded Ghostty config")
             return
         }
@@ -2553,7 +2546,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         for (digit, keyCode) in digitKeyCodes {
             XCTAssertFalse(
                 ghosttyConfigKeyIsBinding(
-                    ghosttyConfig,
                     key: digit,
                     modifiers: [.command],
                     keyCode: keyCode
@@ -2889,7 +2881,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let mainWorkspaceCount = manager.tabs.count
         // The same window shape MobilePairingWindowController creates, keyed by
         // the same identifier constant, so this test fails if the pairing
-        // window's identifier ever drops out of cmuxAuxiliaryWindowIdentifiers
+        // window's identifier ever drops out of AuxiliaryWindowRegistry.default
         // (the regression: Cmd+W on "Pair iPhone" closed a terminal tab in the
         // main window behind it instead of the pairing window).
         let pairingWindow = NSWindow(
@@ -4140,7 +4132,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+              workspace.browserPanel(for: browserPanelId) != nil else {
             XCTFail("Expected focused browser panel")
             return
         }
@@ -8109,33 +8101,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             attachmentCount: 0
         )
 
-        XCTAssertTrue(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertTrue(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 4,
                 text: "",
                 attachmentCount: 0
             )
         ))
-        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertFalse(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 4,
                 text: "new draft",
                 attachmentCount: 0
             )
         ))
-        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertFalse(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 4,
                 text: "",
                 attachmentCount: 1
             )
         ))
-        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertFalse(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 5,
                 text: "",
                 attachmentCount: 0
@@ -9353,18 +9341,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         let fileURL = try makeTemporaryPNGFile(named: "moon.png")
 
+        let restorationGuard = TextBoxPasteboardRestorationGuard(
+            fileURLReader: PasteboardServiceFileURLReader()
+        )
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
-        let token = TextBoxPasteboardRestorationGuard.token(
+        let token = restorationGuard.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
-        XCTAssertTrue(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
+        XCTAssertTrue(restorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
 
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
 
-        XCTAssertFalse(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
+        XCTAssertFalse(restorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
     }
 
     func testTextBoxPasteboardRestorationAllowsSameTemporaryFileAfterChangeCountAdvance() throws {
@@ -9375,9 +9366,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         let fileURL = try makeTemporaryPNGFile(named: "moon.png")
 
+        let restorationGuard = TextBoxPasteboardRestorationGuard(
+            fileURLReader: PasteboardServiceFileURLReader()
+        )
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
-        let token = TextBoxPasteboardRestorationGuard.token(
+        let token = restorationGuard.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
@@ -9387,7 +9381,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TextBoxPasteboardRestorationGuard.shouldRestore(
+            restorationGuard.shouldRestore(
                 pasteboard: pasteboard,
                 token: staleChangeCountToken
             )
@@ -9403,14 +9397,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let firstURL = try makeTemporaryPNGFile(named: "moon.png")
         let secondURL = try makeTemporaryPNGFile(named: "sun.png")
 
+        let restorationGuard = TextBoxPasteboardRestorationGuard(
+            fileURLReader: PasteboardServiceFileURLReader()
+        )
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL]))
-        let firstToken = TextBoxPasteboardRestorationGuard.token(
+        let firstToken = restorationGuard.token(
             afterWritingTemporaryFileURL: firstURL,
             to: pasteboard
         )
         XCTAssertTrue(
-            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            restorationGuard.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
                 token: firstToken
             )
@@ -9419,7 +9416,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
         XCTAssertFalse(
-            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            restorationGuard.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
                 token: firstToken
             )
@@ -9428,12 +9425,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([secondURL as NSURL]))
-        let secondToken = TextBoxPasteboardRestorationGuard.token(
+        let secondToken = restorationGuard.token(
             afterWritingTemporaryFileURL: secondURL,
             to: pasteboard
         )
         XCTAssertTrue(
-            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            restorationGuard.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
                 token: secondToken
             )
@@ -9689,17 +9686,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTextBoxPlainArrowsDeferDuringIMEComposition() {
-        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertFalse(TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: true,
             flags: []
         ))
-        XCTAssertTrue(shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertTrue(TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: false,
             flags: []
         ))
-        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertFalse(TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: false,
             flags: [.command]
@@ -10442,7 +10439,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_700_000_000,
             windows: [
                 sessionWindowSnapshot(tabManager: firstManager),
@@ -10807,7 +10804,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -10909,7 +10905,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,

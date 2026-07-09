@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteWorkspace
 
 extension RemoteTmuxWindowMirror {
 

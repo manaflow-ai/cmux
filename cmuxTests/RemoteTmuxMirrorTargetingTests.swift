@@ -37,7 +37,7 @@ struct RemoteTmuxMirrorTargetingTests {
         let manager = TabManager()
         let host = RemoteTmuxHost(destination: "user@host")
         cacheConnection(controller: controller, host: host, sessionName: "old")
-        try controller.mirrorSession(host: host, sessionName: "old", into: manager)
+        try controller.mirrorSessionForTesting(host: host, sessionName: "old", into: manager)
 
         let sessions = [session("old"), session("new")]
         #expect(controller.unmirroredSessions(sessions, host: host).map(\.name) == ["new"])
@@ -93,7 +93,7 @@ struct RemoteTmuxMirrorTargetingTests {
         let manager = TabManager()
         let host = RemoteTmuxHost(destination: "user@host")
         cacheConnection(controller: controller, host: host, sessionName: "old")
-        try controller.mirrorSession(host: host, sessionName: "old", sessionId: 3, into: manager)
+        try controller.mirrorSessionForTesting(host: host, sessionName: "old", sessionId: 3, into: manager)
 
         // Renamed remotely before %session-changed re-keys: same $3, new name —
         // the discovery-seeded id must prevent a duplicate mirror.
@@ -108,10 +108,10 @@ struct RemoteTmuxMirrorTargetingTests {
         let host = RemoteTmuxHost(destination: "user@host")
         cacheConnection(controller: controller, host: host, sessionName: "old")
         cacheConnection(controller: controller, host: host, sessionName: "new")
-        try controller.mirrorSession(host: host, sessionName: "old", into: manager)
+        try controller.mirrorSessionForTesting(host: host, sessionName: "old", into: manager)
 
-        controller.mirrorSessions([session("old"), session("new")], host: host, into: manager)
-        controller.mirrorSessions([session("old"), session("new")], host: host, into: manager)
+        controller.mirrorSessionsForTesting([session("old"), session("new")], host: host, into: manager)
+        controller.mirrorSessionsForTesting([session("old"), session("new")], host: host, into: manager)
 
         let mirrorTitles = manager.tabs
             .filter(\.isRemoteTmuxMirror)

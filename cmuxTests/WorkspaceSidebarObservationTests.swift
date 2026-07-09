@@ -50,11 +50,13 @@ struct WorkspaceSidebarObservationTests {
         )
 
         let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
-        var workspaceWillChangeCount = 0
-        let objectWillChangeCancellable = workspace.objectWillChange.sink {
-            workspaceWillChangeCount += 1
+        let unrelatedWorkspaceChangeFlag = ObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.currentDirectory
+            _ = workspace.panels.count
+        } onChange: {
+            unrelatedWorkspaceChangeFlag.mark()
         }
-        defer { objectWillChangeCancellable.cancel() }
 
         workspace.recordAgentPID(
             key: "codex.session-b",
@@ -72,8 +74,8 @@ struct WorkspaceSidebarObservationTests {
             "Agent PID ownership changes must notify the sidebar row runtime observation stream."
         )
         #expect(
-            workspaceWillChangeCount == 0,
-            "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
+            unrelatedWorkspaceChangeFlag.fired == false,
+            "Agent PID ownership is sidebar presentation state and must not invalidate unrelated Workspace observations."
         )
     }
 

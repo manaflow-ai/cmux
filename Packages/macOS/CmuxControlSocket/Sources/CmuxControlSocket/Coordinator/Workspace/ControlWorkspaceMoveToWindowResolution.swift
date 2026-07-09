@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of `workspace.move_to_window`, preserving the legacy body's three
 /// distinct failures and the success echo. The coordinator has already

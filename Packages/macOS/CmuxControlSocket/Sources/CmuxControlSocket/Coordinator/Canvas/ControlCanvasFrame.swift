@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// A pane frame in canvas coordinates (top-left origin, y grows downward),
 /// crossing the canvas-domain seam in both directions.

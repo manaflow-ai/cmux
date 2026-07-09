@@ -42,7 +42,7 @@ extension TerminalController {
                 }
                 return (fallbackTabManager, workspace, explicitSurfaceId)
             }
-            if let located = AppDelegate.shared?.locateSurface(surfaceId: explicitSurfaceId),
+            if let located = appEnvironment?.windowRegistry.locateSurface(surfaceId: explicitSurfaceId),
                let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
                workspace.terminalPanel(for: explicitSurfaceId) != nil {
                 return (located.tabManager, workspace, explicitSurfaceId)
@@ -92,9 +92,10 @@ extension TerminalController {
     private func surfaceResumeBindingWithApproval(
         _ binding: SurfaceResumeBindingSnapshot
     ) -> SurfaceResumeBindingSnapshot {
-        let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
-        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
-        if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+        let approvalStore = SurfaceResumeApprovalStore()
+        let existingRecord = approvalStore.matchingRecord(for: binding)
+        var effectiveBinding = approvalStore.applyingStoredApproval(to: binding)
+        if let promptlessCLIManualBinding = approvalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
             existingRecord: existingRecord
         ) {
@@ -109,10 +110,10 @@ extension TerminalController {
             return effectiveBinding
         }
         let policy = surfacePromptForResumeApproval(binding: effectiveBinding)
-        guard let record = SurfaceResumeApprovalStore.approve(binding: binding, policy: policy) else {
+        guard let record = approvalStore.approve(binding: binding, policy: policy) else {
             return effectiveBinding
         }
-        effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        effectiveBinding = approvalStore.applyingStoredApproval(to: binding)
         effectiveBinding.approvalPolicy = record.policy
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto
@@ -271,11 +272,11 @@ extension TerminalController {
     // MARK: - token parsers
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? {
-        Self.parseReportedShellActivityState(rawState)?.rawValue
+        PanelShellActivityState.parseReported(rawState)?.rawValue
     }
 
     nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? {
-        Self.parseRemotePortScanKickReason(rawReason)?.rawValue
+        PortScanKickReason.parseReported(rawReason)?.rawValue
     }
 
     // MARK: - report_tty
@@ -368,8 +369,8 @@ extension TerminalController {
                 state: state.rawValue
             )
             if shouldPublish {
-                DispatchQueue.main.async {
-                    guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else { return }
+                DispatchQueue.main.async { [weak self] in
+                    guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID) else { return }
                     tabManager.updateSurfaceShellActivity(
                         tabId: workspaceID,
                         surfaceId: requestedSurfaceID,
@@ -391,7 +392,7 @@ extension TerminalController {
                 validSurfaceIds: validSurfaceIds
             )
             guard let surfaceId, validSurfaceIds.contains(surfaceId) else { return }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
+            guard let tabManager = self.appEnvironment?.windowRegistry.tabManagerFor(tabId: tab.id) else { return }
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
         return .pending
@@ -443,7 +444,7 @@ extension TerminalController {
         if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
             return tab
         }
-        if let otherManager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+        if let otherManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: id) {
             return otherManager.tabs.first(where: { $0.id == id })
         }
         return nil

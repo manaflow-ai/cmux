@@ -1,13 +1,13 @@
-import CmuxFoundation
+import CmuxSettings
 import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
     @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
     @AppStorage(PhonePushSettings.forwardModeKey) private var forwardToPhoneMode = PhoneForwardingMode.defaultMode.rawValue
@@ -30,23 +30,18 @@ struct NotificationsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
+        .onChange(of: notificationStore.notifications.first?.id) { _, _ in
             setInitialFocus()
         }
     }
 
     private var notificationsList: some View {
-        // Build one tabId -> title index per render instead of an O(tabs) lookup
-        // for every notification row. Constructing the ForEach then costs
-        // O(rows + tabs) rather than O(rows × tabs), which matters when many
-        // notifications accumulate (issue #5794).
-        let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
-        return ScrollView {
+        ScrollView {
             LazyVStack(spacing: 8) {
                 ForEach(notificationStore.notifications) { notification in
                     NotificationRow(
                         notification: notification,
-                        tabTitle: tabTitle(for: notification.tabId, in: tabTitles),
+                        tabTitle: tabTitle(for: notification.tabId),
                         isFocused: focusedNotificationId == notification.id,
                         onOpen: {
                             // SwiftUI action closures aren't guaranteed to be main-actor
@@ -91,7 +86,7 @@ struct NotificationsPage: View {
     private var header: some View {
         HStack {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .cmuxFont(.title2)
+                .font(.title2)
                 .fontWeight(.semibold)
 
             Spacer()
@@ -115,7 +110,7 @@ struct NotificationsPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
                     Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."))
-                        .cmuxFont(.caption)
+                        .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
@@ -132,17 +127,17 @@ struct NotificationsPage: View {
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
-                    .cmuxFont(.caption)
+                    .font(.caption)
                     if forwardToPhoneMode == PhoneForwardingMode.onlyWhenAway.rawValue {
                         Text(awayModeExplanation)
-                            .cmuxFont(.caption)
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
                 .padding(.leading, 20)
                 Toggle(isOn: $hidePhoneNotificationContent) {
                     Text(String(localized: "notifications.forwardToPhone.hideContent", defaultValue: "Hide content (send a generic message instead of the terminal text)"))
-                        .cmuxFont(.caption)
+                        .font(.caption)
                 }
                 .padding(.leading, 20)
             }
@@ -161,12 +156,13 @@ struct NotificationsPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32)
+            Image(systemName: "bell.slash")
+                .font(.system(size: 32))
                 .foregroundColor(.secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
-                .cmuxFont(.headline)
+                .font(.headline)
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
-                .cmuxFont(.subheadline)
+                .font(.subheadline)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -174,10 +170,11 @@ struct NotificationsPage: View {
 
     private var workspaceUnreadIndicatorState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32)
+            Image(systemName: "bell.badge")
+                .font(.system(size: 32))
                 .foregroundColor(.secondary)
             Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
-                .cmuxFont(.headline)
+                .font(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -190,7 +187,7 @@ struct NotificationsPage: View {
             }) {
                 HStack(spacing: 6) {
                     Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
-                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                    ShortcutAnnotation(text: ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
                 }
             }
             .buttonStyle(.bordered)
@@ -203,7 +200,7 @@ struct NotificationsPage: View {
             }) {
                 HStack(spacing: 6) {
                     Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
-                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                    ShortcutAnnotation(text: ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
                 }
             }
             .buttonStyle(.bordered)
@@ -217,8 +214,8 @@ struct NotificationsPage: View {
         return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
     }
 
-    private func tabTitle(for tabId: UUID, in tabTitles: [UUID: String]) -> String? {
-        tabTitles[tabId] ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    private func tabTitle(for tabId: UUID) -> String? {
+        AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
     }
 
     private var hasUnreadNotifications: Bool {
@@ -241,7 +238,7 @@ struct ShortcutAnnotation: View {
 
     private var badge: some View {
         Text(text)
-            .cmuxFont(size: 10, weight: .semibold, design: .rounded)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -256,10 +253,8 @@ struct NotificationRow: View, Equatable {
     // Closures and the focus binding are recreated by the parent on every render
     // and excluded from ==. Equality compares only the value snapshot the row
     // actually renders, so `.equatable()` can suppress body re-evaluation for
-    // rows whose snapshot is unchanged (snapshot-boundary rule, CLAUDE.md /
-    // issue #2586). `isFocused` is passed in (rather than read from the binding
-    // inside the row) precisely so it participates in equality — otherwise a
-    // focus change would leave the default-action shortcut on a stale row.
+    // rows whose snapshot is unchanged (snapshot-boundary rule, issue #2586).
+    // `isFocused` is passed in so focus changes participate in equality.
     nonisolated static func == (lhs: NotificationRow, rhs: NotificationRow) -> Bool {
         lhs.notification == rhs.notification &&
             lhs.tabTitle == rhs.tabTitle &&
@@ -289,24 +284,24 @@ struct NotificationRow: View, Equatable {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(notification.title)
-                                .cmuxFont(.headline)
+                                .font(.headline)
                                 .foregroundColor(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                .cmuxFont(.caption)
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
-                                .cmuxFont(.subheadline)
+                                .font(.subheadline)
                                 .foregroundColor(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
-                                .cmuxFont(.caption)
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -324,13 +319,10 @@ struct NotificationRow: View, Equatable {
             .modifier(DefaultActionModifier(isActive: isFocused))
 
             Button(action: onClear) {
-                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14)
+                Image(systemName: "xmark.circle.fill")
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
-            // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
-            // description, so the icon-only button needs an explicit label (the prior
-            // SwiftUI system-symbol path used to supply one implicitly).
             .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         }
         .padding(12)

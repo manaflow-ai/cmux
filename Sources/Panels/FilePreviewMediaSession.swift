@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import CmuxAppKitSupportUI
 import Foundation
 
 @MainActor
@@ -76,7 +77,7 @@ final class FilePreviewMediaSession {
         drawsBackground: Bool
     ) {
         view.isHidden = !isVisibleInUI
-        FilePreviewNativeBackground.applyRootLayer(
+        FilePreviewNativeBackground().applyRootLayer(
             to: view,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground

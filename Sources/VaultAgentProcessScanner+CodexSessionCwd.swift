@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import SQLite3
 
 final class CodexSessionCwdLookupCache {
@@ -46,13 +47,18 @@ final class CodexSessionCwdLookupCache {
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
         guard sqlite3_step(stmt) == SQLITE_ROW,
-              let cwd = normalizedCodexCwdValue(SessionIndexStore.sqliteText(stmt, 0)) else {
+              let cwd = normalizedCodexCwdValue(sqliteText(stmt, 0)) else {
             // updateValue stores .some(nil); subscript nil-assignment would remove the key.
             cwdByDatabaseAndSession.updateValue(nil, forKey: cacheKey)
             return nil
         }
         cwdByDatabaseAndSession[cacheKey] = cwd
         return cwd
+    }
+
+    private func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+        guard let cString = sqlite3_column_text(stmt, index) else { return nil }
+        return String(cString: cString)
     }
 
     private func normalizedCodexCwdValue(_ value: String?) -> String? {

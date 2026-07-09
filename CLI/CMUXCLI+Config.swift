@@ -597,7 +597,7 @@ extension CMUXCLI {
                     byteCount: 0
                 )
             }
-            let sanitized = try JSONCParser.preprocess(data: data)
+            let sanitized = try data.jsoncPreprocessed()
             let object = try JSONSerialization.jsonObject(with: sanitized)
             guard let dictionary = object as? [String: Any] else {
                 return ConfigDoctorFinding(

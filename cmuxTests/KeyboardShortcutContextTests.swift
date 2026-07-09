@@ -108,7 +108,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let commandR = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
         KeyboardShortcutSettings.clearShortcut(for: .renameTab)
 
-        KeyboardShortcutSettings.swapShortcutConflict(
+        _ = KeyboardShortcutSettings.swapShortcutConflict(
             proposedShortcut: commandR,
             currentAction: .renameTab,
             conflictingAction: .browserReload,
@@ -494,20 +494,18 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), remappedShortcut)
         XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBack).titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
         )
-        XCTAssertTrue(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip("Focus Back").contains(remappedShortcut.displayString))
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip("Focus Back").contains(ShortcutDisplayFormatter().displayString(remappedShortcut)))
 
         KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), .unbound)
         XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBack).titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )

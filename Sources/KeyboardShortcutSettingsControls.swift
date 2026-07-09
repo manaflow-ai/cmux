@@ -1,3 +1,4 @@
+import CmuxSettings
 import SwiftUI
 
 struct ShortcutRecorderValidationPresentation: Equatable {
@@ -181,7 +182,7 @@ struct ShortcutRecorderSettingsControl: View {
     let action: KeyboardShortcutSettings.Action
     @Binding var shortcut: StoredShortcut
     var subtitle: String? = nil
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var displayString: (StoredShortcut) -> String = { ShortcutDisplayFormatter().displayString($0) }
     var isDisabled: Bool = false
 
     @State private var rejectedAttempt: ShortcutRecorderRejectedAttempt?

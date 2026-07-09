@@ -31,7 +31,7 @@ struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
 final class RendererRealizationController {
     static let shared = RendererRealizationController()
 
-    private let timerQueue = DispatchQueue(label: "com.cmux.renderer-realization", qos: .utility)
+    private let timerQueue = DispatchQueue.main
     private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
@@ -82,7 +82,7 @@ final class RendererRealizationController {
         timer.schedule(deadline: .now() + 10, repeating: 20)
         timer.setEventHandler {
             let now = Date()
-            Task { @MainActor in
+            let _: Void = MainActor.assumeIsolated {
                 RendererRealizationController.shared.evaluate(now: now)
             }
         }

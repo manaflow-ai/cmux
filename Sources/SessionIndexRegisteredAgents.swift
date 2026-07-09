@@ -1,227 +1,6 @@
+import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
-
-struct GrokSessionRoot: Sendable, Hashable {
-    let sessionsRoot: String
-    let grokHomeForResume: String?
-}
-
-private struct GrokHookObservedSessionStoreFile: Decodable {
-    var sessions: [String: GrokHookObservedSessionRecord]
-
-    private enum CodingKeys: String, CodingKey {
-        case sessions
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessions = try container.decodeIfPresent(
-            [String: GrokHookObservedSessionRecord].self,
-            forKey: .sessions
-        ) ?? [:]
-    }
-}
-
-private struct GrokHookObservedSessionRecord: Decodable {
-    var launchCommand: GrokHookObservedLaunchCommand?
-}
-
-private struct GrokHookObservedLaunchCommand: Decodable {
-    var environment: [String: String]?
-}
-
-enum GrokSessionLocator {
-    static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
-        let standardizedHome = expandTilde(homeDirectory, homeDirectory: homeDirectory)
-        return ((standardizedHome as NSString).appendingPathComponent(".grok") as NSString)
-            .appendingPathComponent("sessions")
-    }
-
-    static func encodedSessionCWD(_ cwd: String) -> String {
-        var encoded = ""
-        for byte in cwd.utf8 {
-            let isUnreserved = (byte >= 0x41 && byte <= 0x5A)
-                || (byte >= 0x61 && byte <= 0x7A)
-                || (byte >= 0x30 && byte <= 0x39)
-                || byte == 0x2D
-                || byte == 0x2E
-                || byte == 0x5F
-                || byte == 0x7E
-            if isUnreserved {
-                encoded.append(Character(UnicodeScalar(byte)))
-            } else {
-                encoded.append(String(format: "%%%02X", byte))
-            }
-        }
-        return encoded
-    }
-
-    static func workingDirectory(fromProjectDirectoryName name: String) -> String? {
-        let decoded = name.removingPercentEncoding ?? name
-        return normalizedWorkingDirectory(decoded)
-    }
-
-    static func normalizedWorkingDirectory(_ value: String?) -> String? {
-        let trimmed = normalized(value)
-        return trimmed.map { ($0 as NSString).standardizingPath }
-    }
-
-    static func encodedSessionCWDs(for cwd: String) -> [String] {
-        guard let rawCwd = normalized(cwd) else {
-            return []
-        }
-        var seen = Set<String>()
-        return [rawCwd, (rawCwd as NSString).standardizingPath]
-            .map(encodedSessionCWD)
-            .filter { seen.insert($0).inserted }
-    }
-
-    static func sessionRoot(
-        registration: CmuxVaultAgentRegistration,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: String = NSHomeDirectory()
-    ) -> GrokSessionRoot {
-        let rawRoot: String
-        let configuredRoot = normalized(registration.sessionDirectory)
-        let configuredIsDefault = configuredRoot.map {
-            expandTilde($0, homeDirectory: homeDirectory)
-                == (defaultSessionsRoot(homeDirectory: homeDirectory) as NSString).standardizingPath
-        } ?? false
-        if let grokHome = normalized(environment["GROK_HOME"]),
-           configuredRoot == nil || configuredIsDefault {
-            rawRoot = (grokHome as NSString).appendingPathComponent("sessions")
-        } else if let configured = configuredRoot {
-            rawRoot = configured
-        } else {
-            rawRoot = defaultSessionsRoot(homeDirectory: homeDirectory)
-        }
-        let sessionsRoot = expandTilde(rawRoot, homeDirectory: homeDirectory)
-        let grokHome = grokHomeForResume(
-            sessionsRoot: sessionsRoot,
-            defaultSessionsRoot: defaultSessionsRoot(homeDirectory: homeDirectory)
-        )
-        return GrokSessionRoot(sessionsRoot: sessionsRoot, grokHomeForResume: grokHome)
-    }
-
-    static func sessionRoots(
-        registration: CmuxVaultAgentRegistration,
-        cwdFilter: String?,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: String = NSHomeDirectory(),
-        observedGrokHomes: [String] = []
-    ) -> [GrokSessionRoot] {
-        let root = sessionRoot(
-            registration: registration,
-            environment: environment,
-            homeDirectory: homeDirectory
-        )
-        var roots = [root]
-        if registrationUsesDefaultGrokRoot(registration: registration, homeDirectory: homeDirectory) {
-            for grokHome in observedGrokHomes {
-                guard let candidate = sessionRoot(
-                    grokHome: grokHome,
-                    homeDirectory: homeDirectory
-                ) else {
-                    continue
-                }
-                roots.append(candidate)
-            }
-            roots = deduplicatedSessionRoots(roots)
-        }
-        guard let cwdFilter = normalized(cwdFilter) else {
-            return roots
-        }
-        let scopedRoots = roots.flatMap { root in
-            encodedSessionCWDs(for: cwdFilter).map { encodedCwd in
-                let scopedRoot = (root.sessionsRoot as NSString).appendingPathComponent(encodedCwd)
-                return GrokSessionRoot(sessionsRoot: scopedRoot, grokHomeForResume: root.grokHomeForResume)
-            }
-        }
-        return deduplicatedSessionRoots(scopedRoots)
-    }
-
-    static func observedGrokHomes(
-        homeDirectory: String = NSHomeDirectory(),
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
-    ) -> [String] {
-        let storeURL = RestorableAgentKind.grok.hookStoreFileURL(
-            homeDirectory: homeDirectory,
-            environment: environment
-        )
-        guard fileManager.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
-            return []
-        }
-
-        var seen = Set<String>()
-        var homes: [String] = []
-        for record in state.sessions.values {
-            guard let rawHome = normalized(record.launchCommand?.environment?["GROK_HOME"]) else {
-                continue
-            }
-            let home = expandTilde(rawHome, homeDirectory: homeDirectory)
-            guard seen.insert(home).inserted else { continue }
-            homes.append(home)
-        }
-        return homes
-    }
-
-    private static func grokHomeForResume(sessionsRoot: String, defaultSessionsRoot: String) -> String? {
-        let standardizedRoot = (sessionsRoot as NSString).standardizingPath
-        let standardizedDefault = (defaultSessionsRoot as NSString).standardizingPath
-        guard standardizedRoot != standardizedDefault else { return nil }
-        guard (standardizedRoot as NSString).lastPathComponent == "sessions" else { return nil }
-        return (standardizedRoot as NSString).deletingLastPathComponent
-    }
-
-    private static func sessionRoot(grokHome: String, homeDirectory: String) -> GrokSessionRoot? {
-        guard let normalizedHome = normalized(grokHome) else { return nil }
-        let expandedHome = expandTilde(normalizedHome, homeDirectory: homeDirectory)
-        let sessionsRoot = (expandedHome as NSString).appendingPathComponent("sessions")
-        let grokHome = grokHomeForResume(
-            sessionsRoot: sessionsRoot,
-            defaultSessionsRoot: defaultSessionsRoot(homeDirectory: homeDirectory)
-        )
-        return GrokSessionRoot(sessionsRoot: sessionsRoot, grokHomeForResume: grokHome)
-    }
-
-    private static func registrationUsesDefaultGrokRoot(
-        registration: CmuxVaultAgentRegistration,
-        homeDirectory: String
-    ) -> Bool {
-        guard let configuredRoot = normalized(registration.sessionDirectory) else {
-            return true
-        }
-        let expandedConfigured = expandTilde(configuredRoot, homeDirectory: homeDirectory)
-        let expandedDefault = (defaultSessionsRoot(homeDirectory: homeDirectory) as NSString).standardizingPath
-        return expandedConfigured == expandedDefault
-    }
-
-    private static func deduplicatedSessionRoots(_ roots: [GrokSessionRoot]) -> [GrokSessionRoot] {
-        var seen = Set<String>()
-        return roots.filter { root in
-            seen.insert((root.sessionsRoot as NSString).standardizingPath).inserted
-        }
-    }
-
-    private static func expandTilde(_ path: String, homeDirectory: String) -> String {
-        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
-        if path == "~" {
-            return home
-        }
-        if path.hasPrefix("~/") {
-            let suffix = String(path.dropFirst(2))
-            return ((home as NSString).appendingPathComponent(suffix) as NSString).standardizingPath
-        }
-        return ((path as NSString).expandingTildeInPath as NSString).standardizingPath
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-}
 
 extension SessionIndexStore {
     private struct RegisteredAgentJSONLMetadata {
@@ -258,16 +37,17 @@ extension SessionIndexStore {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> [SessionEntry] {
-        let observedGrokHomes = GrokSessionLocator.observedGrokHomes(
-            homeDirectory: homeDirectory,
-            environment: environment,
+        let locator = GrokSessionLocator(homeDirectory: homeDirectory, environment: environment)
+        let observedGrokHomes = locator.observedGrokHomes(
+            hookStoreFileURL: RestorableAgentKind.grok.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            ),
             fileManager: fileManager
         )
-        let roots = GrokSessionLocator.sessionRoots(
-            registration: registration,
+        let roots = locator.sessionRoots(
+            sessionDirectory: registration.sessionDirectory,
             cwdFilter: cwdFilter,
-            environment: environment,
-            homeDirectory: homeDirectory,
             observedGrokHomes: observedGrokHomes
         )
         guard !roots.isEmpty else { return [] }
@@ -474,6 +254,7 @@ extension SessionIndexStore {
         guard !roots.isEmpty else { return [] }
 
         let fm = FileManager.default
+        let metadataReader = SessionJSONLMetadataReader()
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
 
         for root in roots {
@@ -488,16 +269,16 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
+            historyURL.forEachJSONLine(maxBytes: Int.max) { object in
                 if Task.isCancelled { return true }
-                guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
+                guard let sessionId = RovoDevMetadataFields.firstString(from: object, keys: antigravitySessionIDKeys()) else {
                     return false
                 }
-                let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+                let cwd = RovoDevMetadataFields.firstString(from: object, keys: registeredJSONLCWDKeys())
                 if let cwdFilter, cwd != cwdFilter { return false }
 
-                let title = antigravityHistoryTitle(in: object) ?? ""
-                guard antigravityHistoryMatchesNeedle(
+                let title = metadataReader.antigravityHistoryTitle(in: object) ?? ""
+                guard metadataReader.antigravityHistoryMatchesNeedle(
                     needle: needle,
                     sessionId: sessionId,
                     title: title,
@@ -506,7 +287,7 @@ extension SessionIndexStore {
                     return false
                 }
 
-                let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
+                let modified = metadataReader.antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
                 let metadata = AntigravityHistoryMetadata(
                     sessionId: sessionId,
                     title: title,
@@ -554,7 +335,8 @@ extension SessionIndexStore {
         cwdFilter: String?
     ) -> [String] {
         if case .grokSessionDirectory = registration.sessionIdSource {
-            return GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
+            return GrokSessionLocator()
+                .sessionRoots(sessionDirectory: registration.sessionDirectory, cwdFilter: cwdFilter)
                 .map(\.sessionsRoot)
         }
         guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
@@ -629,35 +411,36 @@ extension SessionIndexStore {
 
     nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
         var metadata = GrokSessionMetadata()
+        let metadataReader = SessionJSONLMetadataReader()
         var remainingBranchProbeLines: Int?
-        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+        url.forEachJSONLine(maxBytes: 512 * 1024) { object in
             if metadata.title.isEmpty {
-                metadata.title = grokTitle(in: object) ?? ""
+                metadata.title = metadataReader.grokTitle(in: object) ?? ""
             }
             if metadata.model == nil {
-                metadata.model = firstString(in: object, keys: ["model", "modelId", "modelID", "model_id"])
-                    ?? firstString(
-                        in: object["message"] as? [String: Any] ?? [:],
+                metadata.model = RovoDevMetadataFields.firstString(from: object, keys: ["model", "modelId", "modelID", "model_id"])
+                    ?? RovoDevMetadataFields.firstString(
+                        from: object["message"] as? [String: Any] ?? [:],
                         keys: ["model", "modelId", "modelID", "model_id"]
                     )
             }
             if metadata.permissionMode == nil {
-                metadata.permissionMode = firstString(
-                    in: object,
+                metadata.permissionMode = RovoDevMetadataFields.firstString(
+                    from: object,
                     keys: ["permissionMode", "permission_mode", "approvalPolicy", "approval_policy"]
                 )
             }
             if metadata.sandboxMode == nil {
-                metadata.sandboxMode = firstString(
-                    in: object,
+                metadata.sandboxMode = RovoDevMetadataFields.firstString(
+                    from: object,
                     keys: ["sandboxMode", "sandbox_mode", "sandbox"]
                 )
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
-                metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
+                metadata.branch = RovoDevMetadataFields.firstString(from: git, keys: ["branch", "gitBranch"])
             }
             if metadata.branch == nil {
-                metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
+                metadata.branch = RovoDevMetadataFields.firstString(from: object, keys: ["gitBranch", "branch"])
             }
             let hasStableMetadata = !metadata.title.isEmpty
                 && metadata.model != nil
@@ -677,6 +460,7 @@ extension SessionIndexStore {
         fallbackCWD: String?
     ) -> RegisteredAgentJSONLMetadata {
         var metadata = RegisteredAgentJSONLMetadata()
+        let metadataReader = SessionJSONLMetadataReader()
         let needsNativeSessionID: Bool
         switch registration.sessionIdSource {
         case .argvOption:
@@ -684,31 +468,31 @@ extension SessionIndexStore {
         case .piSessionFile, .grokSessionDirectory:
             needsNativeSessionID = false
         }
-        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+        url.forEachJSONLine(maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
-                metadata.sessionId = firstString(in: object, keys: registeredJSONLSessionIDKeys())
+                metadata.sessionId = RovoDevMetadataFields.firstString(from: object, keys: registeredJSONLSessionIDKeys())
             }
             if metadata.cwd == nil {
-                metadata.cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+                metadata.cwd = RovoDevMetadataFields.firstString(from: object, keys: registeredJSONLCWDKeys())
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
-                metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
+                metadata.branch = RovoDevMetadataFields.firstString(from: git, keys: ["branch", "gitBranch"])
             }
             if metadata.branch == nil {
-                metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
+                metadata.branch = RovoDevMetadataFields.firstString(from: object, keys: ["gitBranch", "branch"])
             }
             if metadata.title.isEmpty {
-                metadata.title = firstTopLevelTitle(in: object) ?? ""
+                metadata.title = metadataReader.firstTopLevelTitle(in: object) ?? ""
             }
             if metadata.title.isEmpty, let message = object["message"] as? [String: Any] {
-                if shouldUseMessageAsTitle(message) {
-                    metadata.title = firstText(in: message, keys: ["content", "text"]) ?? ""
+                if metadataReader.shouldUseMessageAsTitle(message) {
+                    metadata.title = metadataReader.firstText(in: message, keys: ["content", "text"]) ?? ""
                 }
             }
             if metadata.title.isEmpty, let messages = object["messages"] as? [[String: Any]] {
                 metadata.title = messages.compactMap { message in
-                    shouldUseMessageAsTitle(message)
-                        ? firstText(in: message, keys: ["content", "text"])
+                    metadataReader.shouldUseMessageAsTitle(message)
+                        ? metadataReader.firstText(in: message, keys: ["content", "text"])
                         : nil
                 }.first ?? ""
             }
@@ -735,45 +519,6 @@ extension SessionIndexStore {
         ["conversationId", "conversation_id", "sessionId", "session_id", "id"]
     }
 
-    nonisolated private static func antigravityHistoryTitle(in object: [String: Any]) -> String? {
-        firstText(in: object, keys: ["title", "prompt", "display"])
-            ?? firstTopLevelTitle(in: object)
-    }
-
-    nonisolated private static func antigravityHistoryMatchesNeedle(
-        needle: String,
-        sessionId: String,
-        title: String,
-        cwd: String?
-    ) -> Bool {
-        guard !needle.isEmpty else { return true }
-        return [sessionId, title, cwd ?? ""].contains { value in
-            value.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-        }
-    }
-
-    nonisolated private static func antigravityHistoryModifiedDate(
-        in object: [String: Any],
-        fallback: Date
-    ) -> Date {
-        guard let timestamp = antigravityNumericTimestamp(object["timestamp"]) else {
-            return fallback
-        }
-        let seconds = timestamp > 10_000_000_000 ? timestamp / 1_000 : timestamp
-        guard seconds.isFinite, seconds > 0 else { return fallback }
-        return Date(timeIntervalSince1970: seconds)
-    }
-
-    nonisolated private static func antigravityNumericTimestamp(_ value: Any?) -> Double? {
-        if let number = value as? NSNumber {
-            return number.doubleValue
-        }
-        if let string = value as? String {
-            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return nil
-    }
-
     nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {
         guard !needle.isEmpty,
               let handle = try? FileHandle(forReadingFrom: url) else {
@@ -797,134 +542,6 @@ extension SessionIndexStore {
             carry = buffer.count > overlapLimit ? Data(buffer.suffix(overlapLimit)) : buffer
         }
         return false
-    }
-
-    nonisolated private static func firstString(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] as? String else { continue }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return nil
-    }
-
-    nonisolated private static func firstText(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let text = firstTextValue(object[key]) else { continue }
-            return text
-        }
-        return nil
-    }
-
-    nonisolated private static func firstTopLevelTitle(in object: [String: Any]) -> String? {
-        if let title = firstText(in: object, keys: ["title", "prompt"]) {
-            return title
-        }
-        guard shouldUseMessageAsTitle(object) else { return nil }
-        return firstText(in: object, keys: ["text", "content"])
-    }
-
-    nonisolated private static func grokTitle(in object: [String: Any]) -> String? {
-        if shouldUseGrokObjectAsTitle(object) {
-            if let title = grokTitleText(firstText(in: object, keys: ["content", "text"])) {
-                return title
-            }
-            if let message = grokTitleText(firstString(in: object, keys: ["message"])) {
-                return message
-            }
-        }
-        if let message = object["message"] as? [String: Any],
-           shouldUseGrokObjectAsTitle(message) {
-            return grokTitleText(firstText(in: message, keys: ["content", "text"]))
-        }
-        if let messages = object["messages"] as? [[String: Any]] {
-            return messages.compactMap { message in
-                shouldUseGrokObjectAsTitle(message)
-                    ? grokTitleText(firstText(in: message, keys: ["content", "text"]))
-                    : nil
-            }.first
-        }
-        return nil
-    }
-
-    nonisolated private static func grokTitleText(_ value: String?) -> String? {
-        guard let value else { return nil }
-        if let userQuery = grokTaggedContent(named: "user_query", in: value) {
-            return userQuery
-        }
-        let withoutMetadata = ["user_info", "git_status", "system-reminder"].reduce(value) { partial, tag in
-            removingGrokTaggedContent(named: tag, from: partial)
-        }
-        return trimmedNonEmpty(withoutMetadata)
-    }
-
-    nonisolated private static func grokTaggedContent(named tag: String, in text: String) -> String? {
-        let openTag = "<\(tag)>"
-        let closeTag = "</\(tag)>"
-        guard let openRange = text.range(of: openTag) else { return nil }
-        let bodyStart = openRange.upperBound
-        guard let closeRange = text[bodyStart...].range(of: closeTag) else { return nil }
-        return trimmedNonEmpty(String(text[bodyStart..<closeRange.lowerBound]))
-    }
-
-    nonisolated private static func removingGrokTaggedContent(named tag: String, from text: String) -> String {
-        let openTag = "<\(tag)>"
-        let closeTag = "</\(tag)>"
-        var result = text
-        while let openRange = result.range(of: openTag) {
-            let bodyStart = openRange.upperBound
-            guard let closeRange = result[bodyStart...].range(of: closeTag) else { break }
-            result.removeSubrange(openRange.lowerBound..<closeRange.upperBound)
-        }
-        return result
-    }
-
-    nonisolated private static func shouldUseGrokObjectAsTitle(_ object: [String: Any]) -> Bool {
-        let role = firstString(in: object, keys: ["role", "type"])
-        return role == nil || isUserRole(role)
-    }
-
-    nonisolated private static func firstTextValue(_ value: Any?) -> String? {
-        if let string = value as? String {
-            return trimmedNonEmpty(string)
-        }
-        if let values = value as? [Any] {
-            for value in values {
-                if let text = firstTextBlock(value) {
-                    return text
-                }
-            }
-        }
-        if let block = value as? [String: Any] {
-            return firstTextBlock(block)
-        }
-        return nil
-    }
-
-    nonisolated private static func firstTextBlock(_ value: Any) -> String? {
-        if let string = value as? String {
-            return trimmedNonEmpty(string)
-        }
-        guard let block = value as? [String: Any] else { return nil }
-        guard let type = firstString(in: block, keys: ["type"]),
-              type.caseInsensitiveCompare("text") == .orderedSame else {
-            return nil
-        }
-        return firstString(in: block, keys: ["text"])
-    }
-
-    nonisolated private static func trimmedNonEmpty(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    nonisolated private static func shouldUseMessageAsTitle(_ message: [String: Any]) -> Bool {
-        let role = firstString(in: message, keys: ["role"])
-        return role == nil || isUserRole(role)
-    }
-
-    nonisolated private static func isUserRole(_ role: String?) -> Bool {
-        role?.caseInsensitiveCompare("user") == .orderedSame
     }
 
     nonisolated private static func piCWDInferred(from url: URL) -> String? {

@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The running build's user-tellable version, assembled from the app bundle's
 /// `Info.plist` so the in-app About row reports exactly which build a device is

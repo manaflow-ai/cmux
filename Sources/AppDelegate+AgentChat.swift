@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 import Foundation
 import os
 
@@ -28,11 +29,11 @@ extension AppDelegate {
 
     @discardableResult
     func performConfiguredNewAgentChatAction(
-        context: MainWindowContext,
+        context: RegisteredMainWindow,
         preferredWindow: NSWindow?,
         onExecuted: (() -> Void)?
     ) -> Bool {
-        let cmuxConfigStore = context.cmuxConfigStore
+        let cmuxConfigStore = windowRegistry.context(for: WindowID(context.windowId))?.configStore
         return performNewAgentChatAction(
             tabManager: context.tabManager,
             agentChat: cmuxConfigStore?.agentChat ?? .default,
@@ -49,7 +50,7 @@ extension AppDelegate {
         preferredWindow: NSWindow? = nil
     ) -> Bool {
         guard let context = mainWindowContext(for: tabManager),
-              let action = context.cmuxConfigStore?.resolvedAction(id: actionID) else {
+              let action = windowRegistry.context(for: WindowID(context.windowId))?.configStore?.resolvedAction(id: actionID) else {
             return false
         }
         return executeConfiguredCmuxAction(
@@ -114,29 +115,11 @@ extension AppDelegate {
             localized: "workspace.agentChat.defaultTitle",
             defaultValue: "Agent Chat"
         )
-        let workspaceDefinition = CmuxWorkspaceDefinition(
-            name: workspaceName,
-            layout: .pane(CmuxPaneDefinition(surfaces: [
-                CmuxSurfaceDefinition(
-                    type: .browser,
-                    name: workspaceName,
-                    command: nil,
-                    cwd: nil,
-                    env: nil,
-                    url: agentChat.url.absoluteString,
-                    focus: true
-                ),
-            ]))
-        )
-        let command = CmuxCommandDefinition(
-            name: workspaceName,
-            workspace: workspaceDefinition
-        )
         let baseCwd = tabManager.selectedWorkspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        guard CmuxConfigExecutor.executeWorkspaceCommand(
-            command: command,
-            workspace: workspaceDefinition,
+        guard CmuxConfigExecutor.executeBrowserWorkspaceCommand(
+            name: workspaceName,
+            url: agentChat.url.absoluteString,
             tabManager: tabManager,
             baseCwd: baseCwd
         ) else {
@@ -232,7 +215,7 @@ extension AppDelegate {
               let globalConfigPath else {
             return false
         }
-        let descriptor = Self.agentChatStartCommandTrustDescriptor(
+        let descriptor = CmuxConfigExecutor.agentChatStartCommandTrustDescriptor(
             command: command,
             sourcePath: sourcePath
         )
@@ -253,22 +236,6 @@ extension AppDelegate {
                 }
             )
         }
-    }
-
-    nonisolated private static func agentChatStartCommandTrustDescriptor(
-        command: String,
-        sourcePath: String
-    ) -> CmuxActionTrustDescriptor {
-        CmuxActionTrustDescriptor(
-            actionID: "\(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID).startCommand",
-            kind: "agentChatStartCommand",
-            command: command,
-            target: "agentChatServer",
-            workspaceCommand: nil,
-            configPath: canonicalAgentChatPath(sourcePath),
-            projectRoot: canonicalAgentChatPath(CmuxButtonIcon.projectRoot(forConfigPath: sourcePath)),
-            iconFingerprint: nil
-        )
     }
 
     nonisolated private static func agentChatServerIsHealthy(

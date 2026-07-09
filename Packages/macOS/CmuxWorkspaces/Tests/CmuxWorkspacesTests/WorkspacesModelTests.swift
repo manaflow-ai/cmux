@@ -8,18 +8,34 @@ private final class StubTab: WorkspaceTabRepresenting {
     var groupId: UUID?
     var isPinned: Bool
     var currentDirectory: String
+    var title: String
+    private(set) var shellActivityUpdates: [(panelId: UUID, state: PanelShellActivityState)] = []
 
     init(
         id: UUID = UUID(),
         groupId: UUID? = nil,
         isPinned: Bool = false,
-        currentDirectory: String = "/tmp"
+        currentDirectory: String = "/tmp",
+        title: String = ""
     ) {
         self.id = id
         self.groupId = groupId
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
+        self.title = title
     }
+
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
+        shellActivityUpdates.append((panelId, state))
+    }
+    func setCustomColor(_ hex: String?) {}
+    var focusedPanelId: UUID?
+    var panelTitles: [UUID: String] = [:]
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool { false }
+    func applyProcessTitle(_ title: String) {}
+    // This fake never participates in panel-id resolution.
+    func panelExists(_ panelId: UUID) -> Bool { false }
+    func panelId(forSurfaceId surfaceId: UUID) -> UUID? { nil }
 }
 
 @MainActor
@@ -27,22 +43,8 @@ private final class RecordingHost: WorkspacesHosting {
     typealias Tab = StubTab
 
     private(set) var events: [String] = []
-    /// Snapshot of `model.tabs` taken inside the willSet hook, to prove the
-    /// hook fires while storage still holds the old value (@Published parity).
-    private(set) var tabsSeenDuringWillSet: [[UUID]] = []
     private(set) var selectionSeenDuringWillSet: [UUID?] = []
     var model: WorkspacesModel<StubTab>?
-
-    func workspaceTabsWillChange(to newValue: [StubTab]) {
-        events.append("tabs.willSet(\(newValue.count))")
-        if let model {
-            tabsSeenDuringWillSet.append(model.tabs.map(\.id))
-        }
-    }
-
-    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
-        events.append("groups.willSet(\(newValue.count))")
-    }
 
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
         events.append("selection.willSet")
@@ -59,7 +61,10 @@ private final class RecordingHost: WorkspacesHosting {
 @MainActor
 struct WorkspacesModelTests {
     @Test
-    func tabsWillSetHookFiresWhileStorageHoldsOldValue() {
+    func tabsMutateAsPlainObservableStorageWithoutHostHooks() {
+        // The `tabs` `objectWillChange`-re-emission willSet hook was retired
+        // when `TabManager` became `@Observable`; `tabs` is now plain
+        // `@Observable` storage and drives no host seam call.
         let model = WorkspacesModel<StubTab>()
         let host = RecordingHost()
         host.model = model
@@ -67,12 +72,12 @@ struct WorkspacesModelTests {
 
         let first = StubTab()
         model.tabs = [first]
-        let second = StubTab()
-        model.tabs = [first, second]
+        model.tabs.append(StubTab())
+        model.tabs.removeAll()
+        model.workspaceGroups = []
 
-        #expect(host.events == ["tabs.willSet(1)", "tabs.willSet(2)"])
-        // During the second assignment the storage still held [first].
-        #expect(host.tabsSeenDuringWillSet == [[], [first.id]])
+        #expect(host.events.isEmpty)
+        #expect(model.tabs.isEmpty)
     }
 
     @Test
@@ -92,7 +97,7 @@ struct WorkspacesModelTests {
     }
 
     @Test
-    func hooksFireOnEqualValueAssignmentMatchingPublishedParity() {
+    func selectionHooksFireOnEqualValueAssignmentMatchingPublishedParity() {
         let model = WorkspacesModel<StubTab>()
         let host = RecordingHost()
         host.model = model
@@ -101,19 +106,18 @@ struct WorkspacesModelTests {
         let id = UUID()
         model.selectedTabId = id
         model.selectedTabId = id
-        model.workspaceGroups = []
 
-        // @Published fired its observers on every assignment, equal or not;
-        // no-op guards belong in the host's hook bodies.
+        // The legacy `@Published` observer fired on every assignment, equal or
+        // not; the selection hooks preserve that — no-op guards belong in the
+        // host's hook bodies.
         #expect(host.events == [
             "selection.willSet", "selection.didSet",
             "selection.willSet", "selection.didSet",
-            "groups.willSet(0)",
         ])
     }
 
     @Test
-    func mutationsBeforeAttachFireNoHooks() {
+    func selectionMutationBeforeAttachFiresNoHooks() {
         let model = WorkspacesModel<StubTab>()
         let host = RecordingHost()
         host.model = model
@@ -124,18 +128,5 @@ struct WorkspacesModelTests {
 
         #expect(host.events.isEmpty)
         #expect(model.tabs.count == 1)
-    }
-
-    @Test
-    func inPlaceArrayMutationFiresTabsHook() {
-        let model = WorkspacesModel<StubTab>()
-        let host = RecordingHost()
-        host.model = model
-        model.attach(host: host)
-
-        model.tabs.append(StubTab())
-        model.tabs.removeAll()
-
-        #expect(host.events == ["tabs.willSet(1)", "tabs.willSet(0)"])
     }
 }

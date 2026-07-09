@@ -24,4 +24,11 @@ public struct CommandPaletteSettingsStore: CommandPaletteSettingsReading {
     public var switcherSearchesAllSurfaces: Bool {
         keys.commandPaletteSearchesAllSurfaces.value(in: defaults)
     }
+
+    /// Persists whether renaming a workspace pre-selects the existing name on
+    /// focus, writing the catalog's `app.renameSelectsExistingName` key (stored
+    /// under `commandPalette.renameSelectAllOnFocus`) into the backing defaults.
+    public func setRenameSelectsExistingName(_ enabled: Bool) {
+        keys.renameSelectsExistingName.set(enabled, in: defaults)
+    }
 }

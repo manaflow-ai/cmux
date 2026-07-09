@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxSettings
+import CmuxWindowing
 
 enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
     static func primaryWidth(config: TitlebarControlsStyleConfig) -> CGFloat { max(config.iconSize + 4, config.buttonSize - 3) }
@@ -121,11 +123,11 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
     }
 
     private var foregroundOpacity: Double {
-        titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: false, isEnabled: true)
+        TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: isHovering, isPressed: false, isEnabled: true)
     }
 
     private var borderOpacity: Double {
-        titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
+        config.controlBorderOpacity(isHovering: isHovering, isPressed: false, isEnabled: true)
     }
 
 #if DEBUG
@@ -187,11 +189,14 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
 
             Button(
                 action: {
-                    if let cloudMenuAnchorView {
-                        _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                    if let cloudMenuAnchorView,
+                       let event = NSApp.currentEvent,
+                       AppDelegate.shared?.showNewWorkspaceContextMenu(
                             anchorView: cloudMenuAnchorView,
+                            event: event,
                             debugSource: "titlebar.newWorkspace.cloudMenu"
-                        )
+                       ) == true {
+                        return
                     } else {
                         _ = AppDelegate.shared?.performCloudVMAction(debugSource: "titlebar.newWorkspace.cloudMenu.fallback")
                     }
@@ -257,13 +262,13 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
 #if DEBUG
         if debugAlwaysHover {
             if debugForcedHoverSegment.includes(segment) {
-                return titlebarControlActiveHoverBackgroundOpacity(
+                return activeSegmentBackgroundOpacity(
                     isHovering: true,
                     isPressed: false,
                     isEnabled: true
                 )
             }
-            return titlebarControlPassiveHoverBackgroundOpacity(
+            return passiveSegmentBackgroundOpacity(
                 isHovering: true,
                 isPressed: false,
                 isEnabled: true
@@ -271,24 +276,43 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
         }
 #endif
         if hoveredSegment == segment {
-            return titlebarControlActiveHoverBackgroundOpacity(
+            return activeSegmentBackgroundOpacity(
                 isHovering: isHovering,
                 isPressed: false,
                 isEnabled: true
             )
         }
-        return titlebarControlPassiveHoverBackgroundOpacity(
+        return passiveSegmentBackgroundOpacity(
             isHovering: isHovering,
             isPressed: false,
             isEnabled: true
         )
     }
 
+    private func activeSegmentBackgroundOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool
+    ) -> Double {
+        config.controlBackgroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
+    }
+
+    private func passiveSegmentBackgroundOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool
+    ) -> Double {
+        guard config.controlBackgroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled) > 0 else {
+            return 0
+        }
+        return 0.016
+    }
+
     private func updateHoveredSegment(
         _ segment: TitlebarNewWorkspaceCloudSplitButtonSegment,
         hovering: Bool
     ) {
-        guard titlebarControlsShouldTrackButtonHover(config: config) else { return }
+        guard config.shouldTrackButtonHover else { return }
         if hovering {
             hoveredSegment = segment
         } else if hoveredSegment == segment {

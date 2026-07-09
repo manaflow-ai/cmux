@@ -1,252 +1,483 @@
 import AppKit
-import Bonsplit
-import CmuxAppKitSupportUI
+import CmuxFoundation
+import CmuxSidebar
+import CmuxSidebarUI
 import CmuxTerminal
+import CmuxWorkspaces
+import Bonsplit
+import Observation
 import SwiftUI
 
-/// Right-sidebar Dock. Renders the window's own Dock `BonsplitController` tree
-/// (terminals + browsers) using the same split machinery as the main content
-/// area, just constrained to the sidebar width. Every window mounts its own
-/// store, so multiple windows can each show a live Dock simultaneously.
-struct DockPanelView: View {
-    let store: DockSplitStore
-    let isSidebarVisible: Bool
-    let mode: RightSidebarMode
-    let rootDirectory: String?
-    let windowAppearance: WindowAppearanceSnapshot
-    /// True when the right sidebar (this Dock) owns keyboard focus. The Dock
-    /// dims its focus ring when false so Dock and main-pane focus are mutually
-    /// exclusive (the main pane dims its ring when this is true).
-    var rightSidebarOwnsInputFocus: Bool = false
+struct DockTrustRequest: Identifiable {
+    var id: String { descriptor.fingerprint }
+    let descriptor: CmuxActionTrustDescriptor
+    let configPath: String
+}
 
-    @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
-    @State private var visibilityHostId = UUID()
+@MainActor
+@Observable
+final class DockControlRuntime: Identifiable {
+    let id: String
+    let definition: DockControlDefinition
+    let baseDirectory: String
+    let workspaceId: UUID
+    let paneId: PaneID
+    private(set) var panel: TerminalPanel
 
-    private var appearance: PanelAppearance {
-        PanelAppearance.fromConfig(appearanceConfig)
+    init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) {
+        self.id = definition.id
+        self.definition = definition
+        self.baseDirectory = baseDirectory
+        self.workspaceId = workspaceId
+        self.paneId = PaneID(id: UUID())
+        self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
     }
 
+    fileprivate var snapshot: DockControlSnapshot { .init(id: id, title: definition.title, command: definition.command ?? definition.url ?? "", requestedHeight: definition.height) }
+
+    fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
+
+    func focus() {
+        panel.hostedView.ensureFocus(
+            for: panel.surface.tabId,
+            surfaceId: panel.id,
+            respectForeignFirstResponder: false
+        )
+    }
+
+    func restart() {
+        let oldPanel = panel
+        panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
+        oldPanel.close()
+    }
+
+    func close() {
+        panel.close()
+    }
+
+    func setVisibleInUI(_ visible: Bool) {
+        if visible {
+            panel.hostedView.setVisibleInUI(true)
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: panel.hostedView,
+                visibleInUI: true
+            )
+        } else {
+            panel.unfocus()
+            panel.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
+        }
+    }
+
+    private static func makePanel(
+        definition: DockControlDefinition,
+        baseDirectory: String,
+        workspaceId: UUID
+    ) -> TerminalPanel {
+        var environment = definition.env
+        environment["CMUX_DOCK_CONTROL_ID"] = definition.id
+        environment["CMUX_DOCK_CONTROL_TITLE"] = definition.title
+
+        let workingDirectory = DockStartupScript.resolvedWorkingDirectory(definition.cwd, baseDirectory: baseDirectory)
+        // The list-based Dock renders terminal controls only. Browser Dock
+        // controls (`kind == .browser`, carrying `url` instead of `command`)
+        // are hosted by the Bonsplit `DockSplitStore`; here they degrade to an
+        // empty login shell so a browser entry in a shared `dock.json` never
+        // crashes this parallel right-sidebar surface.
+        let startupCommand: String
+        switch definition.kind {
+        case .terminal:
+            startupCommand = definition.command ?? ""
+        case .browser:
+            startupCommand = ""
+        }
+        return TerminalPanel(
+            workspaceId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            workingDirectory: workingDirectory,
+            initialCommand: DockStartupScript(
+                command: startupCommand,
+                workingDirectory: workingDirectory
+            ).materializedPath,
+            initialEnvironmentOverrides: environment,
+            focusPlacement: .rightSidebarDock
+        )
+    }
+
+}
+
+fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUID; let terminalSurface: TerminalSurface; let searchState: TerminalSurface.SearchState?; let reattachToken: UInt64 }
+
+@MainActor
+@Observable
+final class DockControlsStore {
+    private(set) var controls: [DockControlRuntime] = []
+    private(set) var sourceLabel = ""
+    private(set) var errorMessage: String?
+    private(set) var trustRequest: DockTrustRequest?
+
+    private var lastRootDirectory: String?
+    private var lastWorkspaceId: UUID?
+    private var activeConfigURL: URL?
+    private var hasLoadedConfiguration = false
+    private var controlsVisibleInUI = false
+
+    // `DockConfigResolver` lives in CmuxSidebar, which has no localization
+    // bundle, so the resolved error and source-label strings are localized here
+    // (app bundle) and injected. Resolving once at construction is faithful: the
+    // locale is fixed for the app's lifetime.
+    private let configResolver = DockConfigResolver(
+        decodingStrings: DockControlDecodingStrings(
+            blankControlID: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank."),
+            blankControlCommand: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank."),
+            blankControlURL: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank."),
+            unknownControlType: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
+        ),
+        duplicateControlMessage: String(localized: "dock.error.duplicateControl", defaultValue: "Dock control ids must be unique."),
+        sourceTitle: String(localized: "dock.source.title", defaultValue: "Dock"),
+        sourceProject: String(localized: "dock.source.project", defaultValue: "Project Dock"),
+        sourceGlobal: String(localized: "dock.source.global", defaultValue: "Global Dock")
+    )
+
+    fileprivate var controlSnapshots: [DockControlSnapshot] {
+        controls.map(\.snapshot)
+    }
+
+    fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? { controls.first { $0.id == controlID }?.terminalAttachment }
+
+    func synchronizeSidebarLifecycle(
+        isRightSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        rootDirectory: String?,
+        workspaceId: UUID?
+    ) {
+        guard isRightSidebarVisible, mode == .dock else {
+            deactivate()
+            return
+        }
+        activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
+    }
+
+    func activate(rootDirectory: String?, workspaceId: UUID?) {
+        controlsVisibleInUI = true
+        if hasLoadedConfiguration, lastRootDirectory == rootDirectory {
+            if workspaceId == nil || lastWorkspaceId == workspaceId {
+                setControlsVisibleInUI(true)
+                return
+            }
+        }
+        reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
+    }
+
+    func deactivate() {
+        controlsVisibleInUI = false
+        setControlsVisibleInUI(false)
+    }
+
+    func reload(rootDirectory: String?, workspaceId: UUID?) {
+        lastRootDirectory = rootDirectory
+        lastWorkspaceId = workspaceId
+        hasLoadedConfiguration = true
+        errorMessage = nil
+        trustRequest = nil
+        activeConfigURL = nil
+
+        guard let workspaceId else {
+            replaceControls(with: [])
+            sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
+            return
+        }
+
+        do {
+            let resolution = try configResolver.resolve(rootDirectory: rootDirectory)
+            activeConfigURL = resolution.sourceURL
+            if let request = trustRequestIfNeeded(for: resolution) {
+                replaceControls(with: [])
+                sourceLabel = String(
+                    localized: "dock.source.project",
+                    defaultValue: "Project Dock"
+                )
+                trustRequest = request
+                return
+            }
+            let resolvedControls = resolution.controls.map {
+                DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
+            }
+            replaceControls(with: resolvedControls)
+            sourceLabel = configResolver.sourceLabel(for: resolution)
+        } catch {
+            replaceControls(with: [])
+            sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func trustAndReload() {
+        if let trustRequest {
+            CmuxActionTrust.shared.trust(trustRequest.descriptor)
+        }
+        reload(rootDirectory: lastRootDirectory, workspaceId: lastWorkspaceId)
+    }
+
+    func focusFirstControl() -> Bool {
+        guard let first = controls.first else { return false }
+        first.focus()
+        return true
+    }
+
+    func openConfiguration() {
+        do {
+            let target: URL
+            if let activeConfigURL {
+                target = activeConfigURL
+            } else {
+                target = try configResolver.preferredEditableConfigURL(rootDirectory: lastRootDirectory)
+            }
+            if !FileManager.default.fileExists(atPath: target.path) {
+                try configResolver.writeTemplate(to: target)
+            }
+            NSWorkspace.shared.open(target)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func focusControl(id: String) {
+        controls.first { $0.id == id }?.focus()
+    }
+
+    func restartControl(id: String) {
+        guard let index = controls.firstIndex(where: { $0.id == id }) else { return }
+        let oldControl = controls[index]
+        let newControl = DockControlRuntime(
+            definition: oldControl.definition,
+            baseDirectory: oldControl.baseDirectory,
+            workspaceId: oldControl.workspaceId
+        )
+        controls[index] = newControl
+        newControl.setVisibleInUI(controlsVisibleInUI)
+        oldControl.close()
+    }
+
+    func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
+        guard controls.contains(where: { $0.id == id }) else { return }
+        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+    }
+
+    func triggerFlash(id: String) {
+        controls.first { $0.id == id }?.panel.triggerFlash(reason: .debug)
+    }
+
+    private func replaceControls(with newControls: [DockControlRuntime]) {
+        let oldControls = controls
+        controls = newControls
+        newControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
+        oldControls.forEach { $0.close() }
+    }
+
+    private func setControlsVisibleInUI(_ visible: Bool) {
+        controls.forEach { $0.setVisibleInUI(visible) }
+    }
+
+    private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
+        guard resolution.isProjectSource,
+              let sourceURL = resolution.sourceURL else {
+            return nil
+        }
+        let descriptor = Self.trustDescriptor(for: resolution)
+        guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
+        return DockTrustRequest(
+            descriptor: descriptor,
+            configPath: sourceURL.path
+        )
+    }
+
+    private static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(DockConfigFile(controls: resolution.controls))) ?? Data()
+        let commandFingerprint = String(data: data, encoding: .utf8) ?? ""
+        return CmuxActionTrustDescriptor(
+            actionID: "cmux.dock",
+            kind: "dockControls",
+            command: commandFingerprint,
+            target: "rightSidebarDock",
+            workspaceCommand: nil,
+            configPath: resolution.sourceURL.map { $0.path.canonicalizedFilePath },
+            projectRoot: resolution.baseDirectory.canonicalizedFilePath,
+            iconFingerprint: nil
+        )
+    }
+}
+
+struct DockPanelView: View {
+    let rootDirectory: String?
+    let workspaceId: UUID?
+    let store: DockControlsStore
+
     var body: some View {
-        content
-        .background(Color(nsColor: appearance.backgroundColor))
+        VStack(spacing: 0) {
+            toolbar
+            Divider()
+            content
+        }
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
         )
         .accessibilityIdentifier("DockPanel")
-        .onAppear {
-            refreshAppearance(reason: "onAppear")
-            store.setRootDirectory(rootDirectory)
-            store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
-        }
-        .onDisappear { store.setVisibleInUI(false, hostId: visibilityHostId) }
-        .onChange(of: isSidebarVisible) { _, visible in
-            store.setActive(isVisible: visible, mode: mode, visibilityHostId: visibilityHostId)
-        }
-        .onChange(of: mode) { _, newMode in
-            store.setActive(isVisible: isSidebarVisible, mode: newMode, visibilityHostId: visibilityHostId)
-        }
-        .onChange(of: rootDirectory) { _, _ in
-            store.setRootDirectory(rootDirectory)
-            store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshAppearance(reason: "ghosttyConfigDidReload")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
-            refreshAppearance(reason: "paneChromeSettingsDidChange")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
-        }
+        // TODO(delta-merge): origin/main drove dock activation/appearance here via
+        // onAppear/onChange(isSidebarVisible,mode,rootDirectory)/onReceive(paneChrome,
+        // ghosttyConfig,ghosttyDefaultBackground). HEAD's DockPanelView no longer owns
+        // isSidebarVisible/mode/visibilityHostId/refreshAppearance (moved to the parent
+        // RightSidebarPanelView + DockControlsStore); confirm that owner drives
+        // setActive/setRootDirectory/setVisibleInUI and appearance refresh.
     }
 
-    private func refreshAppearance(reason: String) {
-        let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
-        appearanceConfig = next
-        store.applyGhosttyChrome(from: next)
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            Text(store.sourceLabel)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Button {
+                store.openConfiguration()
+            } label: {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
+            .accessibilityLabel(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
+
+            Button {
+                store.reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
+            .accessibilityLabel(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .frame(height: 29)
     }
 
     @ViewBuilder
     private var content: some View {
         if let trustRequest = store.trustRequest {
-            DockTrustView(request: trustRequest) {
+            DockTrustView(
+                configPath: trustRequest.configPath,
+                title: String(localized: "dock.trust.title", defaultValue: "Trust Project Dock?"),
+                message: String(
+                    localized: "dock.trust.message",
+                    defaultValue: "This project wants to start commands from its Dock config."
+                ),
+                actionTitle: String(localized: "dock.trust.action", defaultValue: "Trust and Start")
+            ) {
                 store.trustAndReload()
             }
         } else if let error = store.errorMessage {
-            DockErrorView(message: error)
+            DockErrorView(
+                title: String(localized: "dock.error.title", defaultValue: "Dock Config Error"),
+                message: error
+            )
+        } else if store.controls.isEmpty {
+            DockEmptyView()
         } else {
-            DockSplitContentView(
-                store: store,
-                appearance: appearance,
-                windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+            DockControlsLayoutView(
+                snapshots: store.controlSnapshots,
+                terminalAttachment: { id in store.terminalAttachment(for: id) },
+                onFocus: { id in store.focusControl(id: id) },
+                onRestart: { id in store.restartControl(id: id) },
+                onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
+                onTriggerFlash: { id in store.triggerFlash(id: id) }
             )
         }
     }
 }
 
-/// Renders the Dock's Bonsplit tree, reusing `PanelContentView` so Dock
-/// terminals and browsers render identically to main-area panes.
-private struct DockSplitContentView: View {
-    let store: DockSplitStore
-    let appearance: PanelAppearance
-    let windowAppearance: WindowAppearanceSnapshot
-    let rightSidebarOwnsInputFocus: Bool
+private struct DockControlsLayoutView: View {
+    let snapshots: [DockControlSnapshot]
+    let terminalAttachment: (String) -> DockTerminalAttachment?
+    let onFocus: (String) -> Void
+    let onRestart: (String) -> Void
+    let onKeyboardFocusIntent: (String, NSWindow?) -> Void
+    let onTriggerFlash: (String) -> Void
 
-    /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
-    /// Dock surfaces never overlay main-area surfaces.
-    private static let portalPriority = 1
+    private let heightLayout = DockTerminalHeightLayout()
 
     var body: some View {
-        BonsplitView(controller: store.bonsplitController) { tab, paneId in
-            dockContent(tab: tab, paneId: paneId)
-        } emptyPane: { paneId in
-            DockEmptyPaneView(
-                onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
-        }
-    }
-
-    @ViewBuilder
-    private func dockContent(tab: Bonsplit.Tab, paneId: PaneID) -> some View {
-        if let panel = store.panel(for: tab.id) {
-            let isFocused = store.panelIsActiveInVisibleDockPane(panel.id) && rightSidebarOwnsInputFocus
-            let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-            let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
-            let isSplit = store.bonsplitController.allPaneIds.count > 1
-            PanelContentView(
-                panel: panel,
-                workspaceId: store.workspaceId,
-                paneId: paneId,
-                isFocused: isFocused,
-                isSelectedInPane: isSelectedInPane,
-                isVisibleInUI: isVisibleInUI,
-                portalPriority: Self.portalPriority,
-                isSplit: isSplit,
-                appearance: appearance,
-                windowAppearance: windowAppearance,
-                customSidebarTabManager: nil,
-                hasUnreadNotification: false,
-                terminalAgentContext: "",
-                paneOwnershipOverride: isVisibleInUI,
-                onFocus: {
-                    store.bonsplitController.focusPane(paneId)
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-                },
-                onRequestPanelFocus: {
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-                    store.focusPanel(panel.id)
-                },
-                onResumeAgentHibernation: {},
-                onAutoResumeAgentHibernation: {},
-                onTriggerFlash: {}
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
-        } else {
-            DockEmptyPaneView(
-                onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
-        }
-    }
-}
-
-/// Shown in an empty Dock pane (initial empty Dock, or a freshly split pane).
-/// Offers the same in-app create affordances as the tab-bar split buttons.
-private struct DockEmptyPaneView: View {
-    let onNewTerminal: () -> Void
-    let onNewBrowser: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "dock.rectangle")
-                .font(.system(size: 30))
-                .foregroundStyle(.tertiary)
-            Text(String(localized: "dock.emptyPane.title", defaultValue: "Empty Dock Pane"))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Button(action: onNewTerminal) {
-                    Label(
-                        String(localized: "dock.action.newTerminal", defaultValue: "New Terminal"),
-                        systemImage: "terminal.fill"
-                    )
+        GeometryReader { proxy in
+            let heights = heightLayout.terminalHeights(availableHeight: proxy.size.height, snapshots: snapshots)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
+                        DockControlSectionView(
+                            snapshot: snapshot,
+                            ordinal: index + 1,
+                            terminalHeight: heights[index],
+                            focusControlLabel: String(localized: "dock.action.focusControl", defaultValue: "Focus Control"),
+                            restartControlLabel: String(localized: "dock.action.restartControl", defaultValue: "Restart Control"),
+                            onFocus: { onFocus(snapshot.id) },
+                            onRestart: { onRestart(snapshot.id) },
+                            terminalContent: {
+                                if let attachment = terminalAttachment(snapshot.id) {
+                                    DockTerminalView(
+                                        attachment: attachment,
+                                        onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
+                                        onTriggerFlash: { onTriggerFlash(snapshot.id) }
+                                    )
+                                } else {
+                                    Color.clear
+                                }
+                            }
+                        )
+                        if index < snapshots.count - 1 {
+                            Divider()
+                                .frame(height: heightLayout.dividerHeight)
+                        }
+                    }
                 }
-                Button(action: onNewBrowser) {
-                    Label(
-                        String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
-                        systemImage: "globe"
-                    )
-                }
+                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .dockZeroScrollContentMargins()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
     }
 }
 
-private struct DockTrustView: View {
-    let request: DockTrustRequest
-    let onTrust: () -> Void
+private struct DockTerminalView: View {
+    let attachment: DockTerminalAttachment
+    let onKeyboardFocusIntent: (NSWindow?) -> Void
+    let onTriggerFlash: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.shield")
-                .font(.system(size: 28))
-                .foregroundStyle(.orange)
-            Text(String(localized: "dock.trust.title", defaultValue: "Trust Project Dock?"))
-                .font(.system(size: 13, weight: .semibold))
-            Text(String(
-                localized: "dock.trust.message",
-                defaultValue: "This project wants to start commands from its Dock config."
-            ))
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            Text(request.configPath)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-            Button(String(localized: "dock.trust.action", defaultValue: "Trust and Start")) {
-                onTrust()
+        GhosttyTerminalView(
+            terminalSurface: attachment.terminalSurface,
+            paneId: attachment.paneId,
+            isActive: true,
+            isVisibleInUI: true,
+            portalZPriority: 1,
+            searchState: attachment.searchState,
+            reattachToken: attachment.reattachToken,
+            onFocus: { _ in
+                onKeyboardFocusIntent(attachment.terminalSurface.uiWindow)
+            },
+            onTriggerFlash: {
+                onTriggerFlash()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct DockErrorView: View {
-    let message: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 24))
-                .foregroundStyle(.orange)
-            Text(String(localized: "dock.error.title", defaultValue: "Dock Config Error"))
-                .font(.system(size: 13, weight: .semibold))
-            Text(message)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        )
+        .id(attachment.panelId)
+        .background(Color.clear)
     }
 }
 
 private struct DockKeyboardFocusBridge: NSViewRepresentable {
-    let store: DockSplitStore
+    let store: DockControlsStore
 
     func makeNSView(context: Context) -> DockKeyboardFocusView {
         DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
@@ -256,16 +487,12 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.focusFirstControl = { [weak store] in
             store?.focusFirstControl() == true
         }
-        nsView.ownsDockBrowserFocus = { [weak store] responder, window in
-            store?.browserPanel(owning: responder, in: window) != nil
-        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 
-final class DockKeyboardFocusView: NSView {
+final class DockKeyboardFocusView: NSView, DockFocusHosting {
     var focusFirstControl: (() -> Bool)?
-    var ownsDockBrowserFocus: ((NSResponder, NSWindow) -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -275,7 +502,6 @@ final class DockKeyboardFocusView: NSView {
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
-        if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
@@ -297,5 +523,16 @@ final class DockKeyboardFocusView: NSView {
         guard let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) else { return false }
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
         return true
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func dockZeroScrollContentMargins() -> some View {
+        if #available(macOS 14.0, *) {
+            self.contentMargins(.all, 0, for: .scrollContent)
+        } else {
+            self
+        }
     }
 }

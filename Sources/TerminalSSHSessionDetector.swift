@@ -3,19 +3,11 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
-    let destination: String
-    let port: Int?
-    let identityFile: String?
-    let configFile: String?
-    let jumpHost: String?
-    let controlPath: String?
-    let useIPv4: Bool
-    let useIPv6: Bool
-    let forwardAgent: Bool
-    let compressionEnabled: Bool
-    let sshOptions: [String]
-
+// `DetectedSSHSession` (the value descriptor: stored connection parameters plus the
+// `scpArguments`/`sshArguments` builders and shell-quoting helper) lives in the
+// `CmuxRemoteSession` package. The scp/ssh upload + cleanup *service* (process spawning,
+// cancellation, ControlMaster reuse) is app-coupled and stays here as an extension.
+extension DetectedSSHSession {
     func uploadDroppedFiles(
         _ fileURLs: [URL],
         operation: TerminalImageTransferOperation,
@@ -177,6 +169,62 @@ struct DetectedSSHSession: Equatable {
         return args
     }
 
+    // MARK: - SSH argument helpers (restored from origin/main; the refactor
+    // split TerminalSSHSessionDetector and dropped these private statics that
+    // scpArguments/sshArguments call via Self.)
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        return options.contains { optionKey($0) == loweredKey }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+
+    private static func scpRemoteDestination(_ destination: String) -> String {
+        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDestination.isEmpty else { return destination }
+
+        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        let userPart: String?
+        let hostPart: String
+        if parts.count == 2 {
+            userPart = String(parts[0])
+            hostPart = String(parts[1])
+        } else {
+            userPart = nil
+            hostPart = trimmedDestination
+        }
+
+        guard shouldBracketIPv6Literal(hostPart) else {
+            return trimmedDestination
+        }
+
+        let bracketedHost = "[\(hostPart)]"
+        if let userPart {
+            return "\(userPart)@\(bracketedHost)"
+        }
+        return bracketedHost
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedHost.isEmpty &&
+            trimmedHost.contains(":") &&
+            !trimmedHost.hasPrefix("[") &&
+            !trimmedHost.hasSuffix("]")
+    }
+
     private func sshArguments(command: String) -> [String] {
         var args: [String] = ["-T"] + SSHHostConfiguredRemoteCommand().overrideArguments
         args += [
@@ -323,59 +371,6 @@ struct DetectedSSHSession: Equatable {
             throw TerminalImageTransferExecutionError.cancelled
         }
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
-    }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { optionKey($0) == loweredKey }
-    }
-
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
-    private static func scpRemoteDestination(_ destination: String) -> String {
-        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDestination.isEmpty else { return destination }
-
-        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-        let userPart: String?
-        let hostPart: String
-        if parts.count == 2 {
-            userPart = String(parts[0])
-            hostPart = String(parts[1])
-        } else {
-            userPart = nil
-            hostPart = trimmedDestination
-        }
-
-        guard shouldBracketIPv6Literal(hostPart) else {
-            return trimmedDestination
-        }
-
-        let bracketedHost = "[\(hostPart)]"
-        if let userPart {
-            return "\(userPart)@\(bracketedHost)"
-        }
-        return bracketedHost
-    }
-
-    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedHost.isEmpty &&
-            trimmedHost.contains(":") &&
-            !trimmedHost.hasPrefix("[") &&
-            !trimmedHost.hasSuffix("]")
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
 #if DEBUG

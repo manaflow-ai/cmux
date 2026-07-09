@@ -67,7 +67,7 @@ extension AppDelegate {
         sessionId: String,
         originWindowId: UUID?
     ) -> Bool? {
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             guard let workspace = context.tabManager.tabs.first(where: {
                 $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
             }),

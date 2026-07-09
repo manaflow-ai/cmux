@@ -3,28 +3,14 @@ import Bonsplit
 import CmuxControlSocket
 import Foundation
 
-/// The system-domain action witnesses (`workspace.action`, `surface.action` /
-/// `tab.action`): the `workspace.action` bridge to the still-shared
-/// `v2WorkspaceAction` (also driven by the mobile host's gated
-/// `v2MobileWorkspaceAction` wrapper, so the body stays app-side) and the
+/// The system-domain action witness for `surface.action` / `tab.action`: the
 /// byte-faithful mutation switch of the former `v2TabAction`. Split out of
 /// `TerminalController+ControlSystemContext` to keep the conformance readable.
+/// (`workspace.action` now runs entirely in
+/// `ControlCommandCoordinator+WorkspaceAction`, driving granular
+/// ``ControlWorkspaceContext`` witnesses; the mobile data plane reaches it
+/// through the gated `v2MobileWorkspaceAction` wrapper.)
 extension TerminalController {
-
-    // MARK: - workspace.action (bridge to the still-shared v2WorkspaceAction)
-
-    func controlWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult {
-        // `v2WorkspaceAction` stays in TerminalController.swift (shared with the
-        // mobile host's gated `v2MobileWorkspaceAction`). Forward the raw params
-        // and bridge its Foundation result, exactly as `surface.split_off` does.
-        let foundationParams = params.mapValues(\.foundationObject)
-        switch v2WorkspaceAction(params: foundationParams) {
-        case let .ok(payload):
-            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
-        case let .err(code, message, data):
-            return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
-        }
-    }
 
     // MARK: - surface.action / tab.action
 

@@ -5,17 +5,29 @@ import CmuxWorkspaces
 import Darwin
 import XCTest
 import CmuxTerminal
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias AppSessionDisplaySnapshot = cmux_DEV.SessionDisplaySnapshot
 #elseif canImport(cmux)
 @testable import cmux
+private typealias AppSessionDisplaySnapshot = cmux.SessionDisplaySnapshot
 #endif
 
+private extension AppSessionDisplaySnapshot {
+    init(displayID: UInt32? = nil, frame: SessionRectSnapshot? = nil, visibleFrame: SessionRectSnapshot? = nil) {
+        self.init(displayID: displayID, stableID: nil, frame: frame, visibleFrame: visibleFrame)
+    }
+}
+
 final class SessionPersistenceTests: XCTestCase {
+    // Pure persist/autosave decision policy, lifted to CmuxWorkspaces.
+    private static let sessionDecisionPolicy = SessionPersistenceDecisionPolicy()
+
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
-        let display: SessionDisplaySnapshot?
+        let display: AppSessionDisplaySnapshot?
     }
 
     /// Builds the session snapshot repository under test. The legacy
@@ -28,7 +40,7 @@ final class SessionPersistenceTests: XCTestCase {
         appSupportDirectory: URL? = nil
     ) -> SessionSnapshotRepository<AppSessionSnapshot> {
         SessionSnapshotRepository(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
@@ -193,14 +205,14 @@ final class SessionPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        let snapshot = makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         let store = sessionStore()
 
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
 
         let loaded = store.load(fileURL: snapshotURL)
         XCTAssertNotNil(loaded)
-        XCTAssertEqual(loaded?.version, SessionSnapshotSchema.currentVersion)
+        XCTAssertEqual(loaded?.version, AppSessionSnapshot.currentSchemaVersion)
         XCTAssertEqual(loaded?.windows.count, 1)
         XCTAssertEqual(loaded?.windows.first?.sidebar.selection, .tabs)
         let frame = try XCTUnwrap(loaded?.windows.first?.frame)
@@ -226,13 +238,13 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertTrue(
             store.save(
-                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
+                makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion),
                 fileURL: activeSnapshotURL
             )
         )
         XCTAssertNil(store.loadReopenSessionSnapshot(fileURL: nil))
 
-        var previousSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        var previousSnapshot = makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         previousSnapshot.windows[0].sidebar.width = 321
         XCTAssertTrue(store.save(previousSnapshot, fileURL: previousSnapshotURL))
 
@@ -275,7 +287,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testSyncManualRestoreCachePreservesBackupWhenPrimarySnapshotIsCorrupt() throws {
         let fixture = try makeSnapshotBackupFixture(
-            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            backupSnapshot: makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         )
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
         try fixture.writeCorruptPrimary()
@@ -290,7 +302,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testSyncManualRestoreCacheRemovesBackupWhenPrimarySnapshotIsMissing() throws {
         let fixture = try makeSnapshotBackupFixture(
-            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            backupSnapshot: makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         )
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
 
@@ -303,7 +315,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testStartupSnapshotLoadRecoversFromBackupWhenPrimarySnapshotIsCorrupt() throws {
-        var backupSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        var backupSnapshot = makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         backupSnapshot.windows[0].sidebar.width = 321
         let fixture = try makeSnapshotBackupFixture(backupSnapshot: backupSnapshot)
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
@@ -320,7 +332,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testStartupSnapshotLoadReturnsNilWhenPrimarySnapshotIsMissing() throws {
         let fixture = try makeSnapshotBackupFixture(
-            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            backupSnapshot: makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         )
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
 
@@ -337,7 +349,7 @@ final class SessionPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        var snapshot = makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         snapshot.windows[0].tabManager.workspaces[0].customColor = "#C0392B"
         let store = sessionStore()
 
@@ -357,7 +369,7 @@ final class SessionPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        let snapshot = makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         let store = sessionStore()
 
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -374,7 +386,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testWorkspaceCustomColorDecodeSupportsMissingLegacyField() throws {
-        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        var snapshot = makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion)
         snapshot.windows[0].tabManager.workspaces[0].customColor = nil
 
         let encoder = JSONEncoder()
@@ -394,7 +406,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let store = sessionStore()
-        XCTAssertTrue(store.save(makeSnapshot(version: SessionSnapshotSchema.currentVersion + 1), fileURL: snapshotURL))
+        XCTAssertTrue(store.save(makeSnapshot(version: AppSessionSnapshot.currentSchemaVersion + 1), fileURL: snapshotURL))
 
         XCTAssertNil(store.load(fileURL: snapshotURL))
     }
@@ -415,28 +427,28 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testRestorePolicySkipsWhenLaunchHasExplicitArguments() {
-        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+        let shouldRestore = SessionRestorePolicy(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],
             environment: [:]
-        )
+        ).shouldAttemptRestore
 
         XCTAssertFalse(shouldRestore)
     }
 
     func testRestorePolicyAllowsFinderStyleLaunchArgumentsOnly() {
-        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+        let shouldRestore = SessionRestorePolicy(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-psn_0_12345"],
             environment: [:]
-        )
+        ).shouldAttemptRestore
 
         XCTAssertTrue(shouldRestore)
     }
 
     func testRestorePolicySkipsWhenRunningUnderXCTest() {
-        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+        let shouldRestore = SessionRestorePolicy(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
             environment: ["XCTestConfigurationFilePath": "/tmp/xctest.xctestconfiguration"]
-        )
+        ).shouldAttemptRestore
 
         XCTAssertFalse(shouldRestore)
     }
@@ -525,12 +537,12 @@ final class SessionPersistenceTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: "line one\nline two\n",
             tempDirectory: tempDir
         )
 
-        let path = environment[SessionScrollbackReplayStore.environmentKey]
+        let path = environment[SessionScrollbackReplay.environmentKey]
         XCTAssertNotNil(path)
         XCTAssertTrue(path?.hasPrefix(tempDir.path) == true)
 
@@ -545,7 +557,7 @@ final class SessionPersistenceTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: " \n\t  ",
             tempDirectory: tempDir
         )
@@ -562,12 +574,12 @@ final class SessionPersistenceTests: XCTestCase {
         let red = "\u{001B}[31m"
         let reset = "\u{001B}[0m"
         let source = "\(red)RED\(reset)\n"
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: source,
             tempDirectory: tempDir
         )
 
-        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+        guard let path = environment[SessionScrollbackReplay.environmentKey] else {
             XCTFail("Expected replay file path")
             return
         }
@@ -617,12 +629,12 @@ final class SessionPersistenceTests: XCTestCase {
             + "\(setPalette)\(resetPalette)\(resetForeground)plain default text\n"
             + "\(red)RED\(reset) \(hyperlink)\n"
 
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: source,
             tempDirectory: tempDir
         )
 
-        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+        guard let path = environment[SessionScrollbackReplay.environmentKey] else {
             XCTFail("Expected replay file path")
             return
         }
@@ -676,12 +688,12 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
-        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let maxChars = ScrollbackTruncation().maxCharacters
         let source = "\u{001B}[31m"
             + String(repeating: "X", count: maxChars - 7)
             + "\u{001B}[0m"
 
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+        guard let truncated = ScrollbackTruncation().truncated(source) else {
             XCTFail("Expected truncated scrollback")
             return
         }
@@ -760,34 +772,34 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testWindowUnregisterSnapshotPersistencePolicy() {
-        XCTAssertTrue(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
-        XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
+        XCTAssertTrue(Self.sessionDecisionPolicy.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
+        XCTAssertFalse(Self.sessionDecisionPolicy.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
     func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
         XCTAssertTrue(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
                 isApplyingSessionRestore: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: true,
                 didApplyStartupSessionRestore: false,
                 isApplyingSessionRestore: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: true,
                 isApplyingSessionRestore: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
                 isApplyingSessionRestore: true
@@ -797,19 +809,19 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionSaveDuringRestore(
+            Self.sessionDecisionPolicy.shouldSkipSessionSaveDuringRestore(
                 isApplyingSessionRestore: true,
                 includeScrollback: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringRestore(
+            Self.sessionDecisionPolicy.shouldSkipSessionSaveDuringRestore(
                 isApplyingSessionRestore: true,
                 includeScrollback: true
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringRestore(
+            Self.sessionDecisionPolicy.shouldSkipSessionSaveDuringRestore(
                 isApplyingSessionRestore: false,
                 includeScrollback: false
             )
@@ -818,43 +830,43 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testSessionAutosaveTickPolicySkipsWhenTerminating() {
         XCTAssertTrue(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+            Self.sessionDecisionPolicy.shouldRunSessionAutosaveTick(isTerminatingApp: false)
         )
         XCTAssertFalse(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+            Self.sessionDecisionPolicy.shouldRunSessionAutosaveTick(isTerminatingApp: true)
         )
     }
 
     func testApplicationResignDoesNotTriggerSessionSnapshotSave() {
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: false)
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: false)
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: true)
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: true)
         )
     }
 
     func testSessionSnapshotSynchronousWritePolicy() {
         XCTAssertFalse(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: false,
                 includeScrollback: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: false,
                 includeScrollback: true
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: false
             )
         )
         XCTAssertTrue(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: true
             )
@@ -863,12 +875,12 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testRestoreCompletionSavePolicySkipsManualReopen() {
         XCTAssertTrue(
-            AppDelegate.shouldSaveSessionSnapshotOnRestoreCompletion(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(
                 isManualReopen: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotOnRestoreCompletion(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(
                 isManualReopen: true
             )
         )
@@ -877,14 +889,13 @@ final class SessionPersistenceTests: XCTestCase {
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: false,
                 includeScrollback: false,
                 previousFingerprint: 1234,
                 currentFingerprint: 1234,
                 lastPersistedAt: now.addingTimeInterval(-5),
-                now: now,
-                maximumAutosaveSkippableInterval: 60
+                now: now
             )
         )
     }
@@ -892,14 +903,13 @@ final class SessionPersistenceTests: XCTestCase {
     func testUnchangedAutosaveFingerprintDoesNotSkipAfterStalenessWindow() {
         let now = Date()
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: false,
                 includeScrollback: false,
                 previousFingerprint: 1234,
                 currentFingerprint: 1234,
                 lastPersistedAt: now.addingTimeInterval(-120),
-                now: now,
-                maximumAutosaveSkippableInterval: 60
+                now: now
             )
         )
     }
@@ -907,7 +917,7 @@ final class SessionPersistenceTests: XCTestCase {
     func testUnchangedAutosaveFingerprintNeverSkipsTerminatingOrScrollbackWrites() {
         let now = Date()
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: true,
                 includeScrollback: false,
                 previousFingerprint: 1234,
@@ -917,7 +927,7 @@ final class SessionPersistenceTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: false,
                 includeScrollback: true,
                 previousFingerprint: 1234,
@@ -989,7 +999,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 1_000, y: 0, width: 1_000, height: 800),
             visibleFrame: SessionRectSnapshot(x: 1_000, y: 0, width: 1_000, height: 800)
@@ -1049,7 +1059,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedStartupPrimaryWindowFrameFallsBackToPersistedGeometryWhenPrimaryMissing() {
         let fallbackFrame = SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640)
-        let fallbackDisplay = SessionDisplaySnapshot(
+        let fallbackDisplay = AppSessionDisplaySnapshot(
             displayID: 1,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1079,7 +1089,7 @@ final class SessionPersistenceTests: XCTestCase {
     func testResolvedStartupPrimaryWindowFramePrefersPrimarySnapshotOverFallback() {
         let primarySnapshot = SessionWindowSnapshot(
             frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
-            display: SessionDisplaySnapshot(
+            display: AppSessionDisplaySnapshot(
                 displayID: 1,
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1088,7 +1098,7 @@ final class SessionPersistenceTests: XCTestCase {
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
         )
         let fallbackFrame = SessionRectSnapshot(x: 40, y: 30, width: 700, height: 500)
-        let fallbackDisplay = SessionDisplaySnapshot(
+        let fallbackDisplay = AppSessionDisplaySnapshot(
             displayID: 1,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1120,7 +1130,7 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.PersistedWindowGeometry(
                 version: AppDelegate.persistedWindowGeometrySchemaVersion,
                 frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
-                display: SessionDisplaySnapshot(
+                display: AppSessionDisplaySnapshot(
                     displayID: 1,
                     frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                     visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1141,7 +1151,7 @@ final class SessionPersistenceTests: XCTestCase {
         let data = try JSONEncoder().encode(
             LegacyPersistedWindowGeometry(
                 frame: SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640),
-                display: SessionDisplaySnapshot(
+                display: AppSessionDisplaySnapshot(
                     displayID: 1,
                     frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                     visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1190,7 +1200,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
@@ -1218,7 +1228,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFramePreservesExactGeometryWhenDisplayChangesButWindowRemainsAccessible() {
         let savedFrame = SessionRectSnapshot(x: 1_100, y: -20, width: 1_280, height: 1_000)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
@@ -1246,7 +1256,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
@@ -1292,7 +1302,7 @@ final class SessionPersistenceTests: XCTestCase {
     func testResolvedSnapshotTerminalScrollbackTruncatesFallback() {
         let oversizedFallback = String(
             repeating: "x",
-            count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 37
+            count: ScrollbackTruncation().maxCharacters + 37
         )
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
@@ -1301,7 +1311,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertEqual(
             resolved?.count,
-            SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            ScrollbackTruncation().maxCharacters
         )
     }
 
@@ -1852,7 +1862,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         let window = SessionWindowSnapshot(
             frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
-            display: SessionDisplaySnapshot(
+            display: AppSessionDisplaySnapshot(
                 displayID: 42,
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1920, height: 1200),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1920, height: 1175)
@@ -3353,42 +3363,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: ".opencode",
                 processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
                 arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "open-code",
                 processPath: "/opt/homebrew/bin/open-code",
                 arguments: ["open-code"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/opt/homebrew/bin/open-code"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/tmp/not-opencode-ai-helper"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: [
@@ -3398,42 +3408,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "tail",
                 processPath: "/usr/bin/tail",
                 arguments: ["tail", "-f", "/tmp/opencode"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver().processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+            OpenCodeProcessResolver().executablePath(
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
                 environment: [:]
             ),
             "/Users/lawrence/.bun/bin/opencode"
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+            OpenCodeProcessResolver().launchArguments(
                 arguments: ["opencode", "run", "--session", "unsupported-session"],
                 environment: [:]
             )
@@ -3453,14 +3463,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+            OpenCodeProcessResolver().executablePath(
                 arguments: ["opencode"],
                 environment: ["PATH": "\(bin.path):/usr/bin"]
             ),
             executable.path
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+            OpenCodeProcessResolver().executablePath(
                 arguments: [".opencode"],
                 environment: ["PATH": "\(bin.path):/usr/bin"]
             ),
@@ -3470,7 +3480,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeWorkingDirectoryUsesProjectPositional() {
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+            OpenCodeProcessResolver().workingDirectory(
                 arguments: [
                     "opencode",
                     "--model",
@@ -3482,7 +3492,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/tmp/opencode-project"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+            OpenCodeProcessResolver().workingDirectory(
                 arguments: [
                     "node",
                     "/Users/example/.bun/bin/opencode",
@@ -3493,7 +3503,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/tmp/shell-cwd/opencode-project"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+            OpenCodeProcessResolver().workingDirectory(
                 arguments: ["opencode", "--session", "known-session"],
                 environment: ["CMUX_AGENT_LAUNCH_CWD": "/tmp/hook-cwd", "PWD": "/tmp/shell-cwd"]
             ),
@@ -3513,7 +3523,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let arguments = try XCTUnwrap(RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+        let arguments = try XCTUnwrap(OpenCodeProcessResolver().launchArguments(
             arguments: [
                 "node",
                 "opencode",
@@ -3568,7 +3578,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeSessionFallbackAvoidsAmbiguousSameDirectoryPanels() {
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--session", "ses-explicit"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
@@ -3576,7 +3586,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-explicit"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: "ses-child",
                 sameWorkingDirectoryPanelCount: 1
@@ -3584,7 +3594,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-child",
                 sameWorkingDirectoryPanelCount: 1
@@ -3592,14 +3602,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
@@ -3607,7 +3617,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 2
@@ -3615,42 +3625,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode", "--fork"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver().fallbackSessionId(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1
@@ -4250,7 +4260,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/project"
             )
@@ -4272,7 +4282,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             decoded.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/project"
             )
@@ -4289,7 +4299,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
                 workingDirectory: "/tmp/project"
             )
@@ -4306,7 +4316,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session && echo done",
                 workingDirectory: "/tmp/project"
             )
@@ -4326,7 +4336,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: cwd
             )
@@ -4340,7 +4350,7 @@ extension SessionPersistenceTests {
     // The emitted guard must therefore avoid brace grouping entirely while keeping the
     // same `(cd || test) && cmd` semantics via a left-associative AND-OR list.
     func testWorkingDirectoryPrefixUsesNoPosixBraceGroupingForFishLoginShell() {
-        let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
+        let prefixed = TerminalStartupWorkingDirectoryPrefix().prefix(
             "claude --resume abc",
             workingDirectory: "/tmp/fish repo"
         )
@@ -4366,7 +4376,7 @@ extension SessionPersistenceTests {
         XCTAssertFalse(binding.command.contains("{ "), binding.command)
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/fish repo"
             )
@@ -4886,20 +4896,20 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
         XCTAssertTrue(record.hasValidSignature(secret: secret))
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
@@ -4912,11 +4922,10 @@ extension SessionPersistenceTests {
             source: "cli",
             environment: ["PATH": "/tmp/bin"]
         )
-        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: changedEnvironmentBinding,
+        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).applyingStoredApproval(to: changedEnvironmentBinding)
         XCTAssertEqual(changedEnvironmentEffectiveBinding.approvalPolicy, .manual)
         XCTAssertFalse(changedEnvironmentEffectiveBinding.allowsAutomaticResume)
     }
@@ -4930,22 +4939,22 @@ extension SessionPersistenceTests {
             source: "cli"
         )
 
-        var record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .manual,
+        var record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .manual
         ))
         record.policy = .auto
         let encoder = JSONEncoder()
         let data = try encoder.encode(SurfaceResumeApprovalStore.StoredFile(version: 1, records: [record]))
         try data.write(to: storeURL, options: [.atomic])
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertNil(effectiveBinding.approvalRecordId)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
@@ -4961,11 +4970,10 @@ extension SessionPersistenceTests {
             approvalRecordId: "deleted-record"
         )
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
             signingSecret: Data("approval-secret".utf8)
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertNil(effectiveBinding.approvalRecordId)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
@@ -4998,20 +5006,21 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let effectiveBinding = try XCTUnwrap(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
-            to: binding,
-            existingRecord: nil,
+        let effectiveBinding = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: nil
         ))
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
         XCTAssertNotNil(effectiveBinding.approvalRecordId)
 
-        let records = SurfaceResumeApprovalStore.validRecords(
+        let records = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).validRecords()
         let record = try XCTUnwrap(records.first)
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(record.policy, .manual)
@@ -5019,11 +5028,12 @@ extension SessionPersistenceTests {
         XCTAssertEqual(record.commandPrefixText, "tmux attach -t work")
         XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
 
-        XCTAssertNil(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
-            to: binding,
-            existingRecord: record,
+        XCTAssertNil(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: record
         ))
     }
 
@@ -5052,12 +5062,13 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
         let root = try jsonObject(at: settingsURL)
@@ -5071,10 +5082,10 @@ extension SessionPersistenceTests {
         XCTAssertTrue(updatedSettings.contains("// keep terminal comment"))
         XCTAssertTrue(updatedSettings.contains("\r\n    \"resumeCommands\""))
 
-        let validRecords = SurfaceResumeApprovalStore.validRecords(
+        let validRecords = SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
-        )
+        ).validRecords()
         XCTAssertEqual(validRecords.map(\.id), [record.id])
         XCTAssertEqual(validRecords.first?.policy, .auto)
     }
@@ -5104,12 +5115,13 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
         let updatedData = try Data(contentsOf: settingsURL)
@@ -5147,17 +5159,19 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: legacyURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
-        XCTAssertTrue(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
-            fileURL: settingsURL,
+        XCTAssertTrue(SurfaceResumeApprovalStore(
+            fileURL: settingsURL
+        ).migrateLegacyRecordsIfNeeded(
             legacyFileURL: legacyURL
         ))
 
@@ -5171,15 +5185,16 @@ extension SessionPersistenceTests {
         let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
         XCTAssertTrue(updatedSettings.contains("// keep migration comment"))
 
-        let validRecords = SurfaceResumeApprovalStore.validRecords(
+        let validRecords = SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
-        )
+        ).validRecords()
         XCTAssertEqual(validRecords.map(\.id), [record.id])
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
 
-        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
-            fileURL: settingsURL,
+        XCTAssertFalse(SurfaceResumeApprovalStore(
+            fileURL: settingsURL
+        ).migrateLegacyRecordsIfNeeded(
             legacyFileURL: legacyURL
         ))
         let rootAfterSecondMigration = try jsonObject(at: settingsURL)
@@ -5205,42 +5220,45 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let legacyRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let legacyRecord = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: legacyURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
-        XCTAssertEqual(SurfaceResumeApprovalStore.loadRecords(
+        XCTAssertEqual(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             defaultSettingsURL: settingsURL
-        ).map(\.id), [legacyRecord.id])
+        ).loadRecords().map(\.id), [legacyRecord.id])
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
 
-        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
-            fileURL: settingsURL,
+        XCTAssertFalse(SurfaceResumeApprovalStore(
+            fileURL: settingsURL
+        ).migrateLegacyRecordsIfNeeded(
             legacyFileURL: legacyURL
         ))
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+        XCTAssertNotNil(SurfaceResumeApprovalStore(
+            fileURL: settingsURL,
+            signingSecret: secret
+        ).approve(
             binding: binding,
             policy: .auto,
-            commandPrefix: ["tmux", "attach"],
-            fileURL: settingsURL,
-            signingSecret: secret
+            commandPrefix: ["tmux", "attach"]
         ))
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
-        XCTAssertTrue(SurfaceResumeApprovalStore.validRecords(
+        XCTAssertTrue(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
-        ).isEmpty)
-        XCTAssertEqual(SurfaceResumeApprovalStore.validRecords(
+        ).validRecords().isEmpty)
+        XCTAssertEqual(SurfaceResumeApprovalStore(
             fileURL: legacyURL,
             signingSecret: secret
-        ).map(\.id), [legacyRecord.id])
+        ).validRecords().map(\.id), [legacyRecord.id])
     }
 
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
@@ -5267,11 +5285,12 @@ extension SessionPersistenceTests {
             source: "cli"
         )
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .prompt,
+        XCTAssertNotNil(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .prompt
         ))
 
         let input = Workspace.surfaceResumeStartupInput(
@@ -5292,11 +5311,12 @@ extension SessionPersistenceTests {
             source: "cli"
         )
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .prompt,
+        XCTAssertNotNil(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .prompt
         ))
 
         let input = Workspace.surfaceResumeStartupInput(
@@ -5316,11 +5336,10 @@ extension SessionPersistenceTests {
             source: "process-detected"
         )
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
             signingSecret: Data("approval-secret".utf8)
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
     }
@@ -5333,11 +5352,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
             signingSecret: Data("approval-secret".utf8)
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
     }
@@ -5516,7 +5534,7 @@ extension SessionPersistenceTests {
 
     private func jsonObject(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
-        let sanitized = try JSONCParser.preprocess(data: data)
+        let sanitized = try data.jsoncPreprocessed()
         return try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
     }
 
@@ -5555,6 +5573,94 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(restoredPanel.requestedWorkingDirectory, bindingCwd.path)
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreRetargetsAgentHookResumeBindingToRestorableAgentCwd() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            source.panelDirectories[sourcePanelId] = "/tmp/old"
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-retarget-session",
+                arguments: [
+                    "/usr/local/bin/codex",
+                    "resume",
+                    "codex-retarget-session",
+                ]
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "cd -- '/tmp/old' 2>/dev/null || [ ! -d '/tmp/old' ] && codex resume codex-retarget-session",
+                    cwd: "/tmp/old",
+                    checkpointId: "codex-retarget-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredBinding = try XCTUnwrap(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding
+            )
+
+            XCTAssertEqual(restoredBinding.cwd, "/tmp/repo")
+            XCTAssertTrue(restoredBinding.command.contains("/tmp/repo"), restoredBinding.command)
+            XCTAssertFalse(restoredBinding.command.contains("/tmp/old"), restoredBinding.command)
+        }
+    }
+
+    @MainActor
+    func testRestoreDropsRestorableAgentWhenAgentHookBindingCheckpointMismatches() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-agent-session",
+                arguments: [
+                    "/usr/local/bin/codex",
+                    "resume",
+                    "codex-agent-session",
+                ]
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume codex-binding-session",
+                    cwd: "/tmp/binding",
+                    checkpointId: "codex-binding-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredTerminal = restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal
+
+            XCTAssertNil(restoredTerminal?.agent)
+            XCTAssertEqual(restoredTerminal?.resumeBinding?.checkpointId, "codex-binding-session")
+        }
     }
 
     @MainActor

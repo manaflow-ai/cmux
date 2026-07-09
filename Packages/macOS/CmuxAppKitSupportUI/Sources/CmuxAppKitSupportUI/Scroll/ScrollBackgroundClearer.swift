@@ -33,6 +33,9 @@ struct ScrollBackgroundClearer: NSViewRepresentable {
         }
     }
 
+    // @MainActor: reads NSView.superview (main-actor under Swift 6.1); only called
+    // from the @MainActor NSViewRepresentable updateNSView path.
+    @MainActor
     private func findScrollView(startingAt view: NSView) -> NSScrollView? {
         var current: NSView? = view
         while let candidate = current {

@@ -1,5 +1,7 @@
 import AppKit
 import CmuxWindowing
+import struct CmuxWorkspaces.SessionRectSnapshot
+import struct CmuxWorkspaces.SessionSidebarSnapshot
 import Testing
 
 #if canImport(cmux_DEV)
@@ -7,6 +9,7 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
 @Suite(.serialized)
 @MainActor
@@ -398,7 +401,7 @@ struct AppDelegateDisplayConfigRestoreTests {
         try #require(!NSScreen.screens.isEmpty)
         let restoredWindowId = UUID()
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_000,
             windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
         )
@@ -460,7 +463,6 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     // MARK: remembered frame that no longer fits is re-clamped, not applied raw
-
     @Test
     func rememberedFrameLargerThanNewDisplayIsClamped() throws {
         // Remembered a big frame on a 4K external; reconnect to a smaller 1080p

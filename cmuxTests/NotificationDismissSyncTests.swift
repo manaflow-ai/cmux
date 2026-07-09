@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import UserNotifications
 import CMUXMobileCore
+@testable import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

@@ -1,9 +1,13 @@
 import CmuxFoundation
 import CmuxWorkspaces
 import AppKit
+import CMUXAgentLaunch
 import CmuxTerminal
 import Carbon.HIToolbox
+import CmuxFoundation
 import CmuxSettingsUI
+import CmuxWindowing
+import CmuxWorkspaces
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -45,25 +49,6 @@ enum TextBoxLayout {
 
     static func textInset(forLineCount lineCount: Int) -> NSSize {
         lineCount <= minLines ? textInset : multilineTextInset
-    }
-}
-
-struct TextBoxFailedSubmitRollbackSnapshot: Equatable {
-    let revision: UInt64
-    let text: String
-    let attachmentCount: Int
-
-    var isEmpty: Bool {
-        text.isEmpty && attachmentCount == 0
-    }
-}
-
-enum TextBoxFailedSubmitRollbackPolicy {
-    static func shouldRestore(
-        rollbackSnapshot: TextBoxFailedSubmitRollbackSnapshot,
-        currentSnapshot: TextBoxFailedSubmitRollbackSnapshot
-    ) -> Bool {
-        currentSnapshot.revision == rollbackSnapshot.revision && currentSnapshot.isEmpty
     }
 }
 
@@ -212,57 +197,9 @@ struct TextBoxSendButtonStyle: ButtonStyle {
     }
 }
 
-struct TextBoxAttachment: Identifiable {
-    let id = UUID()
-    let displayName: String
-    let submissionText: String
-    let submissionPath: String
-    let localURL: URL?
-    let thumbnail: NSImage?
-    let cleanupLocalURLWhenDisposed: Bool
+typealias TextBoxAttachment = CmuxWorkspaces.TextBoxAttachment
 
-    init(
-        displayName: String,
-        submissionText: String,
-        submissionPath: String,
-        localURL: URL?,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL?.standardizedFileURL
-        let fallbackName = standardizedURL?.lastPathComponent ?? URL(fileURLWithPath: submissionPath).lastPathComponent
-        self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (fallbackName.isEmpty ? submissionPath : fallbackName)
-            : displayName
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath
-        self.localURL = standardizedURL
-        self.thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    init(
-        localURL: URL,
-        submissionText: String,
-        submissionPath: String? = nil,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL.standardizedFileURL
-        self.displayName = standardizedURL.lastPathComponent.isEmpty
-            ? standardizedURL.path
-            : standardizedURL.lastPathComponent
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath ?? standardizedURL.path
-        self.localURL = standardizedURL
-        self.thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    var isImage: Bool {
-        if thumbnail != nil { return true }
-        guard let localURL else { return false }
-        return TextBoxAttachment.isImageFileURL(localURL)
-    }
-
+extension TextBoxAttachment {
     var escapedSubmissionPath: String {
         TerminalImageTransferPlanner.escapeForShell(submissionPath)
     }
@@ -284,463 +221,49 @@ struct TextBoxAttachment: Identifiable {
 
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
-            || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
+            || GhosttyApp.textBoxDraftAttachmentStore.isOwnedDraftCopy(fileURL)
     }
-
-    private static func makeThumbnail(for url: URL) -> NSImage? {
-        guard TextBoxAttachment.isImageFileURL(url),
-              let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        return image
-    }
-
-    private static func isImageFileURL(_ url: URL) -> Bool {
-        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pathExtension.isEmpty,
-              let type = UTType(filenameExtension: pathExtension) else {
-            return false
-        }
-        return type.conforms(to: .image)
-    }
-}
-
-private enum TextBoxDraftAttachmentStorage {
-    private static let directoryName = "textbox-draft-attachments"
-    private struct DraftCopyState {
-        var copiedDraftPathByOriginalPath: [String: String] = [:]
-        var pendingOriginalPaths: Set<String> = []
-        var cancelledOriginalPaths: Set<String> = []
-    }
-
-    private nonisolated static let draftCopyState = OSAllocatedUnfairLock(
-        initialState: DraftCopyState()
-    )
-
-    static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
-            return fallbackSnapshot(for: attachment)
-        }
-        let standardizedLocalURL = localURL.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else {
-            return fallbackSnapshot(for: attachment)
-        }
-
-        // Regular autosaves should not block the main thread on file copies.
-        // Termination/update relaunch saves flush pending draft copies before
-        // building the session snapshot so this lookup is already durable there.
-        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
-        guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) else {
-            return fallbackSnapshot(for: attachment)
-        }
-        let submissionFields = copiedSubmissionFields(
-            for: attachment,
-            originalLocalURL: standardizedLocalURL,
-            durableURL: durableURL
-        )
-        return SessionTextBoxInputAttachmentSnapshot(
-            displayName: attachment.displayName,
-            submissionText: submissionFields.text,
-            submissionPath: submissionFields.path,
-            localPath: durableURL.path,
-            cleanupLocalPathWhenDisposed: true
-        )
-    }
-
-    private static func fallbackSnapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        SessionTextBoxInputAttachmentSnapshot(
-            displayName: attachment.displayName,
-            submissionText: attachment.submissionText,
-            submissionPath: attachment.submissionPath,
-            localPath: attachment.localURL?.standardizedFileURL.path,
-            cleanupLocalPathWhenDisposed: attachment.cleanupLocalURLWhenDisposed
-        )
-    }
-
-    static func prepareDurableCopy(for attachment: TextBoxAttachment) {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
-            return
-        }
-        let standardizedLocalURL = localURL.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else { return }
-        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
-    }
-
-    static func removeIfOwnedDraftCopy(_ fileURL: URL) -> Bool {
-        guard isOwnedDraftCopy(fileURL) else { return false }
-        try? FileManager.default.removeItem(at: fileURL.standardizedFileURL)
-        return true
-    }
-
-    static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
-        let originalPath = fileURL.standardizedFileURL.path
-        let copiedPath = draftCopyState.withLock { state in
-            if state.pendingOriginalPaths.contains(originalPath) || state.cancelledOriginalPaths.contains(originalPath) {
-                state.cancelledOriginalPaths.insert(originalPath)
-            } else {
-                state.cancelledOriginalPaths.remove(originalPath)
-            }
-            return state.copiedDraftPathByOriginalPath.removeValue(forKey: originalPath)
-        }
-        guard let copiedPath else { return }
-        try? FileManager.default.removeItem(atPath: copiedPath)
-    }
-
-    private static func copiedDraftURL(forOriginalURL originalURL: URL) -> URL? {
-        let copiedPath = draftCopyState.withLock { state in
-            state.copiedDraftPathByOriginalPath[originalURL.standardizedFileURL.path]
-        }
-        guard let copiedPath else { return nil }
-        let copiedURL = URL(fileURLWithPath: copiedPath).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: copiedURL.path) else {
-            _ = draftCopyState.withLock { state in
-                state.copiedDraftPathByOriginalPath.removeValue(
-                    forKey: originalURL.standardizedFileURL.path
-                )
-            }
-            return nil
-        }
-        return copiedURL
-    }
-
-    private static func prepareDurableCopy(forTemporaryFileAtPath originalPath: String) {
-        let originalPath = URL(fileURLWithPath: originalPath).standardizedFileURL.path
-        let shouldStart = draftCopyState.withLock { state in
-            guard state.copiedDraftPathByOriginalPath[originalPath] == nil,
-                  !state.pendingOriginalPaths.contains(originalPath),
-                  !state.cancelledOriginalPaths.contains(originalPath) else {
-                return false
-            }
-            state.pendingOriginalPaths.insert(originalPath)
-            return true
-        }
-        guard shouldStart else { return }
-
-        let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
-        if let durableURL = linkToDurableStorageIfPossible(originalURL) {
-            draftCopyState.withLock { state in
-                state.pendingOriginalPaths.remove(originalPath)
-                state.cancelledOriginalPaths.remove(originalPath)
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-            }
-            return
-        }
-
-        Task.detached(priority: .utility) {
-            let durableURL = copyToDurableStorage(originalURL)
-            let copiedPathToRemove = draftCopyState.withLock { state -> String? in
-                guard state.pendingOriginalPaths.remove(originalPath) != nil else {
-                    return nil
-                }
-                guard let durableURL else { return nil }
-                if state.cancelledOriginalPaths.remove(originalPath) != nil {
-                    return durableURL.path
-                }
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-                return nil
-            }
-            if let copiedPathToRemove {
-                try? FileManager.default.removeItem(atPath: copiedPathToRemove)
-            }
-        }
-    }
-
-    static func flushPendingCopiesSynchronously() {
-        let pendingOriginalPaths = draftCopyState.withLock { state in
-            Array(state.pendingOriginalPaths)
-        }
-        for originalPath in pendingOriginalPaths {
-            let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
-            let durableURL = linkToDurableStorageIfPossible(originalURL)
-                ?? copyToDurableStorage(originalURL)
-            let copiedPathToRemove = draftCopyState.withLock { state -> String? in
-                guard state.pendingOriginalPaths.remove(originalPath) != nil else {
-                    return nil
-                }
-                guard let durableURL else { return nil }
-                if state.cancelledOriginalPaths.remove(originalPath) != nil {
-                    return durableURL.path
-                }
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-                return nil
-            }
-            if let copiedPathToRemove {
-                try? FileManager.default.removeItem(atPath: copiedPathToRemove)
-            }
-        }
-    }
-
-    private static func copiedSubmissionFields(
-        for attachment: TextBoxAttachment,
-        originalLocalURL: URL,
-        durableURL: URL
-    ) -> (text: String, path: String) {
-        let originalLocalURL = originalLocalURL.standardizedFileURL
-        let originalLocalSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: originalLocalURL)
-        guard attachment.submissionPath == originalLocalURL.path,
-              attachment.submissionText == originalLocalSubmissionText else {
-            return (attachment.submissionText, attachment.submissionPath)
-        }
-        return (TextBoxAttachment.submissionText(forLocalFileURL: durableURL), durableURL.path)
-    }
-
-    private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
-        let sourceURL = sourceURL.standardizedFileURL
-        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            return destinationURL.standardizedFileURL
-        }
-        do {
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-            return destinationURL.standardizedFileURL
-        } catch {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                return destinationURL.standardizedFileURL
-            }
-            return nil
-        }
-    }
-
-    private static func linkToDurableStorageIfPossible(_ sourceURL: URL) -> URL? {
-        let sourceURL = sourceURL.standardizedFileURL
-        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            return destinationURL
-        }
-        do {
-            try FileManager.default.linkItem(at: sourceURL, to: destinationURL)
-            return destinationURL
-        } catch {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                return destinationURL
-            }
-            return nil
-        }
-    }
-
-    private static func durableStorageURL(for sourceURL: URL) -> URL? {
-        guard let directory = storageDirectory() else { return nil }
-        let sourceURL = sourceURL.standardizedFileURL
-        let fileExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pathToken = stablePathToken(sourceURL.path)
-        let fallbackName = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
-        let filename = "\(pathToken)-\(sourceURL.lastPathComponent.isEmpty ? fallbackName : sourceURL.lastPathComponent)"
-        return directory.appendingPathComponent(filename, isDirectory: false).standardizedFileURL
-    }
-
-    static func isOwnedDraftCopy(_ fileURL: URL) -> Bool {
-        guard let directory = storageDirectory(createIfMissing: false) else { return false }
-        let directoryPath = directory.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
-    }
-
-    private static func stablePathToken(_ path: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in path.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
-    }
-
-    private static func storageDirectory(createIfMissing: Bool = true) -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        let directory = appSupportDirectory
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent(directoryName, isDirectory: true)
-        if createIfMissing {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            } catch {
-                return nil
-            }
-        }
-        return directory
-    }
-
-#if DEBUG
-    static func debugPrepareDurableCopySynchronously(for attachment: TextBoxAttachment) -> URL? {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
-            return nil
-        }
-        let originalURL = localURL.standardizedFileURL
-        guard let durableURL = copyToDurableStorage(originalURL) else {
-            return nil
-        }
-        draftCopyState.withLock { state in
-            state.pendingOriginalPaths.remove(originalURL.path)
-            state.cancelledOriginalPaths.remove(originalURL.path)
-            state.copiedDraftPathByOriginalPath[originalURL.path] = durableURL.path
-        }
-        return durableURL
-    }
-#endif
 }
 
 #if DEBUG
 extension TextBoxAttachment {
     func debugPrepareSessionDraftCopySynchronouslyForTesting() -> URL? {
-        TextBoxDraftAttachmentStorage.debugPrepareDurableCopySynchronously(for: self)
+        GhosttyApp.textBoxDraftAttachmentStore.debugPrepareDurableCopySynchronously(localURL: localURL)
     }
 
     func debugCancelSessionDraftCopyForTesting() {
         guard let localURL else { return }
-        TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(localURL)
+        GhosttyApp.textBoxDraftAttachmentStore.removeCopiedDraftForOriginalTemporaryFile(localURL)
     }
 }
 #endif
 
 extension TextBoxInputTextView {
     static func flushPendingSessionDraftAttachmentCopies() {
-        TextBoxDraftAttachmentStorage.flushPendingCopiesSynchronously()
+        GhosttyApp.textBoxDraftAttachmentStore.flushPendingCopiesSynchronously()
     }
-}
-
-enum TextBoxSubmissionPart {
-    case text(String)
-    case attachment(TextBoxAttachment)
 }
 
 extension SessionTextBoxInputAttachmentSnapshot {
+    /// Builds the durable snapshot for a live draft attachment.
+    ///
+    /// The app-side field-extraction half of the bridge: it materializes the
+    /// fallback snapshot from the concrete `TextBoxAttachment` and hands it,
+    /// with the attachment's local URL, to the process-wide draft store, which
+    /// owns the pasteboard-ownership check, the durable copy, and the submission
+    /// field rewrite.
     init(_ attachment: TextBoxAttachment) {
-        self = TextBoxDraftAttachmentStorage.snapshot(for: attachment)
-    }
-
-    func textBoxAttachment() -> TextBoxAttachment {
-        let restoredLocalURL: URL?
-        if let localPath {
-            let url = URL(fileURLWithPath: localPath).standardizedFileURL
-            restoredLocalURL = FileManager.default.fileExists(atPath: url.path) ? url : nil
-        } else {
-            restoredLocalURL = nil
-        }
-        return TextBoxAttachment(
-            displayName: displayName,
-            submissionText: submissionText,
-            submissionPath: submissionPath,
-            localURL: restoredLocalURL,
-            cleanupLocalURLWhenDisposed: cleanupLocalPathWhenDisposed
+        let fallback = SessionTextBoxInputAttachmentSnapshot(
+            displayName: attachment.displayName,
+            submissionText: attachment.submissionText,
+            submissionPath: attachment.submissionPath,
+            localPath: attachment.localURL?.standardizedFileURL.path,
+            cleanupLocalPathWhenDisposed: attachment.cleanupLocalURLWhenDisposed
         )
-    }
-}
-
-enum TextBoxSubmissionFormatter {
-    static func parts(from attributed: NSAttributedString) -> [TextBoxSubmissionPart] {
-        let raw = attributed.string as NSString
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        var parts: [TextBoxSubmissionPart] = []
-
-        attributed.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
-            if let inlineAttachment = value as? TextBoxInlineTextAttachment {
-                parts.append(.attachment(inlineAttachment.textBoxAttachment))
-            } else {
-                let text = raw.substring(with: range)
-                let strippedText = TextBoxInputTextView.stringByStrippingNonTextMarkers(from: text)
-                guard !strippedText.isEmpty else { return }
-                parts.append(.text(strippedText))
-            }
-        }
-
-        return parts
-    }
-
-    static func formattedText(from parts: [TextBoxSubmissionPart]) -> String {
-        var result = ""
-        var attachmentNeedsBoundarySpace = false
-
-        for part in parts {
-            switch part {
-            case .text(let text):
-                guard !text.isEmpty else { continue }
-                if attachmentNeedsBoundarySpace,
-                   text.first?.isWhitespace != true {
-                    result += " "
-                }
-                result += text
-                attachmentNeedsBoundarySpace = false
-            case .attachment(let attachment):
-                guard !attachment.submissionText.isEmpty else { continue }
-                if attachmentNeedsBoundarySpace {
-                    result += " "
-                }
-                result += attachment.submissionText
-                attachmentNeedsBoundarySpace = result.last?.isWhitespace != true
-            }
-        }
-
-        if attachmentNeedsBoundarySpace {
-            result += " "
-        }
-
-        return result.trimmingCharacters(in: .newlines)
-    }
-
-    static func formattedText(from attributed: NSAttributedString) -> String {
-        formattedText(from: parts(from: attributed))
-    }
-
-    static func hasSubmittableContent(_ parts: [TextBoxSubmissionPart]) -> Bool {
-        parts.contains { part in
-            switch part {
-            case .text(let text):
-                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            case .attachment:
-                return true
-            }
-        }
-    }
-}
-
-struct TextBoxPasteboardRestorationToken: Equatable {
-    let changeCount: Int
-    let fileURL: URL
-}
-
-enum TextBoxPasteboardRestorationGuard {
-    static func token(
-        afterWritingTemporaryFileURL fileURL: URL,
-        to pasteboard: NSPasteboard
-    ) -> TextBoxPasteboardRestorationToken {
-        TextBoxPasteboardRestorationToken(
-            changeCount: pasteboard.changeCount,
-            fileURL: fileURL.standardizedFileURL
+        self = GhosttyApp.textBoxDraftAttachmentStore.durableSnapshot(
+            fallback: fallback,
+            localURL: attachment.localURL
         )
-    }
-
-    static func shouldRestore(
-        pasteboard: NSPasteboard,
-        token: TextBoxPasteboardRestorationToken?
-    ) -> Bool {
-        guard let token else {
-            return false
-        }
-        let temporaryPath = token.fileURL.standardizedFileURL.path
-        let currentFileURLPaths = Set(
-            PasteboardFileURLReader.fileURLs(from: pasteboard).map { $0.standardizedFileURL.path }
-        )
-        guard currentFileURLPaths.contains(temporaryPath) else {
-            return false
-        }
-        guard pasteboard.changeCount == token.changeCount else {
-            return currentFileURLPaths == [temporaryPath]
-        }
-        return true
-    }
-
-    static func isCurrentTemporaryWrite(
-        pasteboard: NSPasteboard,
-        token: TextBoxPasteboardRestorationToken?
-    ) -> Bool {
-        shouldRestore(pasteboard: pasteboard, token: token)
     }
 }
 
@@ -769,8 +292,7 @@ private final class TextBoxInlineTextAttachment: NSTextAttachment {
     func refreshCell(font: NSFont, foregroundColor: NSColor, isFocused: Bool) {
         attachmentCell = TextBoxInlineAttachmentCell(
             attachment: textBoxAttachment,
-            image: TextBoxInlineAttachmentRenderer.image(
-                for: textBoxAttachment,
+            image: textBoxAttachment.inlineAttachmentImage(
                 font: font,
                 foregroundColor: foregroundColor,
                 isFocused: isFocused
@@ -788,6 +310,12 @@ private final class TextBoxInlineTextAttachment: NSTextAttachment {
         return NSRect(x: 0, y: 0, width: width, height: 1)
     }
 }
+
+/// Exposes the carried ``TextBoxAttachment`` to the package's submission-parts
+/// reader. The stored `textBoxAttachment` satisfies the protocol requirement, so
+/// `NSAttributedString.textBoxSubmissionParts` matches this class identically to
+/// the legacy concrete `as? TextBoxInlineTextAttachment` cast.
+extension TextBoxInlineTextAttachment: TextBoxInlineAttachmentCarrying {}
 
 private final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
     private let textBoxAttachment: TextBoxAttachment
@@ -869,9 +397,8 @@ private final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
     }
 }
 
-private enum TextBoxInlineAttachmentRenderer {
-    static func image(
-        for attachment: TextBoxAttachment,
+extension TextBoxAttachment {
+    func inlineAttachmentImage(
         font: NSFont,
         foregroundColor: NSColor,
         isFocused: Bool
@@ -886,7 +413,7 @@ private enum TextBoxInlineAttachmentRenderer {
         ]
         let textWidth = min(
             TextBoxLayout.inlineAttachmentMaxTextWidth,
-            ceil((attachment.displayName as NSString).size(withAttributes: textAttributes).width)
+            ceil((displayName as NSString).size(withAttributes: textAttributes).width)
         )
         let height = TextBoxLayout.attachmentChipHeight
         let iconSize = TextBoxLayout.attachmentImageSize
@@ -922,7 +449,7 @@ private enum TextBoxInlineAttachmentRenderer {
             width: iconSize,
             height: iconSize
         )
-        if let thumbnail = attachment.thumbnail {
+        if let thumbnail {
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(roundedRect: iconRect, xRadius: 4, yRadius: 4).addClip()
             thumbnail.draw(in: iconRect)
@@ -933,7 +460,7 @@ private enum TextBoxInlineAttachmentRenderer {
                 .draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 0.9)
         }
 
-        let textSize = (attachment.displayName as NSString).size(withAttributes: textAttributes)
+        let textSize = (displayName as NSString).size(withAttributes: textAttributes)
 
         let textRect = NSRect(
             x: iconRect.maxX + iconTextGap,
@@ -941,7 +468,7 @@ private enum TextBoxInlineAttachmentRenderer {
             width: textWidth,
             height: textSize.height
         )
-        (attachment.displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
+        (displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
 
         let closeAttributes: [NSAttributedString.Key: Any] = [
             .font: GlobalFontMagnification.systemFont(ofSize: 9, weight: .bold),
@@ -1190,58 +717,6 @@ private struct TextBoxAttachmentChip: View {
     }
 }
 
-enum TextBoxTerminalKey: String {
-    case arrowUp = "up"
-    case arrowDown = "down"
-    case arrowLeft = "left"
-    case arrowRight = "right"
-    case tab
-    case backspace
-    case escape
-    case returnKey = "return"
-}
-
-func shouldHandleTextBoxPlainArrowLocally(
-    keyCode: UInt16,
-    firstResponderHasMarkedText: Bool,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard !firstResponderHasMarkedText else { return false }
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    guard normalizedFlags.isEmpty else { return false }
-
-    switch Int(keyCode) {
-    case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow:
-        return true
-    default:
-        return false
-    }
-}
-
-func shouldSynchronizeExternalTextToTextBox(
-    inlineAttachmentCount: Int,
-    plainText: String,
-    externalText: String,
-    hasMarkedText: Bool
-) -> Bool {
-    inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
-}
-
-func textBoxCommandShortcutKey(
-    for event: NSEvent,
-    translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
-    normalizedCharacters: (NSEvent) -> String = KeyboardLayout.normalizedCharacters(for:)
-) -> String {
-    if let translated = translateKey(event.keyCode, event.modifierFlags)?.lowercased(),
-       translated.count == 1,
-       translated.allSatisfy(\.isASCII) {
-        return translated
-    }
-    return normalizedCharacters(event).lowercased()
-}
-
 private struct TextBoxMentionCompletionPopoverView: View {
     let suggestions: [TextBoxMentionSuggestion]
     let selectionIndex: Int
@@ -1300,7 +775,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
         var attributed = AttributedString(title)
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return attributed }
-        let ranges = subsequenceMatchRanges(query: trimmedQuery, in: title)
+        let ranges = title.subsequenceMatchRanges(matching: trimmedQuery)
         guard !ranges.isEmpty else { return attributed }
         for range in ranges {
             guard let attrLower = AttributedString.Index(range.lowerBound, within: attributed),
@@ -1311,31 +786,6 @@ private struct TextBoxMentionCompletionPopoverView: View {
             attributed[attrLower..<attrUpper].inlinePresentationIntent = .stronglyEmphasized
         }
         return attributed
-    }
-
-    private static func subsequenceMatchRanges(query: String, in text: String) -> [Range<String.Index>] {
-        guard !query.isEmpty, !text.isEmpty else { return [] }
-        var ranges: [Range<String.Index>] = []
-        var queryIndex = query.startIndex
-        var textIndex = text.startIndex
-
-        while queryIndex < query.endIndex, textIndex < text.endIndex {
-            let nextTextIndex = text.index(after: textIndex)
-            let nextQueryIndex = query.index(after: queryIndex)
-            let textCharacter = String(text[textIndex..<nextTextIndex])
-            let queryCharacter = String(query[queryIndex..<nextQueryIndex])
-            if textCharacter.compare(
-                queryCharacter,
-                options: [.caseInsensitive, .diacriticInsensitive],
-                locale: nil
-            ) == .orderedSame {
-                ranges.append(textIndex..<nextTextIndex)
-                queryIndex = nextQueryIndex
-            }
-            textIndex = nextTextIndex
-        }
-
-        return queryIndex == query.endIndex ? ranges : []
     }
 }
 
@@ -1416,72 +866,19 @@ enum TextBoxSubmit {
     }
 #endif
 
-    private static let visibleTextWaitMaxCharacters = 160
-
-    enum DispatchEvent: Equatable {
-        case keyText(String)
-        case pasteText(String)
-        case pasteFilePath(String)
-        case namedKeyRepeat(String, Int)
-        case namedKey(String)
-        case captureClipboardReadBaseline
-        case waitForClipboardRead
-        case captureVisibleTextBaseline
-        case waitForVisibleText(String)
-        case captureClaudeImageTokenBaseline
-        case waitForClaudeImageToken(String)
-    }
+    /// The dispatch-event value type now lives in `CMUXAgentLaunch`; this alias
+    /// keeps the historical `TextBoxSubmit.DispatchEvent` spelling at call sites.
+    typealias DispatchEvent = TextBoxSubmitDispatchEvent
 
     static func submittedPasteText(for text: String) -> String? {
-        let trimmedForEnabledState = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedForEnabledState.isEmpty else { return nil }
-        return text.trimmingCharacters(in: .newlines)
-    }
-
-    static func submittedParts(_ parts: [TextBoxSubmissionPart]) -> [TextBoxSubmissionPart]? {
-        let flattened = parts.map { part in
-            switch part {
-            case .text(let text):
-                return text
-            case .attachment(let attachment):
-                return attachment.submissionText
-            }
-        }.joined()
-        guard !flattened.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        return trimBoundaryNewlines(from: parts)
+        text.textBoxSubmittedPasteText
     }
 
     static func dispatchEvents(
         for parts: [TextBoxSubmissionPart],
         terminalAgentContext: String
     ) -> [DispatchEvent] {
-        guard let inputParts = submittedParts(parts) else {
-            return [.namedKey(TextBoxTerminalKey.returnKey.rawValue)]
-        }
-
-        let isClaude = TextBoxAgentDetection.isClaudeCode(context: terminalAgentContext)
-        var containsNewline = false
-
-        for part in inputParts {
-            switch part {
-            case .text(let text):
-                if text.contains("\n") || text.contains("\r") {
-                    containsNewline = true
-                }
-            case .attachment:
-                break
-            }
-        }
-
-        let submitKey = isClaude && containsNewline ? "ctrl+enter" : TextBoxTerminalKey.returnKey.rawValue
-        if isClaude, containsImageAttachment(inputParts) {
-            return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
-        }
-
-        let pastePayload = TextBoxSubmissionFormatter.formattedText(from: inputParts)
-        return [.pasteText(pastePayload), .namedKey(submitKey)]
+        parts.textBoxDispatchEvents(terminalAgentContext: terminalAgentContext)
     }
 
     static func launchDispatchEvents(launchCommand: String) -> [DispatchEvent] {
@@ -1527,7 +924,7 @@ enum TextBoxSubmit {
         let isClaude = TextBoxAgentDetection.isClaudeCode(context: terminalAgentContext)
         var confirmedClaudeImageSubmissionTexts = completionContext.confirmedClaudeImageSubmissionTexts
         return parts.compactMap { part -> TextBoxAttachment? in
-            if case .attachment(let attachment) = part { return attachment }
+            if case .attachment(let attachment) = part { return attachment as? TextBoxAttachment }
             return nil
         }.filter { attachment in
             guard attachment.cleanupLocalURLWhenDisposed else { return false }
@@ -1541,183 +938,12 @@ enum TextBoxSubmit {
         }
     }
 
-    private static func containsImageAttachment(_ parts: [TextBoxSubmissionPart]) -> Bool {
-        parts.contains { part in
-            if case .attachment(let attachment) = part {
-                return attachment.isImage
-            }
-            return false
-        }
-    }
-
-    private static func claudeSequentialImageDispatchEvents(
-        from parts: [TextBoxSubmissionPart],
-        submitKey: String
-    ) -> [DispatchEvent] {
-        var events: [DispatchEvent] = []
-        var attachmentNeedsBoundarySpace = false
-
-        func appendPastedText(_ text: String) {
-            guard !text.isEmpty else { return }
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                events.append(.pasteText(text))
-                return
-            }
-            events.append(.captureVisibleTextBaseline)
-            events.append(.pasteText(text))
-            if let waitNeedle = visibleTextWaitNeedle(for: text) {
-                events.append(.waitForVisibleText(waitNeedle))
-            }
-        }
-
-        func appendText(_ text: String) {
-            guard !text.isEmpty else { return }
-            var textToPaste = text
-            if attachmentNeedsBoundarySpace,
-               text.first?.isWhitespace != true {
-                textToPaste = " " + textToPaste
-            }
-            appendPastedText(textToPaste)
-            attachmentNeedsBoundarySpace = false
-        }
-
-        for part in parts {
-            switch part {
-            case .text(let text):
-                appendText(text)
-            case .attachment(let attachment):
-                guard !attachment.submissionText.isEmpty else { continue }
-                if attachmentNeedsBoundarySpace {
-                    appendPastedText(" ")
-                }
-                if attachment.isImage,
-                   let pastePath = claudeImagePastePath(for: attachment) {
-                    events.append(.captureClaudeImageTokenBaseline)
-                    events.append(.captureClipboardReadBaseline)
-                    events.append(.pasteFilePath(pastePath))
-                    events.append(.waitForClipboardRead)
-                    events.append(.waitForClaudeImageToken(attachment.submissionText))
-                    attachmentNeedsBoundarySpace = true
-                } else {
-                    appendPastedText(attachment.submissionText)
-                    attachmentNeedsBoundarySpace = attachment.submissionText.last?.isWhitespace != true
-                }
-            }
-        }
-
-        if attachmentNeedsBoundarySpace {
-            appendPastedText(" ")
-        }
-        events.append(.namedKey(submitKey))
-        return events
-    }
-
-    private static func visibleTextWaitNeedle(for text: String) -> String? {
-        let nonNewlineTrimmed = text.trimmingCharacters(in: .newlines)
-        guard !nonNewlineTrimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        guard nonNewlineTrimmed.count > visibleTextWaitMaxCharacters else {
-            return text
-        }
-
-        let lastLine = nonNewlineTrimmed
-            .split(omittingEmptySubsequences: false) { character in
-                character == "\n" || character == "\r"
-            }
-            .last
-            .map(String.init) ?? nonNewlineTrimmed
-        let visibleLine = lastLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nonNewlineTrimmed
-            : lastLine
-        return String(visibleLine.suffix(visibleTextWaitMaxCharacters))
-    }
-
-    private static func claudeImagePastePath(for attachment: TextBoxAttachment) -> String? {
-        guard attachment.isImage else { return nil }
-        guard let localPath = attachment.localURL?.standardizedFileURL.path else { return nil }
-        return attachment.submissionPath == localPath ? attachment.submissionPath : localPath
-    }
-
-    private static func trimBoundaryNewlines(from parts: [TextBoxSubmissionPart]) -> [TextBoxSubmissionPart] {
-        var result = parts
-
-        while let first = result.first {
-            guard case .text(let text) = first else { break }
-            let trimmed = trimmingLeadingNewlines(text)
-            if trimmed.isEmpty {
-                result.removeFirst()
-            } else {
-                result[0] = .text(trimmed)
-                break
-            }
-        }
-
-        while let last = result.last {
-            guard case .text(let text) = last else { break }
-            let trimmed = trimmingTrailingNewlines(text)
-            if trimmed.isEmpty {
-                result.removeLast()
-            } else {
-                result[result.count - 1] = .text(trimmed)
-                break
-            }
-        }
-
-        return result
-    }
-
-    private static func trimmingLeadingNewlines(_ text: String) -> String {
-        String(text.drop { character in
-            character == "\n" || character == "\r"
-        })
-    }
-
-    private static func trimmingTrailingNewlines(_ text: String) -> String {
-        var result = text
-        while let last = result.last,
-              last == "\n" || last == "\r" {
-            result.removeLast()
-        }
-        return result
-    }
-
     static func visibleTextReady(
         expectedText: String,
         visibleText: String,
         baseline: String
     ) -> Bool {
-        let trimmedExpectedText = expectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedExpectedText.isEmpty else {
-            return visibleText != baseline
-        }
-        if occurrenceCount(of: expectedText, in: visibleText) >
-            occurrenceCount(of: expectedText, in: baseline) {
-            return true
-        }
-
-        let normalizedExpected = normalizedVisibleText(trimmedExpectedText)
-        guard !normalizedExpected.isEmpty,
-              normalizedExpected != expectedText else {
-            return false
-        }
-        return occurrenceCount(of: normalizedExpected, in: normalizedVisibleText(visibleText)) >
-            occurrenceCount(of: normalizedExpected, in: normalizedVisibleText(baseline))
-    }
-
-    private static func occurrenceCount(of needle: String, in haystack: String) -> Int {
-        guard !needle.isEmpty else { return 0 }
-        var count = 0
-        var searchRange = haystack.startIndex..<haystack.endIndex
-        while let range = haystack.range(of: needle, range: searchRange) {
-            count += 1
-            searchRange = range.upperBound..<haystack.endIndex
-        }
-        return count
-    }
-
-    private static func normalizedVisibleText(_ text: String) -> String {
-        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        visibleText.textBoxVisibleTextReady(expectedText: expectedText, baseline: baseline)
     }
 }
 
@@ -1748,6 +974,9 @@ private final class TextBoxSubmitEventRunner {
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
     private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
+    private let pasteboardRestorationGuard = TextBoxPasteboardRestorationGuard(
+        fileURLReader: PasteboardServiceFileURLReader()
+    )
     private var observationToken = UUID()
 
     private static var waitTimeoutSeconds: TimeInterval {
@@ -2263,7 +1492,7 @@ private final class TextBoxSubmitEventRunner {
         let pasteboard = NSPasteboard.general
         if originalPasteboardItems == nil {
             originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+        } else if !pasteboardRestorationGuard.isCurrentTemporaryWrite(
             pasteboard: pasteboard,
             token: temporaryPasteboardRestorationToken
         ) {
@@ -2280,7 +1509,7 @@ private final class TextBoxSubmitEventRunner {
             _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
             _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
         }
-        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
+        temporaryPasteboardRestorationToken = pasteboardRestorationGuard.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
@@ -2310,7 +1539,7 @@ private final class TextBoxSubmitEventRunner {
         guard let originalPasteboardItems else { return }
         self.originalPasteboardItems = nil
         let pasteboard = NSPasteboard.general
-        guard TextBoxPasteboardRestorationGuard.shouldRestore(
+        guard pasteboardRestorationGuard.shouldRestore(
             pasteboard: pasteboard,
             token: temporaryPasteboardRestorationToken
         ) else {
@@ -2494,7 +1723,10 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let baseCanSend = TextBoxSubmitAvailability.shouldEnableSubmit(
+        // Base submit availability (our interaction-policy check), then main's
+        // submit-button wrapper folds in provider-launch / force-text-entry /
+        // command-template overrides.
+        let baseCanSend = TextBoxInputInteractionPolicy().shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
@@ -2541,7 +1773,7 @@ struct TextBoxInputContainer: View {
                     onTextViewDismantled: onTextViewDismantled
                 )
 
-                if TextBoxSubmitAvailability.shouldShowPlaceholder(
+                if TextBoxInputInteractionPolicy().shouldShowPlaceholder(
                     text: text,
                     attachmentCount: attachments.count,
                     hasMarkedText: hasMarkedText
@@ -2732,7 +1964,7 @@ struct TextBoxInputContainer: View {
 
     func submit() {
         let textView = textViewReference.textView
-        guard TextBoxSubmitAvailability.shouldSubmit(
+        guard TextBoxInputInteractionPolicy().shouldSubmit(
             hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
             hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
         ) else {
@@ -2742,7 +1974,7 @@ struct TextBoxInputContainer: View {
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         let poolWorkspaceId = surface.owningWorkspace()?.id
-        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        let hasTypedContent = submittedParts.hasSubmittableTextBoxContent
         guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
             return
@@ -2818,9 +2050,8 @@ struct TextBoxInputContainer: View {
                         workspaceId: poolWorkspaceId
                     )
                 }
-                guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-                    rollbackSnapshot: rollbackSnapshot,
-                    currentSnapshot: currentRollbackSnapshot()
+                guard rollbackSnapshot.shouldRestore(
+                    givenCurrent: currentRollbackSnapshot()
                 ) else {
                     NSSound.beep()
                     return
@@ -2828,9 +2059,9 @@ struct TextBoxInputContainer: View {
                 if let preservedContent {
                     submittedTextView?.installPreservedContent(preservedContent)
                 } else {
-                    text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
+                    text = submittedParts.textBoxFormattedSubmissionText
                     attachments = submittedParts.compactMap { part in
-                        if case .attachment(let attachment) = part { return attachment }
+                        if case .attachment(let attachment) = part { return attachment as? TextBoxAttachment }
                         return nil
                     }
                 }
@@ -2844,7 +2075,7 @@ struct TextBoxInputContainer: View {
             }
             resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
-                if case .attachment(let attachment) = part { return attachment }
+                if case .attachment(let attachment) = part { return attachment as? TextBoxAttachment }
                 return nil
             }
             submittedTextView?.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(submittedAttachments)
@@ -3278,7 +2509,7 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if shouldSynchronizeExternalTextToTextBox(
+        if TextBoxInputInteractionPolicy().shouldSynchronizeExternalText(
             inlineAttachmentCount: textView.inlineAttachments().count,
             plainText: textView.plainText(),
             externalText: text,
@@ -3495,11 +2726,7 @@ final class TextBoxInputTextView: NSTextView {
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
-    private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
-        "cmux.textBoxPendingAttachmentUploadID"
-    )
+    private static let controlKeyDecoder = TextBoxControlKeyDecoder()
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
     var focusedAttachmentCharacterIndex: Int?
@@ -3737,7 +2964,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
-        Self.removePendingAttachmentUploadPlaceholders(from: preserved)
+        TextBoxInputTextMarkers.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
 
@@ -3749,9 +2976,10 @@ final class TextBoxInputTextView: NSTextView {
         from attributed: NSAttributedString,
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
-        sessionDraftSnapshot(
-            parts: TextBoxSubmissionFormatter.parts(from: attributed),
-            isActive: isActive
+        SessionTextBoxInputDraftSnapshot.make(
+            fromAttributed: attributed,
+            isActive: isActive,
+            attachmentSnapshot: { SessionTextBoxInputAttachmentSnapshot($0) }
         )
     }
 
@@ -3760,52 +2988,20 @@ final class TextBoxInputTextView: NSTextView {
         attachments: [TextBoxAttachment],
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
-        var parts: [TextBoxSubmissionPart] = []
-        if !text.isEmpty {
-            parts.append(.text(text))
-        }
-        parts.append(contentsOf: attachments.map { .attachment($0) })
-        return sessionDraftSnapshot(parts: parts, isActive: isActive)
+        SessionTextBoxInputDraftSnapshot.make(
+            text: text,
+            attachments: attachments,
+            isActive: isActive,
+            attachmentSnapshot: { SessionTextBoxInputAttachmentSnapshot($0) }
+        )
     }
 
     static func plainText(from draft: SessionTextBoxInputDraftSnapshot) -> String {
-        draft.parts.compactMap { part -> String? in
-            guard part.kind == .text else { return nil }
-            return part.text
-        }.joined()
+        SessionTextBoxInputDraftSnapshot.plainText(from: draft)
     }
 
     static func attachments(from draft: SessionTextBoxInputDraftSnapshot) -> [TextBoxAttachment] {
-        draft.parts.compactMap { part -> TextBoxAttachment? in
-            guard part.kind == .attachment,
-                  let attachment = part.attachment else { return nil }
-            return attachment.textBoxAttachment()
-        }
-    }
-
-    private static func sessionDraftSnapshot(
-        parts: [TextBoxSubmissionPart],
-        isActive: Bool
-    ) -> SessionTextBoxInputDraftSnapshot? {
-        let draftParts = parts.compactMap { part -> SessionTextBoxInputDraftPart? in
-            switch part {
-            case .text(let text):
-                guard !text.isEmpty else { return nil }
-                return .text(text)
-            case .attachment(let attachment):
-                return .attachment(SessionTextBoxInputAttachmentSnapshot(attachment))
-            }
-        }
-        let hasMeaningfulContent = draftParts.contains { part in
-            switch part.kind {
-            case .text:
-                return part.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            case .attachment:
-                return part.attachment != nil
-            }
-        }
-        guard hasMeaningfulContent else { return nil }
-        return SessionTextBoxInputDraftSnapshot(isActive: isActive, parts: draftParts)
+        SessionTextBoxInputDraftSnapshot.attachments(from: draft)
     }
 
     private func attributedContent(from draft: SessionTextBoxInputDraftSnapshot) -> NSAttributedString {
@@ -3834,10 +3030,10 @@ final class TextBoxInputTextView: NSTextView {
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
         var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
+        attributes[TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
         insertText(
             NSAttributedString(
-                string: Self.pendingAttachmentUploadPlaceholderCharacter,
+                string: TextBoxInputTextMarkers().pendingAttachmentUploadPlaceholderCharacter,
                 attributes: attributes
             ),
             replacementRange: selectedRange()
@@ -3857,7 +3053,7 @@ final class TextBoxInputTextView: NSTextView {
             return false
         }
 
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
+        attachments.forEach { GhosttyApp.textBoxDraftAttachmentStore.prepareDurableCopy(localURL: $0.localURL) }
         let selectedRangeBeforeReplacement = selectedRange()
         let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
         textStorage.replaceCharacters(in: placeholderRange, with: inserted)
@@ -3905,7 +3101,7 @@ final class TextBoxInputTextView: NSTextView {
         replacementRange: NSRange
     ) {
         guard !attachments.isEmpty else { return }
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
+        attachments.forEach { GhosttyApp.textBoxDraftAttachmentStore.prepareDurableCopy(localURL: $0.localURL) }
         let inserted = NSMutableAttributedString()
         inserted.append(inlineAttachmentAttributedString(for: attachments, replacing: replacementRange))
         insertText(inserted, replacementRange: replacementRange)
@@ -3914,7 +3110,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func plainText() -> String {
-        stringByStrippingNonTextMarkers(from: attributedString().string)
+        TextBoxInputTextMarkers().stringByStrippingNonTextMarkers(from: attributedString().string)
     }
 
     func inlineAttachments() -> [TextBoxAttachment] {
@@ -3931,15 +3127,15 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func submissionText() -> String {
-        TextBoxSubmissionFormatter.formattedText(from: attributedString())
+        attributedString().textBoxFormattedSubmissionText
     }
 
     func submissionParts() -> [TextBoxSubmissionPart] {
-        TextBoxSubmissionFormatter.parts(from: attributedString())
+        attributedString().textBoxSubmissionParts
     }
 
     func hasSubmittableContent() -> Bool {
-        TextBoxSubmissionFormatter.hasSubmittableContent(submissionParts())
+        submissionParts().hasSubmittableTextBoxContent
     }
 
     func refreshInlineAttachmentCells(font: NSFont, foregroundColor: NSColor) {
@@ -4107,7 +3303,7 @@ final class TextBoxInputTextView: NSTextView {
         guard flags.contains(.command),
               !flags.contains(.option),
               !flags.contains(.control),
-              textBoxCommandShortcutKey(for: event) == "z" else {
+              TextBoxInputInteractionPolicy().commandShortcutKey(for: event) == "z" else {
             return super.performKeyEquivalent(with: event)
         }
 
@@ -4163,7 +3359,7 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
-        if shouldHandleTextBoxPlainArrowLocally(
+        if TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: event.keyCode,
             firstResponderHasMarkedText: eventHasMarkedText,
             flags: flags
@@ -4190,7 +3386,7 @@ final class TextBoxInputTextView: NSTextView {
            !flags.contains(.command),
            !flags.contains(.option),
            let key = controlKey(for: event) {
-            if Self.localControlKeys.contains(key) {
+            if Self.controlKeyDecoder.isLocalControlKey(key) {
                 super.keyDown(with: event)
             } else {
                 onForwardControl(key)
@@ -4930,7 +4126,7 @@ final class TextBoxInputTextView: NSTextView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags == .command else { return false }
 
-        switch textBoxCommandShortcutKey(for: event) {
+        switch TextBoxInputInteractionPolicy().commandShortcutKey(for: event) {
         case "c":
             copy(nil)
             return true
@@ -5000,17 +4196,11 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func composedCharacterLocationBefore(_ location: Int) -> Int {
-        let nsText = string as NSString
-        let clampedLocation = min(max(location, 0), nsText.length)
-        guard clampedLocation > 0 else { return clampedLocation }
-        return nsText.rangeOfComposedCharacterSequence(at: clampedLocation - 1).location
+        TextBoxInputTextMarkers.composedCharacterLocationBefore(location, in: string)
     }
 
     private func composedCharacterLocationAfter(_ location: Int) -> Int {
-        let nsText = string as NSString
-        let clampedLocation = min(max(location, 0), nsText.length)
-        guard clampedLocation < nsText.length else { return clampedLocation }
-        return NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: clampedLocation))
+        TextBoxInputTextMarkers.composedCharacterLocationAfter(location, in: string)
     }
 
     func selectAttachment(at characterIndex: Int) {
@@ -5209,12 +4399,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func isValidSelectedRange(_ range: NSRange) -> Bool {
-        guard range.location != NSNotFound,
-              range.location >= 0,
-              range.length >= 0 else {
-            return false
-        }
-        return NSMaxRange(range) <= attributedString().length
+        TextBoxInputTextMarkers.isValidSelectedRange(range, length: attributedString().length)
     }
 
     private func writeAttachments(
@@ -5301,7 +4486,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in removedAttachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
-            pendingAutomaticAttachmentFileCleanup[Self.attachmentCleanupKey(for: localURL)] = attachment
+            pendingAutomaticAttachmentFileCleanup[TextBoxInputTextMarkers.attachmentCleanupKey(for: localURL)] = attachment
         }
     }
 
@@ -5405,71 +4590,29 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func shouldInsertAttachmentBoundarySpaceBefore(replacementRange: NSRange) -> Bool {
-        guard replacementRange.location > 0,
-              replacementRange.location <= attributedString().length else {
-            return false
-        }
-        return !isAttachmentBoundarySeparator(at: replacementRange.location - 1)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceBefore(
+            replacementRange: replacementRange,
+            in: attributedString()
+        )
     }
 
     private func shouldInsertAttachmentBoundarySpaceAfter(
         replacementRange: NSRange,
         attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard attachments.contains(where: \.isImage) else {
-            return false
-        }
-        let afterLocation = NSMaxRange(replacementRange)
-        guard afterLocation >= 0,
-              afterLocation < attributedString().length else {
-            return true
-        }
-        return !isAttachmentBoundarySeparator(at: afterLocation)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceAfter(
+            replacementRange: replacementRange,
+            hasImageAttachment: attachments.contains(where: \.isImage),
+            in: attributedString()
+        )
     }
 
     private func isAttachmentBoundarySeparator(at location: Int) -> Bool {
-        guard location >= 0,
-              location < attributedString().length else {
-            return true
-        }
-        let character = (attributedString().string as NSString).substring(with: NSRange(location: location, length: 1))
-        return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
-    }
-
-    private static func pendingAttachmentUploadPlaceholderRanges(
-        in attributed: NSAttributedString,
-        id: UUID?
-    ) -> [NSRange] {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        guard fullRange.length > 0 else { return [] }
-
-        let idString = id?.uuidString
-        var result: [NSRange] = []
-        attributed.enumerateAttribute(
-            Self.pendingAttachmentUploadPlaceholderAttribute,
-            in: fullRange,
-            options: []
-        ) { value, range, stop in
-            guard let value = value as? String,
-                  idString == nil || value == idString else {
-                return
-            }
-            result.append(range)
-            if idString != nil {
-                stop.pointee = true
-            }
-        }
-        return result
-    }
-
-    private static func removePendingAttachmentUploadPlaceholders(from attributed: NSMutableAttributedString) {
-        for range in pendingAttachmentUploadPlaceholderRanges(in: attributed, id: nil).reversed() {
-            attributed.replaceCharacters(in: range, with: NSAttributedString(string: ""))
-        }
+        TextBoxInputTextMarkers.isAttachmentBoundarySeparator(at: location, in: attributedString())
     }
 
     private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
-        Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
+        TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
     func cleanupDisposableAttachmentFiles(
@@ -5481,15 +4624,15 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in attachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let url = attachment.localURL else { continue }
-            let key = Self.attachmentCleanupKey(for: url)
+            let key = TextBoxInputTextMarkers.attachmentCleanupKey(for: url)
             pendingUndoableAttachmentFileCleanup.removeValue(forKey: key)
             guard !activeKeys.contains(key) else { continue }
             urlsToClean.append(url)
         }
 
         let ghosttyTemporaryURLs = urlsToClean.filter { url in
-            TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(url)
-            return !TextBoxDraftAttachmentStorage.removeIfOwnedDraftCopy(url)
+            GhosttyApp.textBoxDraftAttachmentStore.removeCopiedDraftForOriginalTemporaryFile(url)
+            return !GhosttyApp.textBoxDraftAttachmentStore.removeIfOwnedDraftCopy(url)
         }
         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
     }
@@ -5497,7 +4640,7 @@ final class TextBoxInputTextView: NSTextView {
     func cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(_ attachments: [TextBoxAttachment]) {
         for attachment in attachments where attachment.cleanupLocalURLWhenDisposed && attachment.submitsLocalFilePath {
             guard let localURL = attachment.localURL else { continue }
-            TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(localURL)
+            GhosttyApp.textBoxDraftAttachmentStore.removeCopiedDraftForOriginalTemporaryFile(localURL)
         }
     }
 
@@ -5533,7 +4676,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in attachments {
             guard let localURL = attachment.localURL else { continue }
             pendingUndoableAttachmentFileCleanup.removeValue(
-                forKey: Self.attachmentCleanupKey(for: localURL)
+                forKey: TextBoxInputTextMarkers.attachmentCleanupKey(for: localURL)
             )
         }
     }
@@ -5552,7 +4695,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in attachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
-            let key = Self.attachmentCleanupKey(for: localURL)
+            let key = TextBoxInputTextMarkers.attachmentCleanupKey(for: localURL)
             guard !activePaths.contains(key) else { continue }
             pendingUndoableAttachmentFileCleanup[key] = attachment
         }
@@ -5560,12 +4703,8 @@ final class TextBoxInputTextView: NSTextView {
 
     private func activeInlineAttachmentCleanupKeys() -> Set<String> {
         Set(inlineAttachments().compactMap { attachment in
-            attachment.localURL.map(Self.attachmentCleanupKey(for:))
+            attachment.localURL.map(TextBoxInputTextMarkers.attachmentCleanupKey(for:))
         })
-    }
-
-    private static func attachmentCleanupKey(for fileURL: URL) -> String {
-        fileURL.standardizedFileURL.path
     }
 
     private func adjustedSelectionRange(
@@ -5573,31 +4712,12 @@ final class TextBoxInputTextView: NSTextView {
         replacing replacedRange: NSRange,
         insertedLength: Int
     ) -> NSRange {
-        guard isValidSelectedRange(selectedRange) else {
-            return NSRange(location: NSMaxRange(replacedRange) + insertedLength, length: 0)
-        }
-
-        let delta = insertedLength - replacedRange.length
-        if selectedRange.location > replacedRange.location {
-            return NSRange(
-                location: max(0, selectedRange.location + delta),
-                length: selectedRange.length
-            )
-        }
-        if NSIntersectionRange(selectedRange, replacedRange).length > 0 {
-            return NSRange(location: replacedRange.location + insertedLength, length: 0)
-        }
-        return selectedRange
-    }
-
-    fileprivate static func stringByStrippingNonTextMarkers(from text: String) -> String {
-        text
-            .replacingOccurrences(of: String(Self.attachmentReplacementCharacter), with: "")
-            .replacingOccurrences(of: Self.pendingAttachmentUploadPlaceholderCharacter, with: "")
-    }
-
-    private func stringByStrippingNonTextMarkers(from text: String) -> String {
-        Self.stringByStrippingNonTextMarkers(from: text)
+        TextBoxInputTextMarkers.adjustedSelectionRange(
+            selectedRange,
+            replacing: replacedRange,
+            insertedLength: insertedLength,
+            length: attributedString().length
+        )
     }
 
     func normalizeTextBaselineOffsets() {
@@ -5613,7 +4733,7 @@ final class TextBoxInputTextView: NSTextView {
         var updates: [(NSRange, CGFloat)] = []
         textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             let targetOffset = value == nil ? textOffset : TextBoxLayout.textBaselineOffset
-            let currentOffset = Self.baselineOffsetValue(
+            let currentOffset = TextBoxInputTextMarkers.baselineOffsetValue(
                 textStorage.attribute(.baselineOffset, at: range.location, effectiveRange: nil)
             )
             guard abs(currentOffset - targetOffset) > 0.01 else { return }
@@ -5646,16 +4766,6 @@ final class TextBoxInputTextView: NSTextView {
             stop.pointee = true
         }
         return foundAttachment
-    }
-
-    private static func baselineOffsetValue(_ value: Any?) -> CGFloat {
-        if let value = value as? CGFloat {
-            return value
-        }
-        if let number = value as? NSNumber {
-            return CGFloat(truncating: number)
-        }
-        return 0
     }
 
     private func attachmentRect(forCharacterIndex characterIndex: Int) -> NSRect? {
@@ -5762,48 +4872,17 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
-        physicalControlKey(for: event) ?? event.charactersIgnoringModifiers?.lowercased()
+        Self.controlKeyDecoder.controlKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        )
     }
 
     private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
-        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event).lowercased()
-        if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
-            return normalizedKey
-        }
-        return controlKey(for: event)
-    }
-
-    private func physicalControlKey(for event: NSEvent) -> String? {
-        switch Int(event.keyCode) {
-        case kVK_ANSI_A: return "a"
-        case kVK_ANSI_B: return "b"
-        case kVK_ANSI_C: return "c"
-        case kVK_ANSI_D: return "d"
-        case kVK_ANSI_E: return "e"
-        case kVK_ANSI_F: return "f"
-        case kVK_ANSI_G: return "g"
-        case kVK_ANSI_H: return "h"
-        case kVK_ANSI_I: return "i"
-        case kVK_ANSI_J: return "j"
-        case kVK_ANSI_K: return "k"
-        case kVK_ANSI_L: return "l"
-        case kVK_ANSI_M: return "m"
-        case kVK_ANSI_N: return "n"
-        case kVK_ANSI_O: return "o"
-        case kVK_ANSI_P: return "p"
-        case kVK_ANSI_Q: return "q"
-        case kVK_ANSI_R: return "r"
-        case kVK_ANSI_S: return "s"
-        case kVK_ANSI_T: return "t"
-        case kVK_ANSI_U: return "u"
-        case kVK_ANSI_V: return "v"
-        case kVK_ANSI_W: return "w"
-        case kVK_ANSI_X: return "x"
-        case kVK_ANSI_Y: return "y"
-        case kVK_ANSI_Z: return "z"
-        case kVK_ANSI_Backslash: return "\\"
-        default:
-            return nil
-        }
+        Self.controlKeyDecoder.mentionCompletionControlNavigationKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            normalizedCharacters: KeyboardLayout.normalizedCharacters(for: event)
+        )
     }
 }

@@ -226,12 +226,54 @@ public final class WorkspaceSidebarMetadataModel {
         self.pullRequest = pullRequest
     }
 
+    /// Clears every sidebar-metadata field this model owns, in the order the
+    /// legacy `Workspace.resetSidebarContext(reason:)` cleared them: status
+    /// entries, log entries, progress, workspace and per-panel git branches,
+    /// workspace and per-panel pull requests, and metadata blocks.
+    ///
+    /// Each assignment is unconditional, matching the legacy
+    /// `resetSidebarContext` (which assigned `nil` / called `removeAll()` even
+    /// when the field was already empty), so the `didSet` subjects fire exactly
+    /// as before. The non-sidebar state `resetSidebarContext` also clears
+    /// (agent PIDs, listening ports, conversation messages, browser panels)
+    /// stays in the `Workspace` shim, which calls this then clears the rest.
+    public func reset() {
+        statusEntries.removeAll()
+        logEntries.removeAll()
+        progress = nil
+        gitBranch = nil
+        panelGitBranches.removeAll()
+        pullRequest = nil
+        panelPullRequests.removeAll()
+        metadataBlocks.removeAll()
+    }
+
     /// Returns the metadata blocks sorted for sidebar display: descending
     /// priority, then descending timestamp, then ascending key (legacy
     /// `Workspace.sidebarMetadataBlocksInDisplayOrder()`).
     /// - Returns: The metadata blocks in stable display order.
     public func metadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
         metadataBlocks.values.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        }
+    }
+
+    /// Sorts the supplied status entries for sidebar display: descending
+    /// priority, then descending timestamp, then ascending key (legacy sort
+    /// inside `Workspace.sidebarStatusEntriesInDisplayOrder()`).
+    ///
+    /// The agent-visibility filtering that selects which structured-hook status
+    /// entries are shown reads live `Workspace` agent-PID / panel state the
+    /// package cannot import, so it stays in the `Workspace` shim and hands the
+    /// already-filtered entries here for the pure ordering step.
+    /// - Parameter entries: The status entries already filtered for visibility.
+    /// - Returns: The entries in stable display order.
+    public func statusEntriesInDisplayOrder(
+        _ entries: [SidebarStatusEntry]
+    ) -> [SidebarStatusEntry] {
+        entries.sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key

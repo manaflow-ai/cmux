@@ -60,10 +60,10 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+            settings: settings,
+            panelTitleUpdateScheduler: PanelTitleUpdateCoalescer(
                 schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            )
         )
         let app = AppDelegate()
         let windowId = UUID()
@@ -171,7 +171,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         let browserPanel = try #require(
             sourceWorkspace.newBrowserSurface(
                 inPane: sourcePaneId,
-                url: try #require(URL(string: "https://example.com")),
+                url: URL(string: "https://example.com")!,
                 focus: false
             )
         )
@@ -291,7 +291,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         func schedule(
             delay: TimeInterval,
             action: @escaping @MainActor () -> Void
-        ) -> NotificationBurstCoalescer.Cancellation {
+        ) -> PanelTitleUpdateCoalescer.Cancellation {
             let index = pendingFlushes.count
             delays.append(delay)
             pendingFlushes.append(PendingFlush(action: action))

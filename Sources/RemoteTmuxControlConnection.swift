@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 import os
 
@@ -46,9 +47,9 @@ final class RemoteTmuxControlConnection {
             observers.notifyStateChanged(connectionState)
             switch connectionState {
             case .connected:
-                finishConnectionWaiters(connected: true)
+                connectionWaiters.finishAll(connected: true)
             case .ended:
-                finishConnectionWaiters(connected: false)
+                connectionWaiters.finishAll(connected: false)
             case .connecting, .reconnecting:
                 break
             }
@@ -77,22 +78,17 @@ final class RemoteTmuxControlConnection {
     /// control stream becomes unusable, so a pending close decision falls back to
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
-    var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    let activityQueries = RemoteTmuxActivityQueryRegistry()
 
-    private var process: Process?
-    private var stdinWriter: RemoteTmuxControlPipeWriter?
-    private var stdoutReader: FileHandle?
-    private var stderrReader: FileHandle?
-    private var stdoutPipeReader: RemoteTmuxStdoutPipeReader?
-    private var stderrContinuation: AsyncStream<Data>.Continuation?
-    /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
-    /// failed reconnect attempt is classified, so the decision sees the complete
-    /// error rather than racing the async stderr delivery.
-    private var stderrTask: Task<Void, Never>?
+    /// Subprocess + pipe-plumbing sub-model. Owns the `ssh tmux -CC` `Process`, its
+    /// three pipes, the bounded stdin writer, and the stdout/stderr consumer tasks.
+    /// This connection drives it through the ``RemoteTmuxControlTransportHost``
+    /// conformance below (delivering parser bytes, stream-end, captured stderr, and the
+    /// two backpressure reconnect signals) and attaches itself in `init`.
+    private let transport = RemoteTmuxControlTransport()
     private var parser = RemoteTmuxControlStreamParser()
-    private var ingestTask: Task<Void, Never>?
     var pendingCommands: [CommandKind] = []
-    private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
+    private let connectionWaiters = RemoteTmuxConnectionWaiters()
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
     /// consumed. That first block is matched explicitly (see the `.commandResult`
@@ -111,127 +107,87 @@ final class RemoteTmuxControlConnection {
 
     // MARK: Reconnect state
 
-    /// The current reconnect backoff task (a single sleeping `Task` between
-    /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
-    /// retrying.
-    private var reconnectTask: Task<Void, Never>?
-    /// Number of reconnect attempts since the last successful connect, driving the
-    /// capped exponential backoff. Reset to 0 on a successful connect.
-    private var reconnectAttemptCount = 0
+    /// Reconnect-backoff sub-model. Owns the single sleeping `Task` between attempts
+    /// and the capped-exponential attempt counter. This connection drives it through
+    /// the ``RemoteTmuxReconnectHost`` conformance below (the `.reconnecting` phase
+    /// check, the ssh respawn, and the diagnostics ring) and attaches itself in `init`.
+    private let reconnect = RemoteTmuxReconnectController()
     /// stderr text captured for the in-flight spawn, inspected when a reconnect
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
-    /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
-    /// after a reconnect so the resumed session keeps the mirror's grid instead of
-    /// reverting to ssh's default 80×24.
-    var lastClientSize: (columns: Int, rows: Int)?
-    /// The last size ANY writer requested via ``setClientSize(columns:rows:)`` —
-    /// the shared dedup baseline for every sizing writer on this connection. A
-    /// writer must never dedup against a private cache of what IT last pushed:
-    /// the client size is shared session state, and after another writer moves
-    /// it, a stale private cache swallows exactly the re-push that would
-    /// reconcile the window (the mismatch then persists with no recovery path).
-    var lastRequestedClientSize: (columns: Int, rows: Int)? { lastClientSize }
-    /// Instant of the most recent sizing write on this connection — kept for
-    /// diagnostics (how stale is the last size request).
-    var lastSizingSendAt: ContinuousClock.Instant?
+    /// Client-size + attach-redraw-kick (SIGWINCH) sub-model. Owns the debounced
+    /// `refresh-client -C` send (coalescing SwiftUI layout-settle oscillation into one
+    /// send) and the one-shot attach redraw kick. This connection drives it through
+    /// the ``RemoteTmuxClientSizeHost`` conformance below and attaches itself in `init`.
+    let clientSize = RemoteTmuxClientSizeController()
     var pendingPostAttachAction: PostAttachAction?
 
-    /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
-    /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
-    /// ~1.3s), and each previously sent its own `refresh-client -C` → ~15 SIGWINCH /
-    /// redraw storms on the remote per attach. We now coalesce them: ``setClientSize``
-    /// stores the size immediately but defers the send to one shot after the size
-    /// stops changing. The fired timer is also the clean "size settled" edge that
-    /// consumes the one-shot attach redraw kick below.
-    ///
-    /// This timer is a rate limiter, not a correctness dependency: the
-    /// ledger (`lastClientSize` / `lastWindowSizes`) is written synchronously
-    /// before any deferral, dedup makes a late or duplicate send idempotent,
-    /// and the reconnect reseed replays the ledger. Reply-gated coalescing is
-    /// not a substitute: it self-clocks to the control channel's round trip
-    /// (milliseconds locally), which would forward nearly every oscillation
-    /// frame and reinstate the SIGWINCH storm — the oscillation has no
-    /// terminating event to gate on.
-    var clientSizeDebounceTask: Task<Void, Never>?
+    /// The last size any writer requested per window: per-window dedup baseline
+    /// and reconnect re-pin table.
+    var lastWindowSizes: [Int: (columns: Int, rows: Int)] = [:]
+    /// Most recent window with a size request, used for deterministic fallback
+    /// when an older tmux rejects per-window sizing.
+    var lastSizeRequestWindowId: Int?
+    var lastSizingSendAt: ContinuousClock.Instant?
+    var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
+    var supportsPerWindowSize = true
+    var pendingPerWindowAttachRedrawKick = false
+    var perWindowAttachRedrawKickTask: Task<Void, Never>?
     static let clientSizeDebounceMs = 180
-
-    /// Armed on every transition to `.connected` (first connect AND reconnect) and
-    /// consumed by the first size apply that follows; see
-    /// ``scheduleAttachRedrawKickIfNeeded()`` for why attach needs a redraw kick.
-    var pendingAttachRedrawKick = false
-    var attachRedrawKickTask: Task<Void, Never>?
-    /// Gap between the kick's shrink push and its restore push. Must exceed tmux's
-    /// pane-resize coalescing (~250 ms), otherwise the two pushes collapse into a
-    /// net-zero size change and no SIGWINCH is ever delivered.
-    ///
-    /// This wait has no event-driven substitute: layout recomputation is
-    /// visible to control clients (%layout-change, list-panes) and happens
-    /// immediately, but the pane PTY ioctl — the SIGWINCH this kick exists
-    /// to force — sits behind tmux's internal coalescing timer, which emits
-    /// nothing observable when it expires. Gating the restore on a layout
-    /// publication confirms the wrong fact and can land inside the
-    /// coalescing window on fast links, collapsing the pair to net-zero
-    /// again — and any per-window confirmation predicate can be satisfied
-    /// spuriously by an unrelated window already at the shrunken height.
-    /// Full evidence + a by-hand exploration: docs/remote-tmux-sizing-timers.md.
     static let attachRedrawKickGapMs = 350
 
-    /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
-    private static let reconnectBaseDelaySeconds: Double = 1
-    /// Cap on the reconnect backoff (seconds). Retries continue indefinitely at this
-    /// interval until the network returns or the session is found to be gone.
-    private static let reconnectMaxDelaySeconds: Double = 10
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
-    /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
-    /// this, mutations are rejected and the connection reconnects instead of
-    /// accepting unbounded user input that may never reach tmux.
-    private static let maxPendingStdinBytes = 256 * 1024
-    /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
-    /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
-    /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
-    /// cap keeps worst-case memory bounded if parsing falls behind or the remote
-    /// floods output. Parser byte budgets remain the control-stream corruption guard.
-    private static let maxPendingStdoutBytes = 32 * 1024 * 1024
-    private static let maxPendingStdoutChunks = 4096
 
-    /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
-    /// The tmux pane id is appended so an inbound `%subscription-changed` can be
-    /// routed back to its pane; defined once so the writer and reader can't drift.
-    static let cwdSubscriptionPrefix = "cmux_cwd_"
+    /// Pure builders for the tmux control-mode command strings this connection
+    /// writes, plus the parser for the activity-query lines it reads back. Holds
+    /// the subscription-name prefixes (`cmux_cwd_`/`cmux_reflow_`) and the
+    /// activity-query format, defined once so the writer side (subscribe) and the
+    /// reader side (unsubscribe / `%subscription-changed` routing / activity
+    /// parse) can't drift.
+    let commandBuilder = RemoteTmuxControlCommandBuilder()
 
-    /// Subscription-name prefix for per-pane reflow classification
-    /// (`refresh-client -B`). The subscribed format is
-    /// `#{alternate_on}<sep>#{pane_current_command}`; tmux emits it on subscribe
-    /// and on every change, so launching/exiting an app (bash → node when claude
-    /// starts) re-classifies the pane live. The tmux pane id is appended for
-    /// routing, mirroring ``cwdSubscriptionPrefix``.
-    static let reflowSubscriptionPrefix = "cmux_reflow_"
-    /// Per-pane subscription that keeps header labels LIVE, mirroring
-    /// ``cwdSubscriptionPrefix``: tmux pushes the newly-expanded
-    /// `pane-border-format` whenever its value changes (a program retitling
-    /// its pane, the running command changing) — the same moments native
-    /// tmux redraws its own header row.
-    static let headerSubscriptionPrefix = "cmux_hdr_"
+    /// Pure escape-sequence constants + the capture-paint builder used to seed a
+    /// mirror surface from the remote pane (alt-screen enter/exit, the reconnect
+    /// re-seed clear, and the capture-pane repaint). Held as a value and called as
+    /// `mirrorSeed.xxx`; see ``RemoteTmuxMirrorSeedSequences``.
+    let mirrorSeed = RemoteTmuxMirrorSeedSequences()
 
-    /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
-    /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
-    static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
-    static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
+    /// Per-pane header-strip labels: the pane's expanded `pane-border-format`,
+    /// style tokens stripped. Seeded by pane rect fetches and kept live by a
+    /// per-pane subscription.
+    var paneHeaderLabels: [Int: String] = [:]
+    /// Whether each window currently has `pane-border-status top`.
+    var windowTitleRowsVisible: [Int: Bool] = [:]
 
-    /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
-    /// (or reconnected) mirror surface. Capturing scrollback — not just the visible
-    /// screen — is what makes the mirrored tab scrollable from the start; without it
-    /// a fresh attach has only the current screen and nothing to scroll up into.
-    /// Clamped by the remote pane's `history-limit`, so short panes seed less.
-    private static let scrollbackCaptureLines = 5_000
+    static func strippingStyleTokens(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
+        )
+    }
+
+    struct PendingLayout {
+        var node: RemoteTmuxLayoutNode
+        var visibleNode: RemoteTmuxLayoutNode?
+        var zoomed: Bool
+        var name: String
+        var generation: Int
+        var dirty = false
+        var inFlight = false
+        var retriesRemaining = 1
+    }
+    var pendingLayouts: [Int: PendingLayout] = [:]
+    var initialBatchAwaiting: Set<Int>?
+    var initialBatchStaged: [Int: RemoteTmuxWindow] = [:]
 
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        clientSize.attach(host: self)
+        reconnect.attach(host: self)
+        transport.attach(host: self)
     }
 
     // MARK: - Observers
@@ -255,8 +211,8 @@ final class RemoteTmuxControlConnection {
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
-    ///   - onSessionChanged: fires when tmux confirms a session name change via
-    ///     `%session-changed` or `%session-renamed`.
+    ///   - onSessionChanged: fires when tmux confirms a session rename via
+    ///     `%session-changed`.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
@@ -329,17 +285,17 @@ final class RemoteTmuxControlConnection {
                     break
                 }
 
-                connectionWaiters[token] = { connected in
+                connectionWaiters.register(token) { connected in
                     continuation.resume(returning: connected)
                 }
 
                 if Task.isCancelled {
-                    finishConnectionWaiter(token, connected: false)
+                    connectionWaiters.finish(token, connected: false)
                 }
             }
         } onCancel: {
             Task { @MainActor [weak self] in
-                self?.finishConnectionWaiter(token, connected: false)
+                self?.connectionWaiters.finish(token, connected: false)
             }
         }
     }
@@ -367,88 +323,16 @@ final class RemoteTmuxControlConnection {
         stderrBuffer = ""
         enterReceived = false
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        proc.arguments = host.controlModeArguments(
-            sessionName: sessionName,
-            createIfMissing: createIfMissing
+        // The host descriptor (and so the argument vector) stays app-side; the
+        // transport owns only the subprocess + pipe plumbing. A failed launch throws
+        // without latching `started`, so a later attach can replace this connection
+        // instead of reusing a dead one.
+        try transport.spawn(
+            arguments: host.controlModeArguments(
+                sessionName: sessionName,
+                createIfMissing: createIfMissing
+            )
         )
-        let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
-        proc.standardInput = inPipe
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
-        let stdinWriter = RemoteTmuxControlPipeWriter(
-            handle: inPipe.fileHandleForWriting,
-            label: "com.cmux.remote-tmux.stdin.\(UUID().uuidString)",
-            maxPendingBytes: Self.maxPendingStdinBytes,
-            onFailure: { [weak self] in
-                self?.handleStdinWriteFailure()
-            }
-        )
-
-        let stdoutPipeReader = RemoteTmuxStdoutPipeReader(
-            maxPendingChunks: Self.maxPendingStdoutChunks,
-            maxPendingBytes: Self.maxPendingStdoutBytes,
-            onOverflow: { [weak self] in
-                self?.handleStdoutBackpressureOverflow()
-            }
-        )
-        let reader = outPipe.fileHandleForReading
-        stdoutPipeReader.attach(to: reader)
-        // Capture stderr via its own AsyncStream so a failed reconnect attempt can be
-        // classified deterministically: `handleStreamEnd` awaits `stderrTask` (which
-        // finishes on stderr EOF) before reading `stderrBuffer`, so the decision can't
-        // race a not-yet-delivered chunk.
-        let (errStream, errContinuation) = AsyncStream<Data>.makeStream()
-        let errReader = errPipe.fileHandleForReading
-        errReader.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                errContinuation.finish()
-            } else {
-                errContinuation.yield(chunk)
-            }
-        }
-        // Finish BOTH streams on process exit so the consumers (and any awaiter)
-        // always complete even if a reader's EOF callback is delayed.
-        proc.terminationHandler = { _ in
-            stdoutPipeReader.close()
-            errContinuation.finish()
-        }
-
-        do {
-            try proc.run()
-        } catch {
-            // Don't latch `started` on a failed launch, so a later attach can
-            // replace this connection instead of reusing a dead one. Close the
-            // stdin writer too, so the connection is left in a clean, retry-safe
-            // state instead of holding a dead pipe that silently EPIPEs on write.
-            errReader.readabilityHandler = nil
-            stdoutPipeReader.close()
-            errContinuation.finish()
-            stdinWriter.close()
-            throw error
-        }
-        process = proc
-        self.stdinWriter = stdinWriter
-        stdoutReader = reader
-        stderrReader = errReader
-        self.stdoutPipeReader = stdoutPipeReader
-        stderrContinuation = errContinuation
-        stderrTask = Task { [weak self] in
-            for await chunk in errStream {
-                guard let text = String(data: chunk, encoding: .utf8), !text.isEmpty else { continue }
-                self?.appendStderr(text)
-            }
-        }
-        ingestTask = Task { [weak self] in
-            for await chunk in stdoutPipeReader.stream {
-                self?.ingest(chunk)
-                stdoutPipeReader.release(chunk)
-            }
-            await self?.handleStreamEnd()
-        }
     }
 
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
@@ -467,45 +351,39 @@ final class RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
-    /// The last size any writer requested per window — per-window dedup
-    /// baseline and the reconnect re-pin table.
-    var lastWindowSizes: [Int: (Int, Int)] = [:]
-    /// The most recent window a size was requested for — the deterministic
-    /// choice when the old-server fallback must replay ONE size session-wide
-    /// (the latest requester is in practice the visible tab).
-    var lastSizeRequestWindowId: Int?
-    var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
-    /// Whether the server accepts `refresh-client -C '@id:WxH'`. Flipped to
-    /// false on the first `%error` for that form (older tmux); sizing then
-    /// degrades to the session-wide client size.
-    var supportsPerWindowSize = true
+    /// Sizes the tmux control client to `columns`×`rows` cells (tmux
+    /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
+    /// cmux grid. Without this a freshly attached session stays at ssh's default
+    /// 80×24 and TUIs (claude, claude agents) render mangled. Always records the grid
+    /// (re-applied by ``reseedAfterReconnect()``); sends the live `refresh-client`
+    /// only while `.connected`. No-ops for a degenerate grid.
+    ///
+    /// This is the single sizing entrypoint every remote-tmux render path routes
+    /// through (the single-pane display surface and the multi-pane window mirror),
+    /// so client sizing stays one shared behavior rather than duplicated sends.
+    func setClientSize(columns: Int, rows: Int) {
+        clientSize.setClientSize(columns: columns, rows: rows)
+    }
 
     /// Requests the current window list + layouts (used to (re)build topology).
     ///
     /// `#{window_name}` is placed last because it can contain spaces, while the
-    /// id and layout tokens never do — so the result parses as
-    /// `@id <layout> <name with spaces…>`.
+    /// id/layout/visible-layout/flags tokens never do — so the result parses as
+    /// `@id <layout> <visible-layout> [flags] <name with spaces...>`.
     func requestWindows() {
         sendInternal(
-            "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
+            commandBuilder.listWindowsCommand(),
             kind: .listWindows
         )
     }
 
-    /// Fetches one window's REAL pane rectangles (plus the active flag, the
-    /// window's `pane-border-status`, and the pane's EXPANDED
-    /// `pane-border-format` — exactly the header text a native tmux client
-    /// would draw, custom formats included). The layout string is not ground
-    /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while the displayed panes sit one row lower and shorter — placement
-    /// must render where the panes actually are, so a quarantined layout is
-    /// published only by this fetch's reply. The expanded format is LAST (it
-    /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
-    /// and a trailing empty field must survive line splitting).
+    /// Fetches one window's real pane rectangles, active pane, header-row mode,
+    /// and expanded pane-border labels. Parsed layout strings are quarantined
+    /// until this reply patches every leaf with the geometry tmux actually draws.
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
         sendInternal(
-            "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
+            commandBuilder.paneRectsCommand(windowId: windowId),
             kind: .paneRects(windowId, generation)
         )
     }
@@ -547,7 +425,7 @@ final class RemoteTmuxControlConnection {
         // not in the live %output — query `#{alternate_on}` and enter alt ourselves.
         // Ordered first so the enter lands before the capture paint in the FIFO.
         sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{alternate_on}\"",
+            commandBuilder.paneAlternateScreenQueryCommand(paneId: paneId),
             kind: .paneAltScreen(paneId)
         )
         // `-S -<N>` seeds scrollback history (not just the visible screen) so the
@@ -563,21 +441,13 @@ final class RemoteTmuxControlConnection {
         // comes from LIVE %output (which already carries real soft-wraps), not from
         // the seed — so `-J`'s only upside (pre-attach rejoin-on-grow) isn't worth
         // corrupting every TUI seed. Capture faithful visual rows instead.
-        sendInternal("capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)", kind: .capturePane(paneId))
+        sendInternal(commandBuilder.capturePaneCommand(paneId: paneId), kind: .capturePane(paneId))
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
         sendInternal(
-            "display-message -p -t %\(paneId) -F \""
-                + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
-                + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
-                + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
-                + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
-                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
-                + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
-                + "mouse_standard_flag=#{mouse_standard_flag},"
-                + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\"",
+            commandBuilder.paneStateQueryCommand(paneId: paneId),
             kind: .paneState(paneId)
         )
     }
@@ -598,36 +468,137 @@ final class RemoteTmuxControlConnection {
         subscribePaneHeader(paneId: paneId)
     }
 
-    /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
-    /// (see ``headerSubscriptionPrefix``). The pane-rects fetch seeds the
-    /// initial label; this keeps it current between layout events. Quoting is
-    /// load-bearing — see ``panePathSubscriptionCommand(paneId:)``.
+    /// Subscribes to live changes of a pane's expanded `pane-border-format`.
+    /// The pane-rects fetch seeds the initial label; this keeps it current
+    /// between layout events.
     func subscribePaneHeader(paneId: Int) {
-        send("refresh-client -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\"")
+        send(commandBuilder.paneHeaderSubscriptionCommand(paneId: paneId))
     }
 
     func unsubscribePaneHeader(paneId: Int) {
-        send("refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)")
+        send(commandBuilder.paneHeaderUnsubscribeCommand(paneId: paneId))
     }
 
-    /// Format for close-time activity queries: the pane id (for cache refresh and
-    /// multi-pane correlation) plus the same `alternate_on`/`pane_current_command`
-    /// pair the reflow subscription streams. Quoted by the command builders — see
-    /// ``panePathSubscriptionCommand(paneId:)`` for why the quoting is load-bearing.
-    static let activityQueryFormat = "#{pane_id}\(PaneForegroundState.fieldSeparator)"
-        + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}"
+    /// One-shot query of a pane's working directory (`pane_current_path`),
+    /// delivered to the cwd observers. Guarantees an initial folder for the
+    /// mirrored tab even on tmux builds without control-mode subscriptions.
+    func requestPanePath(paneId: Int) {
+        sendInternal(
+            commandBuilder.panePathQueryCommand(paneId: paneId),
+            kind: .panePath(paneId)
+        )
+    }
 
-    private func finishConnectionWaiters(connected: Bool) {
-        guard !connectionWaiters.isEmpty else { return }
-        let waiters = Array(connectionWaiters.values)
-        connectionWaiters.removeAll()
-        for waiter in waiters {
-            waiter(connected)
+    /// Subscribes to live `pane_current_path` changes for `paneId` via tmux
+    /// control-mode `refresh-client -B`, so a remote `cd` updates the mirrored
+    /// tab's folder without polling. tmux emits the value once on subscribe and
+    /// again on every change as `%subscription-changed cmux_cwd_<paneId> … : <path>`.
+    /// Best-effort: on tmux builds that don't support subscriptions the command is
+    /// a no-op and ``requestPanePath(paneId:)`` still supplies the initial folder.
+    func subscribePanePath(paneId: Int) {
+        send(commandBuilder.panePathSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes the live `pane_current_path` subscription for `paneId` (issued once
+    /// the pane is gone). tmux also drops a dead pane's subscriptions on its own;
+    /// this keeps the client's subscription set tidy across split/close churn.
+    func unsubscribePanePath(paneId: Int) {
+        send(commandBuilder.panePathUnsubscribeCommand(paneId: paneId))
+    }
+
+    /// One-shot query of a pane's reflow classification (`#{alternate_on}` +
+    /// `#{pane_current_command}`), delivered to the reflow observers. This is the
+    /// REQUIRED initial classifier — `subscribePaneReflow` only guarantees *live*
+    /// updates, and on tmux builds where the `-B` subscription doesn't deliver this
+    /// combined value the surface would otherwise stay at its safe no-reflow default
+    /// forever (shells never reflow). Mirrors ``requestPanePath(paneId:)`` exactly
+    /// (a `display-message` always works where a subscription might not).
+    func requestPaneReflow(paneId: Int) {
+        sendInternal(
+            commandBuilder.paneReflowQueryCommand(paneId: paneId),
+            kind: .paneReflow(paneId)
+        )
+    }
+
+    /// Classifies a raw `#{alternate_on}|#{pane_current_command}` value (from the
+    /// one-shot query or a live subscription), records it as the pane's foreground
+    /// state (for the close-confirmation check), and emits the no-reflow decision.
+    /// No-reflow when on the alternate screen OR the foreground command isn't a known
+    /// plain shell; defaults to no-reflow on an empty/unparseable value (safe).
+    func classifyAndEmitReflow(paneId: Int, rawValue: String, source: String) {
+        let state = PaneForegroundState(rawValue: rawValue)
+        paneForegroundStates[paneId] = state
+        let noReflow = state.suppressesReflow
+        #if DEBUG
+        cmuxDebugLog(
+            "remote.reflow.classify pane=\(paneId) src=\(source) raw=\"\(rawValue.trimmingCharacters(in: .whitespacesAndNewlines))\" "
+                + "alt=\(state.alternateOn ? 1 : 0) cmd=\"\(state.command)\" noReflow=\(noReflow ? 1 : 0)"
+        )
+        #endif
+        observers.emitPaneReflow(paneId, noReflow)
+    }
+
+    /// Subscribes to live reflow-classification changes for `paneId` via tmux
+    /// control-mode `refresh-client -B`. The subscribed value is
+    /// `#{alternate_on}|#{pane_current_command}`; tmux emits it once on subscribe
+    /// and again whenever it changes, so a pane that switches between a plain shell
+    /// and an inline TUI (e.g. bash → node when claude launches) is reclassified
+    /// without polling. The mirror surface uses this to decide whether to reflow its
+    /// primary screen on resize (shells reflow; alt-screen / inline-TUI panes do
+    /// not), and the close confirmation uses it to track the active foreground
+    /// command. Best-effort: on tmux builds without subscriptions this is a no-op and
+    /// the surface keeps its safe no-reflow default. See ``subscriptionChanged``
+    /// handling for the parse, and ``PaneForegroundState/plainShellCommands`` for the policy.
+    func subscribePaneReflow(paneId: Int) {
+        send(commandBuilder.paneReflowSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes the live reflow-classification subscription for `paneId` (issued once
+    /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
+    func unsubscribePaneReflow(paneId: Int) {
+        send(commandBuilder.paneReflowUnsubscribeCommand(paneId: paneId))
+    }
+
+    /// Live, close-time query of every pane's foreground state in `windowId`.
+    /// tmux evaluates `pane_current_command` AT QUERY TIME, so a command started
+    /// the instant before ⌘W is already visible — unlike the `%subscription-changed`
+    /// cache, which tmux only re-checks about once a second. Results also refresh
+    /// ``paneForegroundStates`` so the synchronous consumers (batch close,
+    /// workspace close, quit warning) get the freshness for free. `completion` is
+    /// called exactly once, on the main actor; `nil` means the query could not be
+    /// issued or the stream reset first (caller falls back to the cache).
+    func queryWindowActivity(windowId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
+        sendActivityQuery(commandBuilder.windowActivityQueryCommand(windowId: windowId), completion: completion)
+    }
+
+    /// Single-pane variant of ``queryWindowActivity(windowId:completion:)``, for
+    /// the multi-pane mirror's pane-header ✕ close.
+    func queryPaneActivity(paneId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
+        sendActivityQuery(commandBuilder.paneActivityQueryCommand(paneId: paneId), completion: completion)
+    }
+
+    private func sendActivityQuery(
+        _ command: String, completion: @escaping ([Int: PaneForegroundState]?) -> Void
+    ) {
+        guard connectionState == .connected else {
+            completion(nil)
+            return
+        }
+        let token = UUID()
+        activityQueries.register(token, completion)
+        guard sendInternal(command, kind: .activityQuery(token)) else {
+            // The stream could not accept the query, so no result can correlate.
+            // Fail now and let the close decision proceed on the cached state.
+            activityQueries.removeCompletion(for: token)?(nil)
+            return
         }
     }
 
-    private func finishConnectionWaiter(_ token: UUID, connected: Bool) {
-        connectionWaiters.removeValue(forKey: token)?(connected)
+    /// Fails every in-flight activity query — called whenever the control stream
+    /// becomes unusable (reconnect begins, deliberate stop, genuine `%exit`), so
+    /// a pending close decision falls back to the cached classification.
+    private func failPendingActivityQueries() {
+        activityQueries.failAll()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
@@ -635,21 +606,7 @@ final class RemoteTmuxControlConnection {
     @discardableResult
     func sendKeys(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty else { return true }
-        let hex = Self.hexByteArguments(data)
-        return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
-    }
-
-    nonisolated static func hexByteArguments(_ data: Data) -> String {
-        guard !data.isEmpty else { return "" }
-        let digits = Array("0123456789abcdef".utf8)
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(data.count * 3 - 1)
-        for byte in data {
-            if !bytes.isEmpty { bytes.append(UInt8(ascii: " ")) }
-            bytes.append(digits[Int(byte >> 4)])
-            bytes.append(digits[Int(byte & 0x0f)])
-        }
-        return String(decoding: bytes, as: UTF8.self)
+        return sendInternal(commandBuilder.sendKeysCommand(paneId: paneId, data: data), kind: .other)
     }
 
     /// Pastes `text` into `paneId` as a tmux paste (`paste-buffer -p`), which wraps
@@ -662,19 +619,8 @@ final class RemoteTmuxControlConnection {
     /// there's no buffer-name collision. `text` must be a single line (callers route
     /// only single-line content — e.g. file/image paths — here).
     func pastePane(paneId: Int, text: String) -> Bool {
-        guard let commands = Self.pastePaneCommands(paneId: paneId, text: text) else { return false }
+        guard let commands = commandBuilder.pastePaneCommands(paneId: paneId, text: text) else { return false }
         return send(commands.setBuffer) && send(commands.pasteBuffer)
-    }
-
-    nonisolated static func pastePaneCommands(paneId: Int, text: String)
-        -> (setBuffer: String, pasteBuffer: String)?
-    {
-        guard !text.isEmpty else { return nil }
-        let buffer = "cmux-paste-\(paneId)"
-        return (
-            setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",
-            pasteBuffer: "paste-buffer -p -d -b \(buffer) -t %\(paneId)"
-        )
     }
 
     /// Detaches: terminating ssh kills the control client but leaves the remote
@@ -686,68 +632,36 @@ final class RemoteTmuxControlConnection {
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
         cancelScheduledWork()
-        teardownProcessHandles()
+        transport.teardown()
     }
 
-    /// Cancels every scheduled follow-up (reconnect, debounced size sends, redraw
+    /// Cancels every scheduled follow-up (reconnect, debounced size send, redraw
     /// kick) and the deferred post-attach work. Shared by deliberate teardown
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
         failPendingActivityQueries()
-        reconnectTask?.cancel()
-        reconnectTask = nil
-        cancelSizingFollowUps()
-        pendingPostAttachAction = nil
-    }
-
-    private func cancelSizingFollowUps() {
-        clientSizeDebounceTask?.cancel()
-        clientSizeDebounceTask = nil
-        for task in windowSizeDebounceTasks.values {
-            task.cancel()
-        }
+        reconnect.cancel()
+        clientSize.reset()
+        for task in windowSizeDebounceTasks.values { task.cancel() }
         windowSizeDebounceTasks.removeAll()
-        attachRedrawKickTask?.cancel()
-        attachRedrawKickTask = nil
-        pendingAttachRedrawKick = false
-    }
-
-    /// Tears down the current spawn's process and I/O handles WITHOUT changing
-    /// `connectionState`, so the connection can either end (``stop()``) or re-spawn
-    /// (reconnect) from a clean slate.
-    private func teardownProcessHandles() {
-        ingestTask?.cancel()
-        ingestTask = nil
-        stderrTask?.cancel()
-        stderrTask = nil
-        process?.terminationHandler = nil
-        // Tear down the readers deterministically rather than waiting for EOF (the
-        // consumers are already cancelled).
-        stderrReader?.readabilityHandler = nil
-        stderrReader = nil
-        stdoutPipeReader?.close()
-        stdoutPipeReader = nil
-        stdoutReader = nil
-        stderrContinuation?.finish()
-        stderrContinuation = nil
-        stdinWriter?.close()
-        stdinWriter = nil
-        process?.terminate()
-        process = nil
+        perWindowAttachRedrawKickTask?.cancel()
+        perWindowAttachRedrawKickTask = nil
+        pendingPerWindowAttachRedrawKick = false
+        pendingPostAttachAction = nil
     }
 
     // MARK: - Internals
 
     @discardableResult
     func sendInternal(_ command: String, kind: CommandKind) -> Bool {
-        guard connectionState == .connected, let stdinWriter else { return false }
+        guard connectionState == .connected, transport.hasStdinWriter else { return false }
         let line = command.hasSuffix("\n") ? command : command + "\n"
         guard let data = line.data(using: .utf8) else { return false }
         // Record before the writer can emit bytes, so a fast `%begin`/`%end`
         // reply never outruns its local FIFO slot. If the bounded writer rejects
         // the command, remove this slot immediately and reconnect.
         pendingCommands.append(kind)
-        guard stdinWriter.enqueue(data) else {
+        guard transport.enqueueStdin(data) else {
             pendingCommands.removeLast()
             record("stdin-write-backpressure")
             beginReconnecting()
@@ -795,21 +709,20 @@ final class RemoteTmuxControlConnection {
             // Drain the attempt's stderr to completion (the process has exited, so the
             // stream finishes) BEFORE classifying, so the decision can't race a
             // not-yet-delivered chunk and misclassify a gone session as transient.
-            await stderrTask?.value
+            await transport.awaitStderrDrained()
             // A state change may have raced the drain (e.g. a deliberate stop()).
             guard connectionState == .reconnecting else { return }
             // Classify: a session/server found gone is a genuine end; anything else
             // (host unreachable, refused) is transient — keep retrying with backoff.
             let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
-            teardownProcessHandles()
+            transport.teardown()
             if sessionGone {
                 record("reconnect-session-gone")
                 connectionState = .ended
-                reconnectTask?.cancel()
-                reconnectTask = nil
+                reconnect.cancel()
                 observers.notifyExit()
             } else {
-                scheduleReconnectAttempt()
+                reconnect.scheduleAttempt()
             }
         }
     }
@@ -825,37 +738,10 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
-        cancelSizingFollowUps()
-        pendingPostAttachAction = nil
-        teardownProcessHandles()
-        reconnectAttemptCount = 0
+        transport.teardown()
+        reconnect.resetAttempts()
         connectionState = .reconnecting
-        scheduleReconnectAttempt()
-    }
-
-    /// Schedules the next reconnect attempt after a capped exponential backoff.
-    private func scheduleReconnectAttempt() {
-        let attempt = reconnectAttemptCount
-        reconnectAttemptCount += 1
-        let delay = min(
-            Self.reconnectMaxDelaySeconds,
-            Self.reconnectBaseDelaySeconds * pow(2, Double(attempt))
-        )
-        record("reconnect-scheduled attempt=\(attempt) delay=\(delay)")
-        reconnectTask?.cancel()
-        // A bounded, cancellable backoff before the next attempt (not a poll/settle):
-        // cancelled by stop()/genuine end, re-armed by each failed attempt. `do/catch`
-        // (not `try?`) so a cancelled sleep returns immediately — the previously
-        // scheduled task can't fall through and double-spawn a second ssh client.
-        reconnectTask = Task { @MainActor [weak self] in
-            do {
-                try await ContinuousClock().sleep(for: .seconds(delay))
-            } catch {
-                return
-            }
-            guard let self, self.connectionState == .reconnecting else { return }
-            self.attemptReconnectSpawn()
-        }
+        reconnect.scheduleAttempt()
     }
 
     /// Re-spawns the ssh control client for a reconnect attempt. Always attach-only
@@ -868,7 +754,7 @@ final class RemoteTmuxControlConnection {
         do {
             try spawnProcess(createIfMissing: false)
         } catch {
-            scheduleReconnectAttempt()
+            reconnect.scheduleAttempt()
         }
     }
 
@@ -879,16 +765,12 @@ final class RemoteTmuxControlConnection {
     /// post-reconnect `list-windows` result, so `windowsByID` is freshly repopulated
     /// and the command-result FIFO is aligned (the attach block is already drained).
     func reseedAfterReconnect() {
-        if let size = lastClientSize {
-            send("refresh-client -C \(size.columns)x\(size.rows)")
+        if let size = clientSize.lastClientSize {
+            send(commandBuilder.clientResizeCommand(columns: size.columns, rows: size.rows))
         }
-        // Re-pin every per-window size: pins are per-client state, and the
-        // fresh ssh client starts with none (windows would sit at 80×24 or
-        // the session-wide size). Feed-forward by nature — replays recorded
-        // requests, reads nothing back.
         if supportsPerWindowSize {
             for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {
-                sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
+                sendPerWindowSize(windowId: windowId, columns: size.columns, rows: size.rows)
             }
         }
         // The re-applied size is usually a no-op (the server kept the window at our
@@ -898,7 +780,7 @@ final class RemoteTmuxControlConnection {
         scheduleAttachRedrawKickIfNeeded()
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
-                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                observers.emitPaneOutput(paneId, mirrorSeed.reconnectReseedClear)
                 seedPane(paneId: paneId)
             }
         }
@@ -918,10 +800,9 @@ final class RemoteTmuxControlConnection {
                 // and would keep showing its stale pre-attach frame. Consumed by the
                 // first size apply (debounced send, reconnect re-seed, or the
                 // first-connect list-windows result).
-                pendingAttachRedrawKick = true
-                reconnectAttemptCount = 0
-                reconnectTask?.cancel()
-                reconnectTask = nil
+                clientSize.armAttachRedrawKick()
+                pendingPerWindowAttachRedrawKick = true
+                reconnect.handleConnected()
                 // Do not send here: `.enter` precedes the attach result block, so a
                 // command queued now could be consumed by that result and shift the
                 // FIFO. The attach-block drain queues list-windows once alignment is safe.
@@ -939,33 +820,30 @@ final class RemoteTmuxControlConnection {
             totalOutputBytes += data.count
             observers.emitPaneOutput(paneId, data)
         case let .sessionChanged(id, name):
-            // An attached-session SWITCH: the window set changes with it, so
-            // re-fetch the topology.
-            applySessionNameChange(sessionId: id, name: name, event: "session-changed", refetchWindows: true)
-        case let .sessionRenamed(id, name, idBearingName):
-            // tmux's `rename-session` notification. Same name handling as
-            // `%session-changed` (track the new name for attach/reconnect and emit
-            // the name-change observers that re-key controller state and re-title
-            // the mirror workspace), but a rename does NOT change the window set,
-            // so skip the topology re-fetch.
-            guard let renameName = sessionRenamedName(
-                sessionId: id,
-                documentedName: name,
-                idBearingName: idBearingName
-            ) else { return }
-            applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
+            guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
+                record("session-changed-invalid $\(id)")
+                requestWindows()
+                return
+            }
+            let oldName = sessionName
+            sessionId = id
+            // Track the new name too: `sessionName` is the value reused for
+            // attach/reconnect, so a remote rename must update it or the next
+            // reconnect targets a stale session and is wrongly declared gone.
+            sessionName = safeName
+            record("session-changed $\(id)")
+            observers.emitSessionChanged(oldName: oldName, newName: safeName)
+            requestWindows()
         case .sessionsChanged:
             record("sessions-changed")
+        case let .sessionRenamed(_, name, _):
+            // The mirror tracks windows/panes, not session identity, so a session
+            // rename is diagnostic only (no topology change).
+            record("session-renamed \(name)")
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
         case let .windowClose(id):
-            // Release the closed window's per-window sizing state: a stale
-            // entry would be replayed by the reconnect reseed, and a pending
-            // debounce could still fire at a dead @id target.
-            lastWindowSizes[id] = nil
-            windowSizeDebounceTasks[id]?.cancel()
-            windowSizeDebounceTasks[id] = nil
             // Release the closed window's per-pane/per-window diagnostic state so
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
@@ -974,6 +852,12 @@ final class RemoteTmuxControlConnection {
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil
                 }
+            }
+            lastWindowSizes[id] = nil
+            windowSizeDebounceTasks[id]?.cancel()
+            windowSizeDebounceTasks[id] = nil
+            if lastSizeRequestWindowId == id {
+                lastSizeRequestWindowId = nil
             }
             activePaneByWindow[id] = nil
             windowsByID[id] = nil
@@ -987,9 +871,7 @@ final class RemoteTmuxControlConnection {
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Propagate the new name into the topology so the mirrored tab title
-            // refreshes. Keep the existing geometry/layout — including the
-            // visible tree and zoom flag, or renaming a zoomed window would
-            // flip its mirror back to the base tree.
+            // refreshes. Keep the existing geometry/layout.
             if let existing = windowsByID[id], existing.name != name {
                 windowsByID[id] = RemoteTmuxWindow(
                     id: id, name: name,
@@ -999,12 +881,6 @@ final class RemoteTmuxControlConnection {
                 observers.notifyTopologyChanged()
             }
         case let .layoutChange(id, layout, visibleLayout, zoomed):
-            // No topology notify here: the layout STRING is not render-ready
-            // truth (its pane rects ignore pane-border-status rows), and
-            // rendering it briefly before the rects reply lands makes panes
-            // visibly bob one row per layout event. `applyLayout` queues the
-            // pane-rects fetch, and ITS reply notifies — one round trip, one
-            // truthful render.
             applyLayout(windowId: id, layout: layout, visibleLayout: visibleLayout, zoomed: zoomed)
             record("layout-change @\(id)\(zoomed ? " zoomed" : "")")
         case let .windowPaneChanged(windowId, paneId):
@@ -1014,19 +890,16 @@ final class RemoteTmuxControlConnection {
             record("session-window-changed @\(windowId)")
         case let .subscriptionChanged(name, value):
             // cmux subscribes each pane's working directory as "cmux_cwd_<paneId>".
-            if name.hasPrefix(Self.cwdSubscriptionPrefix),
-               let paneId = Int(name.dropFirst(Self.cwdSubscriptionPrefix.count)) {
+            if name.hasPrefix(commandBuilder.cwdSubscriptionPrefix),
+               let paneId = Int(name.dropFirst(commandBuilder.cwdSubscriptionPrefix.count)) {
                 let path = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !path.isEmpty { observers.emitPaneCwd(paneId, path) }
-            } else if name.hasPrefix(Self.reflowSubscriptionPrefix),
-                      let paneId = Int(name.dropFirst(Self.reflowSubscriptionPrefix.count)) {
+            } else if name.hasPrefix(commandBuilder.reflowSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(commandBuilder.reflowSubscriptionPrefix.count)) {
                 // Reflow classification: "<alternate_on>|<pane_current_command>".
                 classifyAndEmitReflow(paneId: paneId, rawValue: value, source: "sub")
-            } else if name.hasPrefix(Self.headerSubscriptionPrefix),
-                      let paneId = Int(name.dropFirst(Self.headerSubscriptionPrefix.count)) {
-                // Live header text: the pane's re-expanded pane-border-format.
-                // The topology notify re-runs the mirrors' reconcile, which
-                // copies labels — the same path the rects fetch uses.
+            } else if name.hasPrefix(commandBuilder.headerSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(commandBuilder.headerSubscriptionPrefix.count)) {
                 let label = Self.strippingStyleTokens(value)
                 if paneHeaderLabels[paneId] != label {
                     paneHeaderLabels[paneId] = label
@@ -1051,104 +924,6 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    /// Shared handling for `%session-changed` and `%session-renamed`: validate the
-    /// name, update the tracked `sessionName` (and `sessionId` for session
-    /// switches), then emit the name-change observers (which re-key controller
-    /// state and re-title the mirror workspace). `sessionName` is reused for
-    /// attach/reconnect, so a stale value would make the next reconnect target the
-    /// wrong session and wrongly declare it gone.
-    ///
-    /// - Parameter refetchWindows: re-fetch the window topology afterwards. A
-    ///   session SWITCH (`%session-changed`) brings a different window set, so it
-    ///   must; a rename (`%session-renamed`) keeps the same windows, so it skips
-    ///   the extra round trip. An invalid name always re-fetches as a recovery
-    ///   resync regardless.
-    private func applySessionNameChange(sessionId newSessionId: Int?, name: String, event: String, refetchWindows: Bool) {
-        guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
-            let idSuffix = newSessionId.map { " $\($0)" } ?? ""
-            record("\(event)-invalid\(idSuffix)")
-            requestWindows()
-            return
-        }
-        let oldName = sessionName
-        if let newSessionId { sessionId = newSessionId }
-        sessionName = safeName
-        let idSuffix = newSessionId.map { " $\($0)" } ?? ""
-        record("\(event)\(idSuffix)")
-        observers.emitSessionChanged(oldName: oldName, newName: safeName)
-        if refetchWindows { requestWindows() }
-    }
-
-    private func sessionRenamedName(sessionId renamedSessionId: Int?, documentedName: String, idBearingName: String?) -> String? {
-        guard let renamedSessionId else { return documentedName }
-        // Real tmux id-bearing renames are broadcast for every session; only this
-        // connection's id may use the id-bearing interpretation.
-        guard let currentSessionId = sessionId, currentSessionId == renamedSessionId else {
-            record("session-renamed-ignored $\(renamedSessionId)")
-            return nil
-        }
-        return idBearingName ?? documentedName
-    }
-
-    /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
-    /// (style tokens stripped) — exactly the text a native tmux client draws
-    /// in that pane's header, custom formats included. Seeded by the
-    /// pane-rects fetch and kept LIVE by a per-pane subscription
-    /// (`cmux_hdr_<pane>`), so a program retitling its pane updates the strip
-    /// the moment tmux would redraw its own border. The mirror copies its
-    /// windows' subset on reconcile; the view never reads this directly.
-    var paneHeaderLabels: [Int: String] = [:]
-
-    /// Whether each window currently has `pane-border-status top` — i.e.
-    /// tmux itself is drawing header rows, which is the ONLY time the strips
-    /// show label text (a stock tmux displays no titles anywhere; cmux adds
-    /// only the active-pane dot on top of that).
-    var windowTitleRowsVisible: [Int: Bool] = [:]
-
-    /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
-    /// the active pane by reversing its index; the dot carries that signal
-    /// here).
-    static func strippingStyleTokens(_ value: String) -> String {
-        value.replacingOccurrences(
-            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
-        )
-    }
-
-    /// A layout the module has PARSED but not yet PUBLISHED: the layout
-    /// string's leaf rects are wrong under `pane-border-status` (tmux
-    /// publishes the pre-title tree), so raw trees are quarantined here and
-    /// enter `windowsByID` only patched with list-panes rects — observers
-    /// can never see string geometry, structurally.
-    struct PendingLayout {
-        var node: RemoteTmuxLayoutNode
-        var visibleNode: RemoteTmuxLayoutNode?
-        var zoomed: Bool
-        var name: String
-        /// Bumped per stored layout; a rects reply for an older generation
-        /// is stale and discarded (a fresh fetch is already in flight or
-        /// queued via `dirty`).
-        var generation: Int
-        /// A newer layout arrived while a rects fetch was in flight: send
-        /// ONE follow-up fetch when the in-flight reply lands (coalescing —
-        /// a resize storm must not queue a fetch per event).
-        var dirty = false
-        var inFlight = false
-        var retriesRemaining = 1
-    }
-    var pendingLayouts: [Int: PendingLayout] = [:]
-
-    /// Window ids from a topology population that started with NO published
-    /// windows (first attach, reconnect reseed into an empty table), still
-    /// awaiting their rects reply. While non-nil, verified windows accumulate
-    /// in `initialBatchStaged` and flush to `windowsByID` in ONE atomic
-    /// publish when the set drains. Without the barrier, each window would
-    /// publish in rects-reply arrival order, and the mirror layer's tab
-    /// creation order — and with it which tab ends up selected and which
-    /// mirrors take their one-time size claim from a hidden, collapsed
-    /// container — would be a race between round trips.
-    var initialBatchAwaiting: Set<Int>?
-    var initialBatchStaged: [Int: RemoteTmuxWindow] = [:]
-
     func record(_ event: String) {
         diagnostics.record(event)
     }
@@ -1169,9 +944,88 @@ final class RemoteTmuxControlConnection {
     }
 
     #if DEBUG
-    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { stdinWriter = writer }
+    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { transport.installStdinWriterForTesting(writer) }
     func handleMessageForTesting(_ message: RemoteTmuxControlMessage) { handle(message) }
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] { pendingCommands }
     #endif
 
+}
+
+// MARK: - RemoteTmuxClientSizeHost
+
+/// Command/state seam the ``clientSize`` sub-model drives. Keeps the window/pane
+/// geometry (the app's `windowsByID` topology) and the app's
+/// `cmuxDebugLog` on this side, exposing only plain `Int`/`Bool`/`String` to the
+/// package controller.
+extension RemoteTmuxControlConnection: RemoteTmuxClientSizeHost {
+    var isClientSizeConnectionConnected: Bool { connectionState == .connected }
+
+    var hasMirroredWindowTopology: Bool { !windowsByID.isEmpty }
+
+    func mirroredWindowMatchesClientSize(columns: Int, rows: Int) -> Bool {
+        windowsByID.values.contains { $0.width == columns && $0.height == rows }
+    }
+
+    func sendClientSizeCommand(_ command: String) {
+        send(command)
+    }
+
+    func clientSizeApplyDidCoverPendingPostAttachAction() {
+        if pendingPostAttachAction == .applyClientSize {
+            pendingPostAttachAction = nil
+        }
+    }
+
+    func logClientSizeEvent(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        cmuxDebugLog(message())
+        #endif
+    }
+}
+
+// MARK: - RemoteTmuxReconnectHost
+
+/// Phase/respawn/diagnostics seam the ``reconnect`` sub-model drives. Keeps the
+/// connection-state machine, the ssh respawn (``attemptReconnectSpawn()``), and the
+/// diagnostics ring on this side, exposing only a `.reconnecting` phase check, a
+/// respawn trigger, and an event string to the package controller.
+extension RemoteTmuxControlConnection: RemoteTmuxReconnectHost {
+    var isReconnecting: Bool { connectionState == .reconnecting }
+
+    func performReconnectAttempt() {
+        attemptReconnectSpawn()
+    }
+
+    func recordReconnectEvent(_ message: String) {
+        record(message)
+    }
+}
+
+// MARK: - RemoteTmuxControlTransportHost
+
+/// Byte/lifecycle seam the ``transport`` sub-model drives. Keeps the control-stream
+/// parser, the pending-command FIFO, the captured-stderr buffer + session-gone
+/// classification, and the connection-state machine on this side, receiving only raw
+/// stdout chunks, the stream-end edge, decoded stderr text, and the two backpressure
+/// reconnect signals from the package transport.
+extension RemoteTmuxControlConnection: RemoteTmuxControlTransportHost {
+    func transportDidReceiveStdoutChunk(_ data: Data) {
+        ingest(data)
+    }
+
+    func transportStreamDidEnd() async {
+        await handleStreamEnd()
+    }
+
+    func transportDidReceiveStderrText(_ text: String) {
+        appendStderr(text)
+    }
+
+    func transportStdinWriteDidFail() {
+        handleStdinWriteFailure()
+    }
+
+    func transportStdoutBackpressureDidOverflow() {
+        handleStdoutBackpressureOverflow()
+    }
 }

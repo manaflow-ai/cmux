@@ -1,5 +1,6 @@
 import CmuxWorkspaces
 import Darwin
+import CmuxBrowser
 import CmuxCore
 import XCTest
 import CmuxTerminal
@@ -354,7 +355,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             object: manager,
             queue: nil
         ) { _ in
-            observedCanNavigateForward = manager.canNavigateForward
+            observedCanNavigateForward = MainActor.assumeIsolated { manager.canNavigateForward }
         }
         defer {
             NotificationCenter.default.removeObserver(observer)
@@ -1713,13 +1714,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         XCTAssertTrue(snapshot.hasRestorablePanels)
-        XCTAssertFalse(ClosedWindowRestoreValidation.hasUsableRestoredContent(
-            snapshot: snapshot,
+        XCTAssertFalse(snapshot.hasUsableRestoredContent(
             restoredPanelIdsByWorkspaceIndex: [[:]],
             hasLivePanels: true
         ))
-        XCTAssertTrue(ClosedWindowRestoreValidation.hasUsableRestoredContent(
-            snapshot: snapshot,
+        XCTAssertTrue(snapshot.hasUsableRestoredContent(
             restoredPanelIdsByWorkspaceIndex: [[UUID(): UUID()]],
             hasLivePanels: true
         ))
@@ -2110,7 +2109,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             .appendingPathComponent("cmux-ssh-session-restore-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: snapshotURL) }
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(
@@ -2122,7 +2121,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
         )
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -2248,7 +2247,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             .appendingPathComponent("cmux-ssh-pty-session-restore-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: snapshotURL) }
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(
@@ -2260,7 +2259,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
         )
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -3130,7 +3129,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             .appendingPathComponent("cmux-ssh-pty-durable-restore-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: snapshotURL) }
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(
@@ -3142,7 +3141,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
         )
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -3628,7 +3627,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     private static func browserPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
             id: id,
-            type: .browser,
+            type: PanelType.browser,
             title: "Browser",
             customTitle: nil,
             directory: nil,
@@ -3655,7 +3654,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     private static func terminalPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
             id: id,
-            type: .terminal,
+            type: PanelType.terminal,
             title: "Terminal",
             customTitle: nil,
             directory: nil,

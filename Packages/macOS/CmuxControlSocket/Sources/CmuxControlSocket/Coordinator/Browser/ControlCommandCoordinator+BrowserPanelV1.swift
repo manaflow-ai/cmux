@@ -40,7 +40,7 @@ extension ControlCommandCoordinator {
     /// until then it lets the domain build standalone without touching the
     /// integrator-owned umbrella file.
     var browserPanelContext: (any ControlBrowserPanelContext)? {
-        context as? any ControlBrowserPanelContext
+        context
     }
 
     /// The shared disabled-browser fallback: open externally instead (the

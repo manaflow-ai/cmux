@@ -1,5 +1,3 @@
-public import Foundation
-
 /// The phone's view of ONE Mac's workspaces: the per-Mac source of truth behind
 /// the aggregated multi-Mac workspace list. The published flat list (and group
 /// sections) is a PURE DERIVATION over every Mac's `MacWorkspaceState` — see

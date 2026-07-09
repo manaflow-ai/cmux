@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import CoreServices
 import Testing
@@ -257,7 +258,7 @@ import WebKit
     @MainActor
     @Test func promptedDownloadCompletionCallbacksPostFinalEvents() throws {
         let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false); defer { panel.close() }
-        let delegate = try #require(panel.downloadDelegate)
+        let delegate = try #require(panel.downloadDelegateForTesting)
         let capture = BrowserDownloadEventCapture()
         let observer = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -320,7 +321,7 @@ import WebKit
     @Test func promptedDownloadSavePanelSkipsHiddenPreloadWindow() throws {
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: try #require(URL(string: "about:blank")),
+            initialURL: URL(string: "about:blank")!,
             preloadInitialNavigationInBackground: true,
             isRemoteWorkspace: false
         )
@@ -328,7 +329,7 @@ import WebKit
 
         #expect(panel.hasBackgroundPreloadHost)
         #expect(browserInteractiveModalHostWindow(for: panel.webView) == nil)
-        let delegate = try #require(panel.downloadDelegate)
+        let delegate = try #require(panel.downloadDelegateForTesting)
 
         #expect(delegate.savePanelParentWindow?() == nil)
     }

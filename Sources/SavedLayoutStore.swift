@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import CmuxWorkspaces
 
 struct CmuxSavedLayout: Codable, Sendable {
     var name: String

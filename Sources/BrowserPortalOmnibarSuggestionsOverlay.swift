@@ -1,3 +1,4 @@
+import CmuxBrowserUI
 import SwiftUI
 
 struct BrowserPortalOmnibarSuggestionsOverlay: View {
@@ -9,9 +10,11 @@ struct BrowserPortalOmnibarSuggestionsOverlay: View {
                 OmnibarSuggestionsView(
                     engineName: configuration.engineName,
                     items: configuration.items,
+                    badges: configuration.items.map { $0.trailingBadgeText },
                     selectedIndex: configuration.selectedIndex,
                     isLoadingRemoteSuggestions: configuration.isLoadingRemoteSuggestions,
                     searchSuggestionsEnabled: configuration.searchSuggestionsEnabled,
+                    accessibilityLabel: String(localized: "browser.addressBarSuggestions", defaultValue: "Address bar suggestions"),
                     onCommit: configuration.onCommit,
                     onHighlight: configuration.onHighlight
                 )

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxPanes
 import Foundation
 
@@ -48,11 +49,11 @@ extension ContentView {
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: isRemoteContext,
-            supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
-            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
-            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
+            supportedPanelKeys: commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys,
+            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentProbeCoordinator.remoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey,
             fallbackSnapshot: fallbackSnapshot,
-            cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
+            cachedSnapshot: commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey[panelKey]
         )
         guard let selection else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
@@ -62,14 +63,14 @@ extension ContentView {
         let snapshot = selection.snapshot
 
         let fallbackFingerprint = fallbackSnapshot.map(Self.commandPaletteForkSnapshotFingerprint)
-        commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
-        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+        commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys.insert(panelKey)
+        commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey[panelKey] = snapshot
+        commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
             snapshot: snapshot,
             fallbackFingerprint: fallbackFingerprint
         )
-        commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
-        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
+        commandPaletteForkableAgentProbeCoordinator.remoteContextsByPanelKey[panelKey] = isRemoteContext
+        commandPaletteForkableAgentProbeCoordinator.resultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
         let didFork: Bool
         if let direction = destination.splitDirection {
@@ -135,11 +136,11 @@ extension ContentView {
     }
 
     private func clearCommandPaletteForkableAgentCache(panelKey: String) {
-        commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-        commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-        commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-        commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys.remove(panelKey)
+        commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.remoteContextsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.resultHadFallbackByPanelKey.removeValue(forKey: panelKey)
     }
 }
 
@@ -275,71 +276,11 @@ extension ContentView {
     }
 }
 
-enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Sendable {
-    case right
-    case left
-    case top
-    case bottom
-    case newTab
-    case newWorkspace
-
-    var id: String { rawValue }
-
-    static let defaultDestination: AgentConversationForkDestination = .right
-
-    init(tabContextAction: TabContextAction) {
-        switch tabContextAction {
-        case .forkConversationLeft:
-            self = .left
-        case .forkConversationTop:
-            self = .top
-        case .forkConversationBottom:
-            self = .bottom
-        case .forkConversationNewTab:
-            self = .newTab
-        case .forkConversationNewWorkspace:
-            self = .newWorkspace
-        case .forkConversationRight:
-            self = .right
-        default:
-            self = .defaultDestination
-        }
-    }
-
-    var tabContextAction: TabContextAction {
-        switch self {
-        case .right:
-            return .forkConversationRight
-        case .left:
-            return .forkConversationLeft
-        case .top:
-            return .forkConversationTop
-        case .bottom:
-            return .forkConversationBottom
-        case .newTab:
-            return .forkConversationNewTab
-        case .newWorkspace:
-            return .forkConversationNewWorkspace
-        }
-    }
-
-    var commandPaletteCommandId: String {
-        switch self {
-        case .right:
-            return "palette.forkAgentConversationRight"
-        case .left:
-            return "palette.forkAgentConversationLeft"
-        case .top:
-            return "palette.forkAgentConversationTop"
-        case .bottom:
-            return "palette.forkAgentConversationBottom"
-        case .newTab:
-            return "palette.forkAgentConversationNewTab"
-        case .newWorkspace:
-            return "palette.forkAgentConversationNewWorkspace"
-        }
-    }
-
+// `AgentConversationForkDestination` and its configured-default reader now live
+// in `CMUXAgentLaunch` (the `AgentForkCoordinator` `Destination` vocabulary).
+// App-only command titles and settings descriptions stay here; `settingsTitle`
+// resolves to the package member.
+extension AgentConversationForkDestination {
     var title: String {
         switch self {
         case .right:
@@ -354,23 +295,6 @@ enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Senda
             return String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")
         case .newWorkspace:
             return String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")
-        }
-    }
-
-    var settingsTitle: String {
-        switch self {
-        case .right:
-            return String(localized: "forkConversation.destination.right", defaultValue: "Right Split")
-        case .left:
-            return String(localized: "forkConversation.destination.left", defaultValue: "Left Split")
-        case .top:
-            return String(localized: "forkConversation.destination.top", defaultValue: "Top Split")
-        case .bottom:
-            return String(localized: "forkConversation.destination.bottom", defaultValue: "Bottom Split")
-        case .newTab:
-            return String(localized: "forkConversation.destination.newTab", defaultValue: "New Tab")
-        case .newWorkspace:
-            return String(localized: "forkConversation.destination.newWorkspace", defaultValue: "New Workspace")
         }
     }
 
@@ -389,33 +313,5 @@ enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Senda
         case .newWorkspace:
             return String(localized: "forkConversation.destination.newWorkspace.description", defaultValue: "Right-click Fork Conversation creates a new workspace.")
         }
-    }
-
-    var splitDirection: SplitDirection? {
-        switch self {
-        case .right:
-            return .right
-        case .left:
-            return .left
-        case .top:
-            return .up
-        case .bottom:
-            return .down
-        case .newTab, .newWorkspace:
-            return nil
-        }
-    }
-}
-
-enum AgentConversationForkDefaultSettings {
-    static let key = "agentConversationForkDefaultDestination"
-    static let defaultDestination = AgentConversationForkDestination.defaultDestination
-
-    static func current(defaults: UserDefaults = .standard) -> AgentConversationForkDestination {
-        guard let raw = defaults.string(forKey: key),
-              let destination = AgentConversationForkDestination(rawValue: raw) else {
-            return defaultDestination
-        }
-        return destination
     }
 }

@@ -1,4 +1,5 @@
 import XCTest
+import CmuxSidebar
 import CmuxWorkspaces
 import CmuxSwiftRender
 

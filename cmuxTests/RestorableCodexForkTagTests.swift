@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -8,6 +9,106 @@ import Testing
 #endif
 
 struct RestorableCodexForkTagTests {
+    @Test
+    func testRestoredBareCodexResumeRoutesThroughPortableWrapperRenderer() throws {
+        let command = try #require(
+            AgentResumeCommandBuilder().resumeShellCommand(
+                kind: .codex,
+                sessionId: "codex-session-123",
+                launchCommand: codexLaunchCommand(
+                    executablePath: nil,
+                    arguments: ["codex", "--model", "gpt-5"]
+                ),
+                workingDirectory: nil,
+                includeWorkingDirectoryPrefix: false
+            )
+        )
+        let expected = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: [
+                "codex",
+                "resume",
+                "codex-session-123",
+                "-c",
+                "check_for_update_on_startup=false",
+                "--model",
+                "gpt-5",
+            ],
+            quote: TerminalStartupShellQuoting().singleQuoted
+        )
+
+        #expect(command == expected)
+        #expect(command.hasPrefix("/bin/sh -c "))
+        #expect(command.contains("CMUX_CODEX_WRAPPER_SHIM"))
+    }
+
+    @Test
+    func testRestoredBareCodexForkRoutesThroughPortableWrapperRendererAndDropsStaleForkSession() throws {
+        let command = try #require(
+            AgentResumeCommandBuilder().forkShellCommand(
+                kind: .codex,
+                sessionId: "codex-child-session",
+                launchCommand: codexLaunchCommand(
+                    executablePath: nil,
+                    arguments: [
+                        "codex",
+                        "fork",
+                        "stale-parent-session",
+                        "tag-one",
+                        "--sandbox",
+                        "danger-full-access",
+                    ]
+                ),
+                workingDirectory: nil,
+                includeWorkingDirectoryPrefix: false
+            )
+        )
+        let expected = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: [
+                "codex",
+                "fork",
+                "codex-child-session",
+                "tag-one",
+                "--sandbox",
+                "danger-full-access",
+            ],
+            quote: TerminalStartupShellQuoting().singleQuoted
+        )
+
+        #expect(command == expected)
+        #expect(command.hasPrefix("/bin/sh -c "))
+        #expect(command.contains("CMUX_CODEX_WRAPPER_SHIM"))
+        #expect(!command.contains("stale-parent-session"))
+    }
+
+    @Test
+    func testRestoredCodexTeamsForkDropsStaleForkSession() throws {
+        let command = try #require(
+            AgentResumeCommandBuilder().forkShellCommand(
+                kind: .codex,
+                sessionId: "codex-child-session",
+                launchCommand: codexLaunchCommand(
+                    launcher: "codexTeams",
+                    executablePath: nil,
+                    arguments: [
+                        "cmux",
+                        "codex-teams",
+                        "fork",
+                        "stale-parent-session",
+                        "tag-one",
+                        "--model",
+                        "gpt-5",
+                    ]
+                ),
+                workingDirectory: nil,
+                includeWorkingDirectoryPrefix: false
+            )
+        )
+
+        #expect(command == "'cmux' 'codex-teams' 'fork' 'codex-child-session' 'tag-one' '--model' 'gpt-5'")
+        #expect(!command.hasPrefix("/bin/sh -c "))
+        #expect(!command.contains("stale-parent-session"))
+    }
+
     @Test
     func testRestoredCodexForkPreservesPromptTagsWhenForkedAgain() throws {
         let fm = FileManager.default
@@ -70,5 +171,21 @@ struct RestorableCodexForkTagTests {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+    }
+
+    private func codexLaunchCommand(
+        launcher: String = "codex",
+        executablePath: String?,
+        arguments: [String]
+    ) -> AgentLaunchCommandSnapshot {
+        AgentLaunchCommandSnapshot(
+            launcher: launcher,
+            executablePath: executablePath,
+            arguments: arguments,
+            workingDirectory: nil,
+            environment: nil,
+            capturedAt: nil,
+            source: "test"
+        )
     }
 }

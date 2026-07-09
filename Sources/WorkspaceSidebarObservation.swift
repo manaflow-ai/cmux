@@ -76,15 +76,15 @@ extension Workspace {
 
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $title,
-            $customDescription,
-            $isPinned,
-            $customColor
+            titlePublisher,
+            customDescriptionPublisher,
+            isPinnedPublisher,
+            customColorPublisher
         )
         let conversationFields = Publishers.CombineLatest3(
-            $latestConversationMessage,
-            $latestSubmittedMessage,
-            $latestSubmittedAt
+            latestConversationMessagePublisher,
+            latestSubmittedMessagePublisher,
+            latestSubmittedAtPublisher
         )
 
         return workspaceFields
@@ -127,10 +127,10 @@ extension Workspace {
 
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $currentDirectory,
-            $extensionSidebarProjectRootPath,
+            currentDirectoryPublisher,
+            extensionSidebarProjectRootPathPublisher,
             panelsPublisher.map(SidebarPanelObservationState.init),
-            $panelDirectories
+            panelDirectoriesPublisher
         )
         let metadataFields = Publishers.CombineLatest4(
             sidebarMetadata.statusEntriesPublisher,
@@ -145,23 +145,31 @@ extension Workspace {
             sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
-            $remoteConfiguration,
-            $remoteConnectionState,
-            $remoteConnectionDetail,
-            $activeRemoteTerminalSessionCount
+            remoteConfigurationPublisher,
+            remoteConnectionStatePublisher,
+            remoteConnectionDetailPublisher,
+            activeRemoteTerminalSessionCountPublisher
         )
         let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
-        return Publishers.CombineLatest4(
+        let groupedPublisher = Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
-            .combineLatest(directoryChangeRevision)
-            .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
+        // Explicit CombineLatest3 (vs `.combineLatest(a, b)`) so the type-erased
+        // AnyPublisher operands do not resolve against the ambiguous
+        // `combineLatest(other:transform:)` overload. Behavior is identical: the
+        // downstream closure still receives (groupedFields, listeningPorts,
+        // panelDirectoryDisplayLabels).
+        return Publishers.CombineLatest4(
+            groupedPublisher,
+            listeningPortsPublisher,
+            sidebarMetadata.panelDirectoryDisplayLabelsPublisher,
+            directoryChangeRevision
+        )
+            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2

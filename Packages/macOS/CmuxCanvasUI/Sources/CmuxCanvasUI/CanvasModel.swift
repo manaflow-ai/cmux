@@ -1,5 +1,5 @@
 public import Foundation
-public import CoreGraphics
+internal import CoreGraphics
 public import CmuxCanvas
 
 /// The durable canvas state for one workspace.

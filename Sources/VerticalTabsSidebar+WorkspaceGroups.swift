@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSidebarUI
 import SwiftUI
 import CmuxSettings
 import CmuxWorkspaces
@@ -43,10 +44,9 @@ extension VerticalTabsSidebar {
         let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
         let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
+        let shortcutDigit = WorkspaceShortcutMapper(
             workspaceCount: renderContext.workspaceCount
-        )
+        ).digitForWorkspace(at: anchorIndex)
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(

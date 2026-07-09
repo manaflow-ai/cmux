@@ -5,6 +5,8 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
+import CmuxWindowing
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -12,15 +14,13 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     return String(describing: type(of: responder))
 }
 
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case customSidebar = "custom-sidebar"
+/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B). The pure
+/// `Sendable` data core (cases, raw values, `from(cliArgument:)`, gate-based
+/// availability) lives in `CmuxSidebar`; this app-target alias hosts the
+/// AppKit/localization/settings-coupled affordances below.
+typealias RightSidebarMode = CmuxSidebar.RightSidebarMode
 
+extension RightSidebarMode {
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
@@ -32,17 +32,6 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
@@ -51,32 +40,6 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
-}
-
-nonisolated enum RightSidebarContentMountPolicy {
-    static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
-        isRightSidebarVisible || hasMountedContent
-    }
-}
-
-nonisolated enum FileExplorerRootSyncPolicy {
-    static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
-        guard isRightSidebarVisible else { return false }
-        switch mode {
-        case .files, .find:
-            return true
-        case .sessions, .feed, .dock, .customSidebar:
-            return false
         }
     }
 }
@@ -106,26 +69,20 @@ extension RightSidebarMode {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
-    @ObservedObject var tabManager: TabManager
+    var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sessionIndexStore: SessionIndexStore
+    var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
-    let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
-    @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
-        guard let responder = window.firstResponder else { return false }
-        return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
-    }
-    @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @State private var hasMountedRightSidebarContent = false
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @Environment(\.appEnvironment) private var appEnvironment
+    @State private var model = RightSidebarPanelModel()
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
@@ -148,28 +105,8 @@ struct RightSidebarPanelView: View {
         RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
     }
 
-    private var modeBarItems: [RightSidebarModeBarItem] {
-        availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
-    }
-
     private var focusShortcutHintAnimationValue: Bool {
-        alwaysShowShortcutHints || (showModifierHoldHints && focusShortcutHintMonitor.isModifierPressed)
-    }
-
-    private func startShortcutHintMonitorsIfNeeded() {
-        guard showModifierHoldHints else {
-            stopShortcutHintMonitors()
-            return
-        }
-        modeShortcutHintMonitor.start()
-        focusShortcutHintMonitor.start()
-        closeShortcutHintMonitor.start()
-    }
-
-    private func stopShortcutHintMonitors() {
-        modeShortcutHintMonitor.stop()
-        focusShortcutHintMonitor.stop()
-        closeShortcutHintMonitor.stop()
+        alwaysShowShortcutHints || (showModifierHoldHints && model.focusShortcutHintMonitor.isModifierPressed)
     }
 
     var body: some View {
@@ -188,29 +125,50 @@ struct RightSidebarPanelView: View {
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
                 let hintWindow = showModifierHoldHints ? window : nil
-                modeShortcutHintMonitor.setHostWindow(hintWindow)
-                focusShortcutHintMonitor.setHostWindow(hintWindow)
-                closeShortcutHintMonitor.setHostWindow(hintWindow)
+                model.modeShortcutHintMonitor.setHostWindow(hintWindow)
+                model.focusShortcutHintMonitor.setHostWindow(hintWindow)
+                model.closeShortcutHintMonitor.setHostWindow(hintWindow)
             }
             .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
-            startShortcutHintMonitorsIfNeeded()
-            if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
+            model.startShortcutHintMonitorsIfNeeded(showModifierHoldHints: showModifierHoldHints)
+            if fileExplorerState.isVisible { model.hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
+            synchronizeDockLifecycle()
         }
         .onDisappear {
-            stopShortcutHintMonitors()
+            model.stopShortcutHintMonitors()
+            synchronizeDockLifecycle(isRightSidebarVisible: false)
         }
         .onChange(of: showModifierHoldHints) { _, _ in
-            startShortcutHintMonitorsIfNeeded()
+            model.startShortcutHintMonitorsIfNeeded(showModifierHoldHints: showModifierHoldHints)
+        }
+        .onChange(of: fileExplorerState.mode) { _, mode in
+            synchronizeDockLifecycle(mode: mode)
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
-            if visible { hasMountedRightSidebarContent = true }
+            if visible { model.hasMountedRightSidebarContent = true }
+            synchronizeDockLifecycle(isRightSidebarVisible: visible)
+        }
+        .onChange(of: dockRootDirectory) { _, newValue in
+            synchronizeDockLifecycle(rootDirectory: newValue, workspaceId: workspaceId)
+        }
+        .onChange(of: workspaceId) { _, newValue in
+            synchronizeDockLifecycle(rootDirectory: dockRootDirectory, workspaceId: newValue)
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+    }
+
+    private func refreshModeAvailabilityAndFocusIfNeeded() {
+        model.refreshModeAvailabilityAndFocusIfNeeded(
+            fileExplorerState: fileExplorerState,
+            dockRootDirectory: dockRootDirectory,
+            workspaceId: workspaceId,
+            mainWindowRouter: appEnvironment?.mainWindowRouter
+        )
     }
 
     private var modeBar: some View {
@@ -219,29 +177,30 @@ struct RightSidebarPanelView: View {
             WindowDragHandleView()
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
-                ForEach(modeBarItems) { item in
-                    let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                ForEach(availableModes, id: \.rawValue) { mode in
+                    let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
                     ModeBarButton(
-                        item: item,
-                        isSelected: item.isSelected(
-                            mode: fileExplorerState.mode
-                        ),
-                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                        mode: mode,
+                        isSelected: fileExplorerState.mode == mode,
+                        badgeCount: mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
                             alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
+                            modifierPressed: model.modeShortcutHintMonitor.isModifierPressed,
                             modifierHoldHintsEnabled: showModifierHoldHints
                         )
                     ) {
-                        let mode = item.mode
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                        if appEnvironment?.mainWindowRouter.focusRightSidebarInActiveWindow(
                             mode: mode,
                             focusFirstItem: true,
                             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                         ) != true {
-                            selectMode(mode)
+                            model.selectMode(
+                                mode,
+                                fileExplorerState: fileExplorerState,
+                                sessionIndexStore: sessionIndexStore
+                            )
                         }
                     }
                 }
@@ -298,7 +257,7 @@ struct RightSidebarPanelView: View {
         let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: closeShortcutHintMonitor.isModifierPressed,
+            modifierPressed: model.closeShortcutHintMonitor.isModifierPressed,
             modifierHoldHintsEnabled: showModifierHoldHints
         )
         return ZStack {
@@ -352,7 +311,7 @@ struct RightSidebarPanelView: View {
         let showsFocusShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: focusShortcutHintMonitor.isModifierPressed,
+            modifierPressed: model.focusShortcutHintMonitor.isModifierPressed,
             modifierHoldHintsEnabled: showModifierHoldHints
         )
         if showsFocusShortcutHint {
@@ -376,7 +335,7 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
+        if RightSidebarMode.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: model.hasMountedRightSidebarContent) {
             switch fileExplorerState.mode {
             case .files:
                 FileExplorerPanelView(
@@ -400,9 +359,12 @@ struct RightSidebarPanelView: View {
             case .feed:
                 FeedPanelView()
             case .dock:
-                dockPanel(windowAppearance: windowAppearance)
+                DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: model.dockStore)
             case .customSidebar:
-                EmptyView()
+                // Custom sidebars are hosted through the panel system
+                // (CustomSidebarPanelView), not the built-in right-sidebar mode
+                // content, so this mode renders nothing here.
+                Color.clear
             }
         } else {
             Color.clear
@@ -413,49 +375,28 @@ struct RightSidebarPanelView: View {
         sessionIndexStore.currentDirectory
     }
 
-    /// Renders this window's own Dock (created lazily on first show); no
-    /// window ever defers to a Dock rendered elsewhere.
-    @ViewBuilder
-    private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
-        if let app = AppDelegate.shared, let dock = app.windowDock(for: tabManager) {
-            DockPanelView(
-                store: dock,
-                isSidebarVisible: fileExplorerState.isVisible,
-                mode: fileExplorerState.mode,
-                rootDirectory: nil,
-                windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
-            )
-            .id("dock.window.\(dock.workspaceId.uuidString)")
-        } else {
-            Color.clear
-        }
+    private var dockRootDirectory: String? {
+        RightSidebarMode.dockRootDirectory(
+            workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory,
+            fallbackDirectory: sessionIndexStore.currentDirectory
+        )
     }
 
-    private func selectMode(_ mode: RightSidebarMode) {
-        fileExplorerState.mode = mode
-        if fileExplorerState.mode == .sessions {
-            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-            if sessionIndexStore.entries.isEmpty {
-                sessionIndexStore.reload()
-            }
-        }
-    }
-
-    private func refreshModeAvailabilityAndFocusIfNeeded() {
-        let previousMode = fileExplorerState.mode
-        fileExplorerState.refreshModeAvailability()
-        let mode = fileExplorerState.mode
-        // The Dock manages its own lifecycle from DockPanelView, so no dock sync
-        // is needed here when the mode is unchanged.
-        guard previousMode != mode,
-              fileExplorerState.isVisible,
-              let window = NSApp.keyWindow ?? NSApp.mainWindow
-        else { return }
-        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-            mode: fileExplorerState.mode,
-            focusFirstItem: false,
-            preferredWindow: window
+    /// Coalesces the view's reactive state (visibility, mode, dock root,
+    /// workspace) into the model's owned dock store. Per-call overrides win;
+    /// missing values fall back to the current view state, matching the prior
+    /// inline behavior exactly.
+    private func synchronizeDockLifecycle(
+        isRightSidebarVisible: Bool? = nil,
+        mode: RightSidebarMode? = nil,
+        rootDirectory: String? = nil,
+        workspaceId: UUID? = nil
+    ) {
+        model.synchronizeDockLifecycle(
+            isRightSidebarVisible: isRightSidebarVisible ?? fileExplorerState.isVisible,
+            mode: mode ?? fileExplorerState.mode,
+            rootDirectory: rootDirectory ?? dockRootDirectory,
+            workspaceId: workspaceId ?? self.workspaceId
         )
     }
 }
@@ -471,9 +412,12 @@ private struct RightSidebarKeyboardFocusBridge: NSViewRepresentable {
     }
 }
 
-final class RightSidebarKeyboardFocusView: NSView {
+final class RightSidebarKeyboardFocusView: NSView, RightSidebarHostFocusing {
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
+
+    /// `RightSidebarHostFocusing`: the host view is its own focus responder.
+    var focusResponder: NSResponder { self }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -538,16 +482,95 @@ final class RightSidebarKeyboardFocusView: NSView {
     }
 }
 
-extension NSView {
-    var cmuxCanAcceptRightSidebarKeyboardFocus: Bool {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
-        var view: NSView? = self
-        while let current = view {
-            if current.bounds.width <= 0.5 || current.bounds.height <= 0.5 {
-                return false
+private struct ModeBarButton: View {
+    let mode: RightSidebarMode
+    let isSelected: Bool
+    var badgeCount: Int = 0
+    let shortcutHint: StoredShortcut
+    let showsShortcutHint: Bool
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: mode.symbolName)
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.modeIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
+                        isVisible: true
+                    )
+                Text(mode.label)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if badgeCount > 0 {
+                    pendingChip
+                }
             }
-            view = current.superview
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
+            )
+            .overlay(alignment: .trailing) {
+                if showsShortcutHint {
+                    ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
+                        .offset(x: 5)
+                        .shortcutHintTransition()
+                        .accessibilityIdentifier("rightSidebarModeShortcutHint.\(mode.rawValue)")
+                }
+            }
+            .contentShape(Rectangle())
         }
-        return true
+        .buttonStyle(.plain)
+        .titlebarInteractiveControl()
+        .onHover { isHovered = $0 }
+        .help(helpText)
+        .accessibilityIdentifier("RightSidebarModeButton.\(mode.rawValue)")
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+    }
+
+    private var helpText: String {
+        if badgeCount > 0 {
+            return String(
+                localized: "rightSidebar.mode.pendingHelp",
+                defaultValue: "\(mode.label) · \(badgeCount) pending"
+            )
+        }
+        return mode.label
+    }
+
+    /// Subtle inline count chip that sits after the label instead of
+    /// floating a red capsule over the icon. Tinted orange (the "needs
+    /// attention" color used elsewhere in the Feed) and sized to match
+    /// the label's typography.
+    private var pendingChip: some View {
+        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
+        return Text(countText)
+            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: true)
+            .foregroundColor(.orange)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.orange.opacity(0.20))
+            )
+            .fixedSize(horizontal: true, vertical: true)
+            .layoutPriority(2)
     }
 }

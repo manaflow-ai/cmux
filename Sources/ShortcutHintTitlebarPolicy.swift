@@ -1,3 +1,5 @@
+import CmuxSettings
+
 enum ShortcutHintTitlebarPolicy {
     static func shouldShow(
         shortcut: StoredShortcut,
@@ -5,6 +7,6 @@ enum ShortcutHintTitlebarPolicy {
         modifierPressed: Bool,
         modifierHoldHintsEnabled: Bool = true
     ) -> Bool {
-        !shortcut.isUnbound && (alwaysShowShortcutHints || (modifierHoldHintsEnabled && shortcut.command && modifierPressed))
+        !shortcut.isUnbound && (alwaysShowShortcutHints || (modifierHoldHintsEnabled && shortcut.first.command && modifierPressed))
     }
 }

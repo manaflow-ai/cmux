@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxRemoteWorkspace
 import SwiftUI
 
 /// Recursive transient renderer that divides live pixels by assigned cell

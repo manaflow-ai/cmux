@@ -1,6 +1,7 @@
 internal import Foundation
 
-/// The system/misc domain (`system.identify`, `system.tree`, `auth.login`,
+/// The system/misc domain (`system.ping`, `system.capabilities`,
+/// `system.identify`, `system.tree`, `auth.login`,
 /// `session.restore_previous`, `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
@@ -12,13 +13,17 @@ extension ControlCommandCoordinator {
     /// integrator adds ``ControlSystemContext`` to ``ControlCommandContext``;
     /// the conformer is the same object either way).
     var systemContext: (any ControlSystemContext)? {
-        context as? any ControlSystemContext
+        context
     }
 
     /// Dispatches the system-domain methods this coordinator owns; returns
     /// `nil` for anything else so the core `handle(_:)` can fall through.
     func handleSystem(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
+        case "system.ping":
+            return systemPing()
+        case "system.capabilities":
+            return systemCapabilities()
         case "system.identify":
             // Worker-lane resolution reads (tranche D): the nonisolated bodies
             // are shared with the socket dispatcher's worker lane; from this
@@ -51,6 +56,22 @@ extension ControlCommandCoordinator {
         }
     }
 
+    /// `system.ping` — the trivial `{"pong": true}` acknowledgement, built by
+    /// the shared ``ControlSystemProbe`` (the same value the worker lane uses).
+    func systemPing() -> ControlCallResult {
+        ControlSystemProbe().ping()
+    }
+
+    /// `system.capabilities` — the protocol banner plus the live
+    /// `socket_path` / `access_mode` and the sorted method catalog, built by the
+    /// shared ``ControlSystemProbe`` over the seam's live server state.
+    func systemCapabilities() -> ControlCallResult {
+        ControlSystemProbe().capabilities(
+            socketPath: systemContext?.controlSystemSocketPath() ?? "",
+            accessModeRawValue: systemContext?.controlSystemAccessModeRawValue() ?? ""
+        )
+    }
+
     /// `system.identify` — the shared identify payload (always ok).
     ///
     /// Worker-lane resolution read (tranche D of issue #5757): the whole
@@ -64,8 +85,8 @@ extension ControlCommandCoordinator {
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
         guard let context else { return .ok(.object([:])) }
-        return .ok(context.controlResolveOnMain { seam in
-            (seam as? any ControlSystemContext)?.controlSystemIdentify(params: params) ?? .object([:])
+        return .ok(context.controlResolveOnMain { _ in
+            self.identify(params: params)
         })
     }
 
@@ -151,7 +172,7 @@ extension ControlCommandCoordinator {
         case .invalid(let error):
             return .finished(error)
         case .routed(let routing):
-            let resolution = (seam as? any ControlSystemContext)?.controlSystemTreeWindows(
+            let resolution = seam?.controlSystemTreeWindows(
                 requestedWindowID: routing.requestedWindowID,
                 includeAllWindows: routing.includeAllWindows,
                 focusedWindowID: routing.focusedWindowID,

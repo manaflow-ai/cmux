@@ -1,11 +1,27 @@
 import AppKit
 import Bonsplit
-import CmuxFoundation
+import CmuxBrowser
+import CmuxSettings
 import ObjectiveC
 import WebKit
-#if canImport(Security)
-import Security
-#endif
+
+/// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
+/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
+/// "Close Tab" action (which would close the parent browser tab).
+final class BrowserPopupPanel: NSPanel {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
+            return true
+        }
+        if KeyboardShortcutSettings.Action.closeTab.shouldSuppressStaleDefaultShortcut(matching: event) {
+            #if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
+            #endif
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
 
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
@@ -23,7 +39,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
     private let panel: NSPanel
-    private let urlLabel: NSTextField, urlLabelHeightConstraint: NSLayoutConstraint
+    private let urlLabel: NSTextField
     private weak var openerPanel: BrowserPanel?
     private weak var parentPopupController: BrowserPopupWindowController?
     private let nestingDepth: Int
@@ -31,11 +47,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private var urlObservation: NSKeyValueObservation?
     private var childPopups: [BrowserPopupWindowController] = []
     private let popupUIDelegate: PopupUIDelegate
-    private let popupNavigationDelegate: PopupNavigationDelegate
+    private let popupNavigationDelegate: BrowserPopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
-    private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
-    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -66,7 +80,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = String.safariDesktopUserAgent
         BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -83,16 +97,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // Screen-clamping: use opener's screen or main screen
         let screen = openerPanel?.webView.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let contentRect = browserPopupContentRect(
-            requestedWidth: w,
-            requestedHeight: h,
-            requestedX: windowFeatures.x.map { CGFloat($0.doubleValue) },
-            requestedTopY: windowFeatures.y.map { CGFloat($0.doubleValue) },
-            visibleFrame: visibleFrame,
+        let contentRect = BrowserPopupContentGeometry(
             defaultWidth: defaultWidth,
             defaultHeight: defaultHeight,
             minWidth: minWidth,
             minHeight: minHeight
+        ).contentRect(
+            requestedWidth: w,
+            requestedHeight: h,
+            requestedX: windowFeatures.x.map { CGFloat($0.doubleValue) },
+            requestedTopY: windowFeatures.y.map { CGFloat($0.doubleValue) },
+            visibleFrame: visibleFrame
         )
 
         // Style mask: titled + closable + resizable by default.
@@ -119,11 +134,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         let urlLabel = NSTextField(labelWithString: "")
         self.urlLabel = urlLabel
-        self.urlLabelHeightConstraint = urlLabel.heightAnchor.constraint(equalToConstant: 16)
 
         // Build delegate objects before super.init so they can be assigned
         let uiDel = PopupUIDelegate()
-        let navDel = PopupNavigationDelegate()
+        let navDel = BrowserPopupNavigationDelegate()
         let dlDel = BrowserDownloadDelegate()
         self.popupUIDelegate = uiDel
         self.popupNavigationDelegate = navDel
@@ -133,13 +147,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- URL label for phishing protection ---
         urlLabel.translatesAutoresizingMaskIntoConstraints = false
+        urlLabel.font = .systemFont(ofSize: 11)
         urlLabel.textColor = .secondaryLabelColor
         urlLabel.lineBreakMode = .byTruncatingMiddle
         urlLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        applyGlobalFont()
-        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
-            self?.applyGlobalFont()
-        }
 
         let containerView = NSView()
         containerView.translatesAutoresizingMaskIntoConstraints = false
@@ -152,7 +163,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             urlLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4),
             urlLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
             urlLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
-            urlLabelHeightConstraint,
+            urlLabel.heightAnchor.constraint(equalToConstant: 16),
 
             webView.topAnchor.constraint(equalTo: urlLabel.bottomAnchor, constant: 2),
             webView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -162,28 +173,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- Delegates ---
         uiDel.controller = self
-        navDel.controller = self
+        navDel.host = self
         navDel.downloadDelegate = dlDel
-        dlDel.savePanelParentWindow = { [weak panel] in
-            panel
-        }
-        webView.cmuxDownloadDelegate = dlDel
-        webView.onSubframeDownloadIntent = { [weak navDel] in navDel?.recordSubframeDownloadIntent($0) }
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
-        let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler(
-            canHandleToken: { [weak navDel] token in
-                navDel?.canHandleSSLTrustBypassToken(token) ?? false
-            },
-            handleToken: { [weak navDel, weak webView] token in
-                guard let webView else { return }
-                navDel?.handleSSLTrustBypassToken(token, in: webView)
-            }
-        )
-        self.sslTrustBypassMessageHandler = sslTrustBypassMessageHandler
-        let userContentController = webView.configuration.userContentController
-        userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
-        userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
         webAuthnCoordinator.install(on: webView)
 
         // Context menu "Open Link in New Tab" → open in opener's workspace,
@@ -203,10 +196,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
                 self?.panel.title = newTitle
             }
         }
-        urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
-            let observedDisplayURL = change.newValue??.absoluteString ?? ""
-            Task { @MainActor [weak self, weak navDel] in
-                self?.urlLabel.stringValue = navDel?.activeErrorPageDisplayURL?.absoluteString ?? observedDisplayURL
+        urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, change in
+            let displayURL = change.newValue??.absoluteString ?? ""
+            Task { @MainActor [weak self] in
+                self?.urlLabel.stringValue = displayURL
             }
         }
 
@@ -220,11 +213,6 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         #endif
 
         panel.makeKeyAndOrderFront(self)
-    }
-
-    private func applyGlobalFont() {
-        let font = GlobalFontMagnification.systemFont(ofSize: 11)
-        urlLabel.font = font; urlLabelHeightConstraint.constant = max(16, ceil(font.ascender - font.descender + font.leading) + 2)
     }
 
     // MARK: - Child popup tracking
@@ -274,7 +262,6 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
-        popupNavigationDelegate.cancelPendingAuthenticationPrompts()
 
         // Invalidate observations
         titleObservation?.invalidate()
@@ -283,11 +270,8 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: BrowserSSLTrustBypassMessageHandler.name
-        )
-        sslTrustBypassMessageHandler = nil
-        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
+        webAuthnCoordinator.uninstall(from: webView)
+        webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
 
@@ -332,7 +316,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    fileprivate func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+    func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
         guard terminatedWebView === webView else { return }
 #if DEBUG
         cmuxDebugLog("popup.webcontent.terminated depth=\(nestingDepth)")
@@ -340,25 +324,30 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         closePopup()
     }
 
-    fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
+    func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
         guard let url = request.url else { return }
 
-        if browserShouldBlockInsecureHTTPURL(url) {
+        if BrowserInsecureHTTPSettings.shouldBlock(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
-                browserLoadRequest(request, in: webView)
+                webView.browserLoadRequest(request)
             }
             return
         }
 
-        browserLoadRequest(request, in: webView)
+        webView.browserLoadRequest(request)
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
-    /// Reuses the global helpers from BrowserPanel.swift.
-    fileprivate func presentInsecureHTTPAlert(
+    ///
+    /// The host is normalized here and the user-facing strings are resolved
+    /// app-side (so `String(localized:)` binds to the app bundle's `.xcstrings`,
+    /// preserving translations); the resolved strings and host are handed to
+    /// `BrowserInsecureHTTPAlertPresenter` in CmuxBrowser, which owns the AppKit
+    /// alert presentation and allowlist-persistence decision.
+    func presentInsecureHTTPAlert(
         for url: URL,
         in webView: WKWebView,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
@@ -368,41 +357,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
-        alert.informativeText = String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux.")
-        alert.addButton(withTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
-        alert.addButton(withTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
-
-        let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak alert] response in
-            if browserShouldPersistInsecureHTTPAllowlistSelection(
-                response: response,
-                suppressionEnabled: alert?.suppressionButton?.state == .on
-            ) {
-                BrowserInsecureHTTPSettings.addAllowedHost(host)
-            }
-            switch response {
-            case .alertFirstButtonReturn:
-                // Open in default browser, cancel popup navigation
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-            case .alertSecondButtonReturn:
-                // Proceed in popup
-                decisionHandler(.allow)
-            default:
-                decisionHandler(.cancel)
-            }
-        }
-
-        if let window = webView.window {
-            alert.beginSheetModal(for: window, completionHandler: handleResponse)
-            return
-        }
-        handleResponse(alert.runModal())
+        BrowserInsecureHTTPAlertPresenter(
+            messageText: String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure"),
+            informativeText: String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux."),
+            openInDefaultBrowserButtonTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"),
+            proceedInCmuxButtonTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"),
+            cancelButtonTitle: String(localized: "common.cancel", defaultValue: "Cancel"),
+            alwaysAllowHostButtonTitle: String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
+        ).present(for: url, host: host, in: webView, decisionHandler: decisionHandler)
     }
 }
 
@@ -425,7 +387,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "popupUIDelegate",
@@ -437,12 +399,15 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return nil
         }
 
-        let isScriptedPopup = browserNavigationShouldCreatePopup(
+        let isScriptedPopup = BrowserUserGestureNavigation(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
-            popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
-            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView),
+            currentEventType: NSApp.currentEvent?.type,
+            currentEventButtonNumber: NSApp.currentEvent?.buttonNumber
+        ).createsPopup(
+            popupFeaturesWereSpecified: BrowserPopupWindowFeatures(windowFeatures: windowFeatures).wereSpecified
         )
 
         if isScriptedPopup {
@@ -460,6 +425,9 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
     // MARK: - JS Dialogs (parity with main browser)
 
+    /// Localized page-says title for a dialog. `String(localized:)` stays app-side
+    /// so it binds to the app bundle's `.xcstrings` (preserving translations); the
+    /// resolved title is passed into the package presenter per call.
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
             return String(localized: "browser.dialog.pageSaysAt", defaultValue: "The page at \(absolute) says:")
@@ -467,16 +435,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         return String(localized: "browser.dialog.pageSays", defaultValue: "This page says:")
     }
 
-    private func presentDialog(
-        _ alert: NSAlert,
-        for webView: WKWebView,
-        completion: @escaping (NSApplication.ModalResponse) -> Void
-    ) {
-        if let window = webView.window {
-            alert.beginSheetModal(for: window, completionHandler: completion)
-            return
-        }
-        completion(alert.runModal())
+    /// Presenter carrying the app-resolved OK / Cancel labels for the dialog family.
+    private var dialogPresenter: BrowserJavaScriptDialogPresenter {
+        BrowserJavaScriptDialogPresenter(
+            okButtonTitle: String(localized: "common.ok", defaultValue: "OK"),
+            cancelButtonTitle: String(localized: "common.cancel", defaultValue: "Cancel")
+        )
     }
 
     func webView(
@@ -485,12 +449,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping () -> Void
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = javaScriptDialogTitle(for: webView)
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        presentDialog(alert, for: webView) { _ in completionHandler() }
+        dialogPresenter.runAlert(
+            message: message,
+            dialogTitle: javaScriptDialogTitle(for: webView),
+            for: webView,
+            completionHandler: completionHandler
+        )
     }
 
     func webView(
@@ -499,15 +463,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping (Bool) -> Void
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = javaScriptDialogTitle(for: webView)
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        presentDialog(alert, for: webView) { response in
-            completionHandler(response == .alertFirstButtonReturn)
-        }
+        dialogPresenter.runConfirm(
+            message: message,
+            dialogTitle: javaScriptDialogTitle(for: webView),
+            for: webView,
+            completionHandler: completionHandler
+        )
     }
 
     func webView(
@@ -517,25 +478,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping (String?) -> Void
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = javaScriptDialogTitle(for: webView)
-        alert.informativeText = prompt
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
-        field.stringValue = defaultText ?? ""
-        alert.accessoryView = field
-
-        presentDialog(alert, for: webView) { response in
-            if response == .alertFirstButtonReturn {
-                completionHandler(field.stringValue)
-            } else {
-                completionHandler(nil)
-            }
-        }
+        dialogPresenter.runTextInput(
+            prompt: prompt,
+            defaultText: defaultText,
+            dialogTitle: javaScriptDialogTitle(for: webView),
+            for: webView,
+            completionHandler: completionHandler
+        )
     }
 
     func webView(
@@ -544,13 +493,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping ([URL]?) -> Void
     ) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.canChooseDirectories = parameters.allowsDirectories
-        panel.canChooseFiles = true
-        panel.begin { result in
-            completionHandler(result == .OK ? panel.urls : nil)
-        }
+        dialogPresenter.runOpenPanel(parameters: parameters, completionHandler: completionHandler)
     }
 
     func webView(
@@ -560,359 +503,39 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         type: WKMediaCaptureType,
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
-        decisionHandler(.prompt)
+        dialogPresenter.resolveMediaCapture(decisionHandler: decisionHandler)
     }
 }
 
-// MARK: - PopupNavigationDelegate
+// MARK: - BrowserPopupNavigationHosting
 
-@MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
-    weak var controller: BrowserPopupWindowController?
-    var downloadDelegate: WKDownloadDelegate?
-    private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
-    private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
-    private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
-    private let sslBypassState = BrowserSSLTrustBypassState()
-    private var lastAttemptedURL: URL?
-    private var lastAttemptedRequest: URLRequest?
-    private var lastAttemptedRequestWasDiscardedForReplay = false
-    private var acceptsSSLTrustBypassMessages = false
-    private var activeSSLTrustBypassErrorPageFailedURL: String?
-    private var activeSSLTrustBypassReplayRequest: URLRequest?
-    private(set) var activeErrorPageDisplayURL: URL?
-    private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
-
-    func cancelPendingAuthenticationPrompts() {
-        basicAuthPromptCoordinator.cancelAll()
-        clientCertificateAuthenticationController.cancelAll()
-    }
-
-    private func recordAttemptedRequest(_ request: URLRequest) {
-        sslBypassState.beginObservingServerTrustForNavigation()
-        acceptsSSLTrustBypassMessages = false
-        activeSSLTrustBypassErrorPageFailedURL = nil
-        activeSSLTrustBypassReplayRequest = nil
-        activeErrorPageDisplayURL = nil
-        activeSSLTrustBypassErrorPageRetryRequest = nil
-        lastAttemptedURL = request.url
-        if sslBypassState.canRetainRequestForReplay(request) {
-            lastAttemptedRequest = request
-            lastAttemptedRequestWasDiscardedForReplay = false
-        } else {
-            lastAttemptedRequest = nil
-            lastAttemptedRequestWasDiscardedForReplay = true
-        }
-    }
-
-    private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
-        if discardPendingBypasses {
-            sslBypassState.clearPendingBypasses()
-            acceptsSSLTrustBypassMessages = false
-            activeSSLTrustBypassErrorPageFailedURL = nil
-        }
-        activeSSLTrustBypassReplayRequest = nil
-        activeErrorPageDisplayURL = nil
-        activeSSLTrustBypassErrorPageRetryRequest = nil
-        lastAttemptedRequest = nil
-        lastAttemptedRequestWasDiscardedForReplay = false
-        lastAttemptedURL = nil
-    }
-
-    private func retryForFailedNavigation(failedURL: String) -> BrowserErrorPageRetry {
-        if let lastAttemptedRequest {
-            guard lastAttemptedRequest.url != nil,
-                  lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
-                return lastAttemptedRequest.browserCanReloadWithURLOnly ? .urlOnly : .disabled
+extension BrowserPopupWindowController: BrowserPopupNavigationHosting {
+    /// Hands an external-scheme URL off to macOS via the app's
+    /// `browserHandleExternalNavigation`, with `requestNavigation(_:in:)` as the
+    /// browser-fallback loader. Lives app-side because the external-navigation
+    /// presenter cannot move into the package; the package delegate forwards the
+    /// `.routeExternally` decision here.
+    func routeExternalPopupNavigation(_ url: URL, source: String, in webView: WKWebView) {
+        browserHandleExternalNavigation(
+            url,
+            source: source,
+            webView: webView,
+            loadFallbackRequest: { [weak self] request in
+                self?.requestNavigation(request, in: webView)
             }
-            return .request(lastAttemptedRequest)
-        }
-        if lastAttemptedRequestWasDiscardedForReplay {
-            return .disabled
-        }
-        return .urlOnly
+        )
     }
 
-    func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
-    ) {
-        if let url = navigationAction.request.url,
-           url.scheme == "cmux-browser-action",
-           url.host == "bypass-ssl" {
-            decisionHandler(.cancel)
-            handleSSLTrustBypassAction(url, in: webView)
-            return
-        }
-
-        guard let url = navigationAction.request.url else {
-            decisionHandler(.allow)
-            return
-        }
-
-        // External URL schemes → hand off to macOS
-        if browserShouldRouteExternalNavigation(url) {
-            clearAttemptedRequest(discardPendingBypasses: true)
-            browserHandleExternalNavigation(
-                url,
-                source: "popupNavDelegate",
-                webView: webView,
-                loadFallbackRequest: { [weak controller] request in
-                    controller?.requestNavigation(request, in: webView)
-                }
-            )
-            decisionHandler(.cancel)
-            return
-        }
-        let hasUserActivation = browserNavigationHasSimpleUserActivation()
-        subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
-
-        // Only guard main-frame navigations
-        guard navigationAction.targetFrame?.isMainFrame != false else {
-            if navigationAction.shouldPerformDownload {
-                let hasRecordedIntent = subframeDownloadIntents.consume(for: url)
-                guard hasUserActivation || hasRecordedIntent else { decisionHandler(.cancel); return }
-                decisionHandler(browserShouldBlockInsecureHTTPURL(url) ? .cancel : .download)
-                return
-            }
-            decisionHandler(.allow)
-            return
-        }
-
-        // Insecure HTTP → show same prompt as main browser
-        if browserShouldBlockInsecureHTTPURL(url) {
-            #if DEBUG
-            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
-            #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
-            return
-        }
-
-        if navigationAction.shouldPerformDownload {
-            clearAttemptedRequest(discardPendingBypasses: true)
-            decisionHandler(.download)
-            return
-        }
-
-        if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
-            #if DEBUG
-            cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
-            #endif
-        } else if let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" {
-            recordAttemptedRequest(navigationAction.request)
-        } else {
-            clearAttemptedRequest()
-        }
-        decisionHandler(.allow)
-    }
-
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
-    }
-
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
-            clearAttemptedRequest(discardPendingBypasses: true)
-        } else if activeErrorPageDisplayURL == nil {
-            clearAttemptedRequest()
-        }
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if activeErrorPageDisplayURL == nil {
-            clearAttemptedRequest()
-        }
-    }
-
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-            return
-        }
-        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            return
-        }
-
-        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
-            ?? lastAttemptedURL?.absoluteString
-            ?? ""
-        activeSSLTrustBypassReplayRequest = nil
-        activeSSLTrustBypassErrorPageRetryRequest = nil
-        activeErrorPageDisplayURL = URL(string: failedURL)
-        let canBypass = BrowserErrorPage(
-            failedURL: failedURL,
-            retry: retryForFailedNavigation(failedURL: failedURL),
-            error: nsError,
-            sslBypassState: sslBypassState
-        ).load(in: webView)
-        acceptsSSLTrustBypassMessages = canBypass
-        activeSSLTrustBypassErrorPageFailedURL = canBypass ? failedURL : nil
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationResponse: WKNavigationResponse,
-        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
-    ) {
-        if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
-           scheme != "http", scheme != "https" {
-            decisionHandler(.allow)
-            return
-        }
-
+    /// Whether `navigationResponse` should be downloaded, per the app's
+    /// `BrowserDownloadFilenameResolver`. The package delegate evaluates this
+    /// lazily (only after the main-frame and scheme guards pass), so the resolver
+    /// runs in the same order as the original in-delegate closure.
+    func popupNavigationResponseIsDownload(_ navigationResponse: WKNavigationResponse) -> Bool {
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
-        let filenameResolver = BrowserDownloadFilenameResolver()
-        let isUserActivatedPreviouslyRenderedSubframePDF = subframeDownloadIntents
-            .consumeUserActivatedPreviouslyRenderedSubframePDF(
-                responseURL: navigationResponse.response.url,
-                mimeType: navigationResponse.response.mimeType,
-                isForMainFrame: navigationResponse.isForMainFrame
-            )
-        let allowsSubframeDownload = navigationResponse.isForMainFrame
-            || subframeDownloadIntents.consume(for: navigationResponse.response.url)
-            || isUserActivatedPreviouslyRenderedSubframePDF
-        if filenameResolver.navigationResponseDownloadReason(
+        return BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: navigationResponse.response.mimeType,
             canShowMIMEType: navigationResponse.canShowMIMEType,
-            contentDisposition: contentDisposition,
-            isForMainFrame: navigationResponse.isForMainFrame,
-            allowsSubframeDownload: allowsSubframeDownload,
-            isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
-        ) != nil {
-            if !navigationResponse.isForMainFrame,
-               let url = navigationResponse.response.url,
-               browserShouldBlockInsecureHTTPURL(url) {
-                decisionHandler(.cancel)
-                return
-            }
-            decisionHandler(.download)
-            return
-        }
-
-        subframeDownloadIntents.markRenderedSubframePDFIfNeeded(
-            responseURL: navigationResponse.response.url,
-            mimeType: navigationResponse.response.mimeType,
-            isForMainFrame: navigationResponse.isForMainFrame
-        )
-        decisionHandler(.allow)
-    }
-
-    func canHandleSSLTrustBypassToken(_ token: String) -> Bool {
-        acceptsSSLTrustBypassMessages && sslBypassState.hasPendingBypassToken(token)
-    }
-
-    func handleSSLTrustBypassToken(_ token: String, in webView: WKWebView) {
-        guard acceptsSSLTrustBypassMessages,
-              let request = sslBypassState.consumePendingBypassToken(token) else {
-            return
-        }
-        acceptsSSLTrustBypassMessages = false
-        activeSSLTrustBypassErrorPageFailedURL = nil
-        recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
-    }
-
-    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
-        guard acceptsSSLTrustBypassMessages,
-              let request = sslBypassState.consumePendingBypassAction(actionURL) else {
-            return
-        }
-        acceptsSSLTrustBypassMessages = false
-        activeSSLTrustBypassErrorPageFailedURL = nil
-        recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
-    }
-
-    private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {
-        sslBypassState.clearPendingBypasses()
-        activeSSLTrustBypassReplayRequest = request
-        activeErrorPageDisplayURL = request.url
-        lastAttemptedURL = request.url
-        lastAttemptedRequest = request
-        lastAttemptedRequestWasDiscardedForReplay = false
-    }
-
-    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
-        let request = navigationAction.request
-        guard activeErrorPageDisplayURL != nil, navigationAction.navigationType == .other else {
-            return false
-        }
-
-        guard let url = request.url,
-              let scheme = url.scheme?.lowercased() else {
-            return true
-        }
-        guard scheme == "http" || scheme == "https" else {
-            return true
-        }
-        if let replayRequest = activeSSLTrustBypassReplayRequest,
-           let replayURL = replayRequest.url?.absoluteString {
-            return request.browserMatchesFailedNavigationURLString(replayURL)
-        }
-        guard acceptsSSLTrustBypassMessages,
-              let failedURL = activeSSLTrustBypassErrorPageFailedURL,
-              let lastAttemptedRequest else {
-            return false
-        }
-        let preservesErrorPageRetry = request.browserMatchesFailedNavigationURLString(failedURL)
-            && request.browserMatchesReplayShape(of: lastAttemptedRequest)
-        if preservesErrorPageRetry {
-            activeSSLTrustBypassErrorPageRetryRequest = request
-        }
-        return preservesErrorPageRetry
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust,
-           BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {
-            if sslBypassState.isBypassed(protectionSpace: challenge.protectionSpace, serverTrust: trust) {
-                completionHandler(.useCredential, URLCredential(trust: trust))
-                return
-            }
-            sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
-        }
-
-        if basicAuthPromptCoordinator.handle(
-            challenge: challenge,
-            startPrompt: { finishPrompt, registerCancelPrompt in
-                browserHandleHTTPBasicAuthenticationChallenge(
-                    in: webView, challenge: challenge,
-                    registerCancelPrompt: registerCancelPrompt, completionHandler: finishPrompt
-                )
-            },
-            completionHandler: completionHandler
-        ) { return }
-        if clientCertificateAuthenticationController.handle(
-            challenge: challenge, in: webView, completionHandler: completionHandler
-        ) { return }
-
-        completionHandler(.performDefaultHandling, nil)
-    }
-
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        controller?.handleWebContentProcessTermination(for: webView)
-    }
-    func recordSubframeDownloadIntent(_ url: URL) {
-        subframeDownloadIntents.record(url)
-    }
-
-    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        #if DEBUG
-        cmuxDebugLog("popup.download.didBecome source=navigationAction")
-        #endif
-        download.delegate = downloadDelegate
-    }
-
-    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        #if DEBUG
-        cmuxDebugLog("popup.download.didBecome source=navigationResponse")
-        #endif
-        download.delegate = downloadDelegate
+            contentDisposition: contentDisposition
+        ) != nil
     }
 }

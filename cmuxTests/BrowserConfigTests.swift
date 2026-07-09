@@ -20,22 +20,22 @@ import Bonsplit
 import UserNotifications
 import Network
 import CmuxBrowser
+import CmuxWorkspaces
 import CmuxSettings
 import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares a legacy duplicate of BrowserThemeMode; with
-// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
-// type for theme tests and the package type for browser search settings.
-private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+// BrowserThemeMode and BrowserSearchEngine are shared CmuxSettings value types;
+// pin them to the package so the names are unambiguous here.
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 private typealias StoredShortcut = cmux_DEV.StoredShortcut
 // Internal unique-named alias: cross-file helpers can't expose the private alias above.
 typealias BrowserConfigStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 private typealias StoredShortcut = cmux.StoredShortcut
 typealias BrowserConfigStoredShortcut = cmux.StoredShortcut
@@ -144,46 +144,40 @@ private final class BrowserMarkedTextProbeTextView: NSTextView {
 final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
     func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
         XCTAssertTrue(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: true,
-                    omnibarResponderActive: false,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: false,
-                    pointerInitiatedWebFocus: false,
-                    liveOmnibarFieldExists: true
-                )
-            )
+            BrowserAddressBarTrackingContext(
+                trackedPanelMatchesWebView: true,
+                omnibarResponderActive: false,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: false,
+                pointerInitiatedWebFocus: false,
+                liveOmnibarFieldExists: true
+            ).shouldPreserveAddressBarTrackingDuringWebViewFocus
         )
     }
 
     func testPointerWebViewFocusCanClearTrackedAddressBar() {
         XCTAssertFalse(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: true,
-                    omnibarResponderActive: false,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: true,
-                    pointerInitiatedWebFocus: true,
-                    liveOmnibarFieldExists: true
-                )
-            )
+            BrowserAddressBarTrackingContext(
+                trackedPanelMatchesWebView: true,
+                omnibarResponderActive: false,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: true,
+                pointerInitiatedWebFocus: true,
+                liveOmnibarFieldExists: true
+            ).shouldPreserveAddressBarTrackingDuringWebViewFocus
         )
     }
 
     func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
         XCTAssertFalse(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: false,
-                    omnibarResponderActive: true,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: true,
-                    pointerInitiatedWebFocus: false,
-                    liveOmnibarFieldExists: true
-                )
-            )
+            BrowserAddressBarTrackingContext(
+                trackedPanelMatchesWebView: false,
+                omnibarResponderActive: true,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: true,
+                pointerInitiatedWebFocus: false,
+                liveOmnibarFieldExists: true
+            ).shouldPreserveAddressBarTrackingDuringWebViewFocus
         )
     }
 }
@@ -1701,7 +1695,7 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         defaults.set("this.symbol.does.not.exist", forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
 
         XCTAssertEqual(
-            BrowserDevToolsButtonDebugSettings.iconOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings(defaults: defaults).iconOption(),
             BrowserDevToolsButtonDebugSettings.defaultIcon
         )
     }
@@ -1711,58 +1705,60 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         defaults.set("notAValidColor", forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
 
         XCTAssertEqual(
-            BrowserDevToolsButtonDebugSettings.colorOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings(defaults: defaults).colorOption(),
             BrowserDevToolsButtonDebugSettings.defaultColor
         )
     }
 
     func testBrowserToolbarAccessorySpacingDefaultsToTwoWhenUnset() {
         let defaults = makeIsolatedDefaults()
-        defaults.removeObject(forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.removeObject(forKey: BrowserToolbarAccessorySpacingStore.key)
 
         XCTAssertEqual(
-            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
-            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+            BrowserToolbarAccessorySpacingStore(defaults: defaults).current(),
+            BrowserToolbarAccessorySpacingStore.defaultSpacing
         )
     }
 
     func testBrowserToolbarAccessorySpacingFallsBackToDefaultForUnsupportedValue() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(99, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(99, forKey: BrowserToolbarAccessorySpacingStore.key)
 
         XCTAssertEqual(
-            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
-            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+            BrowserToolbarAccessorySpacingStore(defaults: defaults).current(),
+            BrowserToolbarAccessorySpacingStore.defaultSpacing
         )
     }
 
     func testBrowserProfilePopoverPaddingDefaultsWhenUnset() {
         let defaults = makeIsolatedDefaults()
-        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.removeObject(forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
+        defaults.removeObject(forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
 
+        let store = BrowserProfilePopoverPaddingStore(defaults: defaults)
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+            store.currentHorizontalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultHorizontalPadding
         )
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+            store.currentVerticalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultVerticalPadding
         )
     }
 
     func testBrowserProfilePopoverPaddingFallsBackForUnsupportedValues() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(-3, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.set(999, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.set(-3, forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
+        defaults.set(999, forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
 
+        let store = BrowserProfilePopoverPaddingStore(defaults: defaults)
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+            store.currentHorizontalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultHorizontalPadding
         )
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+            store.currentVerticalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultVerticalPadding
         )
     }
 
@@ -1771,7 +1767,7 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
         defaults.set(BrowserDevToolsIconColorOption.bonsplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
 
-        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let payload = BrowserDevToolsButtonDebugSettings(defaults: defaults).copyPayload()
         XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
         XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
     }
@@ -2054,107 +2050,107 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
 final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     func testLinkActivatedCmdClickOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [.command],
                 buttonNumber: 0
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedMiddleClickOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedPlainLeftClickStaysInCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 0
-            )
+            ).opensInNewTab
         )
     }
 
     func testOtherNavigationMiddleClickOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testOtherNavigationLeftClickStaysInCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 0
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedButtonFourWithoutMiddleIntentStaysInCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 4,
                 hasRecentMiddleClickIntent: false
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedButtonFourWithRecentMiddleIntentOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 4,
                 hasRecentMiddleClickIntent: true
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedUsesCurrentEventFallbackForMiddleClick() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 0,
                 currentEventType: .otherMouseUp,
                 currentEventButtonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testCurrentEventFallbackDoesNotAffectNonLinkNavigation() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .reload,
                 modifierFlags: [],
                 buttonNumber: 0,
                 currentEventType: .otherMouseUp,
                 currentEventButtonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testNonLinkNavigationNeverForcesNewTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .reload,
                 modifierFlags: [.command],
                 buttonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 }
@@ -2163,17 +2159,13 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
-            browserNavigationShouldFallbackNilTargetToNewTab(
-                navigationType: .other
-            )
+            WKNavigationType.other.fallsBackNilTargetToNewTab
         )
     }
 
     func testLinkActivatedNavigationFallsBackToNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldFallbackNilTargetToNewTab(
-                navigationType: .linkActivated
-            )
+            WKNavigationType.linkActivated.fallsBackNilTargetToNewTab
         )
     }
 }
@@ -2182,12 +2174,13 @@ final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
 final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
     func testKeyboardKeyDownSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
         XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyDown
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyDown,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2195,12 +2188,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testKeyboardSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
         XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2208,12 +2202,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testLeftClickSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
         XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .leftMouseUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .leftMouseUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2221,12 +2216,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCrossSiteKeyboardPopupStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth"),
                 openerURL: URL(string: "https://app.example.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2234,13 +2230,14 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testExplicitCommandNewTabGestureDoesNotRetargetIntoCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                modifierFlags: [.command],
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                modifierFlags: [.command],
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2248,12 +2245,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testMixedSchemePopupStaysPopupEvenWhenRegistrableDomainMatches() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://login.example.com/oauth"),
                 openerURL: URL(string: "http://example.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2261,12 +2259,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testGitHubPagesTenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.github.io/search"),
                 openerURL: URL(string: "https://bar.github.io/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2274,12 +2273,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testAppspotTenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://a.appspot.com/search"),
                 openerURL: URL(string: "https://b.appspot.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2287,12 +2287,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCloudFrontTenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.cloudfront.net/search"),
                 openerURL: URL(string: "https://bar.cloudfront.net/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2300,12 +2301,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testS3TenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://a.s3.amazonaws.com/search"),
                 openerURL: URL(string: "https://b.s3.amazonaws.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2313,12 +2315,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testSameHostKeyboardPopupStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://www.example.com/chooser"),
                 openerURL: URL(string: "https://www.example.com/settings"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2326,12 +2329,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCrossPortSameHostPopupStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://localhost:3000/search"),
                 openerURL: URL(string: "https://localhost:5000/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2339,12 +2343,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testDistinctBareCountryCodeSecondLevelHostsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.co.uk/search"),
                 openerURL: URL(string: "https://bar.co.uk/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2352,12 +2357,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCrossRegistrableDomainsUnderCommonMultiPartSuffixStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.example.co.uk/search"),
                 openerURL: URL(string: "https://bar.attacker.co.uk/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2365,12 +2371,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testPopupFeaturesKeepKeyboardRequestOnPopupPath() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://www.bilibili.com/search"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: true
             )
         )
@@ -2378,12 +2385,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testPOSTKeyboardRequestStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "POST",
                 requestURL: URL(string: "https://www.bilibili.com/search"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2393,7 +2401,7 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 400,
             requestedHeight: 300,
             requestedX: 150,
@@ -2408,7 +2416,7 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testExplicitCoordinatesClampToVisibleFrame() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 1400,
             requestedHeight: 1200,
             requestedX: 900,
@@ -2423,7 +2431,7 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testMissingCoordinatesCentersPopup() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 300,
             requestedHeight: 200,
             requestedX: nil,
@@ -2484,7 +2492,7 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
-    private final class ProvisionalNavigationRaceServer {
+    private final class ProvisionalNavigationRaceServer: @unchecked Sendable {
         enum ServerError: Error {
             case listenerDidNotBecomeReady
             case listenerPortUnavailable
@@ -2784,7 +2792,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             currentURLString: pageB.absoluteString
         )
 
-        _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
+        _ = panel.webView.browserLoadRequest(URLRequest(url: pageC))
         waitForBrowserPanel(panel, url: pageC)
 
         let snapshot = panel.sessionNavigationHistorySnapshot()
@@ -2974,7 +2982,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class WKTransferWrapperView: NSView {
     }
 
-    final class FakeInspector: NSObject {
+    final class FakeInspector: NSObject, @unchecked Sendable {
         enum HideBehavior {
             case unsupported
             case noEffect
@@ -3903,6 +3911,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -3946,6 +3955,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -4119,6 +4129,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -4211,6 +4222,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -5060,7 +5072,7 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
-        let suggestions = staleOmnibarRemoteSuggestionsForDisplay(
+        let suggestions = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "swift",
             previousRemoteQuery: "swi",
             previousRemoteSuggestions: ["swift actors"],
@@ -5300,26 +5312,26 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
 @Suite struct BrowserNavigableURLResolutionTests {
     @Test func resolvesFileSchemeAsNavigableURL() throws {
-        let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        let resolved = try #require(("file:///tmp/cmux-local-test.html").omnibarNavigableURL)
         #expect(resolved.isFileURL)
         #expect(resolved.path == "/tmp/cmux-local-test.html")
     }
 
     @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
+        let resolved = try #require(("api.localhost:3000").omnibarNavigableURL)
         #expect(resolved.scheme == "http")
         #expect(resolved.host == "api.localhost")
         #expect(resolved.port == 3000)
 
-        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        let nested = try #require(("deep.api.localhost/path").omnibarNavigableURL)
         #expect(nested.scheme == "http")
         #expect(nested.host == "deep.api.localhost")
         #expect(nested.path == "/path")
     }
 
     @Test func rejectsNonWebNonFileScheme() {
-        #expect(resolveBrowserNavigableURL("mailto:test@example.com") == nil)
-        #expect(resolveBrowserNavigableURL("ftp://example.com/file.html") == nil)
+        #expect(("mailto:test@example.com").omnibarNavigableURL == nil)
+        #expect(("ftp://example.com/file.html").omnibarNavigableURL == nil)
     }
 
     @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
@@ -5327,24 +5339,24 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         // the resolver must recover the bare host:port shape instead of
         // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
         // the omnibar inline completion displays history hosts this way).
-        let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
+        let resolved = try #require(("example.com:8443").omnibarNavigableURL)
         #expect(resolved.scheme == "https")
         #expect(resolved.host == "example.com")
         #expect(resolved.port == 8443)
 
-        let withPath = try #require(resolveBrowserNavigableURL("example.com:8443/admin?tab=1"))
+        let withPath = try #require(("example.com:8443/admin?tab=1").omnibarNavigableURL)
         #expect(withPath.scheme == "https")
         #expect(withPath.port == 8443)
         #expect(withPath.path == "/admin")
     }
 
     @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
-        #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
-        #expect(resolveBrowserNavigableURL("example.com:99999") == nil)
+        #expect(("example.com:notaport").omnibarNavigableURL == nil)
+        #expect(("example.com:99999").omnibarNavigableURL == nil)
     }
 
     @Test func rejectsHostOnlyFileURL() {
-        #expect(resolveBrowserNavigableURL("file://example.html") == nil)
+        #expect(("file://example.html").omnibarNavigableURL == nil)
     }
 }
 
@@ -5358,7 +5370,7 @@ final class BrowserReadAccessURLTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
 
-        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        let readAccessURL = try XCTUnwrap(file.browserReadAccessURL())
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
@@ -5368,19 +5380,19 @@ final class BrowserReadAccessURLTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        let readAccessURL = try XCTUnwrap(dir.browserReadAccessURL())
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
     func testUsesParentDirectoryWhenFileDoesNotExist() throws {
         let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
-        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        let readAccessURL = try XCTUnwrap(missing.browserReadAccessURL())
         XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
     }
 
     func testReturnsNilForHostOnlyFileURL() throws {
         let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
-        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
+        XCTAssertNil(hostOnly.browserReadAccessURL())
     }
 }
 
@@ -5392,10 +5404,10 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let zoom = try XCTUnwrap(URL(string: "zoommtg://zoom.us/join"))
         let mailto = try XCTUnwrap(URL(string: "mailto:test@example.com"))
 
-        XCTAssertTrue(browserShouldOpenURLExternally(discord))
-        XCTAssertTrue(browserShouldOpenURLExternally(slack))
-        XCTAssertTrue(browserShouldOpenURLExternally(zoom))
-        XCTAssertTrue(browserShouldOpenURLExternally(mailto))
+        XCTAssertTrue(BrowserExternalNavigationAction.shouldOpenURLExternally(discord))
+        XCTAssertTrue(BrowserExternalNavigationAction.shouldOpenURLExternally(slack))
+        XCTAssertTrue(BrowserExternalNavigationAction.shouldOpenURLExternally(zoom))
+        XCTAssertTrue(BrowserExternalNavigationAction.shouldOpenURLExternally(mailto))
     }
 
     func testEmbeddedBrowserSchemesStayInWebView() throws {
@@ -5409,42 +5421,42 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
 
-        XCTAssertFalse(browserShouldOpenURLExternally(https))
-        XCTAssertFalse(browserShouldOpenURLExternally(http))
-        XCTAssertFalse(browserShouldOpenURLExternally(about))
-        XCTAssertFalse(browserShouldOpenURLExternally(data))
-        XCTAssertFalse(browserShouldOpenURLExternally(file))
-        XCTAssertFalse(browserShouldOpenURLExternally(blob))
-        XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
-        XCTAssertFalse(browserShouldOpenURLExternally(javascript))
-        XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(https))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(http))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(about))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(data))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(file))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(blob))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(diffViewer))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(javascript))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldOpenURLExternally(webkitInternal))
     }
 
     func testCustomAppSchemesRouteExternallyFromSubframes() throws {
         let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
 
-        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
-        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
+        XCTAssertTrue(BrowserExternalNavigationAction.shouldRoute(vscode))
+        XCTAssertEqual(BrowserExternalNavigationAction.resolve(for: vscode), .promptToOpenApp(vscode))
     }
 
     func testEmbeddedSubframeNavigationStaysInWebView() throws {
         let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
 
-        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
+        XCTAssertFalse(BrowserExternalNavigationAction.shouldRoute(https))
     }
 
     func testIntentBrowserFallbackURLExtraction() throws {
         let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
         let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
 
-        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
-        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
+        XCTAssertEqual(BrowserExternalNavigationAction.intentFallbackURL(for: intent), fallback)
+        XCTAssertEqual(BrowserExternalNavigationAction.resolve(for: intent), .browserFallback(fallback))
     }
 
     func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {
         let intent = try XCTUnwrap(URL(string: "intent://open#Intent;S.browser_fallback_url=slack%3A%2F%2Fopen;end"))
 
-        XCTAssertNil(browserIntentFallbackURL(for: intent))
+        XCTAssertNil(BrowserExternalNavigationAction.intentFallbackURL(for: intent))
     }
 }
 
@@ -5545,28 +5557,28 @@ final class BrowserHostWhitelistTests: XCTestCase {
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
         XCTAssertTrue(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: false
-            )
+            ).shouldReacquireFocus
         )
     }
 
     func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
         XCTAssertFalse(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: true
-            )
+            ).shouldReacquireFocus
         )
     }
 
     func testDoesNotReacquireFocusWhenOmnibarNoLongerWantsFocus() {
         XCTAssertFalse(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
-            )
+            ).shouldReacquireFocus
         )
     }
 }

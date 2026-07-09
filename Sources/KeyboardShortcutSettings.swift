@@ -1,8 +1,11 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxShortcuts
+import CmuxWorkspaces
 import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
@@ -25,6 +28,19 @@ enum KeyboardShortcutSettings {
         orderedSettingsVisibleActions(
             from: publicShortcutActions.filter { $0 != .showHideAllWindows }
         )
+    }
+
+    /// Opens the cmux settings file (`~/.config/cmux/cmux.json`) in the user's
+    /// preferred editor, materializing the template through ``settingsFileStore``
+    /// first when the file is absent, then routing the resolved URL through
+    /// `PreferredEditorService` (honoring `preferredEditorCommand`, with an
+    /// OS-default fallback). Scoped onto this type because it owns the settings
+    /// file store and its on-disk location; replaces the retired top-level
+    /// `openCmuxSettingsFileInEditor()` free function.
+    @MainActor
+    static func openSettingsFileInEditor() {
+        let url = settingsFileStore.settingsFileURLForEditing()
+        PreferredEditorService(defaults: .standard).open(url)
     }
 
     private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
@@ -628,13 +644,14 @@ enum KeyboardShortcutSettings {
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+            let formatter = ShortcutDisplayFormatter()
             if shortcut.isUnbound {
-                return shortcut.displayString
+                return formatter.displayString(shortcut)
             }
             if usesNumberedDigitMatching {
-                return shortcut.numberedDisplayString
+                return formatter.displayString(shortcut, numbered: true)
             }
-            return shortcut.displayString
+            return formatter.displayString(shortcut)
         }
 
         func conflicts(
@@ -656,7 +673,7 @@ enum KeyboardShortcutSettings {
             ) else {
                 return false
             }
-            return KeyboardShortcutSettings.shortcutsConflict(
+            return ShortcutConflictResolver().shortcutsConflict(
                 proposedShortcut,
                 proposedUsesNumberedDigitMatching: proposedAction.usesNumberedDigitMatching,
                 configuredShortcut,
@@ -672,7 +689,7 @@ enum KeyboardShortcutSettings {
                 return .rejected(.reservedBySystem)
             }
 
-            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
+            if let conflictingAction = ShortcutConflictResolver().conflictingAction(
                 for: shortcut,
                 excluding: self
             ) {
@@ -734,11 +751,32 @@ enum KeyboardShortcutSettings {
             guard let digit = Int(digitSource.key), (1...9).contains(digit) else {
                 return .rejected(.numberedShortcutRequiresDigit)
             }
-            var normalized = shortcut
-            if shortcut.hasChord {
-                normalized.chordKey = "1"
+            let normalized: StoredShortcut
+            if shortcut.hasChord, let second = shortcut.second {
+                normalized = StoredShortcut(
+                    first: shortcut.first,
+                    second: CmuxSettings.ShortcutStroke(
+                        key: "1",
+                        command: second.command,
+                        shift: second.shift,
+                        option: second.option,
+                        control: second.control,
+                        keyCode: second.keyCode
+                    )
+                )
             } else {
-                normalized.key = "1"
+                let first = shortcut.first
+                normalized = StoredShortcut(
+                    first: CmuxSettings.ShortcutStroke(
+                        key: "1",
+                        command: first.command,
+                        shift: first.shift,
+                        option: first.option,
+                        control: first.control,
+                        keyCode: first.keyCode
+                    ),
+                    second: shortcut.second
+                )
             }
             return .accepted(normalized)
         }
@@ -845,127 +883,6 @@ enum KeyboardShortcutSettings {
         StoredShortcut(key: ".", command: true, shift: false, option: false, control: false),
     ]
 
-    private static func conflictingAction(
-        for proposedShortcut: StoredShortcut,
-        excluding currentAction: Action
-    ) -> Action? {
-        for action in Action.allCases where action != currentAction {
-            let configuredShortcut = shortcut(for: action)
-            if action.conflicts(
-                with: proposedShortcut,
-                proposedAction: currentAction,
-                configuredShortcut: configuredShortcut
-            ) {
-                return action
-            }
-        }
-        return nil
-    }
-
-    private enum ShortcutConflictMatchMode {
-        case exact
-        case numberedDigitFamily
-    }
-
-    private static func shortcutsConflict(
-        _ proposedShortcut: StoredShortcut,
-        proposedUsesNumberedDigitMatching: Bool,
-        _ configuredShortcut: StoredShortcut,
-        configuredUsesNumberedDigitMatching: Bool
-    ) -> Bool {
-        guard !proposedShortcut.isUnbound, !configuredShortcut.isUnbound else {
-            return false
-        }
-
-        switch (proposedShortcut.hasChord, configuredShortcut.hasChord) {
-        case (false, false):
-            return shortcutStrokeMatchersConflict(
-                proposedShortcut.firstStroke,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
-                configuredShortcut.firstStroke,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
-            )
-        case (true, true):
-            guard strokesConflict(proposedShortcut.firstStroke, configuredShortcut.firstStroke),
-                  let proposedSecond = proposedShortcut.secondStroke,
-                  let configuredSecond = configuredShortcut.secondStroke else {
-                return false
-            }
-            return shortcutStrokeMatchersConflict(
-                proposedSecond,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
-                configuredSecond,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
-            )
-        case (true, false):
-            return shortcutStrokeMatchersConflict(
-                proposedShortcut.firstStroke,
-                mode: .exact,
-                configuredShortcut.firstStroke,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
-            )
-        case (false, true):
-            return shortcutStrokeMatchersConflict(
-                proposedShortcut.firstStroke,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
-                configuredShortcut.firstStroke,
-                mode: .exact
-            )
-        }
-    }
-
-    private static func shortcutStrokeMatchersConflict(
-        _ lhs: ShortcutStroke,
-        mode lhsMode: ShortcutConflictMatchMode,
-        _ rhs: ShortcutStroke,
-        mode rhsMode: ShortcutConflictMatchMode
-    ) -> Bool {
-        switch (lhsMode, rhsMode) {
-        case (.exact, .exact):
-            return strokesConflict(lhs, rhs)
-        case (.numberedDigitFamily, .numberedDigitFamily):
-            return numberedDigitStrokeConflict(lhs, rhs)
-        case (.numberedDigitFamily, .exact):
-            return numberedDigitStrokeConflictsWithExactStroke(lhs, rhs)
-        case (.exact, .numberedDigitFamily):
-            return numberedDigitStrokeConflictsWithExactStroke(rhs, lhs)
-        }
-    }
-
-    private static func numberedDigitStrokeConflictsWithExactStroke(
-        _ numberedStroke: ShortcutStroke,
-        _ exactStroke: ShortcutStroke
-    ) -> Bool {
-        guard isNumberedDigitStroke(numberedStroke), isNumberedDigitStroke(exactStroke) else {
-            return false
-        }
-        return numberedStroke.command == exactStroke.command &&
-            numberedStroke.shift == exactStroke.shift &&
-            numberedStroke.option == exactStroke.option &&
-            numberedStroke.control == exactStroke.control
-    }
-
-    private static func numberedDigitStrokeConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
-        guard isNumberedDigitStroke(lhs), isNumberedDigitStroke(rhs) else { return false }
-        return lhs.command == rhs.command &&
-            lhs.shift == rhs.shift &&
-            lhs.option == rhs.option &&
-            lhs.control == rhs.control
-    }
-
-    private static func isNumberedDigitStroke(_ stroke: ShortcutStroke) -> Bool {
-        guard let digit = Int(stroke.key) else { return false }
-        return (1...9).contains(digit)
-    }
-
-    private static func strokesConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
-        lhs.key == rhs.key &&
-            lhs.command == rhs.command &&
-            lhs.shift == rhs.shift &&
-            lhs.option == rhs.option &&
-            lhs.control == rhs.control
-    }
-
     private static func storedShortcutForPersistence(
         _ shortcut: StoredShortcut,
         action: Action
@@ -1004,7 +921,7 @@ enum KeyboardShortcutSettings {
         for action: Action,
         defaults: UserDefaults = .standard
     ) {
-        guard let data = try? JSONEncoder().encode(shortcut) else { return }
+        guard let data = try? JSONEncoder().encode(FlatStoredShortcutPersistence(shortcut)) else { return }
         defaults.set(data, forKey: action.defaultsKey)
     }
 
@@ -1125,6 +1042,100 @@ enum KeyboardShortcutSettings {
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
+extension KeyboardShortcutSettings.Action {
+    /// Resolves a `set_shortcut` debug-command name token to the action it
+    /// targets, or `nil` when the token is unrecognized. The accepted aliases
+    /// match the v1 `set_shortcut` control command exactly; callers lowercase
+    /// the token before resolving.
+    init?(debugSetShortcutName name: String) {
+        switch name {
+        case "focus_left", "focusleft":
+            self = .focusLeft
+        case "focus_right", "focusright":
+            self = .focusRight
+        case "focus_up", "focusup":
+            self = .focusUp
+        case "focus_down", "focusdown":
+            self = .focusDown
+        case "split_right", "splitright":
+            self = .splitRight
+        case "split_down", "splitdown":
+            self = .splitDown
+        case "workspace_digits", "workspace_number", "select_workspace_by_number":
+            self = .selectWorkspaceByNumber
+        case "surface_digits", "surface_number", "select_surface_by_number":
+            self = .selectSurfaceByNumber
+        default:
+            return nil
+        }
+    }
+
+    /// Returns `true` when `event` matches this action's hardcoded default
+    /// shortcut while the action is no longer actually bound to that default
+    /// (it was unbound or rebound to a different combo). Lets a surface
+    /// suppress a stale default keystroke that AppKit might otherwise route to
+    /// the action's standard menu item. Byte-faithful predicate lifted from
+    /// `BrowserPopupWindowController` (was hardcoded to `.closeTab`).
+    func shouldSuppressStaleDefaultShortcut(matching event: NSEvent) -> Bool {
+        let currentShortcut = KeyboardShortcutSettings.shortcut(for: self)
+        guard currentShortcut.isUnbound || currentShortcut != defaultShortcut else {
+            return false
+        }
+        return defaultShortcut.matches(event: event)
+    }
+}
+
+extension KeyboardShortcutSettings {
+    /// Parses and applies the v1 `set_shortcut <name> <combo|clear>` debug
+    /// command, returning the legacy `OK`/`ERROR: …` response string verbatim.
+    /// Lifted from the `TerminalController` debug command bodies; references no
+    /// controller state, so it lives with the shortcut store it mutates.
+    static func applyDebugSetShortcutCommand(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return "ERROR: Usage: set_shortcut <name> <combo|clear>"
+        }
+
+        let name = parts[0].lowercased()
+        let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let action = Action(debugSetShortcutName: name) else {
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, workspace_digits, surface_digits"
+        }
+
+        if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {
+            clearShortcut(for: action)
+            return "OK"
+        }
+
+        if combo.lowercased() == "default" || combo.lowercased() == "reset" {
+            resetShortcut(for: action)
+            return "OK"
+        }
+
+        guard let parsed = ParsedShortcutCombo(combo: combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        let shortcut = StoredShortcut(
+            key: parsed.storedKey,
+            command: parsed.modifierFlags.contains(.command),
+            shift: parsed.modifierFlags.contains(.shift),
+            option: parsed.modifierFlags.contains(.option),
+            control: parsed.modifierFlags.contains(.control)
+        )
+        if action.usesNumberedDigitMatching,
+           action.normalizedRecordedShortcut(shortcut) == nil {
+            return "ERROR: Numbered shortcuts must use a digit key (1-9). Example: ctrl+1"
+        }
+
+        let storedShortcut = action.normalizedRecordedShortcut(shortcut) ?? shortcut
+        setShortcut(storedShortcut, for: action)
+        return "OK"
+    }
+}
+
 enum SystemWideHotkeySettings {
     static let enabledKey = "systemWideHotkey.enabled"
     static let legacyShortcutKey = "systemWideHotkey.shortcut"
@@ -1180,320 +1191,31 @@ enum SystemWideHotkeySettings {
 
         guard defaults.object(forKey: action.defaultsKey) == nil,
               let data = defaults.data(forKey: legacyShortcutKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+              let shortcut = try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut else {
             return
         }
 
         let migratedShortcut = normalizedRecordedShortcut(shortcut) ?? shortcut
-        guard let migratedData = try? JSONEncoder().encode(migratedShortcut) else { return }
+        guard let migratedData = try? JSONEncoder().encode(FlatStoredShortcutPersistence(migratedShortcut)) else { return }
         defaults.set(migratedData, forKey: action.defaultsKey)
     }
 
     private static func storedShortcut(defaults: UserDefaults = .standard) -> StoredShortcut? {
         guard let data = defaults.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+              let shortcut = try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut else {
             return KeyboardShortcutSettings.settingsFileStore.override(for: action)
         }
         return shortcut
     }
 }
 
-struct CarbonHotKeyRegistration: Equatable {
-    let keyCode: UInt32
-    let modifiers: UInt32
-}
-
-final class SystemWideHotkeyController {
-    static let shared = SystemWideHotkeyController()
-    private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
-    private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
-        .showHideAllWindows: 1,
-        .globalSearch: 2,
-    ]
-    private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
-        .showHideAllWindows,
-        .globalSearch,
-    ]
-
-    private var hotKeyRefs: [KeyboardShortcutSettings.Action: EventHotKeyRef] = [:]
-    private var hotKeyHandler: EventHandlerRef?
-    private var defaultsObserver: NSObjectProtocol?
-    private var shortcutObserver: NSObjectProtocol?
-    private var recorderObserver: NSObjectProtocol?
-    private var packageRecorderObserver: NSObjectProtocol?
-    private var inputSourceObserver: NSObjectProtocol?
-    private var appHideObserver: NSObjectProtocol?
-    private var registeredShortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
-    private var registeredHotKeyRegistrations: [KeyboardShortcutSettings.Action: CarbonHotKeyRegistration] = [:]
-
-    private init() {}
-
-    func start() {
-        guard defaultsObserver == nil else { return }
-
-        installHotKeyHandlerIfNeeded()
-
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshRegistration()
-        }
-        shortcutObserver = NotificationCenter.default.addObserver(
-            forName: KeyboardShortcutSettings.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshRegistration()
-        }
-        recorderObserver = NotificationCenter.default.addObserver(
-            forName: KeyboardShortcutRecorderActivity.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshRegistration()
-        }
-        // The live Settings UI uses the CmuxSettingsUI package recorder, which
-        // signals arm/disarm through its own notification (it cannot post the
-        // app-target `KeyboardShortcutRecorderActivity` one). Without this,
-        // recording a system-wide hotkey in Settings would not unregister the
-        // existing Carbon hotkey, so the keystroke would fire the global action
-        // instead of being captured (issue #5189).
-        packageRecorderObserver = NotificationCenter.default.addObserver(
-            forName: RecorderHostButton.activeRecordingDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshRegistration()
-        }
-        inputSourceObserver = DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshRegistration()
-        }
-        appHideObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.willHideNotification,
-            object: NSApp,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.captureHiddenWindowRestoreTargets()
-            }
-        }
-
-        refreshRegistration()
-    }
-
-    private func refreshRegistration() {
-        // Stand down while either recorder is armed (legacy app-target recorder
-        // or the CmuxSettingsUI package recorder) so a system-wide hotkey being
-        // rebound in Settings is captured rather than fired.
-        let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
-            || RecorderHostButton.isActivelyRecording
-
-        guard !isShortcutRecordingActive else {
-            unregisterHotKeys()
-            return
-        }
-
-        for action in Self.systemWideActions {
-            refreshRegistration(for: action)
-        }
-    }
-
-    private func refreshRegistration(for action: KeyboardShortcutSettings.Action) {
-        let configuredShortcut = shortcut(for: action)
-        guard isSystemWideActionEnabled(action, shortcut: configuredShortcut) else {
-            unregisterHotKey(for: action)
-            return
-        }
-
-        guard let normalizedShortcut = action.normalizedRecordedShortcut(configuredShortcut),
-              let registration = normalizedShortcut.carbonHotKeyRegistration else {
-            unregisterHotKey(for: action)
-            return
-        }
-
-        if registeredShortcuts[action] == normalizedShortcut,
-           registeredHotKeyRegistrations[action] == registration,
-           hotKeyRefs[action] != nil {
-            return
-        }
-
-        unregisterHotKey(for: action)
-        installHotKeyHandlerIfNeeded()
-
-        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyID(for: action))
-        var hotKeyRef: EventHotKeyRef?
-        let status = RegisterEventHotKey(
-            registration.keyCode,
-            registration.modifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
-
-        guard status == noErr, let hotKeyRef else {
-#if DEBUG
-            cmuxDebugLog(
-                "globalHotkey.register failed action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
-                "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers) status=\(status)"
-            )
-#endif
-            return
-        }
-
-        hotKeyRefs[action] = hotKeyRef
-        registeredShortcuts[action] = normalizedShortcut
-        registeredHotKeyRegistrations[action] = registration
-
-#if DEBUG
-        cmuxDebugLog(
-            "globalHotkey.register success action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
-            "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers)"
-        )
-#endif
-    }
-
-    private func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.shortcut()
-        default:
-            return KeyboardShortcutSettings.shortcut(for: action)
-        }
-    }
-
-    private func isSystemWideActionEnabled(
-        _ action: KeyboardShortcutSettings.Action,
-        shortcut: StoredShortcut
-    ) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.isEnabled()
-        case .globalSearch:
-            return true
-        default:
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            return false
-        }
-    }
-
-    private func installHotKeyHandlerIfNeeded() {
-        guard hotKeyHandler == nil else { return }
-
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
-        let userInfo = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-
-        let status = InstallEventHandler(
-            GetApplicationEventTarget(),
-            Self.hotKeyEventHandler,
-            1,
-            &eventType,
-            userInfo,
-            &hotKeyHandler
-        )
-
-#if DEBUG
-        if status != noErr {
-            cmuxDebugLog("globalHotkey.handlerInstall failed status=\(status)")
-        }
-#endif
-    }
-
-    private func unregisterHotKey(for action: KeyboardShortcutSettings.Action) {
-        if let hotKeyRef = hotKeyRefs.removeValue(forKey: action) {
-            UnregisterEventHotKey(hotKeyRef)
-        }
-        registeredShortcuts[action] = nil
-        registeredHotKeyRegistrations[action] = nil
-    }
-
-    private func unregisterHotKeys() {
-        for action in Self.systemWideActions {
-            unregisterHotKey(for: action)
-        }
-    }
-
-    private static let hotKeyEventHandler: EventHandlerUPP = { _, event, userInfo in
-        guard let userInfo else { return OSStatus(eventNotHandledErr) }
-        let controller = Unmanaged<SystemWideHotkeyController>
-            .fromOpaque(userInfo)
-            .takeUnretainedValue()
-        return controller.handleHotKeyEvent(event)
-    }
-
-    private func handleHotKeyEvent(_ event: EventRef?) -> OSStatus {
-        guard let event else { return OSStatus(eventNotHandledErr) }
-
-        var hotKeyID = EventHotKeyID()
-        let status = GetEventParameter(
-            event,
-            EventParamName(kEventParamDirectObject),
-            EventParamType(typeEventHotKeyID),
-            nil,
-            MemoryLayout<EventHotKeyID>.size,
-            nil,
-            &hotKeyID
-        )
-
-        guard status == noErr,
-              hotKeyID.signature == Self.hotKeySignature,
-              let action = Self.action(forHotKeyID: hotKeyID.id) else {
-            return OSStatus(eventNotHandledErr)
-        }
-
-#if DEBUG
-        let shortcut = registeredShortcuts[action]?.displayString ?? "unknown"
-        cmuxDebugLog("globalHotkey.fire action=\(action.rawValue) shortcut=\(shortcut) active=\(NSApp.isActive ? 1 : 0)")
-#endif
-
-        Task { @MainActor [weak self] in
-            self?.perform(action)
-        }
-        return OSStatus(noErr)
-    }
-
-    @MainActor
-    private func perform(_ action: KeyboardShortcutSettings.Action) {
-        switch action {
-        case .showHideAllWindows:
-            AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
-        case .globalSearch:
-            AppDelegate.shared?.toggleGlobalSearchPaletteFromGlobalHotkey()
-        default:
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            break
-        }
-    }
-
-    @MainActor
-    private func captureHiddenWindowRestoreTargets() {
-        AppDelegate.shared?.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
-    }
-
-    private static func hotKeyID(for action: KeyboardShortcutSettings.Action) -> UInt32 {
-        guard let hotKeyID = hotKeyIDs[action] else {
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            return 0
-        }
-        return hotKeyID
-    }
-
-    private static func action(forHotKeyID hotKeyID: UInt32) -> KeyboardShortcutSettings.Action? {
-        systemWideActions.first { Self.hotKeyID(for: $0) == hotKeyID }
-    }
-}
-
-struct ShortcutStroke: Equatable, Hashable {
+/// App-target behavior for the package stroke value (`CmuxSettings.ShortcutStroke`).
+///
+/// The stored fields (`key`, modifiers, `keyCode`) and the base init live on the
+/// package type; everything AppKit/Carbon/SwiftUI-coupled (NSEvent matching, key
+/// equivalents, Carbon hot-key registration, settings-file parsing) lives here in
+/// the app target where those frameworks are available.
+extension CmuxSettings.ShortcutStroke {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
         case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
@@ -1503,39 +1225,6 @@ struct ShortcutStroke: Equatable, Hashable {
     private struct RecordableKey {
         let key: String
         let keyCode: UInt16?
-    }
-
-    var key: String
-    var command: Bool
-    var shift: Bool
-    var option: Bool
-    var control: Bool
-    var keyCode: UInt16?
-
-    init(
-        key: String,
-        command: Bool,
-        shift: Bool,
-        option: Bool,
-        control: Bool,
-        keyCode: UInt16? = nil
-    ) {
-        self.key = key
-        self.command = command
-        self.shift = shift
-        self.option = option
-        self.control = control
-        self.keyCode = keyCode
-    }
-
-    var displayString: String {
-        ShortcutDisplayFormatter().strokeDisplayString(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control
-        )
     }
 
     var modifierDisplayString: String {
@@ -1737,7 +1426,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
         let shortcutKey = key.lowercased()
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
-            guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
+            guard let expectedKeyCode = self.keyCode ?? PhysicalShortcutKey(storedKey: shortcutKey)?.keyCode else {
                 return false
             }
             return keyCode == expectedKeyCode
@@ -1799,11 +1488,40 @@ struct ShortcutStroke: Equatable, Hashable {
                         || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback,
-           let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
+           let expectedKeyCode = PhysicalShortcutKey(storedKey: shortcutKey)?.keyCode {
             return keyCode == expectedKeyCode
         }
 
         return false
+    }
+
+    /// Matches an arrow-key shortcut using its key code.
+    /// Arrow keys include `.numericPad` and `.function` in their modifier flags,
+    /// so strip those before comparing.
+    func matchesArrowShortcut(event: NSEvent, keyCode: UInt16) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
+        return event.keyCode == keyCode && flags == modifierFlags
+    }
+
+    /// Matches the Tab key (key code 48) carrying exactly this stroke's modifiers.
+    func matchesTabShortcut(event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == 48 && flags == modifierFlags
+    }
+
+    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
+    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
+    func matchesDirectionalShortcut(
+        event: NSEvent,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> Bool {
+        if key == arrowGlyph {
+            return matchesArrowShortcut(event: event, keyCode: arrowKeyCode)
+        }
+        return matches(event: event, layoutCharacterProvider: layoutCharacterProvider)
     }
 
     private var isBareShortcutAllowedWithoutModifier: Bool {
@@ -1824,52 +1542,12 @@ struct ShortcutStroke: Equatable, Hashable {
             return recordableKey
         }
 
-        guard let storedKey = storedKey(
-            keyCode: event.keyCode,
+        guard let storedKey = PhysicalShortcutKey(keyCode: event.keyCode).storedKey(
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
         ) else {
             return nil
         }
         return RecordableKey(key: storedKey, keyCode: event.keyCode)
-    }
-
-    private static func storedKey(
-        keyCode: UInt16,
-        charactersIgnoringModifiers: String?
-    ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 49: return "space" // kVK_Space
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
-        }
-
-        guard let chars = charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first else {
-            return nil
-        }
-
-        if char.isLetter || char.isNumber {
-            return String(char)
-        }
-        return nil
     }
 
     private static func recordableKey(
@@ -1927,52 +1605,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
     }
 
-    static func normalizedShortcutEventCharacter(
-        _ eventCharacter: String,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> String {
-        let lowered = eventCharacter.lowercased()
-
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
-        // layouts these symbols only exist as Shift variants, so the Shift gate
-        // below historically sufficed. On European layouts (German QWERTZ, French
-        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
-        // bare "+"/"_" can only originate from such a key. Mapping them to their
-        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
-        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
-        switch lowered {
-        case "+": return "="
-        case "_": return "-"
-        default: break
-        }
-
-        guard applyShiftSymbolNormalization else { return lowered }
-
-        switch lowered {
-        case "{": return "["
-        case "}": return "]"
-        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
-        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
-        case "?": return "/"
-        case ":": return ";"
-        case "\"": return "'"
-        case "|": return "\\"
-        case "~": return "`"
-        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
-        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
-        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
-        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
-        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
-        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
-        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
-        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
-        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
-        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
-        default: return lowered
-        }
-    }
-
     private static func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
         guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
             return false
@@ -1987,100 +1619,11 @@ struct ShortcutStroke: Equatable, Hashable {
         eventKeyCode: UInt16
     ) -> Bool {
         guard let eventCharacter, !eventCharacter.isEmpty else { return false }
-        return normalizedShortcutEventCharacter(
+        return PhysicalShortcutKey(keyCode: eventKeyCode).normalizedEventCharacter(
             eventCharacter,
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
-            eventKeyCode: eventKeyCode
+            normalizePlusMinusRegardlessOfShift: true
         ) == shortcutKey
-    }
-
-    private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        switch key {
-        case "f1": return 122
-        case "f2": return 120
-        case "f3": return 99
-        case "f4": return 118
-        case "f5": return 96
-        case "f6": return 97
-        case "f7": return 98
-        case "f8": return 100
-        case "f9": return 101
-        case "f10": return 109
-        case "f11": return 103
-        case "f12": return 111
-        case "f13": return 105
-        case "f14": return 107
-        case "f15": return 113
-        case "f16": return 106
-        case "f17": return 64
-        case "f18": return 79
-        case "f19": return 80
-        case "f20": return 90
-        case "media.volumeUp": return 0
-        case "media.volumeDown": return 1
-        case "media.brightnessUp": return 2
-        case "media.brightnessDown": return 3
-        case "media.mute": return 7
-        case "media.playPause": return 16
-        case "media.next": return 17
-        case "media.previous": return 18
-        case "space": return 49
-        case "a": return 0
-        case "s": return 1
-        case "d": return 2
-        case "f": return 3
-        case "h": return 4
-        case "g": return 5
-        case "z": return 6
-        case "x": return 7
-        case "c": return 8
-        case "v": return 9
-        case "b": return 11
-        case "q": return 12
-        case "w": return 13
-        case "e": return 14
-        case "r": return 15
-        case "y": return 16
-        case "t": return 17
-        case "1": return 18
-        case "2": return 19
-        case "3": return 20
-        case "4": return 21
-        case "6": return 22
-        case "5": return 23
-        case "=": return 24
-        case "9": return 25
-        case "7": return 26
-        case "-": return 27
-        case "8": return 28
-        case "0": return 29
-        case "]": return 30
-        case "o": return 31
-        case "u": return 32
-        case "[": return 33
-        case "i": return 34
-        case "p": return 35
-        case "l": return 37
-        case "j": return 38
-        case "'": return 39
-        case "k": return 40
-        case ";": return 41
-        case "\\": return 42
-        case ",": return 43
-        case "/": return 44
-        case "n": return 45
-        case "m": return 46
-        case ".": return 47
-        case "\t": return 48
-        case "`": return 50
-        case "\r": return 36
-        case "←": return 123
-        case "→": return 124
-        case "↓": return 125
-        case "↑": return 126
-        default:
-            return nil
-        }
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
@@ -2144,7 +1687,7 @@ struct ShortcutStroke: Equatable, Hashable {
             }
         }
 
-        return Self.keyCodeForShortcutKey(shortcutKey)
+        return PhysicalShortcutKey(storedKey: shortcutKey)?.keyCode
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
@@ -2160,25 +1703,18 @@ struct ShortcutStroke: Equatable, Hashable {
     ]
 }
 
-/// A keyboard shortcut that can be stored in UserDefaults
-struct StoredShortcut: Codable, Equatable, Hashable {
-    var key: String
-    var command: Bool
-    var shift: Bool
-    var option: Bool
-    var control: Bool
-    var keyCode: UInt16?
-    var chordKey: String?
-    var chordCommand: Bool
-    var chordShift: Bool
-    var chordOption: Bool
-    var chordControl: Bool
-    var chordKeyCode: UInt16?
-
-    static var unbound: StoredShortcut {
-        StoredShortcut(key: "", command: false, shift: false, option: false, control: false)
-    }
-
+/// App-target behavior for the package shortcut value (`CmuxSettings.StoredShortcut`).
+///
+/// The stored shape (`first`/`second` strokes), `isUnbound`, `hasChord`,
+/// `unbound`, `titlebarHintShouldShow`, and Codable all live on the package type.
+/// This extension adds the app-target conveniences: a flat keyword init used by
+/// the built-in defaults table, AppKit/Carbon matching, key equivalents, and
+/// settings-file parsing. `firstStroke`/`secondStroke` remain as thin aliases for
+/// `first`/`second` to keep the many call sites stable.
+extension CmuxSettings.StoredShortcut {
+    /// Flat keyword initializer kept for the built-in shortcut defaults table and
+    /// the recorder helpers. Mirrors the historical app-type init, including the
+    /// empty-`chordKey`-collapses-to-`nil` normalization.
     init(
         key: String,
         command: Bool,
@@ -2193,140 +1729,75 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         chordControl: Bool = false,
         chordKeyCode: UInt16? = nil
     ) {
-        self.key = key
-        self.command = command
-        self.shift = shift
-        self.option = option
-        self.control = control
-        self.keyCode = keyCode
-        self.chordKey = chordKey?.isEmpty == true ? nil : chordKey
-        self.chordCommand = chordCommand
-        self.chordShift = chordShift
-        self.chordOption = chordOption
-        self.chordControl = chordControl
-        self.chordKeyCode = chordKeyCode
-    }
-
-    init(first: ShortcutStroke, second: ShortcutStroke? = nil) {
+        let normalizedChordKey = (chordKey?.isEmpty == true) ? nil : chordKey
         self.init(
-            key: first.key,
-            command: first.command,
-            shift: first.shift,
-            option: first.option,
-            control: first.control,
-            keyCode: first.keyCode,
-            chordKey: second?.key,
-            chordCommand: second?.command ?? false,
-            chordShift: second?.shift ?? false,
-            chordOption: second?.option ?? false,
-            chordControl: second?.control ?? false,
-            chordKeyCode: second?.keyCode
-        )
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case key
-        case command
-        case shift
-        case option
-        case control
-        case keyCode
-        case chordKey
-        case chordCommand
-        case chordShift
-        case chordOption
-        case chordControl
-        case chordKeyCode
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            key: try container.decode(String.self, forKey: .key),
-            command: try container.decode(Bool.self, forKey: .command),
-            shift: try container.decode(Bool.self, forKey: .shift),
-            option: try container.decode(Bool.self, forKey: .option),
-            control: try container.decode(Bool.self, forKey: .control),
-            keyCode: try container.decodeIfPresent(UInt16.self, forKey: .keyCode),
-            chordKey: try container.decodeIfPresent(String.self, forKey: .chordKey),
-            chordCommand: try container.decodeIfPresent(Bool.self, forKey: .chordCommand) ?? false,
-            chordShift: try container.decodeIfPresent(Bool.self, forKey: .chordShift) ?? false,
-            chordOption: try container.decodeIfPresent(Bool.self, forKey: .chordOption) ?? false,
-            chordControl: try container.decodeIfPresent(Bool.self, forKey: .chordControl) ?? false,
-            chordKeyCode: try container.decodeIfPresent(UInt16.self, forKey: .chordKeyCode)
-        )
-    }
-
-    var isUnbound: Bool {
-        key.isEmpty
-    }
-
-    var firstStroke: ShortcutStroke {
-        ShortcutStroke(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control,
-            keyCode: keyCode
-        )
-    }
-
-    var secondStroke: ShortcutStroke? {
-        guard let chordKey else { return nil }
-        return ShortcutStroke(
-            key: chordKey,
-            command: chordCommand,
-            shift: chordShift,
-            option: chordOption,
-            control: chordControl,
-            keyCode: chordKeyCode
-        )
-    }
-
-    var hasChord: Bool {
-        secondStroke != nil
-    }
-
-    var displayString: String {
-        if isUnbound {
-            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
-        }
-        if let secondStroke {
-            return "\(firstStroke.displayString) \(secondStroke.displayString)"
-        }
-        return firstStroke.displayString
-    }
-
-    var numberedDisplayString: String {
-        if isUnbound {
-            return displayString
-        }
-        if let secondStroke {
-            if ShortcutDisplayFormatter().isNumberedDigitKey(secondStroke.key) {
-                return numberedDigitHintPrefix + ShortcutDisplayFormatter().numberedDigitRangeHint
+            first: CmuxSettings.ShortcutStroke(
+                key: key,
+                command: command,
+                shift: shift,
+                option: option,
+                control: control,
+                keyCode: keyCode
+            ),
+            second: normalizedChordKey.map { chordKey in
+                CmuxSettings.ShortcutStroke(
+                    key: chordKey,
+                    command: chordCommand,
+                    shift: chordShift,
+                    option: chordOption,
+                    control: chordControl,
+                    keyCode: chordKeyCode
+                )
             }
-            return displayString
-        }
-        if ShortcutDisplayFormatter().isNumberedDigitKey(firstStroke.key) {
-            return firstStroke.modifierDisplayString + ShortcutDisplayFormatter().numberedDigitRangeHint
-        }
-        return displayString
+        )
     }
 
+    /// Alias for ``CmuxSettings/StoredShortcut/first``; kept to preserve the many
+    /// app-target call sites that read `.firstStroke`.
+    var firstStroke: CmuxSettings.ShortcutStroke { first }
+
+    /// Alias for ``CmuxSettings/StoredShortcut/second``; kept to preserve the
+    /// app-target call sites that read `.secondStroke`.
+    var secondStroke: CmuxSettings.ShortcutStroke? { second }
+
+    // MARK: - Flat field projections
+    //
+    // Read-only projections of the primary stroke's fields, exposed directly on
+    // the shortcut to match the historical flat app type. Storage stays unified
+    // on `first`/`second`; these never duplicate state. Construction goes through
+    // the keyword init above or `init(first:second:)`.
+    var key: String { first.key }
+    var command: Bool { first.command }
+    var shift: Bool { first.shift }
+    var option: Bool { first.option }
+    var control: Bool { first.control }
+    var keyCode: UInt16? { first.keyCode }
+
+    /// Projection of the optional second (chord) stroke's key. `nil` when the
+    /// binding is single-stroke.
+    var chordKey: String? { second?.key }
+    var chordCommand: Bool { second?.command ?? false }
+    var chordShift: Bool { second?.shift ?? false }
+    var chordOption: Bool { second?.option ?? false }
+    var chordControl: Bool { second?.control ?? false }
+    var chordKeyCode: UInt16? { second?.keyCode }
+
+    /// The digit-range hint prefix for numbered workspace/surface families,
+    /// formatted through the shared ``ShortcutDisplayFormatter``.
     var numberedDigitHintPrefix: String {
-        if let secondStroke {
-            return "\(firstStroke.displayString) \(secondStroke.modifierDisplayString)"
+        let formatter = ShortcutDisplayFormatter()
+        if let second {
+            return "\(formatter.displayString(first)) \(formatter.modifierDisplayString(second))"
         }
-        return firstStroke.modifierDisplayString
+        return formatter.modifierDisplayString(first)
     }
 
     var modifierDisplayString: String {
-        firstStroke.modifierDisplayString
+        ShortcutDisplayFormatter().modifierDisplayString(first)
     }
 
     var keyDisplayString: String {
-        firstStroke.keyDisplayString
+        ShortcutDisplayFormatter().keyDisplayString(first.key)
     }
 
     var modifierFlags: NSEvent.ModifierFlags {
@@ -2380,13 +1851,37 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         )
     }
 
+    /// Matches the Tab key carrying this binding's first-stroke modifiers.
+    /// Chorded bindings never match a single Tab keystroke.
+    func matchesTabShortcut(event: NSEvent) -> Bool {
+        guard !hasChord else { return false }
+        return firstStroke.matchesTabShortcut(event: event)
+    }
+
+    /// Matches this binding's first stroke as a directional shortcut (arrow key or
+    /// customized letter/number key). Chorded bindings never match here.
+    func matchesDirectionalShortcut(
+        event: NSEvent,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> Bool {
+        guard !hasChord else { return false }
+        return firstStroke.matchesDirectionalShortcut(
+            event: event,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode,
+            layoutCharacterProvider: layoutCharacterProvider
+        )
+    }
+
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
         guard !isUnbound, !hasChord else { return nil }
         return firstStroke.carbonHotKeyRegistration
     }
 }
 
-extension ShortcutStroke {
+extension CmuxSettings.ShortcutStroke {
     static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
         guard !rawValue.isEmpty else { return nil }
 
@@ -2424,6 +1919,37 @@ extension ShortcutStroke {
             shift: shift,
             option: option,
             control: control
+        )
+    }
+
+    /// Decodes a single settings-file stroke object
+    /// (`{ "key": "...", "command": ..., "keyCode": ... }`) into a
+    /// ``ShortcutStroke``. Untyped JSON values are narrowed with
+    /// `CmuxFoundation.JSONScalar`. An out-of-range `keyCode` is treated as a
+    /// corrupt binding (returns `nil`) rather than silently wrapped into a valid
+    /// `UInt16`, which would re-target a different key.
+    static func parseSettingsFileStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
+        if rawValue is NSNull { return nil }
+        guard let dict = rawValue as? [String: Any],
+              let key = JSONScalar(dict["key"]).string else {
+            return nil
+        }
+        // An out-of-range keyCode is a corrupt binding, not a key to silently
+        // wrap into a valid UInt16 (which would re-target a different key).
+        let keyCode: UInt16?
+        if let rawKeyCode = JSONScalar(dict["keyCode"]).int {
+            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
+            keyCode = value
+        } else {
+            keyCode = nil
+        }
+        return ShortcutStroke(
+            key: key,
+            command: JSONScalar(dict["command"]).bool ?? false,
+            shift: JSONScalar(dict["shift"]).bool ?? false,
+            option: JSONScalar(dict["option"]).bool ?? false,
+            control: JSONScalar(dict["control"]).bool ?? false,
+            keyCode: keyCode
         )
     }
 
@@ -2518,7 +2044,89 @@ extension ShortcutStroke {
     }
 }
 
-extension StoredShortcut {
+extension CmuxSettings.StoredShortcut {
+    /// Decodes a raw settings-file binding value (string, string array, object
+    /// form, or `NSNull`) into a ``StoredShortcut`` for `action`, then applies
+    /// the action's settings-file normalization.
+    ///
+    /// Co-located with the string ``parseConfig(_:allowBareFirstStroke:)`` so
+    /// every settings-file shortcut decoder lives on the owning type. The
+    /// untyped JSON inputs are narrowed with `CmuxFoundation.JSONScalar`, the
+    /// same coercion the settings-file parser uses elsewhere.
+    static func parseSettingsFileBinding(
+        _ rawValue: Any,
+        action: KeyboardShortcutSettings.Action
+    ) -> StoredShortcut? {
+        let shortcut: StoredShortcut? = {
+            if rawValue is NSNull { return .unbound }
+            if let stroke = JSONScalar(rawValue).string {
+                return StoredShortcut.parseConfig(stroke, allowBareFirstStroke: action.allowsBareFirstStroke)
+            }
+            if let strokes = JSONScalar(rawValue).stringArray {
+                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(
+                    strokes: strokes,
+                    allowBareFirstStroke: action.allowsBareFirstStroke
+                )
+            }
+            // Object form written by the CmuxSettings package recorder (the
+            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
+            // The package serializes StoredShortcut as nested stroke objects, so
+            // a rebinding made in Settings only reaches this store in that shape.
+            // Decode it here so every action resolved through this store — most
+            // visibly the system-wide Carbon hotkeys (globalSearch,
+            // showHideAllWindows) — honors the rebinding instead of silently
+            // dropping it and falling back to the built-in default.
+            if let object = rawValue as? [String: Any] {
+                return parseSettingsFileObjectForm(object, action: action)
+            }
+            return nil
+        }()
+
+        guard let shortcut else { return nil }
+        // Settings-file parsing runs while the shared store may still be initializing.
+        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
+        return action.normalizedSettingsFileShortcut(shortcut)
+    }
+
+    /// Decodes the nested-object binding the CmuxSettings package writes
+    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
+    /// ``StoredShortcut``. An empty primary key is the package's explicit
+    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
+    /// and, to stay consistent with the string parser, when a present `second`
+    /// stroke is malformed (a chord must not silently degrade to a single
+    /// stroke) or when a bare first stroke is used by an action that requires a
+    /// modifier.
+    static func parseSettingsFileObjectForm(
+        _ object: [String: Any],
+        action: KeyboardShortcutSettings.Action
+    ) -> StoredShortcut? {
+        guard let firstValue = object["first"],
+              let first = ShortcutStroke.parseSettingsFileStrokeObject(firstValue) else {
+            return nil
+        }
+        if first.key.isEmpty {
+            return .unbound
+        }
+        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
+        // bare first stroke is only valid for actions that opt into it, or for
+        // the space key.
+        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
+            return nil
+        }
+        let second: ShortcutStroke?
+        if let secondValue = object["second"], !(secondValue is NSNull) {
+            // A present-but-malformed second stroke invalidates the whole
+            // binding rather than silently dropping the chord half.
+            guard let parsedSecond = ShortcutStroke.parseSettingsFileStrokeObject(secondValue) else {
+                return nil
+            }
+            second = parsedSecond
+        } else {
+            second = nil
+        }
+        return StoredShortcut(first: first, second: second)
+    }
+
     static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
         if isUnboundConfigToken(rawValue) {
             return .unbound
@@ -2608,4 +2216,99 @@ enum KeyboardShortcutRecorderActivity {
 struct ShortcutRecorderRejectedAttempt: Equatable {
     let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
     let proposedShortcut: StoredShortcut?
+}
+
+/// Flat on-disk representation of a stored shortcut as persisted in per-action
+/// UserDefaults (`shortcut.<action>`), preserving the historical JSON shape
+/// (`{ "key", "command", …, "chordKey", … }`). The in-memory model is the
+/// package `CmuxSettings.StoredShortcut` (nested `first`/`second` strokes); this
+/// DTO only crosses the UserDefaults encode/decode boundary so bindings written
+/// by earlier builds keep decoding after the duplicate flat app type was removed.
+struct FlatStoredShortcutPersistence: Codable {
+    var key: String
+    var command: Bool
+    var shift: Bool
+    var option: Bool
+    var control: Bool
+    var keyCode: UInt16?
+    var chordKey: String?
+    var chordCommand: Bool
+    var chordShift: Bool
+    var chordOption: Bool
+    var chordControl: Bool
+    var chordKeyCode: UInt16?
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case command
+        case shift
+        case option
+        case control
+        case keyCode
+        case chordKey
+        case chordCommand
+        case chordShift
+        case chordOption
+        case chordControl
+        case chordKeyCode
+    }
+
+    init(_ shortcut: CmuxSettings.StoredShortcut) {
+        let first = shortcut.first
+        let second = shortcut.second
+        key = first.key
+        command = first.command
+        shift = first.shift
+        option = first.option
+        control = first.control
+        keyCode = first.keyCode
+        chordKey = second?.key
+        chordCommand = second?.command ?? false
+        chordShift = second?.shift ?? false
+        chordOption = second?.option ?? false
+        chordControl = second?.control ?? false
+        chordKeyCode = second?.keyCode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        command = try container.decode(Bool.self, forKey: .command)
+        shift = try container.decode(Bool.self, forKey: .shift)
+        option = try container.decode(Bool.self, forKey: .option)
+        control = try container.decode(Bool.self, forKey: .control)
+        keyCode = try container.decodeIfPresent(UInt16.self, forKey: .keyCode)
+        chordKey = try container.decodeIfPresent(String.self, forKey: .chordKey)
+        chordCommand = try container.decodeIfPresent(Bool.self, forKey: .chordCommand) ?? false
+        chordShift = try container.decodeIfPresent(Bool.self, forKey: .chordShift) ?? false
+        chordOption = try container.decodeIfPresent(Bool.self, forKey: .chordOption) ?? false
+        chordControl = try container.decodeIfPresent(Bool.self, forKey: .chordControl) ?? false
+        chordKeyCode = try container.decodeIfPresent(UInt16.self, forKey: .chordKeyCode)
+    }
+
+    /// Reconstitutes the package `StoredShortcut`, applying the same
+    /// empty-`chordKey`-collapses-to-`nil` normalization the flat app init used.
+    var storedShortcut: CmuxSettings.StoredShortcut {
+        let normalizedChordKey = (chordKey?.isEmpty == true) ? nil : chordKey
+        return CmuxSettings.StoredShortcut(
+            first: CmuxSettings.ShortcutStroke(
+                key: key,
+                command: command,
+                shift: shift,
+                option: option,
+                control: control,
+                keyCode: keyCode
+            ),
+            second: normalizedChordKey.map { chordKey in
+                CmuxSettings.ShortcutStroke(
+                    key: chordKey,
+                    command: chordCommand,
+                    shift: chordShift,
+                    option: chordOption,
+                    control: chordControl,
+                    keyCode: chordKeyCode
+                )
+            }
+        )
+    }
 }

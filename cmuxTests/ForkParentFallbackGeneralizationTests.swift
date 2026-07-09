@@ -1,4 +1,5 @@
 import Darwin
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -211,12 +212,13 @@ struct ForkParentFallbackGeneralizationTests {
     }
 
     @Test func openCodeForkFallbackSolePaneAndAmbiguousBehaviorRemainLocked() {
-        #expect(RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+        let resolver = OpenCodeProcessResolver()
+        #expect(resolver.fallbackSessionId(
             arguments: ["opencode", "--session", "parent", "--fork"],
             latestSessionIdForSolePanel: "child",
             sameWorkingDirectoryPanelCount: 1
         ) == "child")
-        #expect(RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+        #expect(resolver.fallbackSessionId(
             arguments: ["opencode", "--session", "parent", "--fork"],
             latestSessionIdForSolePanel: "child",
             sameWorkingDirectoryPanelCount: 2

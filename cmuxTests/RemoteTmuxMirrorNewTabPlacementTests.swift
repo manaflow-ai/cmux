@@ -11,7 +11,7 @@ import Testing
 /// instead of tmux's bare `new-window`, which fills the lowest free window index
 /// and lands the tab mid-list when the session has gaps from closed windows.
 ///
-/// `RemoteTmuxController.newWindowCommand(afterWindowId:workingDirectory:)` is the
+/// `RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId:workingDirectory:)` is the
 /// pure command builder behind `handleMirrorNewTabRequested`:
 /// - no target window (`.end`, or an unresolved `.current` selection) → append at
 ///   the end (`-a -t '{end}'`).
@@ -22,7 +22,7 @@ import Testing
     /// selection) appends after the last window.
     @Test func appendsAtEndWhenNoTargetWindow() {
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: nil, workingDirectory: nil)
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: nil, workingDirectory: nil)
                 == "new-window -a -t '{end}'"
         )
     }
@@ -31,7 +31,7 @@ import Testing
     /// inserts right after that window.
     @Test func insertsAfterSelectedWindow() {
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: nil)
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: 7, workingDirectory: nil)
                 == "new-window -a -t @7"
         )
     }

@@ -1,5 +1,6 @@
 import XCTest
 import CmuxTerminal
+import CmuxWorkspaces
 import AppKit
 
 #if canImport(cmux_DEV)

@@ -1,24 +1,25 @@
 import CmuxFoundation
 import AppKit
+import CmuxWindowing
 import SwiftUI
 
 enum TitlebarLayoutDebugSettingsSnapshot {
     static func reset(defaults: UserDefaults = .standard) {
         defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
-            forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey
+            MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset,
+            forKey: MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey
         )
         defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-            forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey
+            MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
+            forKey: MinimalModeTitlebarDebugSnapshot.leftControlsTopInsetKey
         )
         defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey
+            MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+            forKey: MinimalModeTitlebarDebugSnapshot.trafficLightTabBarInsetKey
         )
         defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset,
-            forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey
+            MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset,
+            forKey: MinimalModeTitlebarDebugSnapshot.trafficLightTitlebarLeadingInsetKey
         )
         defaults.set(
             SessionPersistencePolicy.defaultMinimumSidebarWidth,
@@ -27,7 +28,7 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     }
 
     static func copyPayload(defaults: UserDefaults = .standard) -> String {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot(defaults: defaults)
         return """
         titlebarControlsStyle=\(TitlebarControlsStyle.stored(in: defaults).rawValue)
         leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
@@ -93,10 +94,10 @@ final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
 
 private struct TitlebarLayoutDebugView: View {
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var trafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.trafficLightTitlebarLeadingInsetKey) private var trafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidth = SessionPersistencePolicy.defaultMinimumSidebarWidth
 
     var body: some View {
@@ -119,12 +120,12 @@ private struct TitlebarLayoutDebugView: View {
                         debugSlider(
                             title: String(localized: "debug.titlebarLayoutDebug.leading", defaultValue: "Leading"),
                             value: $leftControlsLeadingInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                            range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
                         )
                         debugSlider(
                             title: String(localized: "debug.titlebarLayoutDebug.top", defaultValue: "Top"),
                             value: $leftControlsTopInset,
-                            range: MinimalModeTitlebarDebugSettings.topInsetRange
+                            range: MinimalModeTitlebarDebugSnapshot.topInsetRange
                         )
                     }
                     .padding(.top, 2)
@@ -135,12 +136,12 @@ private struct TitlebarLayoutDebugView: View {
                         debugSlider(
                             title: String(localized: "debug.titlebarLayoutDebug.titlebarInset", defaultValue: "Titlebar Inset"),
                             value: $trafficLightTitlebarLeadingInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                            range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
                         )
                         debugSlider(
                             title: String(localized: "debug.titlebarLayoutDebug.tabBarInset", defaultValue: "Tab Bar Inset"),
                             value: $trafficLightTabBarInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                            range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
                         )
                     }
                     .padding(.top, 2)

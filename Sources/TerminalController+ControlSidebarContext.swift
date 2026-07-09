@@ -29,11 +29,11 @@ extension TerminalController: ControlSidebarContext {
         pid: Int32?
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
-        controlSidebarScheduleMutation(target: target) { _, tab in
+        controlSidebarScheduleMutation(target: target) { controller, tab in
             if let panelId = panelID, !tab.panels.keys.contains(panelId) {
                 return
             }
-            guard Self.shouldReplaceStatusEntry(
+            guard controller.sidebarReplacementPolicy.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
                 value: value,
@@ -247,8 +247,8 @@ extension TerminalController: ControlSidebarContext {
         markdown: String,
         priority: Int
     ) {
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            guard Self.shouldReplaceMetadataBlock(
+        controlSidebarScheduleMutation(target: target) { controller, tab in
+            guard controller.sidebarReplacementPolicy.shouldReplaceMetadataBlock(
                 current: tab.metadataBlocks[key],
                 key: key,
                 markdown: markdown,

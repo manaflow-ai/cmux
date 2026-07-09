@@ -2,9 +2,21 @@
 
 AppKit/SwiftUI support pieces for the macOS app, grouped by concern. Each top-level folder is
 one concern: `WindowChrome/` (this is what the ContentView extraction added), plus the
-pre-existing `AboutTitlebarDebug/`, `Mouse/`, `Popover/`, and `Scroll/`. Most types are small
-`Sendable` value types or narrow `@MainActor` controllers, so resolution logic can be unit
-tested without a live window.
+pre-existing `AboutTitlebarDebug/`, `Mouse/`, `Popover/`, `Scroll/`, and `Window/`. Most types
+are small `Sendable` value types or narrow `@MainActor` controllers, so resolution logic can be
+unit tested without a live window.
+
+## Window/
+
+Generic SwiftUI-to-AppKit window bridges that reach the `NSWindow` backing a SwiftUI scene.
+
+- `WindowAccessor.swift`: a zero-size `NSViewRepresentable` (`.background(...)`) that hands its
+  enclosing `NSWindow` to a main-actor callback as the view attaches to or moves between windows,
+  with optional dedupe by window/`refreshID`. The shared window-reach bridge used across the
+  sidebar, titlebar, browser, and settings surfaces.
+- `MainWindowBootstrapView.swift`: the zero-size view backing the throwaway launch window that
+  `WindowGroup` requires. It stamps the `cmux.bootstrap` identifier, marks the window
+  non-restorable, and orders it out then closes it on the next main-actor turn.
 
 ## WindowChrome/
 

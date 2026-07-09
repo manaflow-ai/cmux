@@ -1092,7 +1092,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 123)
         )
         XCTAssertFalse(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarReplacementPolicy().shouldReplaceStatusEntry(
                 current: current,
                 key: "agent",
                 value: "idle",
@@ -1114,7 +1114,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 123)
         )
         XCTAssertTrue(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarReplacementPolicy().shouldReplaceStatusEntry(
                 current: current,
                 key: "agent",
                 value: "running",
@@ -1129,7 +1129,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
 
     func testShouldReplaceProgressReturnsFalseForUnchangedPayload() {
         XCTAssertFalse(
-            TerminalController.shouldReplaceProgress(
+            SidebarReplacementPolicy().shouldReplaceProgress(
                 current: SidebarProgressState(value: 0.42, label: "indexing"),
                 value: 0.42,
                 label: "indexing"
@@ -1139,7 +1139,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
 
     func testShouldReplaceGitBranchReturnsFalseForUnchangedPayload() {
         XCTAssertFalse(
-            TerminalController.shouldReplaceGitBranch(
+            SidebarReplacementPolicy().shouldReplaceGitBranch(
                 current: SidebarGitBranchState(branch: "main", isDirty: true),
                 branch: "main",
                 isDirty: true
@@ -1149,13 +1149,13 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
 
     func testShouldReplacePortsIgnoresOrderAndDuplicates() {
         XCTAssertFalse(
-            TerminalController.shouldReplacePorts(
+            SidebarReplacementPolicy().shouldReplacePorts(
                 current: [9229, 3000],
                 next: [3000, 9229, 3000]
             )
         )
         XCTAssertTrue(
-            TerminalController.shouldReplacePorts(
+            SidebarReplacementPolicy().shouldReplacePorts(
                 current: [9229, 3000],
                 next: [3000]
             )
@@ -1174,7 +1174,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TerminalController.shouldReplacePullRequest(
+            SidebarReplacementPolicy().shouldReplacePullRequest(
                 current: current,
                 number: 42,
                 label: "PR",
@@ -1188,7 +1188,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
     func testExplicitSocketScopeParsesValidUUIDTabAndPanel() {
         let workspaceId = UUID()
         let panelId = UUID()
-        let scope = TerminalController.explicitSocketScope(
+        let scope = SidebarReplacementPolicy().explicitSocketScope(
             options: [
                 "tab": workspaceId.uuidString,
                 "panel": panelId.uuidString
@@ -1201,7 +1201,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
     func testExplicitSocketScopeAcceptsSurfaceAlias() {
         let workspaceId = UUID()
         let panelId = UUID()
-        let scope = TerminalController.explicitSocketScope(
+        let scope = SidebarReplacementPolicy().explicitSocketScope(
             options: [
                 "tab": workspaceId.uuidString,
                 "surface": panelId.uuidString
@@ -1212,28 +1212,28 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
     }
 
     func testExplicitSocketScopeRejectsMissingOrInvalidValues() {
-        XCTAssertNil(TerminalController.explicitSocketScope(options: [:]))
-        XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": "workspace:1", "panel": UUID().uuidString]))
-        XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": UUID().uuidString, "panel": "surface:1"]))
+        XCTAssertNil(SidebarReplacementPolicy().explicitSocketScope(options: [:]))
+        XCTAssertNil(SidebarReplacementPolicy().explicitSocketScope(options: ["tab": "workspace:1", "panel": UUID().uuidString]))
+        XCTAssertNil(SidebarReplacementPolicy().explicitSocketScope(options: ["tab": UUID().uuidString, "panel": "surface:1"]))
     }
 
     func testNormalizeReportedDirectoryTrimsWhitespace() {
         XCTAssertEqual(
-            TerminalController.normalizeReportedDirectory("   /Users/cmux/project   "),
+            SidebarReplacementPolicy().normalizeReportedDirectory("   /Users/cmux/project   "),
             "/Users/cmux/project"
         )
     }
 
     func testNormalizeReportedDirectoryResolvesFileURL() {
         XCTAssertEqual(
-            TerminalController.normalizeReportedDirectory("file:///Users/cmux/project"),
+            SidebarReplacementPolicy().normalizeReportedDirectory("file:///Users/cmux/project"),
             "/Users/cmux/project"
         )
     }
 
     func testNormalizeReportedDirectoryLeavesInvalidURLTrimmed() {
         XCTAssertEqual(
-            TerminalController.normalizeReportedDirectory("  file://bad host  "),
+            SidebarReplacementPolicy().normalizeReportedDirectory("  file://bad host  "),
             "file://bad host"
         )
     }

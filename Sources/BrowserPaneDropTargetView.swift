@@ -1,5 +1,7 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
+import CmuxWorkspaces
 import Foundation
 import WebKit
 
@@ -222,7 +224,11 @@ final class BrowserPaneDropTargetView: NSView {
             return handled
         }
 
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
+        if let transfer = BrowserPaneDragTransfer.decode(
+            from: sender.draggingPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ),
            transfer.isFromCurrentProcess {
             if transfer.isFilePreview {
                 guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
@@ -389,7 +395,11 @@ final class BrowserPaneDropTargetView: NSView {
             return .move
         }
 
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
+        if let transfer = BrowserPaneDragTransfer.decode(
+            from: sender.draggingPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ) {
             guard transfer.isFromCurrentProcess,
                   (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
                 clearDragState(phase: "\(phase).reject")
@@ -429,7 +439,11 @@ final class BrowserPaneDropTargetView: NSView {
     /// prepare/update/perform so unsupported payloads do not fall through to the
     /// workspace handlers.
     private func liveSurfaceTransfer(for sender: any NSDraggingInfo, destinationDock: DockSplitStore) -> BrowserPaneDragTransfer? {
-        guard let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
+        guard let transfer = BrowserPaneDragTransfer.decode(
+            from: sender.draggingPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ),
               transfer.isFromCurrentProcess,
               !transfer.isFilePreview,
               AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: destinationDock) == true else {

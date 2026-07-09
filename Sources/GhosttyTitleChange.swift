@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 /// Typed payload for `.ghosttyDidSetTitle` notifications.

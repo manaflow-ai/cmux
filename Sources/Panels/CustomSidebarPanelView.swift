@@ -7,6 +7,7 @@ import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import SwiftUI
+import CmuxNotifications
 
 struct CustomSidebarPanelView: View {
     @ObservedObject var panel: CustomSidebarPanel

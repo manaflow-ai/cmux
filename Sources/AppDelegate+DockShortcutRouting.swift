@@ -1,5 +1,8 @@
 import AppKit
+import CmuxSidebar
 import CmuxPanes
+import CmuxCommandPalette
+import CmuxBrowser
 
 /// Routes "create a surface" keyboard shortcuts (New Browser, New Terminal,
 /// Split Right/Down) into the Dock when the Dock currently owns keyboard focus.

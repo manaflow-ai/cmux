@@ -137,6 +137,42 @@ def dependency_calls_include_url(calls: list[str]) -> bool:
     return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
 
 
+def dependency_call_delta_touches_remote_pins(
+    current_calls: list[str],
+    previous_calls: list[str],
+    manifest_dir: Path,
+    root_by_resolved_path: dict[Path, str],
+    graph: dict[str, tuple[bool, list[str]]],
+    remote_memo: dict[str, bool],
+) -> bool:
+    """Whether a manifest's dependency-call delta can change a *resolved* lockfile.
+
+    A `Package.resolved` records only remote (URL) pins; a pure local-path leaf
+    with no remote pins of its own contributes nothing to any downstream
+    lockfile. So adding or removing such an edge cannot change a downstream's
+    resolution, and demanding a downstream lockfile diff for it is a false
+    positive. Return True only when the added/removed `.package(...)` calls
+    involve a remote URL directly, or a local-path dependency whose own subtree
+    carries remote pins.
+    """
+    added_or_removed = set(current_calls) ^ set(previous_calls)
+    for call in added_or_removed:
+        if PACKAGE_URL_ARGUMENT_RE.search(call):
+            return True
+        path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
+        if path_match is None:
+            continue
+        dependency_root = (manifest_dir / path_match.group(1)).resolve()
+        dependency_name = root_by_resolved_path.get(dependency_root)
+        if dependency_name is None:
+            # An edge to an unknown/external path dependency is opaque; be
+            # conservative and treat it as resolution-affecting.
+            return True
+        if has_remote_dependency(dependency_name, graph, remote_memo, set()):
+            return True
+    return False
+
+
 def has_remote_dependency(
     root: str,
     graph: dict[str, tuple[bool, list[str]]],
@@ -292,6 +328,14 @@ def main() -> int:
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
+    # Subset of changed_dependency_roots whose dependency-call delta can actually
+    # change a resolved lockfile (it added/removed a remote pin, directly or via
+    # a local-path subtree that carries remote pins). A pure local-leaf edge
+    # change is excluded, so it never forces a downstream lockfile diff.
+    resolution_affecting_roots: set[str] = set()
+    root_by_resolved_path = {
+        manifest.parent.resolve(): root for root, manifest in all_manifests.items()
+    }
 
     if merge_base is not None:
         current_remote_memo: dict[str, bool] = {}
@@ -327,6 +371,15 @@ def main() -> int:
                 )
             ):
                 changed_dependency_roots.add(root)
+                if dependency_call_delta_touches_remote_pins(
+                    current_calls,
+                    previous_calls,
+                    manifest.parent,
+                    root_by_resolved_path,
+                    graph,
+                    current_remote_memo,
+                ):
+                    resolution_affecting_roots.add(root)
 
     if (
         xcode_package_reference_changed(merge_base, changed_files)
@@ -366,8 +419,13 @@ def main() -> int:
         )
         if not has_or_requires_lockfile:
             continue
-        affected_dependency_roots = (
-            package_dependency_closure(root, graph) & changed_dependency_roots
+        closure = package_dependency_closure(root, graph)
+        # A package's OWN manifest change always rewrites its own originHash, so
+        # its own lockfile must diff regardless of whether the edge was remote.
+        # A change in a *dependency* only forces this package's lockfile to diff
+        # when that change can alter resolution (it touched a remote pin).
+        affected_dependency_roots = (closure & changed_dependency_roots) & (
+            {root} | resolution_affecting_roots
         )
         if not affected_dependency_roots:
             continue

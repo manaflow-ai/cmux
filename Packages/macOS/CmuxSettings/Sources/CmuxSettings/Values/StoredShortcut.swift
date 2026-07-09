@@ -30,6 +30,24 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
     /// True when the binding fires on two consecutive strokes.
     public var hasChord: Bool { second != nil }
 
+    /// Whether the titlebar should surface this binding's shortcut hint.
+    ///
+    /// A bound shortcut's hint is shown when the user has opted into always
+    /// showing hints, or when the binding uses the command (⌘) modifier and a
+    /// modifier is currently held. An unbound binding never shows a hint.
+    ///
+    /// - Parameters:
+    ///   - alwaysShowShortcutHints: The user's "always show shortcut hints"
+    ///     preference.
+    ///   - modifierPressed: Whether a hint-triggering modifier is held right
+    ///     now.
+    public func titlebarHintShouldShow(
+        alwaysShowShortcutHints: Bool,
+        modifierPressed: Bool
+    ) -> Bool {
+        !isUnbound && (alwaysShowShortcutHints || (first.command && modifierPressed))
+    }
+
     // MARK: - SettingCodable
 
     public static func decodeFromUserDefaults(_ raw: Any?) -> StoredShortcut? {

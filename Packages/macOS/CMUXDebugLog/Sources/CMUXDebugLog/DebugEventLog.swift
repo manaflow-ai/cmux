@@ -39,12 +39,14 @@ public final class DebugEventLog: @unchecked Sendable {
         "defaultname",
         "delayms",
         "dest",
+        "dispatchms",
         "destination",
         "depth",
         "dir",
         "directory",
         "dispatched",
         "downloading",
+        "elapsedms",
         "error",
         "eventtype",
         "expected",
@@ -66,6 +68,7 @@ public final class DebugEventLog: @unchecked Sendable {
         "initialinput",
         "input",
         "itemcount",
+        "keycode",
         "kind",
         "length",
         "linkurl",
@@ -88,6 +91,7 @@ public final class DebugEventLog: @unchecked Sendable {
         "query",
         "reason",
         "referer",
+        "repeat",
         "rejectedprimaryimageurl",
         "result",
         "route",
@@ -104,7 +108,11 @@ public final class DebugEventLog: @unchecked Sendable {
         "text",
         "title",
         "token",
+        "totalcount",
+        "totalms",
         "trace",
+        "trackedms",
+        "turnms",
         "types",
         "uaset",
         "url",
@@ -162,11 +170,31 @@ public final class DebugEventLog: @unchecked Sendable {
         logPath
     }
 
+    /// `path=` is normally redacted because it can carry a filesystem path. The
+    /// DEBUG typing/turn probes (`typing.timing` / `typing.phase` / `typing.delay`)
+    /// instead use `path=` for a fixed instrumentation identifier such as
+    /// `terminal.keyDown` or `terminal.handleAction.RENDER`, which is not sensitive
+    /// and must survive so per-path latency can be bucketed. For those lines only,
+    /// `path` is treated as a normal field.
+    private static func isTypingProbeMessage(_ message: String) -> Bool {
+        message.hasPrefix("typing.timing ") ||
+            message.hasPrefix("typing.phase ") ||
+            message.hasPrefix("typing.delay ")
+    }
+
     static func redactedDebugMessage(_ message: String) -> String {
         let nsMessage = message as NSString
         let fullRange = NSRange(location: 0, length: nsMessage.length)
         let matches = debugFieldPattern.matches(in: message, range: fullRange)
         guard !matches.isEmpty else { return message }
+
+        // For typing/turn probe lines, `path` is a non-sensitive instrumentation
+        // identifier, not a filesystem path.
+        let exemptPathField = isTypingProbeMessage(message)
+        func fieldIsSensitive(_ normalizedKey: String) -> Bool {
+            if exemptPathField && normalizedKey == "path" { return false }
+            return shouldRedactDebugField(normalizedKey)
+        }
 
         var result = ""
         var cursor = 0
@@ -190,9 +218,9 @@ public final class DebugEventLog: @unchecked Sendable {
             let key = nsMessage.substring(with: keyRange)
             let normalizedKey = key.lowercased()
             let valueStart = match.range.location + match.range.length
-            let sensitive = shouldRedactDebugField(normalizedKey)
+            let sensitive = fieldIsSensitive(normalizedKey)
             let nextMatchIndex = sensitive
-                ? nextKnownDebugFieldIndex(after: matchIndex, in: matches, message: nsMessage)
+                ? nextKnownDebugFieldIndex(after: matchIndex, in: matches, message: nsMessage, isSensitive: fieldIsSensitive)
                 : nextDebugFieldIndex(after: matchIndex, in: matches)
             let valueEnd: Int
 
@@ -238,12 +266,13 @@ public final class DebugEventLog: @unchecked Sendable {
     private static func nextKnownDebugFieldIndex(
         after index: Int,
         in matches: [NSTextCheckingResult],
-        message: NSString
+        message: NSString,
+        isSensitive: (String) -> Bool
     ) -> Int? {
         var nextIndex = index + 1
         while nextIndex < matches.count {
             let key = message.substring(with: matches[nextIndex].range(at: 2)).lowercased()
-            if knownDebugFieldNames.contains(key) || shouldRedactDebugField(key) {
+            if knownDebugFieldNames.contains(key) || isSensitive(key) {
                 return nextIndex
             }
             nextIndex += 1

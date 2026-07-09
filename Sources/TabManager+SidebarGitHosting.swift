@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import CmuxGit
 import CmuxSidebarGit
@@ -47,7 +48,17 @@ extension TabManager: SidebarGitHosting {
 
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return gitProbeDirectory(for: workspace, panelId: panelId)
+        // Match the sidebar directory fallback chain so hidden/background panels can
+        // still probe git metadata before OSC 7 has reported a live cwd.
+        if let directory = workspace.reportedPanelDirectory(panelId: panelId) {
+            return normalizedWorkingDirectory(directory)
+        }
+        guard workspace.allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
+        let rawDirectory = workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ?? (!workspace.usesRemoteDirectoryProvenance && workspace.focusedPanelId == panelId
+                ? workspace.currentDirectory
+                : nil)
+        return rawDirectory.flatMap(normalizedWorkingDirectory)
     }
 
     func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -173,11 +184,11 @@ extension TabManager: SidebarGitHosting {
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {
-        MobileHostRequestActivity.hasRecentActivity(within: interval)
+        MobileHostService.sharedRequestActivity.hasRecentActivity(within: interval)
     }
 
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval {
-        MobileHostRequestActivity.quietDelay(for: interval)
+        MobileHostService.sharedRequestActivity.quietDelay(for: interval)
     }
 }
 

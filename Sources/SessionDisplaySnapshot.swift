@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 struct SessionDisplaySnapshot: Codable, Sendable, Equatable {
     var displayID: UInt32?
@@ -8,3 +9,16 @@ struct SessionDisplaySnapshot: Codable, Sendable, Equatable {
     var frame: SessionRectSnapshot?
     var visibleFrame: SessionRectSnapshot?
 }
+
+#if DEBUG
+extension SessionDisplaySnapshot {
+    var debugLogDescription: String {
+        let displayIdText = displayID.map(String.init) ?? "nil"
+        let stableIdText = stableID ?? "nil"
+        return "id=\(displayIdText) " +
+            "stable=\(stableIdText) " +
+            "frame={\(frame?.debugLogDescription ?? "nil")} " +
+            "visible={\(visibleFrame?.debugLogDescription ?? "nil")}"
+    }
+}
+#endif

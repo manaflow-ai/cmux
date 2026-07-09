@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCommandPalette
 
 struct TextBoxSubmitActionPresentation: Equatable {
     let action: TextBoxSubmitAction

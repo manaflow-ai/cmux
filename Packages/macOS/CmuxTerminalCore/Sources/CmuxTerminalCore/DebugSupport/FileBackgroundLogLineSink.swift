@@ -18,7 +18,11 @@ actor FileBackgroundLogLineSink: BackgroundLogLineSink {
 
     func write(_ line: String) {
         guard let data = line.data(using: .utf8), let handle = resolvedHandle() else { return }
-        try? handle.write(contentsOf: data)
+        do {
+            try handle.write(contentsOf: data)
+        } catch {
+            return
+        }
     }
 
     /// Lazily opens (and seeks to end of) the handle on first write, creating the
@@ -33,7 +37,11 @@ actor FileBackgroundLogLineSink: BackgroundLogLineSink {
             FileManager.default.createFile(atPath: path, contents: nil)
         }
         let opened = try? FileHandle(forWritingTo: fileURL)
-        try? opened?.seekToEnd()
+        do {
+            _ = try opened?.seekToEnd()
+        } catch {
+            return nil
+        }
         handle = opened
         return opened
     }

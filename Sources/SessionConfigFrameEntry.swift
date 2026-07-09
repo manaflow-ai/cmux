@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 /// One remembered window frame for a specific display configuration. A window
 /// keeps a small LRU ring of these so it can return to where it was on each

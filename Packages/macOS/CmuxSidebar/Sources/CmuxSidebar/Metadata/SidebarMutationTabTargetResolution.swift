@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The outcome of parsing a `--tab` option into a ``SidebarMutationTabTarget``.
 ///

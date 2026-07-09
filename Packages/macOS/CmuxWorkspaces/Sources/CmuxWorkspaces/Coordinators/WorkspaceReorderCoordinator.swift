@@ -587,6 +587,31 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         return changedIds
     }
 
+    // MARK: - Tab color
+
+    /// Sets (or clears) one workspace's custom tab color override.
+    public func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = model.tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setCustomColor(color)
+    }
+
+    /// Applies a palette-resolved color (or clears it, when `nil`) to the
+    /// given workspaces. The single-id case routes through `setTabColor` so
+    /// both paths share one mutation seam; the codec that resolves a palette
+    /// name to this hex stays app-side.
+    public func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
+        guard !workspaceIds.isEmpty else { return }
+        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
+            setTabColor(tabId: workspaceId, color: color)
+            return
+        }
+
+        let targetIds = Set(workspaceIds)
+        for tab in model.tabs where targetIds.contains(tab.id) {
+            tab.setCustomColor(color)
+        }
+    }
+
     private func reorderTabForPinnedState(_ tab: Tab) {
         guard let index = model.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         if tab.groupId != nil {

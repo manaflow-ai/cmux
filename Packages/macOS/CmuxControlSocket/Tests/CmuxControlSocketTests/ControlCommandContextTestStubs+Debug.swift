@@ -32,6 +32,8 @@ extension ControlDebugContext {
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution { .noWindow }
+    func controlDebugSimulateMarkedText(_ text: String) -> ControlDebugTypeResolution { .noWindow }
+    func controlDebugSimulateUnmarkText() -> ControlDebugTypeResolution { .noWindow }
     func controlDebugTabManagerAvailable() -> Bool { false }
     func controlDebugTextBoxInlineFixture(
         target: String?,
@@ -65,5 +67,21 @@ extension ControlDebugContext {
         payloadKind: ControlDebugFileDropPayloadKind
     ) -> ControlDebugFileDropResolution { .panelNotFound }
     func controlDebugPortalStats() -> JSONValue? { nil }
+    func controlDebugSimulateType(decodedText text: String) -> ControlDebugTypeResolution { .noWindow }
+    func controlDebugSimulateFileDrop(
+        target: String,
+        paths: [String]
+    ) -> ControlDebugSimulateFileDropResolution { .tabManagerUnavailable }
+    func controlDebugSeedDragPasteboardTypes(arguments: String) -> String { "ERROR: not implemented" }
+    func controlDebugClearDragPasteboard() -> String { "ERROR: not implemented" }
+    func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool { false }
+    func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool { false }
+    func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool { false }
+    func controlDebugSidebarOverlayGate(hasSidebarDragState: Bool) -> Bool { false }
+    func controlDebugTerminalDropOverlayProbe(
+        useDeferredPath: Bool
+    ) -> ControlDebugTerminalDropOverlayProbeResolution { .tabManagerUnavailable }
+    func controlDebugDropHitTest(nx: Double, ny: Double) -> String { "ERROR: not implemented" }
+    func controlDebugDragHitChain(nx: Double, ny: Double) -> String { "ERROR: not implemented" }
 }
 #endif

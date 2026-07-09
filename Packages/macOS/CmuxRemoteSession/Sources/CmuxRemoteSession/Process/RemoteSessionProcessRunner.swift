@@ -1,6 +1,6 @@
 internal import CmuxFoundation
 internal import Darwin
-public import Foundation
+internal import Foundation
 #if DEBUG
 internal import CMUXDebugLog
 #endif

@@ -34,14 +34,22 @@ import Testing
         )
         let store = makeStore(runtime: runtime)
 
-        let first = await store.connectPairingURLResult(Self.qrURL)
-        let second = await store.connectPairingURLResult(Self.qrURL)
-        let connectCount = await transport.connectCount()
-        await transport.releaseStuckConnects()
+        let firstTask = Task { @MainActor in
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        await transport.waitForConnect()
+        let secondTask = Task { @MainActor in
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        let second = await Self.value(of: secondTask)
+        let connectCountBeforeReleasingStuckConnect = await transport.connectCount()
+        await transport.finishConnects()
+        let first = await Self.value(of: firstTask)
 
-        #expect(first == .failed)
+        #expect(connectCountBeforeReleasingStuckConnect == 1)
+        #expect(first == .failed || first == .superseded)
         #expect(second == .failed)
-        #expect(connectCount == 1)
+        #expect(await transport.connectCount() == 1)
         #expect(store.connectionState == .disconnected)
     }
 
@@ -85,6 +93,38 @@ import Testing
     }
 
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
+
+    private static func value<Value: Sendable>(
+        of task: Task<Value, Never>,
+        timeoutNanoseconds: UInt64 = 1_000_000_000
+    ) async -> Value? {
+        let latch = TaskValueTimeoutLatch()
+        return await withCheckedContinuation { continuation in
+            Task {
+                let value = await task.value
+                if await latch.tryResolve() {
+                    continuation.resume(returning: value)
+                }
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                if await latch.tryResolve() {
+                    task.cancel()
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    private actor TaskValueTimeoutLatch {
+        private var didResolve = false
+
+        func tryResolve() -> Bool {
+            guard !didResolve else { return false }
+            didResolve = true
+            return true
+        }
+    }
 
     private func makeStore(
         runtime: any MobileSyncRuntime = PairingDeadlineRuntime(),

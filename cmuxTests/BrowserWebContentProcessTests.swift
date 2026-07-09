@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import WebKit
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -47,18 +48,14 @@ struct BrowserWebContentProcessTests {
         )
         let webAuthnScript = try #require(
             configuration.userContentController.userScripts.first {
-                $0.source == BrowserWebAuthnBridgeContract.scriptSource
-            }
-        )
-        let webAuthnRelayScript = try #require(
-            configuration.userContentController.userScripts.first {
-                $0.source == BrowserWebAuthnBridgeContract.relayScriptSource
+                $0.source == BrowserWebAuthnBridgeContract.standard.scriptSource
             }
         )
         #expect(webAuthnScript.injectionTime == .atDocumentStart)
         #expect(webAuthnScript.isForMainFrameOnly)
-        #expect(webAuthnRelayScript.injectionTime == .atDocumentStart)
-        #expect(webAuthnRelayScript.isForMainFrameOnly)
+        #expect(configuration.userContentController.userScripts.filter {
+            $0.source == BrowserWebAuthnBridgeContract.standard.scriptSource
+        }.count == 1)
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240),
             configuration: configuration
@@ -127,13 +124,13 @@ struct BrowserWebContentProcessTests {
         let probe = BrowserWebAuthnReplyProbe()
         configuration.userContentController.addScriptMessageHandler(
             probe,
-            contentWorld: BrowserWebAuthnBridgeContract.contentWorld,
-            name: BrowserWebAuthnBridgeContract.handlerName
+            contentWorld: .page,
+            name: BrowserWebAuthnBridgeContract.standard.handlerName
         )
         defer {
             configuration.userContentController.removeScriptMessageHandler(
-                forName: BrowserWebAuthnBridgeContract.handlerName,
-                contentWorld: BrowserWebAuthnBridgeContract.contentWorld
+                forName: BrowserWebAuthnBridgeContract.standard.handlerName,
+                contentWorld: .page
             )
         }
         let webView = WKWebView(

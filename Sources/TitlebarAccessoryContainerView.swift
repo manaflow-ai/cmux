@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 
 final class TitlebarAccessoryContainerView: NSView {
     static func shouldResolveWindowDragHit(eventType: NSEvent.EventType?) -> Bool {
@@ -17,7 +18,7 @@ final class TitlebarAccessoryContainerView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount >= 2 {
-            let result = handleTitlebarDoubleClick(
+            let result = TitlebarDoubleClickHandlingResult.handle(
                 window: window,
                 behavior: .standardAction
             )
@@ -26,10 +27,10 @@ final class TitlebarAccessoryContainerView: NSView {
             }
         }
 
-        guard !isWindowDragSuppressed(window: window) else { return }
+        guard window?.isWindowDragSuppressed != true else { return }
 
         if let window {
-            withTemporaryWindowMovableEnabled(window: window) {
+            window.withTemporaryWindowMovableEnabled {
                 window.performDrag(with: event)
             }
         } else {

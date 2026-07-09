@@ -166,8 +166,8 @@ extension AppDelegate {
 
     @objc func deleteWorkspaceConfigActionMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? WorkspaceActionDeleteBox,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
-              let cmuxConfigStore = context.cmuxConfigStore,
+              let context = registeredMainWindow(forWindowId: box.windowId),
+              let cmuxConfigStore = configStore(for: context),
               let window = resolvedWindow(for: context) else {
             NSSound.beep()
             return
@@ -227,7 +227,7 @@ extension AppDelegate {
 
     @objc private func saveWorkspaceAsConfigActionMenuItem(_ sender: NSMenuItem) {
         guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+              let context = registeredMainWindow(forWindowId: windowId) else {
             NSSound.beep()
             return
         }
@@ -236,8 +236,8 @@ extension AppDelegate {
 
     @objc private func setNewWorkspaceDefaultLayoutMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? WorkspaceDefaultLayoutBox,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
-              let cmuxConfigStore = context.cmuxConfigStore,
+              let context = registeredMainWindow(forWindowId: box.windowId),
+              let cmuxConfigStore = configStore(for: context),
               let window = resolvedWindow(for: context) else {
             NSSound.beep()
             return
@@ -262,7 +262,7 @@ extension AppDelegate {
         // "customize my workspace layouts" means.
         let configURL = SidebarWorkspaceGroupConfigOpener.materializedCmuxConfigURL()
         guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+              let context = registeredMainWindow(forWindowId: windowId),
               let workspace = context.tabManager.selectedWorkspace,
               let paneId = workspace.bonsplitController.focusedPaneId
                   ?? workspace.bonsplitController.allPaneIds.first,
@@ -277,8 +277,8 @@ extension AppDelegate {
         }
     }
 
-    private func presentSaveWorkspaceActionDialog(context: MainWindowContext) {
-        guard let cmuxConfigStore = context.cmuxConfigStore,
+    private func presentSaveWorkspaceActionDialog(context: RegisteredMainWindow) {
+        guard let cmuxConfigStore = configStore(for: context),
               let workspace = context.tabManager.selectedWorkspace,
               let window = resolvedWindow(for: context) else {
             NSSound.beep()

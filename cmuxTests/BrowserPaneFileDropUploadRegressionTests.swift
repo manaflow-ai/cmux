@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import WebKit
 
 #if canImport(cmux_DEV)

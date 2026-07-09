@@ -1,5 +1,6 @@
 import CmuxSettingsUI
 import SwiftUI
+import CmuxCommandPalette
 
 /// Cute pixel-art sleeping scene for Sleepy Mode. Renders from the live
 /// `SleepyModeSettingsStore` snapshot every frame, so theme / mascot / glow /

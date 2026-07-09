@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import CmuxTerminalCore
 
 enum SessionSnapshotDebugBenchmark {
     @MainActor
@@ -41,7 +42,7 @@ enum SessionSnapshotDebugBenchmark {
     ) -> [String: Any] {
         let targetCharacters = min(
             max(0, charactersPerTerminal),
-            SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            ScrollbackTruncation().maxCharacters
         )
         var workspaceCount = 0
         var terminalCount = 0

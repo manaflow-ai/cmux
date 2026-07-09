@@ -1,6 +1,7 @@
 import CmuxSidebar
 import CmuxSwiftRender
 import Foundation
+import CmuxNotifications
 
 @MainActor
 final class CustomSidebarPaneDataContextCache {

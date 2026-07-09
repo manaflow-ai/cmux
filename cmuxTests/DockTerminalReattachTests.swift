@@ -1,5 +1,7 @@
 import AppKit
+import CMUXAgentLaunch
 import Combine
+import CmuxWorkspaces
 import Darwin
 import Foundation
 import Testing
@@ -11,7 +13,7 @@ import Testing
 #endif
 
 @MainActor
-private final class DockTransferTestPanel: Panel {
+private final class DockTransferTestPanel: @preconcurrency Panel {
     let objectWillChange = ObservableObjectPublisher()
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()

@@ -1,4 +1,10 @@
 import Foundation
+import enum CmuxWorkspaces.CmuxLayoutNode
+import struct CmuxWorkspaces.CmuxPaneDefinition
+import struct CmuxWorkspaces.CmuxSplitDefinition
+import struct CmuxWorkspaces.CmuxSurfaceDefinition
+import enum CmuxWorkspaces.CmuxSurfaceType
+import struct CmuxWorkspaces.CmuxWorkspaceDefinition
 import Testing
 
 #if canImport(cmux_DEV)

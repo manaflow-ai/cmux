@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
 import os
+import CmuxSettings
 
 private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", category: "MacPairedMacPublish")
 

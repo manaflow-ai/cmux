@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteWorkspace
 import CmuxTerminal
 
 /// Per-window sizing introspection returned by

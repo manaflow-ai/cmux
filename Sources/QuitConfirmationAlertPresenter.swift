@@ -114,7 +114,7 @@ extension AppDelegate {
             return manager.tabs.contains(where: { $0.needsConfirmClose() })
         }
 
-        if mainWindowContexts.values.contains(where: { managerHasDirtyWorkspace($0.tabManager) }) {
+        if registeredMainWindows.contains(where: { managerHasDirtyWorkspace($0.tabManager) }) {
             return true
         }
         if managerHasDirtyWorkspace(tabManager) {

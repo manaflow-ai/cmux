@@ -94,6 +94,9 @@
          location = "group:CmuxBrowser">
       </FileRef>
       <FileRef
+         location = "group:CmuxBrowserUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCanvas">
       </FileRef>
       <FileRef
@@ -101,6 +104,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCommandPalette">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCommandPaletteUI">
       </FileRef>
       <FileRef
          location = "group:CmuxControlSocket">
@@ -116,6 +122,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxFeedback">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFeedUI">
       </FileRef>
       <FileRef
          location = "group:CmuxFoundation">
@@ -151,6 +160,9 @@
          location = "group:CmuxSettingsUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxShortcuts">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSidebar">
       </FileRef>
       <FileRef
@@ -161,6 +173,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSidebarProviderKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSidebarUI">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

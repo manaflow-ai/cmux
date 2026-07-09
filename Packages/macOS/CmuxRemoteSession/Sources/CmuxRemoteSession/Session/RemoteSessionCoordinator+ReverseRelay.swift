@@ -1,5 +1,5 @@
 internal import CmuxFoundation
-public import CmuxRemoteWorkspace
+internal import CmuxRemoteWorkspace
 public import Foundation
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
@@ -77,8 +77,9 @@ extension RemoteSessionCoordinator {
             process.standardError = stderrPipe
 
             process.terminationHandler = { [weak self] terminated in
-                self?.queue.async {
-                    self?.handleReverseRelayTerminationLocked(process: terminated)
+                guard let coordinator = self else { return }
+                coordinator.queue.async { [coordinator] in
+                    coordinator.handleReverseRelayTerminationLocked(process: terminated)
                 }
             }
 
@@ -148,12 +149,14 @@ extension RemoteSessionCoordinator {
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
-                self?.queue.async {
-                    guard let self else { return }
+                guard let coordinator = self else { return }
+                coordinator.queue.async { [coordinator] in
                     if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                        self.reverseRelayStderrBuffer.append(chunk)
-                        if self.reverseRelayStderrBuffer.count > 8192 {
-                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+                        coordinator.reverseRelayStderrBuffer.append(chunk)
+                        if coordinator.reverseRelayStderrBuffer.count > 8192 {
+                            coordinator.reverseRelayStderrBuffer.removeFirst(
+                                coordinator.reverseRelayStderrBuffer.count - 8192
+                            )
                         }
                     }
                 }

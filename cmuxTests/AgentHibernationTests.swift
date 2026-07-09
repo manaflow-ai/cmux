@@ -1,7 +1,9 @@
+import CMUXAgentLaunch
 import Foundation
 import XCTest
 import Bonsplit
 import CmuxTerminal
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

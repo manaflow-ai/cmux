@@ -2,6 +2,7 @@ import CmuxFoundation
 #if DEBUG
 import AppKit
 import CMUXAgentLaunch
+import CmuxFeedUI
 import SwiftUI
 
 /// Debug-only window that renders every Feed item kind + state against

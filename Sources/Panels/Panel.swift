@@ -1,6 +1,11 @@
 import Foundation
 import Combine
 import AppKit
+import SwiftUI
+import CmuxCore
+import CmuxFoundation
+import CmuxTerminalCore
+import CmuxWorkspaces
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -54,6 +59,100 @@ public enum PanelType: String, Codable, Sendable {
     }
 }
 
+extension PanelType {
+    /// The workspace ``SurfaceKind`` a panel of this type registers as on its
+    /// bonsplit tab and in session snapshots.
+    ///
+    /// Faithful lift of the private `Workspace.surfaceKind(for:)` switch onto the
+    /// owning type. The mapping is deliberately NOT identity over `rawValue`:
+    /// `PanelType.filePreview.rawValue` is `"filepreview"` while the persisted
+    /// surface kind is `SurfaceKind.filePreview` (`"filePreview"`), so the
+    /// explicit case mapping is preserved rather than collapsed.
+    public var surfaceKind: SurfaceKind {
+        switch self {
+        case .terminal:
+            return .terminal
+        case .browser:
+            return .browser
+        case .markdown:
+            return .markdown
+        case .filePreview:
+            return .filePreview
+        case .rightSidebarTool:
+            return .rightSidebarTool
+        case .customSidebar:
+            return .customSidebar
+        case .agentSession:
+            return .agentSession
+        case .project:
+            return .project
+        case .extensionBrowser:
+            return .extensionBrowser
+        case .cloudVMLoading:
+            return .cloudVMLoading
+        }
+    }
+
+    /// Maps a normalized control-command surface-type token onto a ``PanelType``.
+    ///
+    /// Byte-faithful home of the duplicated `panelType(forRawToken:)` /
+    /// `surfacePanelType(forRawToken:)` switches that the control-socket pane- and
+    /// surface-create paths each carried. Both normalized the caller-supplied type
+    /// string app-side (`TerminalController.v2NormalizedToken`, stripping
+    /// `-`/`_`/spaces and lowercasing) and switched on the result; the
+    /// normalization stays app-side while this owns the single case table.
+    /// `agentSession` is accepted here (the pane-create path rejects it
+    /// downstream), and `project`/`extensionBrowser` remain unmapped, exactly as
+    /// the legacy switches did.
+    public init?(normalizedControlToken token: String) {
+        switch token {
+        case "terminal": self = .terminal
+        case "browser": self = .browser
+        case "markdown": self = .markdown
+        case "filepreview": self = .filePreview
+        case "rightsidebartool": self = .rightSidebarTool
+        case "agentsession": self = .agentSession
+        default: return nil
+        }
+    }
+}
+
+extension PanelType {
+    /// Resolves a control-socket `type` token (from `pane.*`/`surface.*`
+    /// commands) to a ``PanelType``, or `nil` when the token is unrecognized.
+    ///
+    /// Byte-faithful lift of the private `panelType(forRawToken:)` twin of
+    /// `v2PanelType`: the raw token is normalized (strip `-`, `_`, and spaces,
+    /// then lowercase) before matching, so `"file-preview"`, `"file_preview"`,
+    /// and `"FilePreview"` all resolve to ``filePreview``. The normalization is
+    /// inlined here (rather than calling the `TerminalController` helper) so the
+    /// owning value type stays self-contained. Callers that want a default fall
+    /// back to ``terminal`` via `?? .terminal`.
+    public init?(controlToken raw: String) {
+        let normalized = raw
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        switch normalized {
+        case "terminal":
+            self = .terminal
+        case "browser":
+            self = .browser
+        case "markdown":
+            self = .markdown
+        case "filepreview":
+            self = .filePreview
+        case "rightsidebartool":
+            self = .rightSidebarTool
+        case "agentsession":
+            self = .agentSession
+        default:
+            return nil
+        }
+    }
+}
+
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
@@ -64,16 +163,6 @@ public enum BrowserPanelFocusIntent: Equatable {
     case webView
     case addressBar
     case findField
-}
-
-public enum FilePreviewPanelFocusIntent: Hashable {
-    case textEditor
-    case pdfCanvas
-    case pdfThumbnails
-    case pdfOutline
-    case imageCanvas
-    case mediaPlayer
-    case quickLook
 }
 
 public enum ProjectPanelFocusIntent: Hashable {
@@ -89,13 +178,9 @@ public enum PanelFocusIntent: Equatable {
     case project(ProjectPanelFocusIntent)
 }
 
-public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
-    case navigation
-    case notificationArrival
-    case notificationDismiss
-    case unreadIndicatorDismiss
-    case debug
-}
+/// Canonical definition lives in `CmuxCore.WorkspaceAttentionFlashReason`; this
+/// typealias keeps the unqualified app-target call sites byte-identical.
+public typealias WorkspaceAttentionFlashReason = CmuxCore.WorkspaceAttentionFlashReason
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
@@ -112,32 +197,43 @@ struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
     let accent: WorkspaceAttentionFlashAccent
     let glowOpacity: Double
     let glowRadius: CGFloat
-}
 
-struct WorkspaceAttentionPersistentState: Equatable, Sendable {
-    var unreadPanelIDs: Set<UUID> = []
-    var focusedReadPanelID: UUID?
-    var manualUnreadPanelIDs: Set<UUID> = []
-
-    var indicatorPanelIDs: Set<UUID> {
-        var ids = unreadPanelIDs.union(manualUnreadPanelIDs)
-        if let focusedReadPanelID {
-            ids.insert(focusedReadPanelID)
-        }
-        return ids
+    /// Lowers this app-target presentation into the AppKit-free `Sendable` ring
+    /// presentation consumed by the terminal-surface overlay container.
+    ///
+    /// Resolves the accent `NSColor` to straight sRGB components and folds in the
+    /// shared ``PanelOverlayRingMetrics`` so the view layer never imports either
+    /// the attention palette or the ring metrics.
+    func ringPresentation() -> TerminalPaneRingPresentation {
+        let color = accent.strokeColor.usingColorSpace(.sRGB) ?? accent.strokeColor
+        return TerminalPaneRingPresentation(
+            red: Double(color.redComponent),
+            green: Double(color.greenComponent),
+            blue: Double(color.blueComponent),
+            alpha: Double(color.alphaComponent),
+            glowOpacity: glowOpacity,
+            glowRadius: glowRadius,
+            lineWidth: PanelOverlayRingMetrics.lineWidth,
+            inset: PanelOverlayRingMetrics.inset,
+            cornerRadius: PanelOverlayRingMetrics.cornerRadius
+        )
     }
-
-    func hasCompetingIndicator(for panelID: UUID) -> Bool {
-        indicatorPanelIDs.contains(where: { $0 != panelID })
-    }
 }
 
-struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
-    let panelID: UUID
-    let reason: WorkspaceAttentionFlashReason
-    let isAllowed: Bool
-}
+/// Canonical definition lives in `CmuxCore.WorkspaceAttentionPersistentState`;
+/// this typealias keeps the unqualified app-target call sites byte-identical.
+typealias WorkspaceAttentionPersistentState = CmuxCore.WorkspaceAttentionPersistentState
 
+/// Canonical definition lives in `CmuxCore.WorkspaceAttentionFlashDecision`;
+/// this typealias keeps the unqualified app-target call sites byte-identical.
+typealias WorkspaceAttentionFlashDecision = CmuxCore.WorkspaceAttentionFlashDecision
+
+/// The app-target presentation half of attention flashing.
+///
+/// The pure flash *decision* (`WorkspaceAttentionPersistentState`,
+/// `WorkspaceAttentionFlashDecision.decide(...)`) moved to `CmuxCore` so the
+/// `WorkspaceUnreadModel` can compute it; the ring colors/styles stay here
+/// because they resolve to `NSColor`.
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
         accent: .notificationBlue,
@@ -157,31 +253,23 @@ enum WorkspaceAttentionCoordinator {
             return flashRingStyle
         }
     }
-
-    static func decideFlash(
-        targetPanelID: UUID,
-        reason: WorkspaceAttentionFlashReason,
-        persistentState: WorkspaceAttentionPersistentState
-    ) -> WorkspaceAttentionFlashDecision {
-        let isAllowed: Bool
-        switch reason {
-        case .navigation:
-            isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
-            isAllowed = true
-        }
-
-        return WorkspaceAttentionFlashDecision(
-            panelID: targetPanelID,
-            reason: reason,
-            isAllowed: isAllowed
-        )
-    }
 }
 
 enum FocusFlashCurve: Equatable {
     case easeIn
     case easeOut
+}
+
+extension FocusFlashCurve {
+    /// The SwiftUI `Animation` this focus-flash curve maps to for one segment's duration.
+    func animation(duration: TimeInterval) -> Animation {
+        switch self {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
+    }
 }
 
 enum PanelOverlayRingMetrics {
@@ -228,6 +316,22 @@ enum FocusFlashPattern {
     static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
     static let duration: TimeInterval = 0.9
     static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+
+    /// This pattern lowered into the AppKit-free `Sendable` spec the terminal
+    /// overlay container animates from.
+    static var paneAnimationSpec: TerminalPaneFlashAnimationSpec {
+        TerminalPaneFlashAnimationSpec(
+            values: values,
+            keyTimes: keyTimes,
+            duration: duration,
+            curves: curves.map { curve in
+                switch curve {
+                case .easeIn: return .easeIn
+                case .easeOut: return .easeOut
+                }
+            }
+        )
+    }
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
     static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 

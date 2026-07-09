@@ -15,8 +15,11 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxTerminalCore"),
+        .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxPanes"),
         .package(path: "../CMUXDebugLog"),
         .package(path: "../CMUXAgentLaunch"),
+        .package(path: "../CmuxTestSupport"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../../vendor/bonsplit"),
     ],
@@ -26,8 +29,11 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
+                .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
@@ -35,6 +41,13 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            // Re-vends GhosttyKit (CmuxGhosttyKit), whose static archive carries
+            // C++ objects. When realized as a dynamic PackageProduct.framework
+            // the link must resolve those std:: symbols itself. See the matching
+            // note in CmuxTerminalCore's Package.swift. Harmless when static.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
         // Test-only stand-in for the @_silgen_name libghostty symbol bound by
@@ -53,6 +66,7 @@ let package = Package(
                 "GhosttyRuntimeTestStubs",
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

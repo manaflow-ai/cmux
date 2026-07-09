@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxSidebar
 
 /// Remote-workspace browser settings the Dock forwards to `BrowserPanel`, so
 /// Dock browsers route through the same remote proxy / website-data store as

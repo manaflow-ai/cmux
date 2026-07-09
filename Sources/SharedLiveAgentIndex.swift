@@ -1,8 +1,10 @@
 import Darwin
 import Foundation
+import Observation
 
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
+@Observable
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
@@ -18,8 +20,12 @@ final class SharedLiveAgentIndex {
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
+    private(set) var processDetectedIndex: RestorableAgentSessionIndex?
+    private var processDetectedLoadedAt: Date?
+    private var processDetectedRefreshTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let processDetectedCacheTTL: TimeInterval = 30.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
@@ -50,10 +56,13 @@ final class SharedLiveAgentIndex {
     }
 
     deinit {
-        refreshTask?.cancel()
-        forkAvailabilityRefreshTask?.cancel()
-        deferredReloadTimer?.cancel()
-        directoryWatchSource?.cancel()
+        MainActor.assumeIsolated {
+            refreshTask?.cancel()
+            forkAvailabilityRefreshTask?.cancel()
+            processDetectedRefreshTask?.cancel()
+            deferredReloadTimer?.cancel()
+            directoryWatchSource?.cancel()
+        }
     }
 
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
@@ -113,6 +122,27 @@ final class SharedLiveAgentIndex {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
+    }
+
+    /// Process-detected snapshot for live agents that bypassed cmux hook recording. Never blocks.
+    func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        scheduleProcessDetectedRefreshIfStale()
+        return processDetectedIndex?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    private func scheduleProcessDetectedRefreshIfStale() {
+        guard processDetectedRefreshTask == nil else { return }
+        if let processDetectedLoadedAt,
+           dateProvider().timeIntervalSince(processDetectedLoadedAt) < Self.processDetectedCacheTTL {
+            return
+        }
+        processDetectedRefreshTask = Task { @MainActor [weak self] in
+            let newIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard let self else { return }
+            self.processDetectedIndex = newIndex
+            self.processDetectedLoadedAt = self.dateProvider()
+            self.processDetectedRefreshTask = nil
+        }
     }
 
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {

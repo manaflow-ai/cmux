@@ -128,12 +128,10 @@ private final class LockTouchingGitRunner: CommandRunning, @unchecked Sendable {
             )
         }
 
-        lock.lock()
-        storedInvocationCount += 1
-        lock.unlock()
+        lock.withLock { storedInvocationCount += 1 }
 
         FileManager.default.createFile(atPath: indexLockPath, contents: Data(), attributes: nil)
-        Thread.sleep(forTimeInterval: 0.15)
+        try? await Task.sleep(nanoseconds: 150_000_000)
         try? FileManager.default.removeItem(atPath: indexLockPath)
 
         if arguments == ["branch", "--show-current"] {
@@ -665,7 +663,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         let completedRefreshWindow = expectation(description: "sidebar git metadata refresh window completed")
         let refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            manager.refreshTrackedWorkspaceGitMetadataForTesting()
+            Task { @MainActor in manager.refreshTrackedWorkspaceGitMetadataForTesting() }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 90.5) {
             refreshTimer.invalidate()

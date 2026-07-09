@@ -1,5 +1,5 @@
 import AppKit
-import CmuxFoundation
+import CmuxNotifications
 import Foundation
 import UserNotifications
 
@@ -14,63 +14,17 @@ enum NotificationSoundSettings {
     static let customFileValue = "custom_file"
     static let customFilePathKey = "notificationSoundCustomFilePath"
     static let defaultCustomFilePath = ""
-    private static let stagedCustomSoundBaseName = "cmux-custom-notification-sound"
-    private static let customSoundPreparationQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-sound-preparation",
-        qos: .utility
-    )
-    private static let systemSoundBaseName = "cmux-system-notification-sound"
     private static let systemSoundDirectoryURL = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
-    private static let pendingCustomSoundPreparationLock = NSLock()
-    private static var pendingCustomSoundPreparationPaths: Set<String> = []
-    private static let activePlaybackSoundsLock = NSLock()
-    private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
-    private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
+    private static let soundPlayer = NotificationSoundPlayer()
     private static let dndAssertionQueue = DispatchQueue(
         label: "com.cmuxterm.notification-dnd-assertion",
         qos: .utility
     )
-    private static let notificationSoundSupportedExtensions: Set<String> = [
-        "aif",
-        "aiff",
-        "caf",
-        "wav",
-    ]
-
-    private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
-        func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
-            NotificationSoundSettings.releaseActivePlaybackSound(sound)
-        }
-    }
-
-    private struct CustomSoundSourceMetadata: Codable, Equatable {
-        let sourcePath: String
-        let sourceSize: UInt64
-        let sourceModificationTime: Double
-        let sourceFileIdentifier: UInt64?
-    }
-
-    enum CustomSoundPreparationIssue: Error {
-        case emptyPath
-        case missingFile(path: String)
-        case missingFileExtension(path: String)
-        case stagingFailed(path: String, details: String)
-
-        var logMessage: String {
-            switch self {
-            case .emptyPath:
-                return "Notification custom sound path is empty"
-            case .missingFile(let path):
-                return "Notification custom sound file does not exist: \(path)"
-            case .missingFileExtension(let path):
-                return "Notification custom sound requires a file extension: \(path)"
-            case .stagingFailed(let path, let details):
-                return "Failed to stage custom notification sound from \(path): \(details)"
-            }
-        }
-    }
-    static let customCommandKey = "notificationCustomCommand"
-    static let defaultCustomCommand = ""
+    // Owns the custom/system sound file-staging engine (copy/transcode into
+    // ~/Library/Sounds, metadata sidecars, stale cleanup, background dedup).
+    // A single instance backs the whole process so the in-flight dedup set is
+    // shared, mirroring `soundPlayer`/`customCommandRunner`.
+    private static let customSoundStagingService = CustomSoundStagingService()
 
     static let systemSounds: [(label: String, value: String)] = [
         ("Default", "default"),
@@ -141,109 +95,11 @@ enum NotificationSoundSettings {
 
     static func stagedCustomSoundName(defaults: UserDefaults = .standard) -> String? {
         let rawPath = defaults.string(forKey: customFilePathKey) ?? defaultCustomFilePath
-        guard let normalizedPath = normalizedCustomFilePath(rawPath) else {
-            NSLog("Notification custom sound unavailable: \(CustomSoundPreparationIssue.emptyPath.logMessage)")
-            return nil
-        }
-
-        let sourceURL = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        let sourceExtension = sourceURL.pathExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !sourceExtension.isEmpty else {
-            NSLog("Notification custom sound unavailable: \(CustomSoundPreparationIssue.missingFileExtension(path: sourceURL.path).logMessage)")
-            return nil
-        }
-
-        let destinationExtension = stagedCustomSoundFileExtension(forSourceExtension: sourceExtension)
-        let stagedFileName = stagedCustomSoundFileName(
-            forSourceURL: sourceURL,
-            destinationExtension: destinationExtension
-        )
-        let stagedURL = stagedSoundDirectoryURL().appendingPathComponent(stagedFileName, isDirectory: false)
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourceURL.path) else {
-            NSLog("Notification custom sound unavailable: \(CustomSoundPreparationIssue.missingFile(path: sourceURL.path).logMessage)")
-            return nil
-        }
-
-        if fileManager.fileExists(atPath: stagedURL.path) {
-            if let sourceMetadata = currentSourceMetadata(for: sourceURL, fileManager: fileManager),
-               let stagedMetadata = loadStagedSourceMetadata(for: stagedURL),
-               stagedMetadata == sourceMetadata {
-                return stagedFileName
-            }
-        }
-
-        if destinationExtension == sourceExtension {
-            switch prepareCustomFileForNotifications(path: normalizedPath) {
-            case .success(let preparedName):
-                return preparedName
-            case .failure(let issue):
-                NSLog("Notification custom sound unavailable: \(issue.logMessage)")
-                return nil
-            }
-        }
-
-        queueCustomSoundPreparation(path: normalizedPath)
-        NSLog("Notification custom sound not ready yet, staging in background: \(sourceURL.path)")
-        return nil
+        return customSoundStagingService.stagedCustomSoundName(rawPath: rawPath)
     }
 
     static func prepareCustomFileForNotifications(path: String) -> Result<String, CustomSoundPreparationIssue> {
-        guard let normalizedPath = normalizedCustomFilePath(path) else {
-            return .failure(.emptyPath)
-        }
-        let sourceURL = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        return prepareCustomSound(from: sourceURL)
-    }
-
-    private static func prepareCustomSound(from sourceURL: URL) -> Result<String, CustomSoundPreparationIssue> {
-        let sourcePath = sourceURL.path
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else {
-            return .failure(.missingFile(path: sourcePath))
-        }
-        let sourceExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sourceExtension.isEmpty else {
-            return .failure(.missingFileExtension(path: sourcePath))
-        }
-        let destinationExtension = stagedCustomSoundFileExtension(forSourceExtension: sourceExtension)
-
-        let destinationDirectory = stagedSoundDirectoryURL()
-        let destinationFileName = stagedCustomSoundFileName(
-            forSourceURL: sourceURL,
-            destinationExtension: destinationExtension
-        )
-        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
-        let sourceMetadata = currentSourceMetadata(for: sourceURL, fileManager: fileManager)
-
-        do {
-            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                let stagedMetadata = loadStagedSourceMetadata(for: destinationURL)
-                if stagedMetadata != sourceMetadata {
-                    try? fileManager.removeItem(at: destinationURL)
-                }
-            }
-            if destinationExtension == sourceExtension.lowercased() {
-                try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
-            } else {
-                try transcodeStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
-            }
-            if let sourceMetadata {
-                try saveStagedSourceMetadata(sourceMetadata, for: destinationURL)
-            }
-            try cleanupStaleStagedSoundFiles(
-                in: destinationDirectory,
-                keeping: destinationFileName,
-                preservingSourceURL: sourceURL,
-                fileManager: fileManager
-            )
-            return .success(destinationFileName)
-        } catch {
-            return .failure(.stagingFailed(path: sourcePath, details: error.localizedDescription))
-        }
+        customSoundStagingService.prepareCustomFile(path: path)
     }
 
     static func customFileURL(defaults: UserDefaults = .standard) -> URL? {
@@ -255,57 +111,13 @@ enum NotificationSoundSettings {
 
     static func playCustomFileSound(defaults: UserDefaults = .standard) {
         guard let url = customFileURL(defaults: defaults) else { return }
-        playSoundFile(at: url)
+        soundPlayer.playFile(at: url)
     }
 
     static func playCustomFileSound(path: String) {
         guard let normalizedPath = normalizedCustomFilePath(path) else { return }
         let url = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        playSoundFile(at: url)
-    }
-
-    /// Live Do Not Disturb assertion store written by the Focus daemon.
-    ///
-    /// DEBUG builds honor `CMUX_DEBUG_DND_ASSERTIONS_PATH` so a tagged dev app
-    /// can be driven end-to-end against fixture files instead of the real
-    /// (TCC-protected) store.
-    static let defaultAssertionsFileURL: URL = {
-#if DEBUG
-        if let override = ProcessInfo.processInfo.environment["CMUX_DEBUG_DND_ASSERTIONS_PATH"],
-           !override.isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: false)
-        }
-#endif
-        return FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/DoNotDisturb/DB/Assertions.json", isDirectory: false)
-    }()
-
-    /// Whether a macOS Focus / Do Not Disturb mode is currently active.
-    ///
-    /// The `UNUserNotificationCenter` sound path is gated by the OS for Focus
-    /// and per-app authorization. This direct `NSSound` fallback (used when the
-    /// system would not deliver the banner) is not, so it otherwise punches
-    /// through Focus and through a user who has turned notifications off. A
-    /// Focus is active when `storeAssertionRecords` holds at least one
-    /// assertion. Fails open: any read or parse error returns `false` so sound
-    /// keeps working.
-    static func isSuppressedByActiveFocus(
-        assertionsFileURL: URL = defaultAssertionsFileURL
-    ) -> Bool {
-        guard
-            let data = try? Data(contentsOf: assertionsFileURL),
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let entries = root["data"] as? [[String: Any]]
-        else {
-            return false
-        }
-        return entries.contains { entry in
-            if let records = entry["storeAssertionRecords"] as? [Any] {
-                return !records.isEmpty
-            }
-            return false
-        }
+        soundPlayer.playFile(at: url)
     }
 
     /// Plays the user-selected notification sound unless an active macOS
@@ -324,11 +136,11 @@ enum NotificationSoundSettings {
     /// callers pass nothing.
     static func playSelectedSound(
         defaults: UserDefaults = .standard,
-        assertionsFileURL: URL = defaultAssertionsFileURL,
+        assertionsFileURL: URL = FocusAssertionStore.defaultAssertionsFileURL,
         completion: ((_ didPlay: Bool) -> Void)? = nil
     ) {
         dndAssertionQueue.async {
-            let suppressed = isSuppressedByActiveFocus(assertionsFileURL: assertionsFileURL)
+            let suppressed = FocusAssertionStore(assertionsFileURL: assertionsFileURL).isSuppressedByActiveFocus
 #if DEBUG
             // storeReadable distinguishes "no Focus active" from "assertion
             // store unreadable (no Full Disk Access)", which look identical
@@ -370,12 +182,12 @@ enum NotificationSoundSettings {
                 playCustomFileSound(defaults: defaults)
             }
         default:
-            playSystemSound(named: value)
+            soundPlayer.playSystem(named: value)
         }
     }
 
     static func stagedSystemSoundFileName(for value: String) -> String {
-        "\(systemSoundBaseName)-\(value).aiff"
+        customSoundStagingService.stagedSystemSoundFileName(for: value)
     }
 
     static func stagedSystemSoundName(
@@ -389,54 +201,23 @@ enum NotificationSoundSettings {
         }) else {
             return nil
         }
-
-        let sourceURL = sourceDirectory.appendingPathComponent("\(value).aiff", isDirectory: false)
-        guard fileManager.fileExists(atPath: sourceURL.path) else {
-            return nil
-        }
-
-        let destinationDirectory = stagedSoundDirectoryURL(stagingDirectory)
-        let destinationFileName = stagedSystemSoundFileName(for: value)
-        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
-        do {
-            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-            try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
-            return destinationFileName
-        } catch {
-            NSLog("Failed to stage notification system sound \(value): \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    private static func playSystemSound(named value: String) {
-        guard let sound = NSSound(named: NSSound.Name(value)) else {
-            return
-        }
-        retainActivePlaybackSound(sound)
-        sound.delegate = activePlaybackSoundDelegate
-        if !sound.play() {
-            releaseActivePlaybackSound(sound)
-        }
+        return customSoundStagingService.stageSystemSound(
+            for: value,
+            fileManager: fileManager,
+            sourceDirectory: sourceDirectory,
+            stagingDirectory: stagingDirectory
+        )
     }
 
     static func stagedCustomSoundFileExtension(forSourceExtension sourceExtension: String) -> String {
-        let normalized = sourceExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalized.isEmpty else { return "caf" }
-        if notificationSoundSupportedExtensions.contains(normalized) {
-            return normalized
-        }
-        return "caf"
+        customSoundStagingService.stagedCustomSoundFileExtension(forSourceExtension: sourceExtension)
     }
 
     static func stagedCustomSoundFileName(forSourceURL sourceURL: URL, destinationExtension: String) -> String {
-        let normalizedExtension = destinationExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let ext = normalizedExtension.isEmpty ? "caf" : normalizedExtension
-        let signature = stagedCustomSoundSourceSignature(for: sourceURL)
-        return "\(stagedCustomSoundBaseName)-\(signature).\(ext)"
+        customSoundStagingService.stagedCustomSoundFileName(
+            forSourceURL: sourceURL,
+            destinationExtension: destinationExtension
+        )
     }
 
     private static func normalizedCustomFilePath(_ rawPath: String) -> String? {
@@ -445,247 +226,11 @@ enum NotificationSoundSettings {
         return trimmed
     }
 
-    private static func stagedSoundDirectoryURL(_ override: URL? = nil) -> URL {
-        if let override {
-            return override
-        }
-        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Sounds", isDirectory: true)
-    }
-
-    private static func queueCustomSoundPreparation(path: String) {
-        let expandedPath = (path as NSString).expandingTildeInPath
-        pendingCustomSoundPreparationLock.lock()
-        if pendingCustomSoundPreparationPaths.contains(expandedPath) {
-            pendingCustomSoundPreparationLock.unlock()
-            return
-        }
-        pendingCustomSoundPreparationPaths.insert(expandedPath)
-        pendingCustomSoundPreparationLock.unlock()
-
-        customSoundPreparationQueue.async {
-            defer {
-                pendingCustomSoundPreparationLock.lock()
-                pendingCustomSoundPreparationPaths.remove(expandedPath)
-                pendingCustomSoundPreparationLock.unlock()
-            }
-            _ = prepareCustomFileForNotifications(path: expandedPath)
-        }
-    }
-
-    private static func playSoundFile(at url: URL) {
-        DispatchQueue.main.async {
-            guard let sound = NSSound(contentsOf: url, byReference: false) else {
-                NSLog("Notification custom sound failed to load from path: \(url.path)")
-                return
-            }
-            retainActivePlaybackSound(sound)
-            sound.delegate = activePlaybackSoundDelegate
-            if !sound.play() {
-                releaseActivePlaybackSound(sound)
-            }
-        }
-    }
-
-    private static func retainActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
-        activePlaybackSounds[ObjectIdentifier(sound)] = sound
-        activePlaybackSoundsLock.unlock()
-    }
-
-    private static func releaseActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
-        activePlaybackSounds.removeValue(forKey: ObjectIdentifier(sound))
-        activePlaybackSoundsLock.unlock()
-    }
-
-    private static func cleanupStaleStagedSoundFiles(
-        in directoryURL: URL,
-        keeping fileName: String,
-        preservingSourceURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let legacyPrefix = "\(stagedCustomSoundBaseName)."
-        let hashedPrefix = "\(stagedCustomSoundBaseName)-"
-        let normalizedSource = preservingSourceURL.standardizedFileURL
-        let keptStagedURL = directoryURL.appendingPathComponent(fileName, isDirectory: false)
-        let keptMetadataFileName = stagedSourceMetadataURL(for: keptStagedURL).lastPathComponent
-        for fileNameCandidate in try fileManager.contentsOfDirectory(atPath: directoryURL.path) {
-            let isManagedName = fileNameCandidate.hasPrefix(legacyPrefix) || fileNameCandidate.hasPrefix(hashedPrefix)
-            let isKeptManagedFile = fileNameCandidate == fileName || fileNameCandidate == keptMetadataFileName
-            guard isManagedName, !isKeptManagedFile else { continue }
-            let staleURL = directoryURL.appendingPathComponent(fileNameCandidate, isDirectory: false)
-            if staleURL.standardizedFileURL == normalizedSource {
-                continue
-            }
-            try? fileManager.removeItem(at: staleURL)
-            try? fileManager.removeItem(at: stagedSourceMetadataURL(for: staleURL))
-        }
-    }
-
-    private static func copyStagedSoundIfNeeded(
-        from sourceURL: URL,
-        to destinationURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let normalizedSource = sourceURL.standardizedFileURL
-        let normalizedDestination = destinationURL.standardizedFileURL
-        guard normalizedSource != normalizedDestination else { return }
-
-        if fileManager.fileExists(atPath: normalizedDestination.path) {
-            let sourceAttributes = try fileManager.attributesOfItem(atPath: normalizedSource.path)
-            let destinationAttributes = try fileManager.attributesOfItem(atPath: normalizedDestination.path)
-            let sourceSize = sourceAttributes[.size] as? NSNumber
-            let destinationSize = destinationAttributes[.size] as? NSNumber
-            let sourceDate = sourceAttributes[.modificationDate] as? Date
-            let destinationDate = destinationAttributes[.modificationDate] as? Date
-            if sourceSize == destinationSize && sourceDate == destinationDate {
-                return
-            }
-            try fileManager.removeItem(at: normalizedDestination)
-        }
-
-        do {
-            try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain,
-               nsError.code == NSFileWriteFileExistsError,
-               fileManager.fileExists(atPath: normalizedDestination.path) {
-                return
-            }
-            throw error
-        }
-    }
-
-    private static func transcodeStagedSoundIfNeeded(
-        from sourceURL: URL,
-        to destinationURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let normalizedSource = sourceURL.standardizedFileURL
-        let normalizedDestination = destinationURL.standardizedFileURL
-        guard normalizedSource != normalizedDestination else { return }
-
-        if fileManager.fileExists(atPath: normalizedDestination.path) {
-            let sourceAttributes = try fileManager.attributesOfItem(atPath: normalizedSource.path)
-            let destinationAttributes = try fileManager.attributesOfItem(atPath: normalizedDestination.path)
-            let sourceDate = sourceAttributes[.modificationDate] as? Date
-            let destinationDate = destinationAttributes[.modificationDate] as? Date
-            if let sourceDate, let destinationDate, destinationDate >= sourceDate {
-                return
-            }
-            try fileManager.removeItem(at: normalizedDestination)
-        }
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-        process.arguments = [
-            "-f", "caff",
-            "-d", "LEI16",
-            normalizedSource.path,
-            normalizedDestination.path,
-        ]
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            let errorOutput = String(data: errorData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if fileManager.fileExists(atPath: normalizedDestination.path) {
-                try? fileManager.removeItem(at: normalizedDestination)
-            }
-            let description: String
-            if let errorOutput, !errorOutput.isEmpty {
-                description = errorOutput
-            } else {
-                description = "afconvert failed with exit code \(process.terminationStatus)"
-            }
-            throw NSError(
-                domain: "NotificationSoundSettings",
-                code: Int(process.terminationStatus),
-                userInfo: [
-                    NSLocalizedDescriptionKey: description,
-                ]
-            )
-        }
-    }
-
-    private static func stagedCustomSoundSourceSignature(for sourceURL: URL) -> String {
-        let normalizedPath = sourceURL.standardizedFileURL.path
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in normalizedPath.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x100000001b3
-        }
-        return String(format: "%016llx", hash)
-    }
-
-    private static func stagedSourceMetadataURL(for stagedURL: URL) -> URL {
-        stagedURL.appendingPathExtension("source-metadata")
-    }
-
-    private static func currentSourceMetadata(for sourceURL: URL, fileManager: FileManager) -> CustomSoundSourceMetadata? {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: sourceURL.path) else {
-            return nil
-        }
-        guard let sourceSizeNumber = attributes[.size] as? NSNumber else {
-            return nil
-        }
-        let sourceDate = (attributes[.modificationDate] as? Date) ?? .distantPast
-        let fileIdentifier = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
-        return CustomSoundSourceMetadata(
-            sourcePath: sourceURL.standardizedFileURL.path,
-            sourceSize: sourceSizeNumber.uint64Value,
-            sourceModificationTime: sourceDate.timeIntervalSinceReferenceDate,
-            sourceFileIdentifier: fileIdentifier
-        )
-    }
-
-    private static func loadStagedSourceMetadata(for stagedURL: URL) -> CustomSoundSourceMetadata? {
-        let metadataURL = stagedSourceMetadataURL(for: stagedURL)
-        guard let data = try? Data(contentsOf: metadataURL) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(CustomSoundSourceMetadata.self, from: data)
-    }
-
-    private static func saveStagedSourceMetadata(_ metadata: CustomSoundSourceMetadata, for stagedURL: URL) throws {
-        let metadataURL = stagedSourceMetadataURL(for: stagedURL)
-        let data = try JSONEncoder().encode(metadata)
-        try data.write(to: metadataURL, options: .atomic)
-    }
-
-    private static let customCommandQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-custom-command",
-        qos: .utility
-    )
+    // Shared composition-point instance: one runner backs the whole process so
+    // custom commands serialize on the runner's single queue.
+    private static let customCommandRunner = NotificationCustomCommandRunner()
 
     static func runCustomCommand(title: String, subtitle: String, body: String, defaults: UserDefaults = .standard) {
-        let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { return }
-        customCommandQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
-            var env = ProcessInfo.processInfo.environment
-            env["CMUX_NOTIFICATION_TITLE"] = title
-            env["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
-            env["CMUX_NOTIFICATION_BODY"] = body
-            process.environment = env
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-            } catch {
-                NSLog("Notification command failed to launch: \(error)")
-            }
-        }
+        customCommandRunner.run(title: title, subtitle: subtitle, body: body, defaults: defaults)
     }
 }

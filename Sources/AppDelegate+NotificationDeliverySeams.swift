@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxFeedUI
 import CmuxNotifications
 import Foundation
 
@@ -32,12 +33,12 @@ extension AppDelegate {
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
         FeedCoordinator.shared.deliverReply(
             requestId: requestId,
-            decision: Self.workstreamDecision(from: decision)
+            decision: decision.workstreamDecision
         )
     }
 
     func notificationDeliveryPermissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
-        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).reversed().first(where: { item in
+        guard let item = FeedCoordinator.shared.socketRouter.snapshot(pendingOnly: false).reversed().first(where: { item in
             guard case .permissionRequest(let itemRequestId, _, _, _) = item.payload else { return false }
             return itemRequestId == requestId
         }) else {
@@ -47,16 +48,17 @@ extension AppDelegate {
             return nil
         }
 
+        let permissionActionPolicy = FeedPermissionActionPolicy()
         return NotificationFeedPermissionCapabilities(
-            supportsOnce: FeedPermissionActionPolicy.supportsOncePermissionMode(
+            supportsOnce: permissionActionPolicy.supportsOncePermissionMode(
                 source: item.source,
                 toolInputJSON: toolInputJSON
             ),
-            supportsAlways: FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+            supportsAlways: permissionActionPolicy.supportsAlwaysPermissionMode(
                 source: item.source,
                 toolInputJSON: toolInputJSON
             ),
-            supportsAll: FeedPermissionActionPolicy.supportsAllPermissionMode(
+            supportsAll: permissionActionPolicy.supportsAllPermissionMode(
                 source: item.source,
                 toolInputJSON: toolInputJSON
             )
@@ -65,46 +67,5 @@ extension AppDelegate {
 
     func notificationDeliveryActivateApplication() {
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private static func workstreamDecision(from decision: NotificationFeedDecision) -> WorkstreamDecision {
-        switch decision {
-        case .permission(let mode):
-            return .permission(workstreamPermissionMode(from: mode))
-        case .exitPlan(let mode):
-            return .exitPlan(workstreamExitPlanMode(from: mode))
-        }
-    }
-
-    private static func workstreamPermissionMode(
-        from mode: NotificationFeedPermissionMode
-    ) -> WorkstreamPermissionMode {
-        switch mode {
-        case .once:
-            return .once
-        case .always:
-            return .always
-        case .all:
-            return .all
-        case .bypass:
-            return .bypass
-        case .deny:
-            return .deny
-        }
-    }
-
-    private static func workstreamExitPlanMode(from mode: NotificationFeedExitPlanMode) -> WorkstreamExitPlanMode {
-        switch mode {
-        case .ultraplan:
-            return .ultraplan
-        case .bypassPermissions:
-            return .bypassPermissions
-        case .autoAccept:
-            return .autoAccept
-        case .manual:
-            return .manual
-        case .deny:
-            return .deny
-        }
     }
 }

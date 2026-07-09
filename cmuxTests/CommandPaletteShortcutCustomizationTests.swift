@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPaletteUI
 import XCTest
 
 #if canImport(cmux_DEV)

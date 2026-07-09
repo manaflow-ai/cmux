@@ -205,53 +205,6 @@ enum AgentSpecifics: Hashable {
     case registered(CmuxVaultAgentRegistration)
 }
 
-enum ClaudeConfigurationRoot {
-    nonisolated static func configuredResumeDirectory(
-        _ configDir: String,
-        fileManager: FileManager = .default
-    ) -> String? {
-        let preferredConfigDir = ClaudeConfigDirectoryPath.preferredPath(
-            configDir,
-            fileManager: fileManager
-        )
-        guard isLikelyConfigured(preferredConfigDir, fileManager: fileManager) else {
-            return nil
-        }
-        return preferredConfigDir
-    }
-
-    nonisolated static func isLikelyConfigured(
-        _ configDir: String,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        let configPath = ((configDir as NSString).expandingTildeInPath as NSString)
-            .appendingPathComponent(".claude.json")
-        guard let data = fileManager.contents(atPath: configPath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
-        }
-        return hasConfiguredAuthValue(obj["oauthAccount"])
-            || hasConfiguredAuthValue(obj["primaryApiKey"])
-            || hasConfiguredAuthValue(obj["apiKey"])
-    }
-
-    private nonisolated static func hasConfiguredAuthValue(_ value: Any?) -> Bool {
-        guard let value, !(value is NSNull) else {
-            return false
-        }
-        if let string = value as? String {
-            return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        if let dictionary = value as? [String: Any] {
-            return !dictionary.isEmpty
-        }
-        if let array = value as? [Any] {
-            return !array.isEmpty
-        }
-        return true
-    }
-}
-
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent
@@ -309,7 +262,7 @@ struct SessionEntry: Identifiable, Hashable {
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
-        return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
+        return TerminalStartupWorkingDirectoryPrefix().prefix(command, workingDirectory: cwd)
     }
 
     private var resumeCommandWithoutWorkingDirectory: String? {
@@ -397,7 +350,7 @@ struct SessionEntry: Identifiable, Hashable {
                 hermesHome: hermesHome
             )
         case .registered(let registration):
-            if let command = AgentResumeCommandBuilder.resumeShellCommand(
+            if let command = AgentResumeCommandBuilder().resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
                 launchCommand: AgentLaunchCommandSnapshot(
@@ -453,12 +406,12 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
-        TerminalStartupShellQuoting.singleQuoted(value)
+        TerminalStartupShellQuoting().singleQuoted(value)
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
+        TerminalStartupShellQuoting().shellToken(value, allowingBareASCII: true)
     }
 
     /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
@@ -603,5 +556,22 @@ struct SessionEntry: Identifiable, Hashable {
     var cwdBasename: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
         return (cwd as NSString).lastPathComponent
+    }
+}
+
+extension SessionEntry {
+    /// Whether this entry's on-disk transcript uses Grok's role/type layout.
+    /// Read cross-file by `SessionTranscriptLoader`, so it stays `internal`.
+    var usesGrokTranscriptLayout: Bool {
+        if agent == .grok {
+            return true
+        }
+        guard case .registered(let registration) = specifics else {
+            return false
+        }
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return true
+        }
+        return false
     }
 }

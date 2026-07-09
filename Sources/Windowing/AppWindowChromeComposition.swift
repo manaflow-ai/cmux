@@ -33,6 +33,12 @@ struct AppWindowChromeComposition {
         )
     }
 
+    /// Pure layout policy for the custom titlebar band (insets, fullscreen
+    /// controls placement, content top padding).
+    var titlebarLayout: WindowTitlebarLayout {
+        WindowTitlebarLayout()
+    }
+
     var windowBackgroundPolicy: WindowBackgroundPolicy {
         WindowBackgroundComposition.policy
     }

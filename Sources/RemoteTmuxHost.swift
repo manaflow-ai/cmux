@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxRemoteSession
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -282,6 +283,14 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         [sshExecutablePath]
             + sshControlArguments(controlPersistSeconds: controlPersistSeconds, batchMode: false)
             + ["-o", "BatchMode=no", "-n", "-T", "--", destination, "true"]
+    }
+
+    /// The dictionary key for a control connection / session mirror, scoped to this
+    /// host's full SSH connection identity (``connectionHash`` — destination + port
+    /// + identity), so the same destination reached on a different port or with a
+    /// different identity file never aliases onto another endpoint's connection.
+    func connectionKey(sessionName: String) -> String {
+        "\(connectionHash)\u{1}\(sessionName)"
     }
 
     /// Single-quotes a value for safe interpolation into a `/bin/sh` command.

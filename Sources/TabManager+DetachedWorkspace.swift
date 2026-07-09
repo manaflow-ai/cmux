@@ -1,25 +1,16 @@
 import Foundation
 import CmuxSettings
+import CmuxTerminal
+import CmuxWorkspaces
 
 extension TabManager {
-    struct WorkspaceCreationTabSnapshot {
-        let id: UUID
-        let isPinned: Bool
-
-        @MainActor
-        init(workspace: Workspace) {
-            self.id = workspace.id
-            self.isPinned = workspace.isPinned
-        }
-    }
-
-    struct WorkspaceCreationSnapshot {
-        let tabs: [WorkspaceCreationTabSnapshot]
-        let selectedTabId: UUID?
-        let selectedTabWasPinned: Bool
-        let preferredWorkingDirectory: String?
-        let inheritedTerminalFontPoints: Float?
-    }
+    // The pre-creation snapshot value types now live in CmuxWorkspaces
+    // (WorkspaceCreationSnapshot / WorkspaceCreationTabSnapshot). These
+    // typealiases keep every `WorkspaceCreationSnapshot` /
+    // `WorkspaceCreationTabSnapshot` reference (and `TabManager.`-qualified
+    // nested-type lookups) byte-identical at the call sites.
+    typealias WorkspaceCreationTabSnapshot = CmuxWorkspaces.WorkspaceCreationTabSnapshot
+    typealias WorkspaceCreationSnapshot = CmuxWorkspaces.WorkspaceCreationSnapshot
 
     @discardableResult
     func addWorkspace(
@@ -58,8 +49,7 @@ extension TabManager {
                 snapshot: snapshot,
                 placementOverride: placementOverride
             )
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = portOrdinalAllocator.next()
             let newWorkspace = Workspace(
                 title: title ?? detached.title,
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,

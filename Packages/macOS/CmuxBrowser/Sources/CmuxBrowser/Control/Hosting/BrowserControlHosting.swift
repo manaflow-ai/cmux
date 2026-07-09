@@ -1,0 +1,99 @@
+public import Foundation
+public import WebKit
+public import CmuxControlSocket
+
+/// The seam the app target's browser-control owner (`TerminalController`)
+/// conforms to so package-side `browser.*` command logic can drive the parts of
+/// the flow that must stay app-side: WebKit JavaScript evaluation against a live
+/// `WKWebView` (whose main-actor hop threads the app's socket-command
+/// focus-policy stack, which no package can reach) and the v2 protocol's stable
+/// handle-ref minting.
+///
+/// The package returns `Sendable` values and ids through this seam; the live
+/// `WKWebView` / tab / panel state stays owned by the host. This foundation
+/// declares the witness signatures the host already satisfies; command bodies
+/// are rerouted through the seam in later sub-slices.
+///
+/// ## Isolation
+///
+/// The eval and ref-read witnesses are `nonisolated`: they run on the socket
+/// worker lane and hop to the main actor internally (the host's `v2MainSync`).
+/// The ref-minting and ref-refresh witnesses are `@MainActor`: they mutate the
+/// host's main-actor handle registry directly.
+public protocol BrowserControlHosting: AnyObject {
+    /// Evaluates `script` against `webView` on the worker lane (kicking a blank
+    /// document first when the surface has never committed a navigation),
+    /// returning the raw JS value or a failure message.
+    nonisolated func v2RunBrowserJavaScript(
+        _ webView: WKWebView,
+        surfaceId: UUID,
+        script: String,
+        timeout: TimeInterval,
+        useEval: Bool,
+        onIsolatedWorldFallback: (() -> Void)?
+    ) -> BrowserJavaScriptResult
+
+    /// Evaluates `script` against `webView` in the chosen JavaScript `world`,
+    /// resolving the concrete `WKContentWorld` on the main actor.
+    nonisolated func v2RunJavaScript(
+        _ webView: WKWebView,
+        script: String,
+        timeout: TimeInterval,
+        preferAsync: Bool,
+        world: BrowserJSContentWorld
+    ) -> BrowserJavaScriptResult
+
+    /// The stable handle ref (e.g. `surface:3`) for `uuid` of the given `kind`,
+    /// or `NSNull()` when `uuid` is `nil`.
+    nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any
+
+    /// Runs the host's `browser snapshot` command for the given params and
+    /// returns its (in-package) result. The post-action snapshot builder reaches
+    /// the live WebKit DOM-walk + element-ref allocation through this seam; the
+    /// snapshot command itself stays app-side on the worker lane.
+    nonisolated func v2BrowserSnapshot(params: [String: Any]) -> BrowserCommandResult
+
+    /// Resolves the browser-panel context for `params` (the owning workspace id,
+    /// the target surface id, and the live `WKWebView`) on the main actor, then
+    /// runs `body` on the calling (worker) thread with that snapshot.
+    ///
+    /// The tab/workspace/surface resolution and the live `BrowserPanel` lookup are
+    /// app-target state no package can reach; the host performs them and hands the
+    /// package a `Sendable`-shaped ``BrowserPanelContextSnapshot``. On any
+    /// resolution failure the host returns the failure result directly without
+    /// invoking `body`.
+    nonisolated func withBrowserPanelContext(
+        params: [String: Any],
+        _ body: (BrowserPanelContextSnapshot) -> BrowserCommandResult
+    ) -> BrowserCommandResult
+
+    /// Waits for `conditionScript` to evaluate truthy against `webView` within
+    /// `timeoutMs`, returning whether it was met, timed out, or failed to
+    /// evaluate. Runs on the worker lane; the WebKit evaluation stays app-side.
+    nonisolated func v2WaitForBrowserCondition(
+        _ webView: WKWebView,
+        surfaceId: UUID,
+        conditionScript: String,
+        timeoutMs: Int
+    ) -> BrowserWaitOutcome
+
+    /// Resolves the app-side context for a `browser.download.wait` command (the
+    /// owning workspace id + ref, the target browser surface id + ref, and any
+    /// already-queued download event) on the main actor, returning the failure
+    /// result inline when resolution fails.
+    ///
+    /// Runs on the worker lane; the live `TabManager` / `Workspace` resolution, the
+    /// handle-ref minting, and the queued-event pop hop to the main actor inside the
+    /// witness. The package-side worker
+    /// (``BrowserAutomationController/downloadWaitOnSocketWorker(params:host:)``)
+    /// reads this snapshot.
+    nonisolated func resolveBrowserDownloadWaitSnapshot(params: [String: Any]) -> BrowserDownloadWaitSnapshot
+
+    /// Mints (or returns the existing) stable handle ref for `uuid` of the given
+    /// `kind`.
+    @MainActor func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String
+
+    /// Pre-mints handle refs for every currently known app object so callers can
+    /// reference them by ref immediately after restore.
+    @MainActor func v2RefreshKnownRefs()
+}

@@ -160,6 +160,19 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The insertion outcome.
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution
 
+    /// Drives the focused terminal view's `setMarkedText` for
+    /// `debug.terminal.simulate_marked_text`, exercising the IME preedit hot path
+    /// (`terminal.setMarkedText`) without a real input method. DEBUG test seam.
+    ///
+    /// - Parameter text: The marked (preedit) text to set.
+    /// - Returns: `.inserted` on success, `.noWindow`/`.noFirstResponder` when no
+    ///   terminal view is focused.
+    func controlDebugSimulateMarkedText(_ text: String) -> ControlDebugTypeResolution
+
+    /// Commits/clears the focused terminal view's IME preedit via `unmarkText`
+    /// for `debug.terminal.simulate_unmark_text`, exercising `terminal.unmarkText`.
+    func controlDebugSimulateUnmarkText() -> ControlDebugTypeResolution
+
     /// Whether the controller's primary `TabManager` is available (the
     /// `guard let tabManager` precondition several legacy debug bodies ran
     /// before parsing their params).
@@ -304,5 +317,130 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The stats payload (`nil` only if the counter dictionary ever
     ///   failed to bridge to JSON, which its `String`/`Int` leaves preclude).
     func controlDebugPortalStats() -> JSONValue?
+
+    // MARK: - v1-only synthetic-input / drag-overlay probes (raw v1 responses)
+
+    /// Inserts already-decoded text at the active window's first responder, the
+    /// irreducible live-state half of the v1-only `simulate_type` command
+    /// (`NSApp`/`NSWindow` responder-chain insert).
+    ///
+    /// These probes exist only on the v1 line protocol (no v2 method). The
+    /// raw-argument trim, the empty-text usage `ERROR`, the backslash-escape
+    /// decoding, and the `"OK"`/`ERROR…` response formatting live in the
+    /// coordinator's ``ControlCommandCoordinator/debugSimulateTypeV1(_:)``.
+    ///
+    /// - Parameter text: The already-decoded text to insert.
+    /// - Returns: The insertion outcome.
+    func controlDebugSimulateType(decodedText text: String) -> ControlDebugTypeResolution
+
+    /// Synthesizes a file drop onto the resolved terminal surface's hosted view,
+    /// the irreducible live-state half of the v1-only `simulate_file_drop`
+    /// command. The `<id|idx> <path[|path…]>` argument split, the usage `ERROR`
+    /// strings, and the `"OK"`/failure response formatting live in the
+    /// coordinator's ``ControlCommandCoordinator/debugSimulateFileDropV1(_:)``.
+    ///
+    /// - Parameters:
+    ///   - target: The parsed surface id/index argument.
+    ///   - paths: The parsed, trimmed, non-empty file paths to drop.
+    /// - Returns: The drop outcome.
+    func controlDebugSimulateFileDrop(
+        target: String,
+        paths: [String]
+    ) -> ControlDebugSimulateFileDropResolution
+
+    /// Runs the v1-only `seed_drag_pasteboard_types` body: declares the named
+    /// pasteboard types on the system drag pasteboard.
+    ///
+    /// - Parameter arguments: The raw type-token list (`"<type[,type…]>"`).
+    /// - Returns: The raw v1 response.
+    func controlDebugSeedDragPasteboardTypes(arguments: String) -> String
+
+    /// Clears the system drag pasteboard for v1-only `clear_drag_pasteboard`.
+    ///
+    /// - Returns: The raw v1 response (`"OK"`).
+    func controlDebugClearDragPasteboard() -> String
+
+    /// Evaluates the file-drop overlay hit-capture policy against the live drag
+    /// pasteboard types, the irreducible live-state read behind the v1-only
+    /// `overlay_hit_gate` command. The event-type token parsing, the
+    /// usage/unknown `ERROR` strings, and the `"true"`/`"false"` formatting live
+    /// in the coordinator's
+    /// ``ControlCommandCoordinator/debugOverlayHitGateV1(_:)``; this witness
+    /// maps the typed token to an `NSEvent.EventType?` app-side.
+    ///
+    /// - Parameter eventToken: The recognized event-type token (the parsed
+    ///   `NSEvent.EventType?` input).
+    /// - Returns: Whether the overlay should capture the hit.
+    func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool
+
+    /// Evaluates the file-drop destination overlay-capture policy against the
+    /// live drag pasteboard types, the irreducible live-state read behind the
+    /// v1-only `overlay_drop_gate` command. The `[external|local]` token
+    /// parsing and the `"true"`/`"false"` response formatting live in the
+    /// coordinator's ``ControlCommandCoordinator/debugOverlayDropGateV1(_:)``.
+    ///
+    /// - Parameter hasLocalDraggingSource: Whether a local drag is in progress
+    ///   (the parsed `local` token), as the policy input.
+    /// - Returns: Whether the overlay should capture the drop.
+    func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool
+
+    /// Evaluates the terminal-portal hit-pass-through policy against the live
+    /// drag pasteboard types, the irreducible live-state read behind the v1-only
+    /// `portal_hit_gate` command. The event-type token parsing, the
+    /// usage/unknown `ERROR` strings, and the `"true"`/`"false"` formatting live
+    /// in the coordinator's
+    /// ``ControlCommandCoordinator/debugPortalHitGateV1(_:)``; this witness maps
+    /// the typed token to an `NSEvent.EventType?` app-side.
+    ///
+    /// - Parameter eventToken: The recognized event-type token (the parsed
+    ///   `NSEvent.EventType?` input).
+    /// - Returns: Whether the portal hit-testing should pass through.
+    func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool
+
+    /// Evaluates the sidebar external-overlay capture policy against the live
+    /// drag pasteboard types, the irreducible live-state read behind the
+    /// v1-only `sidebar_overlay_gate` command. The `[active|inactive]` token
+    /// parsing and the `"true"`/`"false"` response formatting live in the
+    /// coordinator's ``ControlCommandCoordinator/debugSidebarOverlayGateV1(_:)``.
+    ///
+    /// - Parameter hasSidebarDragState: Whether the sidebar has an active drag
+    ///   state (the parsed `active` token), as the policy input.
+    /// - Returns: Whether the sidebar overlay should capture the drop.
+    func controlDebugSidebarOverlayGate(hasSidebarDragState: Bool) -> Bool
+
+    /// Probes the terminal drop-overlay animation on the selected workspace's
+    /// terminal panel, the irreducible live-state read behind the v1-only
+    /// `terminal_drop_overlay_probe` command. The `[deferred|direct]` token
+    /// parsing and the response formatting live in the coordinator's
+    /// ``ControlCommandCoordinator/debugTerminalDropOverlayProbeV1(_:)``.
+    ///
+    /// - Parameter useDeferredPath: Whether to exercise the deferred animation
+    ///   path (the parsed `deferred` token).
+    /// - Returns: The probe outcome.
+    func controlDebugTerminalDropOverlayProbe(useDeferredPath: Bool) -> ControlDebugTerminalDropOverlayProbeResolution
+
+    /// Maps already-validated normalized (0-1) content-area coordinates to the
+    /// terminal surface under that point, the irreducible live-state read
+    /// (AppKit window/overlay hit-testing) behind the v1-only `drop_hit_test`
+    /// command. The coordinate parsing/validation and the usage error live in
+    /// the coordinator's ``ControlCommandCoordinator/debugDropHitTestV1(_:)``.
+    ///
+    /// - Parameters:
+    ///   - nx: The normalized x (0-1, top-left origin), already validated.
+    ///   - ny: The normalized y (0-1, top-left origin), already validated.
+    /// - Returns: A surface UUID (uppercased), `"none"`, or an `ERROR…` line.
+    func controlDebugDropHitTest(nx: Double, ny: Double) -> String
+
+    /// Returns the AppKit hit-test view chain at already-validated normalized
+    /// (0-1) content-area coordinates, the irreducible live-state read behind
+    /// the v1-only `drag_hit_chain` command. The coordinate parsing/validation
+    /// and the usage error live in the coordinator's
+    /// ``ControlCommandCoordinator/debugDragHitChainV1(_:)``.
+    ///
+    /// - Parameters:
+    ///   - nx: The normalized x (0-1, top-left origin), already validated.
+    ///   - ny: The normalized y (0-1, top-left origin), already validated.
+    /// - Returns: The `->`-joined hit-test chain, `"none"`, or an `ERROR…` line.
+    func controlDebugDragHitChain(nx: Double, ny: Double) -> String
 #endif
 }

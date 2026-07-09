@@ -17,6 +17,15 @@ struct BrowserPDFPreviewActionUnitTests {
         defer { harness.cleanUp() }
         let panel = BrowserPanel(workspaceId: UUID())
         let delegate = try #require(panel.webView.uiDelegate as? BrowserPDFPreviewActionUIDelegate)
+        let capture = BrowserPDFPreviewDownloadEventCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserDownloadEventDidArrive,
+            object: panel,
+            queue: nil
+        ) { notification in
+            capture.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         delegate.downloadsFileManager = harness.fileManager
         delegate.downloadsDefaults = harness.defaults
         let sourceURL = try #require(URL(string: "https://example.com/dummy.pdf"))
@@ -31,15 +40,15 @@ struct BrowserPDFPreviewActionUnitTests {
             sourceURL: sourceURL
         )
 
-        let saved = await Self.waitForDownloads(in: panel, count: 1)
-        #expect(saved)
-        let record = try #require(panel.recentDownloads.first)
-        #expect(record.state == .saved)
-        #expect(record.filename == "dummy.pdf")
-        let fileURL = try #require(record.fileURL)
+        let savedEvents = await Self.waitForSavedDownloadEvents(in: capture, count: 1)
+        let event = try #require(savedEvents.first)
+        #expect(event["filename"] as? String == "dummy.pdf")
+        let path = try #require(event["path"] as? String)
+        let fileURL = URL(fileURLWithPath: path)
         #expect(fileURL.deletingLastPathComponent().path == harness.downloadsDirectory.path)
         #expect(try Data(contentsOf: fileURL) == data)
-        let quarantine = try fileURL.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties
+        let resourceKeys: Set<URLResourceKey> = [.quarantinePropertiesKey]
+        let quarantine = try fileURL.resourceValues(forKeys: resourceKeys).quarantineProperties
         #expect(quarantine != nil)
     }
 
@@ -48,6 +57,15 @@ struct BrowserPDFPreviewActionUnitTests {
         defer { harness.cleanUp() }
         let panel = BrowserPanel(workspaceId: UUID())
         let delegate = try #require(panel.webView.uiDelegate as? BrowserPDFPreviewActionUIDelegate)
+        let capture = BrowserPDFPreviewDownloadEventCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserDownloadEventDidArrive,
+            object: panel,
+            queue: nil
+        ) { notification in
+            capture.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         delegate.downloadsFileManager = harness.fileManager
         delegate.downloadsDefaults = harness.defaults
         let sourceURL = try #require(URL(string: "https://example.com/dummy.pdf"))
@@ -61,7 +79,7 @@ struct BrowserPDFPreviewActionUnitTests {
             mimeType: "application/pdf",
             sourceURL: sourceURL
         )
-        #expect(await Self.waitForDownloads(in: panel, count: 1))
+        #expect(await Self.waitForSavedDownloadEvents(in: capture, count: 1).count == 1)
 
         try Self.invokeSave(
             on: delegate,
@@ -71,12 +89,17 @@ struct BrowserPDFPreviewActionUnitTests {
             mimeType: "application/pdf",
             sourceURL: sourceURL
         )
-        #expect(await Self.waitForDownloads(in: panel, count: 2))
+        let savedEvents = await Self.waitForSavedDownloadEvents(in: capture, count: 2)
+        #expect(savedEvents.count == 2)
 
-        let destinationNames = Set(panel.recentDownloads.compactMap { $0.fileURL?.lastPathComponent })
+        let destinationNames = Set(savedEvents.compactMap { event -> String? in
+            guard let path = event["path"] as? String else { return nil }
+            return URL(fileURLWithPath: path).lastPathComponent
+        })
         #expect(destinationNames == ["dummy.pdf", "dummy (1).pdf"])
-        for record in panel.recentDownloads {
-            let fileURL = try #require(record.fileURL)
+        for event in savedEvents {
+            let path = try #require(event["path"] as? String)
+            let fileURL = URL(fileURLWithPath: path)
             #expect(FileManager.default.fileExists(atPath: fileURL.path))
         }
     }
@@ -86,6 +109,15 @@ struct BrowserPDFPreviewActionUnitTests {
         defer { harness.cleanUp() }
         let panel = BrowserPanel(workspaceId: UUID())
         let delegate = try #require(panel.webView.uiDelegate as? BrowserPDFPreviewActionUIDelegate)
+        let capture = BrowserPDFPreviewDownloadEventCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserDownloadEventDidArrive,
+            object: panel,
+            queue: nil
+        ) { notification in
+            capture.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         delegate.downloadsFileManager = harness.fileManager
         delegate.downloadsDefaults = harness.defaults
         let sourceURL = try #require(URL(string: "https://example.com/empty.pdf"))
@@ -99,7 +131,7 @@ struct BrowserPDFPreviewActionUnitTests {
             sourceURL: sourceURL
         )
 
-        #expect(panel.recentDownloads.isEmpty)
+        #expect(capture.snapshot().isEmpty)
         #expect((try? FileManager.default.contentsOfDirectory(atPath: harness.downloadsDirectory.path))?.isEmpty != false)
     }
 
@@ -203,21 +235,43 @@ struct BrowserPDFPreviewActionUnitTests {
         function(delegate, selector, webView, frameHandle, pdfFirstPageSize, completionBlock)
     }
 
-    private static func waitForDownloads(
-        in panel: BrowserPanel,
+    private static func waitForSavedDownloadEvents(
+        in capture: BrowserPDFPreviewDownloadEventCapture,
         count: Int,
         timeout: TimeInterval = 3.0
-    ) async -> Bool {
+    ) async -> [[String: Any]] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if panel.recentDownloads.count == count,
-               panel.recentDownloads.allSatisfy({ $0.state == .saved }) {
-                return true
+            let savedEvents = capture.savedEvents()
+            if savedEvents.count >= count {
+                return savedEvents
             }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        return panel.recentDownloads.count == count
-            && panel.recentDownloads.allSatisfy { $0.state == .saved }
+        return capture.savedEvents()
+    }
+}
+
+private final class BrowserPDFPreviewDownloadEventCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [[String: Any]] = []
+
+    func append(_ notification: Notification) {
+        guard let event = notification.userInfo?["event"] as? [String: Any] else { return }
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [[String: Any]] {
+        lock.lock()
+        let result = events
+        lock.unlock()
+        return result
+    }
+
+    func savedEvents() -> [[String: Any]] {
+        snapshot().filter { $0["type"] as? String == "saved" }
     }
 }
 

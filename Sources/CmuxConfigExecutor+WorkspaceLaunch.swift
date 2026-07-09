@@ -1,9 +1,13 @@
 import AppKit
+import CmuxWorkspaces
 import Foundation
 
 // MARK: - Workspace command launch (named and inline `type: "workspace"` actions)
 
 extension CmuxConfigExecutor {
+    private typealias ConfigLayoutNode = CmuxWorkspaces.CmuxLayoutNode
+    private typealias ConfigSurfaceDefinition = CmuxWorkspaces.CmuxSurfaceDefinition
+    private typealias ConfigWorkspaceDefinition = CmuxWorkspaces.CmuxWorkspaceDefinition
 
     /// The trust dialog must disclose everything a workspace action does to
     /// the shells it spawns — the `setup` bootstrap, each surface `command`,
@@ -53,11 +57,11 @@ extension CmuxConfigExecutor {
 
     /// The cwd of the first terminal surface in leaf order — the surface that
     /// receives the `setup` command in `applyCustomLayout`.
-    private static func firstTerminalSurfaceCwd(_ node: CmuxLayoutNode) -> String? {
+    private static func firstTerminalSurfaceCwd(_ node: ConfigLayoutNode) -> String? {
         firstTerminalSurface(node)?.cwd
     }
 
-    private static func firstTerminalSurface(_ node: CmuxLayoutNode) -> CmuxSurfaceDefinition? {
+    private static func firstTerminalSurface(_ node: ConfigLayoutNode) -> ConfigSurfaceDefinition? {
         switch node {
         case .pane(let pane):
             return pane.surfaces.first { $0.type == .terminal }
@@ -71,7 +75,7 @@ extension CmuxConfigExecutor {
         }
     }
 
-    private static func collectSurfaceDisclosures(_ node: CmuxLayoutNode, into lines: inout [String]) {
+    private static func collectSurfaceDisclosures(_ node: ConfigLayoutNode, into lines: inout [String]) {
         switch node {
         case .pane(let pane):
             for surface in pane.surfaces {
@@ -103,7 +107,7 @@ extension CmuxConfigExecutor {
 
     static func executeWorkspaceCommand(
         command: CmuxCommandDefinition,
-        workspace wsDef: CmuxWorkspaceDefinition,
+        workspace wsDef: CmuxWorkspaces.CmuxWorkspaceDefinition,
         tabManager: TabManager,
         baseCwd: String
     ) -> Bool {
@@ -167,5 +171,55 @@ extension CmuxConfigExecutor {
             newWorkspace.sendConfigSetupCommand(setup)
         }
         return true
+    }
+
+    @discardableResult
+    static func executeBrowserWorkspaceCommand(
+        name: String,
+        url: String,
+        tabManager: TabManager,
+        baseCwd: String
+    ) -> Bool {
+        let workspaceDefinition = CmuxWorkspaces.CmuxWorkspaceDefinition(
+            name: name,
+            layout: .pane(CmuxWorkspaces.CmuxPaneDefinition(surfaces: [
+                CmuxWorkspaces.CmuxSurfaceDefinition(
+                    type: .browser,
+                    name: name,
+                    url: url,
+                    focus: true
+                ),
+            ]))
+        )
+        let command = CmuxCommandDefinition(
+            name: name,
+            workspace: workspaceDefinition
+        )
+        return executeWorkspaceCommand(
+            command: command,
+            workspace: workspaceDefinition,
+            tabManager: tabManager,
+            baseCwd: baseCwd
+        )
+    }
+
+    static func agentChatStartCommandTrustDescriptor(
+        command: String,
+        sourcePath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: "\(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID).startCommand",
+            kind: "agentChatStartCommand",
+            command: command,
+            target: "agentChatServer",
+            workspaceCommand: nil,
+            configPath: canonicalAgentChatPath(sourcePath),
+            projectRoot: canonicalAgentChatPath(CmuxButtonIcon.projectRoot(forConfigPath: sourcePath)),
+            iconFingerprint: nil
+        )
+    }
+
+    private static func canonicalAgentChatPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 }

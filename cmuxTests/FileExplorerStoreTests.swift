@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -156,7 +157,7 @@ struct FileExplorerStoreTests {
                 group.cancelAll()
             }
         } catch {
-            await MainActor.run {
+            _ = await MainActor.run {
                 Issue.record("Timed out waiting for: \(description)")
             }
             throw error
@@ -586,11 +587,11 @@ struct FileExplorerStoreTests {
     func testRestoredMultiSelectionScrollsToAnchorRow() {
         let exactRows = IndexSet([2, 7, 11])
 
-        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows) == 7)
-        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows) == 2)
-        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows) == 2)
+        #expect(exactRows.scrollAnchorRow(preferring: 7) == 7)
+        #expect(exactRows.scrollAnchorRow(preferring: 4) == 2)
+        #expect(exactRows.scrollAnchorRow(preferring: nil) == 2)
         #expect(
-            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: []) == nil
+            IndexSet().scrollAnchorRow(preferring: nil) == nil
         )
     }
 
@@ -991,13 +992,13 @@ struct FileSearchControllerTests {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == configuredPath || $0 == fallbackPath }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == configuredPath)
     }
@@ -1007,13 +1008,13 @@ struct FileSearchControllerTests {
         let configuredPath = "~/.nix-profile/bin/rg"
         let expandedPath = "/Users/nixuser/.nix-profile/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == expandedPath }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == expandedPath)
     }
@@ -1023,13 +1024,13 @@ struct FileSearchControllerTests {
         let nixProfilePath = "/etc/profiles/per-user/nixuser/bin/rg"
         let pathFallback = "/tmp/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == nixProfilePath || $0 == pathFallback }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == nixProfilePath)
     }
@@ -1039,13 +1040,13 @@ struct FileSearchControllerTests {
         let homeManagerProfilePath = "/Users/nixuser/.nix-profile/bin/rg"
         let pathFallback = "/tmp/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == homeManagerProfilePath || $0 == pathFallback }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == homeManagerProfilePath)
     }
@@ -1055,13 +1056,13 @@ struct FileSearchControllerTests {
         let perUserProfilePath = "/nix/var/nix/profiles/per-user/nixuser/profile/bin/rg"
         let pathFallback = "/tmp/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == perUserProfilePath || $0 == pathFallback }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == perUserProfilePath)
     }
@@ -1071,22 +1072,22 @@ struct FileSearchControllerTests {
         let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
 
-        let resolution = RipgrepExecutableResolver.resolution(
+        let resolution = RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
-        )
+        ).resolution()
 
         #expect(resolution == .configuredPathNotExecutable(configuredPath))
-        #expect(RipgrepExecutableResolver.resolve(
+        #expect(RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
-        ) == nil)
+        ).resolve() == nil)
     }
 
     @Test
@@ -1156,7 +1157,7 @@ struct FileSearchControllerTests {
     }
 
     private nonisolated static func hasRipgrep() -> Bool {
-        RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
+        RipgrepExecutableResolver(configuredPath: nil).resolve() != nil
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {

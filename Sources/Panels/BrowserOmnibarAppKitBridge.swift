@@ -96,6 +96,64 @@ final class BrowserOmnibarNativeFieldRegistry {
     }
 }
 
+extension BrowserOmnibarNativeFieldRegistry {
+    func omnibarPanelId(for responder: NSResponder?) -> UUID? {
+        omnibarField(for: responder)?.panelId
+    }
+
+    func omnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
+        if let registeredField = field(for: panelId, in: window) {
+            return registeredField
+        }
+        guard let panelId, let root = window?.contentView?.superview ?? window?.contentView else {
+            return nil
+        }
+
+        // Fallback for SwiftUI/AppKit reconnect windows where the live native field
+        // has been attached but registration has not yet observed it.
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
+                return field
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    @discardableResult
+    func prepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
+        guard let field = omnibarField(for: responder),
+              field.panelId == panelId else {
+            return false
+        }
+        field.suppressNextFocusReacquireOnEndEditing = true
+        return true
+    }
+
+    private func omnibarField(for responder: NSResponder?) -> OmnibarNativeTextField? {
+        guard let responder else { return nil }
+
+        if let field = responder as? OmnibarNativeTextField {
+            return field
+        }
+
+        if let editor = responder as? NSTextView, editor.isFieldEditor {
+            if let field = fieldOwningEditor(editor, in: editor.window) {
+                return field
+            }
+
+            if let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
+               field.currentEditor() === editor {
+                return field
+            }
+
+        }
+
+        return nil
+    }
+}
+
 @MainActor
 final class BrowserOmnibarInteractionView: NSView {
     var panelId: UUID?

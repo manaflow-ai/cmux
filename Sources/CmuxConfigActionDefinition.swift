@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {

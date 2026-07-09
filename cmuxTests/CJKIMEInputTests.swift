@@ -945,39 +945,39 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
 final class ExternalCommittedTextSanitizationTests: XCTestCase {
     func testStripsLeadingCSISequenceFromExternalCommittedText() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[Chello"),
+            "\u{1B}[Chello".sanitizedExternalCommittedTerminalText,
             "hello"
         )
     }
 
     func testStripsLeadingC1CSISequenceFromExternalCommittedText() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\u{009B}1;5Chello"),
+            "\u{009B}1;5Chello".sanitizedExternalCommittedTerminalText,
             "hello"
         )
     }
 
     func testStripsMultipleLeadingControlAndEscapeSequences() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[1;5C\u{1B}OChello"),
+            "\u{1B}[1;5C\u{1B}OChello".sanitizedExternalCommittedTerminalText,
             "hello"
         )
     }
 
     func testLeavesLiteralBracketPrefixedTextUntouched() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("[Code] review"),
+            "[Code] review".sanitizedExternalCommittedTerminalText,
             "[Code] review"
         )
     }
 
     func testPreservesLeadingControlBytesUsedByAutomation() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\n"),
+            "\n".sanitizedExternalCommittedTerminalText,
             "\n"
         )
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\tfoo"),
+            "\tfoo".sanitizedExternalCommittedTerminalText,
             "\tfoo"
         )
     }
@@ -1594,33 +1594,8 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
     }
 
     private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
-        let runtimeSurface = try XCTUnwrap(terminal.surface.surface)
-        let topLeft = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(runtimeSurface, selection, &text) else {
-            return ""
-        }
-        defer { ghostty_surface_free_text(runtimeSurface, &text) }
-        guard let ptr = text.text, text.text_len > 0 else { return "" }
-        let data = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: data, as: UTF8.self)
+        _ = try XCTUnwrap(terminal.surface.surface)
+        return terminal.surface.readTextRawSnapshot(includeScrollback: true)?.history ?? ""
     }
 
     private func waitForTerminalText(
@@ -1676,11 +1651,8 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 
     private func processTerminalOutput(_ data: Data, in terminal: HostedTerminalWindow) throws {
         guard !data.isEmpty else { return }
-        let runtimeSurface = try XCTUnwrap(terminal.surface.surface)
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-            ghostty_surface_process_output(runtimeSurface, baseAddress, UInt(rawBuffer.count))
-        }
+        _ = try XCTUnwrap(terminal.surface.surface)
+        terminal.surface.processRemoteOutput(data)
     }
 
     private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {

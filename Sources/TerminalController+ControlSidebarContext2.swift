@@ -30,8 +30,8 @@ extension TerminalController {
                 surfaceId: scope.panelID,
                 kind: .gitBranch
             )
-        ) {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        ) { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -78,8 +78,8 @@ extension TerminalController {
                 surfaceId: scope.panelID,
                 kind: .gitBranch
             )
-        ) {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        ) { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -122,13 +122,14 @@ extension TerminalController {
             // Unreachable: the coordinator validates the state first.
             return
         }
+        let replacementPolicy = sidebarReplacementPolicy
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
             guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
 
-            guard Self.shouldReplacePullRequest(
+            guard replacementPolicy.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
                 label: label,
@@ -161,13 +162,13 @@ extension TerminalController {
         action: String,
         actionTarget: String?
     ) {
-        controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
+        controlSidebarSchedulePanelMetadataMutation(target: target) { [weak self] tab, surfaceId in
             guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
 
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: tab.id) else { return }
             tabManager.handleWorkspacePullRequestCommandHint(
                 tabId: tab.id,
                 surfaceId: surfaceId,
@@ -247,7 +248,7 @@ extension TerminalController {
                 surfaceId: scope.panelID,
                 kind: .shellActivity
             )
-        ) {
+        ) { [weak self] in
             guard fastPathState.shouldPublishShellActivity(
                 workspaceId: scope.workspaceID,
                 panelId: scope.panelID,
@@ -255,7 +256,7 @@ extension TerminalController {
             ) else {
                 return
             }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID) else { return }
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID) else { return }
             tabManager.updateSurfaceShellActivity(tabId: scope.workspaceID, surfaceId: scope.panelID, state: state)
         }
     }
@@ -283,8 +284,8 @@ extension TerminalController {
     /// fires once per shell start, not per prompt, so unbounded growth is
     /// not a practical concern on this path.
     nonisolated func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -331,8 +332,8 @@ extension TerminalController {
                 surfaceId: scope.panelID,
                 kind: .portsKick(reason)
             )
-        ) {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        ) { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -459,7 +460,7 @@ extension TerminalController {
         case .ok:
             return .ok
         case .state(let state):
-            return .state(visible: state.visible, modeRawValue: state.modeRawValue)
+            return .state(visible: state.visible, modeRawValue: state.mode.rawValue)
         case .failure(let message):
             return .failure(message: message)
         }

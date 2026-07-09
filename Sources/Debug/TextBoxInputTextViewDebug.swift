@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 
 #if DEBUG
 extension TextBoxInputTextView {

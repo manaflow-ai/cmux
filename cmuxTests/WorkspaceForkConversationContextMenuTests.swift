@@ -1,6 +1,7 @@
 import Foundation
 import os
 import Testing
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -301,7 +302,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 let sampledAt = now.withLock { $0 }
                 return SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
-                    fileManager: fm,
+                    fileManager: FileManager.default,
                     registry: registry,
                     processSnapshotProvider: {
                         CmuxTopProcessSnapshot(
@@ -360,7 +361,7 @@ struct WorkspaceForkConversationContextMenuTests {
             indexLoader: {
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
-                    fileManager: fm,
+                    fileManager: FileManager.default,
                     registry: CmuxVaultAgentRegistry(registrations: []),
                     processSnapshotProvider: {
                         CmuxTopProcessSnapshot(processes: [], sampledAt: now.withLock { $0 }, includesProcessDetails: true)

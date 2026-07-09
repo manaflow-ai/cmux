@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// A single regular-expression match handed to a ``SentryRegexPattern`` replacement closure.
 ///

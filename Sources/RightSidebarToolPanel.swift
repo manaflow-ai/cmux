@@ -1,4 +1,7 @@
 import AppKit
+import CmuxFoundation
+import CmuxNotifications
+import CmuxSidebar
 import Combine
 import SwiftUI
 
@@ -149,7 +152,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationDefaultsToggle.paneFlash.isEnabled() else { return }
         focusFlashToken += 1
     }
 
@@ -169,16 +172,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+            workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
             workspace.currentDirectoryChangeRevisionPublisher()
                 .map { _ in () }
                 .eraseToAnyPublisher(),
-            workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.activeRemoteTerminalSessionCountPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteDaemonStatusPublisher.map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
@@ -238,7 +241,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
 struct RightSidebarToolPanelView: View {
     @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
+    @Environment(TabManager.self) private var tabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance
@@ -287,7 +290,7 @@ struct RightSidebarToolPanelView: View {
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                    tabManager.resume(entry)
                 }
             )
             .background(
@@ -312,19 +315,10 @@ struct RightSidebarToolPanelView: View {
         for segment in FocusFlashPattern.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                withAnimation(segment.curve.animation(duration: segment.duration)) {
                     focusFlashOpacity = segment.targetOpacity
                 }
             }
-        }
-    }
-
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
         }
     }
 }

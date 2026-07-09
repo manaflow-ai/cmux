@@ -16,9 +16,19 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSwiftRender"),
+        // CmuxSettings supplies the right-sidebar width-override decode used by
+        // SidebarResizerGeometryPolicy.
+        .package(path: "../CmuxSettings"),
         // CmuxExtensionKit backs the ExtensionHost/ sidebar-extension host view
         // and browser presenter.
         .package(path: "../CmuxExtensionKit"),
+        // CmuxSidebarProviderKit supplies the provider descriptor / provider
+        // protocol / localized-text value types the provider-selection resolver
+        // enumerates.
+        .package(path: "../CmuxSidebarProviderKit"),
+        // CmuxExtensionSidebarExamples supplies the bundled preset providers
+        // (SidebarExamples) offered in the switcher menu.
+        .package(path: "../../../Examples/CmuxExtensionSidebarExamples"),
     ],
     targets: [
         .target(
@@ -26,7 +36,10 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxExtensionKit", package: "CmuxExtensionKit"),
+                .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
+                .product(name: "CmuxExtensionSidebarExamples", package: "CmuxExtensionSidebarExamples"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -40,6 +53,9 @@ let package = Package(
                 "CmuxSidebar",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
+                .product(name: "CmuxExtensionSidebarExamples", package: "CmuxExtensionSidebarExamples"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -79,7 +79,7 @@ struct WindowDockLifecycleTests {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         defer {
-            for context in Array(appDelegate.mainWindowContexts.values) {
+            for context in appDelegate.registeredMainWindows {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
             }
             AppDelegate.shared = previousAppDelegate

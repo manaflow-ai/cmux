@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import Testing
 
 #if canImport(cmux_DEV)

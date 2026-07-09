@@ -1,82 +1,57 @@
 import AppKit
 import CmuxPanes
+import CmuxWorkspaces
 
-private enum AppleScriptStrings {
-    static let disabled = String(
-        localized: "applescript.error.disabled",
-        defaultValue: "AppleScript is disabled by the macos-applescript configuration."
+extension AppleScriptErrorStrings {
+    /// The canonical AppleScript error payload, resolved from the app bundle so
+    /// every localization ships. The value type itself lives in CmuxWorkspaces;
+    /// only the `String(localized:)` resolution stays app-side.
+    static let localized = AppleScriptErrorStrings(
+        disabled: String(
+            localized: "applescript.error.disabled",
+            defaultValue: "AppleScript is disabled by the macos-applescript configuration."
+        ),
+        missingAction: String(
+            localized: "applescript.error.missingAction",
+            defaultValue: "Missing action string."
+        ),
+        missingInputText: String(
+            localized: "applescript.error.missingInputText",
+            defaultValue: "Missing input text."
+        ),
+        missingTerminalTarget: String(
+            localized: "applescript.error.missingTerminalTarget",
+            defaultValue: "Missing terminal target."
+        ),
+        missingSplitDirection: String(
+            localized: "applescript.error.missingSplitDirection",
+            defaultValue: "Missing or unknown split direction."
+        ),
+        windowUnavailable: String(
+            localized: "applescript.error.windowUnavailable",
+            defaultValue: "Window is no longer available."
+        ),
+        workspaceUnavailable: String(
+            localized: "applescript.error.workspaceUnavailable",
+            defaultValue: "Workspace is no longer available."
+        ),
+        terminalUnavailable: String(
+            localized: "applescript.error.terminalUnavailable",
+            defaultValue: "Terminal is no longer available."
+        ),
+        failedToCreateWindow: String(
+            localized: "applescript.error.failedToCreateWindow",
+            defaultValue: "Failed to create window."
+        ),
+        failedToCreateWorkspace: String(
+            localized: "applescript.error.failedToCreateWorkspace",
+            defaultValue: "Failed to create workspace."
+        ),
+        failedToCreateSplit: String(
+            localized: "applescript.error.failedToCreateSplit",
+            defaultValue: "Failed to create split."
+        )
     )
-    static let missingAction = String(
-        localized: "applescript.error.missingAction",
-        defaultValue: "Missing action string."
-    )
-    static let missingInputText = String(
-        localized: "applescript.error.missingInputText",
-        defaultValue: "Missing input text."
-    )
-    static let missingTerminalTarget = String(
-        localized: "applescript.error.missingTerminalTarget",
-        defaultValue: "Missing terminal target."
-    )
-    static let missingSplitDirection = String(
-        localized: "applescript.error.missingSplitDirection",
-        defaultValue: "Missing or unknown split direction."
-    )
-    static let windowUnavailable = String(
-        localized: "applescript.error.windowUnavailable",
-        defaultValue: "Window is no longer available."
-    )
-    static let workspaceUnavailable = String(
-        localized: "applescript.error.workspaceUnavailable",
-        defaultValue: "Workspace is no longer available."
-    )
-    static let terminalUnavailable = String(
-        localized: "applescript.error.terminalUnavailable",
-        defaultValue: "Terminal is no longer available."
-    )
-    static let failedToCreateWindow = String(
-        localized: "applescript.error.failedToCreateWindow",
-        defaultValue: "Failed to create window."
-    )
-    static let failedToCreateWorkspace = String(
-        localized: "applescript.error.failedToCreateWorkspace",
-        defaultValue: "Failed to create workspace."
-    )
-    static let failedToCreateSplit = String(
-        localized: "applescript.error.failedToCreateSplit",
-        defaultValue: "Failed to create split."
-    )
-}
-
-private extension String {
-    var fourCharCode: UInt32 {
-        utf8.reduce(0) { ($0 << 8) + UInt32($1) }
-    }
-}
-
-private extension Workspace {
-    func scriptingTerminalPanels() -> [TerminalPanel] {
-        var results: [TerminalPanel] = []
-        var seen: Set<UUID> = []
-
-        for panelId in sidebarOrderedPanelIds() {
-            guard seen.insert(panelId).inserted,
-                  let terminal = terminalPanel(for: panelId) else {
-                continue
-            }
-            results.append(terminal)
-        }
-
-        let remaining = panels.values
-            .compactMap { $0 as? TerminalPanel }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
-
-        for terminal in remaining where seen.insert(terminal.id).inserted {
-            results.append(terminal)
-        }
-
-        return results
-    }
 }
 
 @MainActor
@@ -95,7 +70,7 @@ extension NSApplication {
     func validateScript(command: NSScriptCommand) -> Bool {
         guard isAppleScriptEnabled else {
             command.scriptErrorNumber = errAEEventNotPermitted
-            command.scriptErrorString = AppleScriptStrings.disabled
+            command.scriptErrorString = AppleScriptErrorStrings.localized.disabled
             return false
         }
 
@@ -108,7 +83,8 @@ extension NSApplication {
               let appDelegate = AppDelegate.shared else {
             return []
         }
-        return appDelegate.scriptableMainWindows().map { ScriptWindow(windowId: $0.windowId) }
+        return appDelegate.environment.windowRegistry.scriptableMainWindows()
+            .map { ScriptWindow(windowId: $0.windowId) }
     }
 
     @objc(frontWindow)
@@ -121,7 +97,7 @@ extension NSApplication {
         guard isAppleScriptEnabled,
               let windowId = UUID(uuidString: uniqueID),
               let appDelegate = AppDelegate.shared,
-              appDelegate.scriptableMainWindow(windowId: windowId) != nil else {
+              appDelegate.environment.windowRegistry.scriptableMainWindow(windowId: windowId) != nil else {
             return nil
         }
         return ScriptWindow(windowId: windowId)
@@ -134,7 +110,7 @@ extension NSApplication {
             return []
         }
 
-        return appDelegate.scriptableMainWindows()
+        return appDelegate.environment.windowRegistry.scriptableMainWindows()
             .flatMap { state in
                 state.tabManager.tabs.flatMap { workspace in
                     workspace.scriptingTerminalPanels().map {
@@ -152,7 +128,7 @@ extension NSApplication {
             return nil
         }
 
-        for state in appDelegate.scriptableMainWindows() {
+        for state in appDelegate.environment.windowRegistry.scriptableMainWindows() {
             for workspace in state.tabManager.tabs where workspace.terminalPanel(for: terminalId) != nil {
                 return ScriptTerminal(workspaceId: workspace.id, terminalId: terminalId)
             }
@@ -167,13 +143,13 @@ extension NSApplication {
 
         guard let action = command.directParameter as? String else {
             command.scriptErrorNumber = errAEParamMissed
-            command.scriptErrorString = AppleScriptStrings.missingAction
+            command.scriptErrorString = AppleScriptErrorStrings.localized.missingAction
             return nil
         }
 
         guard let terminal = command.evaluatedArguments?["on"] as? ScriptTerminal else {
             command.scriptErrorNumber = errAEParamMissed
-            command.scriptErrorString = AppleScriptStrings.missingTerminalTarget
+            command.scriptErrorString = AppleScriptErrorStrings.localized.missingTerminalTarget
             return nil
         }
 
@@ -186,7 +162,7 @@ extension NSApplication {
 
         guard let appDelegate = AppDelegate.shared else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.failedToCreateWindow
+            command.scriptErrorString = AppleScriptErrorStrings.localized.failedToCreateWindow
             return nil
         }
 
@@ -200,14 +176,14 @@ extension NSApplication {
 
         guard let appDelegate = AppDelegate.shared else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.failedToCreateWorkspace
+            command.scriptErrorString = AppleScriptErrorStrings.localized.failedToCreateWorkspace
             return nil
         }
 
         if let targetWindow = command.evaluatedArguments?["window"] as? ScriptWindow {
             guard let workspaceId = appDelegate.addWorkspace(windowId: targetWindow.windowId, bringToFront: false) else {
                 command.scriptErrorNumber = errAEEventFailed
-                command.scriptErrorString = AppleScriptStrings.failedToCreateWorkspace
+                command.scriptErrorString = AppleScriptErrorStrings.localized.failedToCreateWorkspace
                 return nil
             }
             return ScriptTab(windowId: targetWindow.windowId, tabId: workspaceId)
@@ -325,7 +301,7 @@ final class ScriptWindow: NSObject {
 
         guard AppDelegate.shared?.focusScriptableMainWindow(windowId: windowId, bringToFront: true) == true else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.windowUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.windowUnavailable
             return nil
         }
 
@@ -338,7 +314,7 @@ final class ScriptWindow: NSObject {
 
         guard let window = state?.window else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.windowUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.windowUnavailable
             return nil
         }
 
@@ -450,7 +426,7 @@ final class ScriptTab: NSObject {
         guard let state,
               let workspace else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.workspaceUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.workspaceUnavailable
             return nil
         }
 
@@ -465,7 +441,7 @@ final class ScriptTab: NSObject {
         guard let state,
               let workspace else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.workspaceUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.workspaceUnavailable
             return nil
         }
 
@@ -476,7 +452,7 @@ final class ScriptTab: NSObject {
 
         guard let window = state.window else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.windowUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.windowUnavailable
             return nil
         }
 
@@ -563,9 +539,9 @@ final class ScriptTerminal: NSObject {
         guard NSApp.validateScript(command: command) else { return nil }
 
         guard let directionCode = command.evaluatedArguments?["direction"] as? UInt32,
-              let direction = ScriptSplitDirection(code: directionCode)?.splitDirection else {
+              let direction = SplitDirection(fourCharCode: directionCode) else {
             command.scriptErrorNumber = errAEParamMissed
-            command.scriptErrorString = AppleScriptStrings.missingSplitDirection
+            command.scriptErrorString = AppleScriptErrorStrings.localized.missingSplitDirection
             return nil
         }
 
@@ -573,14 +549,14 @@ final class ScriptTerminal: NSObject {
               let workspace,
               terminal != nil else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.terminalUnavailable
             return nil
         }
 
         guard let newPanelId = state.tabManager.newSplit(tabId: workspaceId, surfaceId: terminalId, direction: direction),
               workspace.terminalPanel(for: newPanelId) != nil else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.failedToCreateSplit
+            command.scriptErrorString = AppleScriptErrorStrings.localized.failedToCreateSplit
             return nil
         }
 
@@ -595,12 +571,12 @@ final class ScriptTerminal: NSObject {
               let workspace,
               terminal != nil else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.terminalUnavailable
             return nil
         }
 
         if let app = AppDelegate.shared {
-            _ = app.focusScriptableMainWindow(windowId: state.windowId, bringToFront: true)
+            _ = app.environment.mainWindowRouter.focusScriptableWindow(windowId: state.windowId, bringToFront: true)
         }
         state.tabManager.selectWorkspace(workspace)
         workspace.focusPanel(terminalId)
@@ -615,7 +591,7 @@ final class ScriptTerminal: NSObject {
               let workspace,
               terminal != nil else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.terminalUnavailable
             return nil
         }
 
@@ -627,7 +603,7 @@ final class ScriptTerminal: NSObject {
 
             guard let window = state.window else {
                 command.scriptErrorNumber = errAEEventFailed
-                command.scriptErrorString = AppleScriptStrings.windowUnavailable
+                command.scriptErrorString = AppleScriptErrorStrings.localized.windowUnavailable
                 return nil
             }
 
@@ -637,7 +613,7 @@ final class ScriptTerminal: NSObject {
 
         guard workspace.closePanel(terminalId, force: true) else {
             command.scriptErrorNumber = errAEEventFailed
-            command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+            command.scriptErrorString = AppleScriptErrorStrings.localized.terminalUnavailable
             return nil
         }
 
@@ -668,47 +644,21 @@ final class ScriptInputTextCommand: NSScriptCommand {
 
         guard let text = directParameter as? String else {
             scriptErrorNumber = errAEParamMissed
-            scriptErrorString = AppleScriptStrings.missingInputText
+            scriptErrorString = AppleScriptErrorStrings.localized.missingInputText
             return nil
         }
 
         guard let terminal = evaluatedArguments?["terminal"] as? ScriptTerminal else {
             scriptErrorNumber = errAEParamMissed
-            scriptErrorString = AppleScriptStrings.missingTerminalTarget
+            scriptErrorString = AppleScriptErrorStrings.localized.missingTerminalTarget
             return nil
         }
 
         guard terminal.input(text: text) else {
             scriptErrorNumber = errAEEventFailed
-            scriptErrorString = AppleScriptStrings.terminalUnavailable
+            scriptErrorString = AppleScriptErrorStrings.localized.terminalUnavailable
             return nil
         }
         return nil
-    }
-}
-
-private enum ScriptSplitDirection {
-    case right
-    case left
-    case down
-    case up
-
-    init?(code: UInt32) {
-        switch code {
-        case "GSrt".fourCharCode: self = .right
-        case "GSlf".fourCharCode: self = .left
-        case "GSdn".fourCharCode: self = .down
-        case "GSup".fourCharCode: self = .up
-        default: return nil
-        }
-    }
-
-    var splitDirection: SplitDirection {
-        switch self {
-        case .right: return .right
-        case .left: return .left
-        case .down: return .down
-        case .up: return .up
-        }
     }
 }

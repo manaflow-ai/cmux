@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSettings"),
+        .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
             name: "CmuxControlSocket",
             dependencies: [
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "Bonsplit", package: "bonsplit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

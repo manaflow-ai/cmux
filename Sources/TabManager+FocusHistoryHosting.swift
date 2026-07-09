@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
@@ -53,5 +54,15 @@ extension TabManager: FocusHistoryHosting {
 
     func triggerFocusFlash(workspaceId: UUID, panelId: UUID) {
         tabs.first(where: { $0.id == workspaceId })?.triggerFocusFlash(panelId: panelId)
+    }
+
+    /// Resolves the panel id the focus-history recording path should store for
+    /// a focused surface, falling back to the surface id when the workspace or
+    /// its surface->panel mapping is gone (legacy
+    /// `tabs.first(...)?.panelIdFromSurfaceId(...) ?? surfaceId`). Lifted from
+    /// `TabManager.swift`; not part of the `FocusHistoryHosting` seam because
+    /// only the focus-surface observer (same window) consumes it.
+    func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
+        tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
     }
 }

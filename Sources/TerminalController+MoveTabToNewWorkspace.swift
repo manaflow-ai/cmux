@@ -1,5 +1,8 @@
 import Foundation
 import Bonsplit
+import CmuxControlSocket
+import CmuxPanes
+import CmuxWindowing
 
 private enum SurfaceSplitOffMessage {
     static let missingSurfaceId = String(localized: "socket.surfaceSplitOff.error.missingSurfaceId", defaultValue: "Missing or invalid surface_id")
@@ -31,12 +34,12 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let app = AppDelegate.shared else {
+        guard let mainWindowRouter = appEnvironment?.mainWindowRouter else {
             return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
         }
 
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-        guard let result = app.moveSurfaceToNewWorkspace(
+        guard let result = mainWindowRouter.moveSurfaceToNewWorkspace(
             panelId: surfaceId,
             destinationManager: tabManager,
             title: v2String(params, "title"),
@@ -68,7 +71,7 @@ extension TerminalController {
             "surface_id": result.surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: result.surfaceId),
             "tab_id": result.surfaceId.uuidString,
-            "tab_ref": v2TabRef(uuid: result.surfaceId),
+            "tab_ref": controlCommandCoordinator.v2TabRef(uuid: result.surfaceId),
             "pane_id": v2OrNull(result.paneId?.uuidString),
             "pane_ref": v2Ref(kind: .pane, uuid: result.paneId),
         ]
@@ -76,32 +79,11 @@ extension TerminalController {
 }
 
 extension TerminalController {
-    nonisolated static let explicitFocusParamV2Methods: Set<String> = [
-        "workspace.create",
-        "layout.open",
-        "workspace.move_to_window",
-        "surface.split",
-        "surface.create",
-        "surface.drag_to_split",
-        "surface.split_off",
-        "surface.move",
-        "surface.reorder",
-        "surface.action",
-        "tab.action",
-        "pane.create",
-        "pane.swap",
-        "pane.break",
-        "pane.join",
-        "markdown.open",
-        "browser.open_split",
-        "sidebar.custom.open"
-    ]
-
-    nonisolated static func explicitFocusParamAllowsFocus(commandKey: String, params: [String: Any]) -> Bool {
-        explicitFocusParamV2Methods.contains(commandKey) && explicitFocusParamValue(params)
-    }
-
-    private nonisolated static func explicitFocusParamValue(_ params: [String: Any]) -> Bool {
+    /// Resolves the legacy `[String: Any]` `focus` request parameter to a
+    /// boolean (the app-side `Any` extraction for ``ControlSocketCommandPolicy``;
+    /// the focus-intent method table itself lives in the package). Mirrors the
+    /// legacy coercion of bool / `NSNumber` / truthy strings.
+    nonisolated static func explicitFocusParamValue(_ params: [String: Any]) -> Bool {
         guard let raw = params["focus"] else { return false }
         if let bool = raw as? Bool { return bool }
         if let number = raw as? NSNumber { return number.boolValue }
@@ -131,7 +113,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.missingSurfaceId, data: nil)
         }
         guard let directionStr = v2String(params, "direction"),
-              let direction = parseSplitDirection(directionStr) else {
+              let direction = SplitDirection(controlToken: directionStr) else {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.invalidDirection, data: nil)
         }
 
@@ -141,11 +123,13 @@ extension TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: SurfaceSplitOffMessage.moveSurfaceFailed, data: nil)
         v2MainSync {
-            guard let app = AppDelegate.shared else {
+            guard let appEnvironment = appEnvironment else {
                 result = .err(code: "unavailable", message: SurfaceSplitOffMessage.appDelegateUnavailable, data: nil)
                 return
             }
-            guard let located = app.locateSurface(surfaceId: surfaceId),
+            let windowRegistry = appEnvironment.windowRegistry
+            let mainWindowRouter = appEnvironment.mainWindowRouter
+            guard let located = windowRegistry.locateSurface(surfaceId: surfaceId),
                   let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
@@ -189,7 +173,7 @@ extension TerminalController {
                 return
             }
             if focus {
-                _ = app.focusMainWindow(windowId: located.windowId)
+                _ = mainWindowRouter.focusMainWindow(windowId: located.windowId)
                 setActiveTabManager(located.tabManager)
                 located.tabManager.focusTab(ws.id, surfaceId: surfaceId, suppressFlash: true)
             } else if let previousFocusedPanelId, ws.panels[previousFocusedPanelId] != nil {

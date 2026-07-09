@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 import Testing
 
@@ -52,7 +53,7 @@ import Testing
         // A Focus is active: storeAssertionRecords holds a live assertion.
         try Data(#"{"data":[{"storeAssertionRecords":[{"assertionDetails":{"x":1}}]}]}"#.utf8)
             .write(to: assertions)
-        #expect(NotificationSoundSettings.isSuppressedByActiveFocus(assertionsFileURL: assertions))
+        #expect(FocusAssertionStore(assertionsFileURL: assertions).isSuppressedByActiveFocus)
     }
 
     @Test func endedFocusDoesNotSuppressSound() throws {
@@ -65,14 +66,14 @@ import Testing
 
         // No Focus active: the assertion array is empty.
         try Data(#"{"data":[{"storeAssertionRecords":[]}]}"#.utf8).write(to: assertions)
-        #expect(!NotificationSoundSettings.isSuppressedByActiveFocus(assertionsFileURL: assertions))
+        #expect(!FocusAssertionStore(assertionsFileURL: assertions).isSuppressedByActiveFocus)
     }
 
     @Test func missingAssertionStoreFailsOpen() {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-dnd-missing-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("Assertions.json", isDirectory: false)
-        #expect(!NotificationSoundSettings.isSuppressedByActiveFocus(assertionsFileURL: missing))
+        #expect(!FocusAssertionStore(assertionsFileURL: missing).isSuppressedByActiveFocus)
     }
 
     // The canonical repro for the Focus bug is: the user enables a Focus, and

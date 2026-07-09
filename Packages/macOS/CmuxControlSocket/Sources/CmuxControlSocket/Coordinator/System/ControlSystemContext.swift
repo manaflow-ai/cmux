@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The system/misc-domain slice of the control-command seam (a constituent of
-/// the ``ControlCommandContext`` umbrella): `system.identify`, `system.tree`,
+/// the ``ControlCommandContext`` umbrella): `system.tree`,
 /// `auth.login`, `session.restore_previous`, `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
@@ -12,14 +12,6 @@ public import Foundation
 /// in-isolation calls.
 @MainActor
 public protocol ControlSystemContext: AnyObject {
-    /// The fully-shaped `system.identify` payload (the still-shared app-side
-    /// `v2Identify`, which also feeds `system.top` / `system.memory` and the
-    /// task-manager snapshot), bridged to a JSON value.
-    ///
-    /// - Parameter params: The identify params (`caller`, `window_id`, …).
-    /// - Returns: The identify payload object.
-    func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue
-
     /// Walks the main windows for `system.tree`, mirroring the legacy
     /// default-window / all-windows / workspace-filter selection.
     ///
@@ -36,9 +28,35 @@ public protocol ControlSystemContext: AnyObject {
         workspaceFilter: UUID?
     ) -> ControlSystemTreeResolution
 
+    /// Builds one `system.top` / `system.memory` workspace node from live
+    /// `Workspace` state (panes, surfaces, browser webviews, status tags),
+    /// mirroring the legacy `v2TopWorkspaceNode` tree walk. The coordinator
+    /// shapes the returned node into the payload dictionary via
+    /// ``ControlCommandCoordinator/systemTopWorkspacePayload(_:)``.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace to snapshot.
+    ///   - index: The workspace's index within its window's tab list.
+    ///   - selected: Whether this is the window's selected workspace.
+    /// - Returns: The workspace node, or `nil` when the workspace no longer
+    ///   resolves.
+    func controlSystemTopWorkspaceNode(
+        workspaceID: UUID,
+        index: Int,
+        selected: Bool
+    ) -> ControlSystemTopWorkspaceNode?
+
     /// Whether the socket access mode requires password auth, for the
     /// `auth.login` payload's `required` field.
     func controlAuthPasswordRequired() -> Bool
+
+    /// The server's current socket path, for the `system.capabilities`
+    /// `socket_path` field (the live `socketServer.currentSocketPath`).
+    func controlSystemSocketPath() -> String
+
+    /// The server access mode's raw value, for the `system.capabilities`
+    /// `access_mode` field (the live `socketServer.accessMode.rawValue`).
+    func controlSystemAccessModeRawValue() -> String
 
     /// Reopens the previous session snapshot for `session.restore_previous`.
     ///
@@ -71,15 +89,6 @@ public protocol ControlSystemContext: AnyObject {
     /// - Parameter routing: The routing selectors.
     /// - Returns: The snapshot, or `nil` when no TabManager resolved.
     func controlExtensionSidebarSnapshot(routing: ControlRoutingSelectors) -> ControlExtensionSidebarSnapshot?
-
-    /// Runs one `workspace.action` mutation, delegating to the shared
-    /// app-side `v2WorkspaceAction` (also driven by the mobile host's gated
-    /// `workspace.action` RPC, so the body stays app-side) and bridging its
-    /// fully-shaped result.
-    ///
-    /// - Parameter params: The raw command params.
-    /// - Returns: The fully shaped call result.
-    func controlWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult
 
     /// Runs one `surface.action` / `tab.action` mutation in the legacy order.
     ///
@@ -120,4 +129,15 @@ public protocol ControlSystemContext: AnyObject {
     /// - Parameter token: The token to accept, or `nil` to disable.
     func controlMobileDevStackAuthSetToken(_ token: String?)
     #endif
+
+    // MARK: - v1 line-protocol help body
+
+    /// The v1 `help` body: the full human-readable command-reference text (with
+    /// its DEBUG-only trailing section). Returned verbatim — byte-identical to
+    /// the legacy `TerminalController.helpText`. The witness carries the text
+    /// app-side because the DEBUG/release split and the exact wording are frozen
+    /// app-resident copy.
+    ///
+    /// - Returns: The raw v1 help text.
+    func controlHelpTextV1() -> String
 }

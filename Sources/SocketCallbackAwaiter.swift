@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 
 /// Synchronously waits for the callback delivered by `start`, up to `timeout`
 /// seconds, returning `nil` on timeout. The shared blocking-wait primitive for

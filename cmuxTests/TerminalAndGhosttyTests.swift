@@ -1766,17 +1766,17 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testCopyModeBypassAllowsOnlyCommandShortcuts() {
-        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command]))
-        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .shift]))
-        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .option]))
-        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option]))
-        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option, .shift]))
-        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
+        XCTAssertTrue(TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: [.command]))
+        XCTAssertTrue(TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: [.command, .shift]))
+        XCTAssertTrue(TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: [.command, .option]))
+        XCTAssertFalse(TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: [.option]))
+        XCTAssertFalse(TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: [.option, .shift]))
+        XCTAssertFalse(TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: [.control]))
     }
 
     func testVimMotionsWithoutSelectionMoveCursorInsteadOfViewport() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 38,
                 charactersIgnoringModifiers: "j",
                 modifierFlags: [],
@@ -1785,7 +1785,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.down)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 40,
                 charactersIgnoringModifiers: "k",
                 modifierFlags: [],
@@ -1794,7 +1794,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.up)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 4,
                 charactersIgnoringModifiers: "h",
                 modifierFlags: [],
@@ -1803,7 +1803,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.left)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 37,
                 charactersIgnoringModifiers: "l",
                 modifierFlags: [],
@@ -1837,7 +1837,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
         for testCase in cases {
             XCTAssertEqual(
-                terminalKeyboardCopyModeAction(
+                TerminalKeyboardCopyModeResolution.action(
                     keyCode: testCase.keyCode,
                     charactersIgnoringModifiers: testCase.characters,
                     modifierFlags: [],
@@ -1859,7 +1859,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
         for testCase in cases {
             XCTAssertEqual(
-                terminalKeyboardCopyModeAction(
+                TerminalKeyboardCopyModeResolution.action(
                     keyCode: testCase.keyCode,
                     charactersIgnoringModifiers: testCase.characters,
                     modifierFlags: [.capsLock],
@@ -1872,7 +1872,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
     func testJKWithSelectionAdjustSelection() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 38,
                 charactersIgnoringModifiers: "j",
                 modifierFlags: [],
@@ -1881,7 +1881,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.down)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 40,
                 charactersIgnoringModifiers: "k",
                 modifierFlags: [],
@@ -1894,7 +1894,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testControlPagingSupportsPrintableAndControlCharacters() {
         // Ctrl+U = half-page up (vim standard).
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{15}",
                 modifierFlags: [.control],
@@ -1903,7 +1903,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .scrollHalfPage(-1)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{04}",
                 modifierFlags: [.control],
@@ -1912,7 +1912,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.pageDown)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{02}",
                 modifierFlags: [.control],
@@ -1921,7 +1921,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .scrollPage(-1)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{06}",
                 modifierFlags: [.control],
@@ -1930,7 +1930,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.pageDown)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{19}",
                 modifierFlags: [.control],
@@ -1939,7 +1939,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .scrollLines(-1)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{05}",
                 modifierFlags: [.control],
@@ -1948,7 +1948,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .scrollLines(1)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{05}",
                 modifierFlags: [.control],
@@ -1960,7 +1960,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
     func testVGYMapping() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifierFlags: [],
@@ -1969,7 +1969,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .startSelection
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifierFlags: [],
@@ -1978,7 +1978,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .clearSelection
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 16,
                 charactersIgnoringModifiers: "y",
                 modifierFlags: [],
@@ -1991,7 +1991,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testGAndShiftGMapping() {
         // Bare "g" is a prefix key (gg), not an immediate action.
         XCTAssertNil(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 5,
                 charactersIgnoringModifiers: "g",
                 modifierFlags: [],
@@ -1999,7 +1999,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 5,
                 charactersIgnoringModifiers: "g",
                 modifierFlags: [.shift],
@@ -2011,7 +2011,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
     func testLineBoundaryPromptAndSearchMappings() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifierFlags: [],
@@ -2020,7 +2020,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.beginningOfLine)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifierFlags: [],
@@ -2029,7 +2029,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.beginningOfLine)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 20,
                 charactersIgnoringModifiers: "^",
                 modifierFlags: [.shift],
@@ -2038,7 +2038,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.beginningOfLine)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 21,
                 charactersIgnoringModifiers: "4",
                 modifierFlags: [.shift],
@@ -2047,7 +2047,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.endOfLine)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 21,
                 charactersIgnoringModifiers: "4",
                 modifierFlags: [.shift],
@@ -2056,7 +2056,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .adjustSelection(.endOfLine)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 33,
                 charactersIgnoringModifiers: "[",
                 modifierFlags: [.shift],
@@ -2065,7 +2065,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .jumpToPrompt(-1)
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 30,
                 charactersIgnoringModifiers: "]",
                 modifierFlags: [.shift],
@@ -2074,7 +2074,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .jumpToPrompt(1)
         )
         XCTAssertNil(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 21,
                 charactersIgnoringModifiers: "4",
                 modifierFlags: [],
@@ -2082,7 +2082,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 33,
                 charactersIgnoringModifiers: "[",
                 modifierFlags: [],
@@ -2090,7 +2090,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 30,
                 charactersIgnoringModifiers: "]",
                 modifierFlags: [],
@@ -2098,7 +2098,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 44,
                 charactersIgnoringModifiers: "/",
                 modifierFlags: [],
@@ -2107,7 +2107,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .startSearch
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 45,
                 charactersIgnoringModifiers: "n",
                 modifierFlags: [],
@@ -2116,7 +2116,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .searchNext
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 45,
                 charactersIgnoringModifiers: "n",
                 modifierFlags: [.shift],
@@ -2128,7 +2128,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
     func testShiftVStartsVisualLineSelection() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifierFlags: [.shift],
@@ -2137,7 +2137,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .startLineSelection
         )
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifierFlags: [.shift],
@@ -2149,7 +2149,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
     func testEscapeAlwaysExits() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 53,
                 charactersIgnoringModifiers: "",
                 modifierFlags: [],
@@ -2161,7 +2161,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
 
     func testQAlwaysExits() {
         XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 12, // kVK_ANSI_Q
                 charactersIgnoringModifiers: "q",
                 modifierFlags: [],
@@ -2181,7 +2181,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         hasSelection: Bool,
         state: inout TerminalKeyboardCopyModeInputState
     ) -> TerminalKeyboardCopyModeResolution {
-        terminalKeyboardCopyModeResolve(
+        TerminalKeyboardCopyModeResolution.resolve(
             keyCode: keyCode,
             charactersIgnoringModifiers: chars,
             modifierFlags: modifiers,
@@ -2537,7 +2537,7 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
     @Test func visualSelectionAnchorFollowsMovedCursor() {
         var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
 
-        let moveAction = terminalKeyboardCopyModeAction(
+        let moveAction = TerminalKeyboardCopyModeResolution.action(
             keyCode: 38,
             charactersIgnoringModifiers: "j",
             modifierFlags: [],
@@ -2549,7 +2549,7 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
         }
 
         #expect(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifierFlags: [],
@@ -2576,7 +2576,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         let fallbackColor = NSColor.black
         let fallbackOpacity = 1.0
         let notification = Notification(
-            name: .ghosttyDefaultBackgroundDidChange,
+            name: Notification.Name("ghosttyDefaultBackgroundDidChange"),
             object: nil,
             userInfo: [
                 GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
@@ -2589,7 +2589,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
+        guard let srgb = actual.usingColorSpace(NSColorSpace.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -2603,14 +2603,14 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorFromNotificationFallsBackWhenPayloadMissing() {
         let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
         let fallbackOpacity = 0.42
-        let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
+        let notification = Notification(name: Notification.Name("ghosttyDefaultBackgroundDidChange"))
 
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
+        guard let srgb = actual.usingColorSpace(NSColorSpace.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -3904,7 +3904,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             super.scrollWheel(with: event)
             guard let nextScrollbar else { return }
             NotificationCenter.default.post(
-                name: .ghosttyDidUpdateScrollbar,
+                name: Notification.Name("ghosttyDidUpdateScrollbar"),
                 object: self,
                 userInfo: [GhosttyNotificationKey.scrollbar: nextScrollbar]
             )
@@ -4087,7 +4087,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
+            name: Notification.Name("ghosttyDidUpdateScrollbar"),
             object: surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
         )
@@ -4113,7 +4113,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
 
         NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
+            name: Notification.Name("ghosttyDidUpdateScrollbar"),
             object: surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
         )
@@ -4400,7 +4400,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         var focusNotificationCount = 0
         XCTAssertTrue(
-            startOrFocusTerminalSearch(surface) { _ in
+            surface.startOrFocusSearch { _ in
                 focusNotificationCount += 1
             }
         )
@@ -5559,7 +5559,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
+        let target = try XCTUnwrap(TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()).resolveOpenURLTarget("https://example.com/path?q=1"))
         switch target {
         case let .embeddedBrowser(url):
             XCTAssertEqual(url.scheme, "https")
@@ -5571,7 +5571,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesBareDomainAsEmbeddedBrowser() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
+        let target = try XCTUnwrap(TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()).resolveOpenURLTarget("example.com/docs"))
         switch target {
         case let .embeddedBrowser(url):
             XCTAssertEqual(url.scheme, "https")
@@ -5583,7 +5583,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesFileSchemeAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:///tmp/cmux.txt"))
+        let target = try XCTUnwrap(TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()).resolveOpenURLTarget("file:///tmp/cmux.txt"))
         switch target {
         case let .external(url):
             XCTAssertTrue(url.isFileURL)
@@ -5594,7 +5594,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesAbsolutePathAsExternalFileURL() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
+        let target = try XCTUnwrap(TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()).resolveOpenURLTarget("/tmp/cmux-path.txt"))
         switch target {
         case let .external(url):
             XCTAssertTrue(url.isFileURL)
@@ -5605,7 +5605,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesNonWebSchemeAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("mailto:test@example.com"))
+        let target = try XCTUnwrap(TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()).resolveOpenURLTarget("mailto:test@example.com"))
         switch target {
         case let .external(url):
             XCTAssertEqual(url.scheme, "mailto")
@@ -5615,7 +5615,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesHostlessHTTPSAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https:///tmp/cmux.txt"))
+        let target = try XCTUnwrap(TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()).resolveOpenURLTarget("https:///tmp/cmux.txt"))
         switch target {
         case let .external(url):
             XCTAssertEqual(url.scheme, "https")

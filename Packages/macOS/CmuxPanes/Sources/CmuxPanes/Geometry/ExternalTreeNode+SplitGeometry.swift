@@ -110,20 +110,13 @@ extension ExternalTreeNode {
         return SplitDividerAdjustment(splitId: candidate.splitId, position: clamped)
     }
 
-    private struct ResizeSplitCandidate {
-        let splitId: UUID
-        let orientation: String
-        let paneInFirstChild: Bool
-        let dividerPosition: CGFloat
-        let axisPixels: CGFloat
-    }
-
-    private struct ResizeSplitTrace {
-        let containsTarget: Bool
-        let bounds: CGRect
-    }
-
-    private func collectResizeCandidates(
+    /// Walks the split subtree rooted at `self`, appending one
+    /// ``ResizeSplitCandidate`` for every split that encloses the pane named
+    /// `targetPaneId` (innermost first), and returns a ``ResizeSplitTrace``
+    /// reporting whether the target was found plus the subtree's combined
+    /// bounds. The pure tree-walk underlying both relative and absolute pane
+    /// resizes; it reads only the Bonsplit snapshot and never mutates state.
+    public func collectResizeCandidates(
         targetPaneId: String,
         candidates: inout [ResizeSplitCandidate]
     ) -> ResizeSplitTrace {

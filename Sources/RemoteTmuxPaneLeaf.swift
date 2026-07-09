@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxRemoteWorkspace
 import SwiftUI
 
 /// One pane leaf: the terminal panel, chrome-free. Pane actions live in its

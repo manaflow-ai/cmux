@@ -385,7 +385,7 @@ struct AgentChatSessionRegistryLifecycleTests {
         try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         #expect(service.hasBoundedReadableTranscript(record))
-        _ = service.noteHookEvent(WorkstreamEvent(
+        service.noteHookEvent(WorkstreamEvent(
             sessionId: sessionID, hookEventName: .sessionEnd, source: "claude",
             workspaceId: record.workspaceID, surfaceId: record.surfaceID,
             transcriptPath: transcriptURL.path, cwd: "/Users/example/project", ppid: nil,

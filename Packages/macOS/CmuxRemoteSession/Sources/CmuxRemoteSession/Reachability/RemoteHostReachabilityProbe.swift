@@ -1,5 +1,5 @@
 public import CmuxRemoteWorkspace
-public import Foundation
+internal import Foundation
 internal import Network
 
 /// Quick reachability probe for the SSH endpoint behind a remote workspace.

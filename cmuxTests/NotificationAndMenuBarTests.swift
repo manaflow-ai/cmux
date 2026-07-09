@@ -6,6 +6,9 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxNotifications
+import CmuxSettings
+import CmuxAppKitSupportUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -320,36 +323,31 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
 
 @MainActor
 final class AppIconSettingsTests: XCTestCase {
+    private func makeStore() -> AppIconSettingsStore {
+        let suite = UserDefaults(suiteName: "AppIconSettingsTests.\(UUID().uuidString)")!
+        return AppIconSettingsStore(defaults: suite)
+    }
+
     func testApplyDarkSetsRuntimeIconAndNotifiesDockTilePlugin() {
-        let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
-        var receivedRuntimeIcon: NSImage?
+        var appliedManualModes: [AppIconMode] = []
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
 
-        let environment = AppIconSettings.Environment(
-            isApplicationFinishedLaunching: { true },
-            imageForMode: { mode in
-                XCTAssertEqual(mode, .dark)
-                return expectedIcon
-            },
-            setApplicationIconImage: { icon in
-                receivedRuntimeIcon = icon
-            },
-            startAppearanceObservation: {
-                startObservationCallCount += 1
-            },
-            stopAppearanceObservation: {
-                stopObservationCallCount += 1
-            },
-            notifyDockTilePlugin: {
-                dockTileNotificationCount += 1
-            }
+        let applier = AppIconApplier(
+            store: makeStore(),
+            environment: AppIconApplier.Environment(
+                isApplicationFinishedLaunching: { true },
+                applyManualIcon: { appliedManualModes.append($0) },
+                startAppearanceObservation: { startObservationCallCount += 1 },
+                stopAppearanceObservation: { stopObservationCallCount += 1 },
+                notifyDockTilePlugin: { dockTileNotificationCount += 1 }
+            )
         )
 
-        AppIconSettings.applyIcon(.dark, environment: environment)
+        applier.apply(.dark)
 
-        XCTAssertTrue(receivedRuntimeIcon === expectedIcon)
+        XCTAssertEqual(appliedManualModes, [.dark])
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 1)
@@ -360,27 +358,20 @@ final class AppIconSettingsTests: XCTestCase {
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
 
-        let environment = AppIconSettings.Environment(
-            isApplicationFinishedLaunching: { true },
-            imageForMode: { mode in
-                XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
-                return nil
-            },
-            setApplicationIconImage: { _ in
-                XCTFail("Automatic mode should delegate live updates to the appearance observer")
-            },
-            startAppearanceObservation: {
-                startObservationCallCount += 1
-            },
-            stopAppearanceObservation: {
-                stopObservationCallCount += 1
-            },
-            notifyDockTilePlugin: {
-                dockTileNotificationCount += 1
-            }
+        let applier = AppIconApplier(
+            store: makeStore(),
+            environment: AppIconApplier.Environment(
+                isApplicationFinishedLaunching: { true },
+                applyManualIcon: { mode in
+                    XCTFail("Automatic mode should not pin a manual icon: \(mode.rawValue)")
+                },
+                startAppearanceObservation: { startObservationCallCount += 1 },
+                stopAppearanceObservation: { stopObservationCallCount += 1 },
+                notifyDockTilePlugin: { dockTileNotificationCount += 1 }
+            )
         )
 
-        AppIconSettings.applyIcon(.automatic, environment: environment)
+        applier.apply(.automatic)
 
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(startObservationCallCount, 1)
@@ -388,36 +379,25 @@ final class AppIconSettingsTests: XCTestCase {
     }
 
     func testApplyDarkBeforeLaunchDoesNotTouchRuntimeIconState() {
-        var imageRequestCount = 0
-        var runtimeIconSetCount = 0
+        var applyManualIconCount = 0
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
 
-        let environment = AppIconSettings.Environment(
-            isApplicationFinishedLaunching: { false },
-            imageForMode: { _ in
-                imageRequestCount += 1
-                return NSImage(size: NSSize(width: 16, height: 16))
-            },
-            setApplicationIconImage: { _ in
-                runtimeIconSetCount += 1
-            },
-            startAppearanceObservation: {
-                startObservationCallCount += 1
-            },
-            stopAppearanceObservation: {
-                stopObservationCallCount += 1
-            },
-            notifyDockTilePlugin: {
-                dockTileNotificationCount += 1
-            }
+        let applier = AppIconApplier(
+            store: makeStore(),
+            environment: AppIconApplier.Environment(
+                isApplicationFinishedLaunching: { false },
+                applyManualIcon: { _ in applyManualIconCount += 1 },
+                startAppearanceObservation: { startObservationCallCount += 1 },
+                stopAppearanceObservation: { stopObservationCallCount += 1 },
+                notifyDockTilePlugin: { dockTileNotificationCount += 1 }
+            )
         )
 
-        AppIconSettings.applyIcon(.dark, environment: environment)
+        applier.apply(.dark)
 
-        XCTAssertEqual(imageRequestCount, 0)
-        XCTAssertEqual(runtimeIconSetCount, 0)
+        XCTAssertEqual(applyManualIconCount, 0)
         XCTAssertEqual(dockTileNotificationCount, 0)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 0)
@@ -736,40 +716,40 @@ final class NotificationDockBadgeTests: XCTestCase {
         var readNotification = terminalNotification
         readNotification.isRead = true
 
-        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(clickActionNotification))
-        XCTAssertTrue(AppDelegate.shouldOpenFromJumpToLatestUnread(terminalNotification))
-        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(readNotification))
-        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(
-            terminalNotification,
-            excludingNotificationId: terminalNotification.id
-        ))
+        func openable(_ n: TerminalNotification, excludingNotificationId id: UUID? = nil) -> Bool {
+            n.navSnapshot.isOpenableForJump(excludingNotificationId: id, excludingWorkspaceId: nil)
+        }
+        XCTAssertFalse(openable(clickActionNotification))
+        XCTAssertTrue(openable(terminalNotification))
+        XCTAssertFalse(openable(readNotification))
+        XCTAssertFalse(openable(terminalNotification, excludingNotificationId: terminalNotification.id))
     }
 
     func testDockBadgeLabelEnabledAndCounted() {
-        XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 1, isEnabled: true), "1")
-        XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 42, isEnabled: true), "42")
-        XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 100, isEnabled: true), "99+")
+        XCTAssertEqual(DockBadgeLabel(unreadCount: 1, isEnabled: true).text, "1")
+        XCTAssertEqual(DockBadgeLabel(unreadCount: 42, isEnabled: true).text, "42")
+        XCTAssertEqual(DockBadgeLabel(unreadCount: 100, isEnabled: true).text, "99+")
     }
 
     func testDockBadgeLabelHiddenWhenDisabledOrZero() {
-        XCTAssertNil(TerminalNotificationStore.dockBadgeLabel(unreadCount: 0, isEnabled: true))
-        XCTAssertNil(TerminalNotificationStore.dockBadgeLabel(unreadCount: 5, isEnabled: false))
+        XCTAssertNil(DockBadgeLabel(unreadCount: 0, isEnabled: true).text)
+        XCTAssertNil(DockBadgeLabel(unreadCount: 5, isEnabled: false).text)
     }
 
     func testDockBadgeLabelShowsRunTagEvenWithoutUnread() {
         XCTAssertEqual(
-            TerminalNotificationStore.dockBadgeLabel(unreadCount: 0, isEnabled: true, runTag: "verify-tag"),
+            DockBadgeLabel(unreadCount: 0, isEnabled: true, runTag: "verify-tag").text,
             "verify-tag"
         )
     }
 
     func testDockBadgeLabelCombinesRunTagAndUnreadCount() {
         XCTAssertEqual(
-            TerminalNotificationStore.dockBadgeLabel(unreadCount: 7, isEnabled: true, runTag: "verify"),
+            DockBadgeLabel(unreadCount: 7, isEnabled: true, runTag: "verify").text,
             "verify:7"
         )
         XCTAssertEqual(
-            TerminalNotificationStore.dockBadgeLabel(unreadCount: 120, isEnabled: true, runTag: "verify"),
+            DockBadgeLabel(unreadCount: 120, isEnabled: true, runTag: "verify").text,
             "verify:99+"
         )
     }
@@ -784,13 +764,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+        XCTAssertTrue(NotificationDefaultsToggle.dockBadge.isEnabled(defaults: defaults))
 
-        defaults.set(false, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
-        XCTAssertFalse(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+        defaults.set(false, forKey: NotificationDefaultsToggle.dockBadge.key)
+        XCTAssertFalse(NotificationDefaultsToggle.dockBadge.isEnabled(defaults: defaults))
 
-        defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
-        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+        defaults.set(true, forKey: NotificationDefaultsToggle.dockBadge.key)
+        XCTAssertTrue(NotificationDefaultsToggle.dockBadge.isEnabled(defaults: defaults))
     }
 
     func testNotificationPaneFlashPreferenceDefaultsToEnabled() {
@@ -803,13 +783,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(NotificationDefaultsToggle.paneFlash.isEnabled(defaults: defaults))
 
-        defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
-        XCTAssertFalse(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: NotificationDefaultsToggle.paneFlash.key)
+        XCTAssertFalse(NotificationDefaultsToggle.paneFlash.isEnabled(defaults: defaults))
 
-        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
-        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: NotificationDefaultsToggle.paneFlash.key)
+        XCTAssertTrue(NotificationDefaultsToggle.paneFlash.isEnabled(defaults: defaults))
     }
 
     func testMenuBarExtraPreferenceDefaultsToVisible() {
@@ -1233,8 +1213,8 @@ final class NotificationDockBadgeTests: XCTestCase {
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let hadSoundValue = defaults.object(forKey: NotificationSoundSettings.key) != nil
         let originalSoundValue = defaults.object(forKey: NotificationSoundSettings.key)
-        let hadCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey) != nil
-        let originalCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey)
+        let hadCommandValue = defaults.object(forKey: NotificationCustomCommandRunner.defaultsKey) != nil
+        let originalCommandValue = defaults.object(forKey: NotificationCustomCommandRunner.defaultsKey)
 
         var deliveredNotificationIDs: [UUID] = []
 
@@ -1248,7 +1228,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set("none", forKey: NotificationSoundSettings.key)
         defaults.set(
             "printf '%s\\n%s\\n%s' \"$CMUX_NOTIFICATION_TITLE\" \"$CMUX_NOTIFICATION_SUBTITLE\" \"$CMUX_NOTIFICATION_BODY\" > '\(commandOutputURL.path)'",
-            forKey: NotificationSoundSettings.customCommandKey
+            forKey: NotificationCustomCommandRunner.defaultsKey
         )
 
         defer {
@@ -1262,9 +1242,9 @@ final class NotificationDockBadgeTests: XCTestCase {
                 defaults.removeObject(forKey: NotificationSoundSettings.key)
             }
             if hadCommandValue {
-                defaults.set(originalCommandValue, forKey: NotificationSoundSettings.customCommandKey)
+                defaults.set(originalCommandValue, forKey: NotificationCustomCommandRunner.defaultsKey)
             } else {
-                defaults.removeObject(forKey: NotificationSoundSettings.customCommandKey)
+                defaults.removeObject(forKey: NotificationCustomCommandRunner.defaultsKey)
             }
             try? FileManager.default.removeItem(at: commandOutputURL)
         }
@@ -1301,10 +1281,10 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .authorized), .authorized)
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .provisional), .provisional)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .notDetermined), .notDetermined)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .denied), .denied)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .authorized), .authorized)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .provisional), .provisional)
     }
 
     func testNotificationAuthorizationStateDeliveryCapability() {
@@ -1328,20 +1308,17 @@ final class NotificationDockBadgeTests: XCTestCase {
 
     func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
         XCTAssertTrue(
-            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
-                status: .notDetermined,
+            UNAuthorizationStatus.notDetermined.shouldDeferAutomaticAuthorizationRequest(
                 isAppActive: false
             )
         )
         XCTAssertFalse(
-            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
-                status: .notDetermined,
+            UNAuthorizationStatus.notDetermined.shouldDeferAutomaticAuthorizationRequest(
                 isAppActive: true
             )
         )
         XCTAssertFalse(
-            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
-                status: .authorized,
+            UNAuthorizationStatus.authorized.shouldDeferAutomaticAuthorizationRequest(
                 isAppActive: false
             )
         )
@@ -1349,22 +1326,22 @@ final class NotificationDockBadgeTests: XCTestCase {
 
     func testNotificationAuthorizationRequestGatingAllowsSettingsRetry() {
         XCTAssertTrue(
-            TerminalNotificationStore.shouldRequestAuthorization(
+            NotificationAuthorizationRequestGate(
                 isAutomaticRequest: false,
                 hasRequestedAutomaticAuthorization: true
-            )
+            ).shouldRequestAuthorization
         )
         XCTAssertTrue(
-            TerminalNotificationStore.shouldRequestAuthorization(
+            NotificationAuthorizationRequestGate(
                 isAutomaticRequest: true,
                 hasRequestedAutomaticAuthorization: false
-            )
+            ).shouldRequestAuthorization
         )
         XCTAssertFalse(
-            TerminalNotificationStore.shouldRequestAuthorization(
+            NotificationAuthorizationRequestGate(
                 isAutomaticRequest: true,
                 hasRequestedAutomaticAuthorization: true
-            )
+            ).shouldRequestAuthorization
         )
     }
 
@@ -1575,13 +1552,13 @@ final class NotificationDockBadgeTests: XCTestCase {
 }
 
 
-final class MenuBarBadgeLabelFormatterTests: XCTestCase {
+final class MenuBarBadgeLabelTests: XCTestCase {
     func testBadgeLabelFormatting() {
-        XCTAssertNil(MenuBarBadgeLabelFormatter.badgeText(for: 0))
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 1), "1")
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 9), "9")
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 10), "9+")
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 47), "9+")
+        XCTAssertNil(MenuBarBadgeLabel(unreadCount: 0).text)
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 1).text, "1")
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 9).text, "9")
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 10).text, "9+")
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 47).text, "9+")
     }
 }
 
@@ -1766,7 +1743,7 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: false
         )
 
-        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: "workspace-1")
+        let line = MenuBarNotificationLine(notification: notification, tabTitle: "workspace-1").plainTitle
         XCTAssertTrue(line.hasPrefix("● Build finished"))
         XCTAssertTrue(line.contains("All checks passed"))
         XCTAssertTrue(line.contains("workspace-1"))
@@ -1784,7 +1761,7 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: true
         )
 
-        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: nil)
+        let line = MenuBarNotificationLine(notification: notification, tabTitle: nil).plainTitle
         XCTAssertTrue(line.hasPrefix("  Deploy"))
         XCTAssertTrue(line.contains("staging"))
     }
@@ -1801,12 +1778,12 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: false
         )
 
-        let title = MenuBarNotificationLineFormatter.menuTitle(
+        let title = MenuBarNotificationLine(
             notification: notification,
             tabTitle: "workspace-with-a-very-long-name",
             maxWidth: 120,
             maxLines: 3
-        )
+        ).menuTitle
 
         XCTAssertLessThanOrEqual(title.components(separatedBy: "\n").count, 3)
         XCTAssertTrue(title.hasSuffix("…"))
@@ -1824,12 +1801,12 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: false
         )
 
-        let title = MenuBarNotificationLineFormatter.menuTitle(
+        let title = MenuBarNotificationLine(
             notification: notification,
             tabTitle: "w1",
             maxWidth: 320,
             maxLines: 3
-        )
+        ).menuTitle
 
         XCTAssertFalse(title.hasSuffix("…"))
     }
@@ -1891,8 +1868,8 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
 
 final class MenuBarIconRendererTests: XCTestCase {
     func testImageWidthDoesNotShiftWhenBadgeAppears() {
-        let noBadge = MenuBarIconRenderer.makeImage(unreadCount: 0)
-        let withBadge = MenuBarIconRenderer.makeImage(unreadCount: 2)
+        let noBadge = NSImage.cmuxMenuBarStatusIcon(unreadCount: 0)
+        let withBadge = NSImage.cmuxMenuBarStatusIcon(unreadCount: 2)
 
         XCTAssertEqual(noBadge.size.width, 18, accuracy: 0.001)
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)

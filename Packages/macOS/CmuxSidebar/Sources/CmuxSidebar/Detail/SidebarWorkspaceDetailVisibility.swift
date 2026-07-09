@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Resolved visibility of the primary workspace-row detail lines (the
 /// workspace description and the latest notification message).

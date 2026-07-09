@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import CryptoKit
 import Foundation
 
@@ -143,7 +144,7 @@ final class DiffCommentStore {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first,
-        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy().isRunningUnderAutomatedTests
     ) -> URL? {
         guard !isRunningUnderAutomatedTests, let appSupportDirectory else { return nil }
         return appSupportDirectory

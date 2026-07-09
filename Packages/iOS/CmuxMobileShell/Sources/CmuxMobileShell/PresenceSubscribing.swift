@@ -1,5 +1,3 @@
-public import Foundation
-
 /// The shell store's seam onto the presence subscribe stream, so the live
 /// wiring (``MobileShellComposite``) is testable with a scripted fake while
 /// ``PresenceClient`` provides the real WebSocket transport.

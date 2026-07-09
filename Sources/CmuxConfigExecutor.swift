@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Foundation
 
 @MainActor
@@ -383,7 +384,7 @@ struct CmuxConfigExecutor {
             kind: "workspaceCommand",
             command: nil,
             target: nil,
-            workspaceCommand: command,
+            workspaceCommand: CmuxWorkspaces.CmuxCommandDefinition(appCommand: command),
             configPath: configSourcePath.map(canonicalPath),
             projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
             iconFingerprint: icon?.projectLocalImageFingerprint(

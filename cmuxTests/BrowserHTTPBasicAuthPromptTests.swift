@@ -203,7 +203,7 @@ struct BrowserHTTPBasicAuthPromptTests {
     func mainBrowserCoalescesDuplicateBasicAuthChallengesWhilePreloadPromptIsPending() throws {
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: try #require(URL(string: "about:blank")),
+            initialURL: URL(string: "about:blank")!,
             preloadInitialNavigationInBackground: true,
             isRemoteWorkspace: false
         )

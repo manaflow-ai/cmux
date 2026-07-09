@@ -100,7 +100,7 @@ extension cmuxApp {
             return
         }
 
-        if let targetWindow = AppDelegate.shared?.showMainWindowFromMenuBar() {
+        if let targetWindow = appDelegate.environment.mainWindowRouter.showMainWindowFromMenuBar() {
             FeedbackComposerBridge().openComposer(in: targetWindow)
         }
     }

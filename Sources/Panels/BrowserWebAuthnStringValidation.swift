@@ -1,3 +1,4 @@
+import CmuxBrowser
 extension Optional where Wrapped == String {
     func validateWebAuthnString(maxUTF8Bytes: Int) throws {
         guard let self else { return }

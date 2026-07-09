@@ -19,9 +19,23 @@ final class MobileWorkspaceListObserver {
     /// observer; the weak reference keeps the observer from extending the store's
     /// lifetime, mirroring how `tabManager` is held.
     private weak var notificationStore: TerminalNotificationStore?
-    private var tabsCancellable: AnyCancellable?
-    private var selectionCancellable: AnyCancellable?
-    private var groupsCancellable: AnyCancellable?
+    /// `@Observable` watches on the `WorkspacesModel` (tabs / selection /
+    /// groups), replacing the retired `tabsPublisher` / `selectedTabIdPublisher`
+    /// / `workspaceGroupsPublisher` Combine bridges. Each fires on a MainActor
+    /// hop after the corresponding `tabs` / `selectedTabId` / `workspaceGroups`
+    /// mutation and pushes into a throttled `PassthroughSubject` so the iOS-facing
+    /// emit cadence (first event instant, bursts coalesced to one trailing emit
+    /// per `throttleMilliseconds`) is byte-identical to the bridges' former
+    /// `.throttle(scheduler: RunLoop.main, latest: true)`.
+    private var tabsObservation: WorkspacesObservation?
+    private var selectionObservation: WorkspacesObservation?
+    private var groupsObservation: WorkspacesObservation?
+    private let tabsChanged = PassthroughSubject<Void, Never>()
+    private let selectionChanged = PassthroughSubject<Void, Never>()
+    private let groupsChanged = PassthroughSubject<Void, Never>()
+    private var tabsChangedCancellable: AnyCancellable?
+    private var selectionChangedCancellable: AnyCancellable?
+    private var groupsChangedCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
@@ -55,35 +69,50 @@ final class MobileWorkspaceListObserver {
         lastSummaryHash = initial
         emitIfNeeded(force: true)
 
-        tabsCancellable = tabManager.tabsPublisher
+        // Each `@Observable` watch pushes into its own throttled subject so the
+        // tabs / selection / groups streams coalesce independently, exactly as
+        // the three separate `.throttle` bridges did. The watch reads committed
+        // post-change state on the MainActor hop, so the throttled handler reads
+        // `tabManager.tabs` rather than a willSet-time emitted value (the bridges'
+        // `.throttle(scheduler: RunLoop.main)` already deferred past the willSet).
+        tabsChangedCancellable = tabsChanged
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] tabs in
-                guard let self else { return }
+            .sink { [weak self] in
+                guard let self, let tabManager = self.tabManager else { return }
                 #if DEBUG
-                cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
+                cmuxDebugLog("mobile.observer tabs sink fired count=\(tabManager.tabs.count)")
                 #endif
-                self.refreshPerWorkspaceSubscriptions(tabs: tabs)
+                self.refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
                 self.emitIfNeeded(force: false)
             }
+        tabsObservation = tabManager.workspaces.observeTabs { [weak self] in
+            self?.tabsChanged.send(())
+        }
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
-        selectionCancellable = tabManager.selectedTabIdPublisher
+        selectionChangedCancellable = selectionChanged
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] _ in
+            .sink { [weak self] in
                 self?.emitIfNeeded(force: false)
             }
+        selectionObservation = tabManager.workspaces.observeSelectedTabId { [weak self] in
+            self?.selectionChanged.send(())
+        }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
         // collapse/expand or group rename need not change the tab set, so without
-        // observing `$workspaceGroups` the phone would never learn a group was
+        // observing `workspaceGroups` the phone would never learn a group was
         // collapsed from the Mac (or from the phone's own collapse RPC, which is
         // authoritative + re-fetch based, not optimistic).
-        groupsCancellable = tabManager.workspaceGroupsPublisher
+        groupsChangedCancellable = groupsChanged
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] _ in
+            .sink { [weak self] in
                 self?.emitIfNeeded(force: false)
             }
+        groupsObservation = tabManager.workspaces.observeWorkspaceGroups { [weak self] in
+            self?.groupsChanged.send(())
+        }
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
@@ -169,27 +198,27 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
             let publishers: [AnyPublisher<Void, Never>] = [
                 workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
-                workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelCustomTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.titlePublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
-                workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                workspace.isPinnedPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Group membership is iOS-facing (the phone nests members under
                 // their group header). Moving a workspace into or out of a group
                 // mutates only this workspace's `groupId`; it need not change the
                 // tab set, `workspaceGroups`, the panel set, or the title, so
                 // without this the phone never learns the membership changed.
-                workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                workspace.groupIdPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
                     .eraseToAnyPublisher(),
-                workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
+                workspace.activeRemoteTerminalSessionCountPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.

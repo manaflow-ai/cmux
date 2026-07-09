@@ -15,4 +15,4 @@ extension GhosttyNSView: FocusStealingResponder {}
 
 extension GhosttySurfaceScrollView: FocusStealingResponder {}
 
-extension WKWebView: FocusStealingResponder {}
+extension WKWebView: @retroactive FocusStealingResponder {}

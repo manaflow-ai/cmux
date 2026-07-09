@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Decides whether a terminal open-URL target may be handled by cmux's file UI.
 public struct TerminalOpenURLFileRoutingPolicy: Sendable {

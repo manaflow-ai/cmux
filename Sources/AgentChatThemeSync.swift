@@ -170,7 +170,9 @@ enum AgentChatThemeSync {
 
     @MainActor
     private static func currentThemeURL() -> URL {
-        if let store = AppDelegate.shared?.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first {
+        if let appDelegate = AppDelegate.shared,
+           let context = appDelegate.firstContextWithConfigStore(),
+           let store = appDelegate.configStore(for: context) {
             return themeURL(for: store.agentChat.url)
         }
         return themeURL(for: CmuxAgentChatConfiguration.default.url)

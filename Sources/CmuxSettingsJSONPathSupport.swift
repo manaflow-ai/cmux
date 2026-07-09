@@ -1,7 +1,15 @@
+import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
+// Re-vend value types the refactor consolidated into CmuxSettings so app-module
+// consumers (and `@testable import cmux_DEV` tests that reference
+// `cmux_DEV.StoredShortcut`/etc.) keep resolving them without a package import.
+typealias StoredShortcut = CmuxSettings.StoredShortcut
+typealias ShortcutStroke = CmuxSettings.ShortcutStroke
+typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
@@ -66,29 +74,6 @@ enum AutomationSettings {
     static let defaultPortRange = 10
 }
 
-struct SettingsFileBooleanMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let invalidPath: String?
-
-    init(jsonKey: String, defaultsKey: String, invalidPath: String? = nil) {
-        self.jsonKey = jsonKey
-        self.defaultsKey = defaultsKey
-        self.invalidPath = invalidPath
-    }
-}
-
-struct SettingsFileStringMapping {
-    let jsonKey: String
-    let defaultsKey: String
-}
-
-struct SettingsFileStringArrayMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let invalidPath: String
-}
-
 enum AppSettingsFileMapping {
     private static let app = AppCatalogSection()
 
@@ -144,10 +129,10 @@ enum NotificationSettingsFileMapping {
     private static let notifications = NotificationsCatalogSection()
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
-        .init(jsonKey: "dockBadge", defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey),
+        .init(jsonKey: "dockBadge", defaultsKey: NotificationDefaultsToggle.dockBadge.key),
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
-        .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
-        .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationDefaultsToggle.paneRing.key),
+        .init(jsonKey: "paneFlash", defaultsKey: NotificationDefaultsToggle.paneFlash.key),
         .init(
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
@@ -164,7 +149,7 @@ enum NotificationSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "customSoundFilePath", defaultsKey: NotificationSoundSettings.customFilePathKey),
-        .init(jsonKey: "command", defaultsKey: NotificationSoundSettings.customCommandKey),
+        .init(jsonKey: "command", defaultsKey: NotificationCustomCommandRunner.defaultsKey),
         // agentTurnComplete is enum-valued and validated explicitly in
         // parseNotificationsSection, like notifications.sound.
     ]
@@ -304,10 +289,6 @@ enum BrowserSettingsFileMapping {
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
-            jsonKey: "askWhereToSaveDownloads",
-            defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
-        ),
-        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
@@ -372,13 +353,10 @@ extension CmuxSettingsFileStore {
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
-        "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
-        "terminal.textBoxDefaultSubmitAction",
-        "terminal.textBoxSubmitActions",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
@@ -456,7 +434,6 @@ extension CmuxSettingsFileStore {
         "browser.theme",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
-        "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",

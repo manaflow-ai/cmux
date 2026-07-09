@@ -1,8 +1,6 @@
 import AppKit
 import CmuxWorkspaces
 
-private let focusHistoryContextMenuPreviewLimit = 12
-
 private final class FocusHistoryContextMenuItemBox: NSObject {
     weak var tabManager: TabManager?
     let item: FocusHistoryMenuItem
@@ -58,7 +56,7 @@ extension AppDelegate {
     ) -> NSMenu {
         let snapshot = tabManager.focusHistoryMenuSnapshot(
             direction: direction,
-            maxItemCount: showFullHistory ? nil : focusHistoryContextMenuPreviewLimit
+            maxItemCount: FocusHistoryContextMenuPolicy().maxItemCount(showingFullHistory: showFullHistory)
         )
         let menu = NSMenu(title: String(localized: "menu.history.focusHistory", defaultValue: "Focus History"))
 
@@ -75,7 +73,7 @@ extension AppDelegate {
 
         for itemSnapshot in snapshot.items {
             let item = NSMenuItem(
-                title: focusHistoryContextMenuTitle(for: itemSnapshot),
+                title: FocusHistoryMenuFormatter.title(for: itemSnapshot),
                 action: #selector(performFocusHistoryContextMenuItem(_:)),
                 keyEquivalent: ""
             )
@@ -102,10 +100,6 @@ extension AppDelegate {
         }
 
         return menu
-    }
-
-    private func focusHistoryContextMenuTitle(for item: FocusHistoryMenuItem) -> String {
-        FocusHistoryMenuFormatter.title(for: item)
     }
 
     @objc private func performFocusHistoryContextMenuItem(_ sender: NSMenuItem) {

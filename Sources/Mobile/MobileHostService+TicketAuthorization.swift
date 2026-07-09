@@ -8,13 +8,10 @@ extension MobileHostService {
         createdWorkspaceIDs: Set<String> = [],
         createdTerminalIDs: Set<String> = []
     ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: createdWorkspaceIDs,
-                createdTerminalIDs: createdTerminalIDs
-            ),
-            request: request
-        )
+        MobileAttachTicketAuthorization(
+            ticket: ticket,
+            createdWorkspaceIDs: createdWorkspaceIDs,
+            createdTerminalIDs: createdTerminalIDs
+        ).authorizationError(for: request)
     }
 }
