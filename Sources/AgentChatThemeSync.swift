@@ -154,6 +154,8 @@ enum AgentChatThemeSync {
                 } catch {
                     return
                 }
+                // Re-check: the flag can flip off during the debounce window.
+                guard isEnabled else { return }
                 await postResolvedTheme(to: currentThemeURL())
             }
         }
