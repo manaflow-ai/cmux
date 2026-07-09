@@ -464,6 +464,78 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(service.hasBoundedReadableTranscript(record))
     }
 
+    @MainActor
+    @Test func recentAgentFilesAreScopedDeduplicatedAndSortedFromTranscriptHistory() async throws {
+        let home = try temporaryHomeDirectory()
+        let project = home.appendingPathComponent("project", isDirectory: true)
+        let transcript = home.appendingPathComponent("session.jsonl")
+        let workspaceID = UUID()
+        let sessionID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let appFile = project.appendingPathComponent("Sources/App.swift").path
+        let guideFile = project.appendingPathComponent("Docs/Guide.md").path
+        let lines = [
+            try claudeFileToolLine(
+                filePath: appFile,
+                toolName: "Edit",
+                timestamp: "2026-07-09T10:00:00.000Z"
+            ),
+            try claudeFileToolLine(
+                filePath: home.appendingPathComponent("outside.txt").path,
+                toolName: "Write",
+                timestamp: "2026-07-09T10:30:00.000Z"
+            ),
+            try claudeFileToolLine(
+                filePath: guideFile,
+                toolName: "Edit",
+                timestamp: "2026-07-09T10:45:00.000Z"
+            ),
+            try claudeFileToolLine(
+                filePath: appFile,
+                toolName: "Write",
+                timestamp: "2026-07-09T11:00:00.000Z"
+            ),
+        ]
+        try (lines.joined(separator: "\n") + "\n")
+            .write(to: transcript, atomically: true, encoding: .utf8)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: surfaceID,
+            transcriptPath: transcript.path,
+            cwd: project.path,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionEnd,
+            source: "claude",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: surfaceID,
+            transcriptPath: transcript.path,
+            cwd: project.path,
+            receivedAt: Date(timeIntervalSince1970: 110)
+        ))
+
+        let files = await service.recentFiles(
+            in: AgentRecentFileScope(workspaceID: workspaceID, rootDirectory: project.path),
+            limit: 10
+        )
+
+        #expect(files.count == 2)
+        #expect(files.map(\.path) == [appFile, guideFile])
+        #expect(files.map(\.relativePath) == ["Sources/App.swift", "Docs/Guide.md"])
+        #expect(files.first?.agentKind == .claude)
+        #expect(files.first?.operation == .write)
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)
@@ -495,5 +567,33 @@ struct AgentChatSessionRegistryLifecycleTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
+    }
+
+    private func claudeFileToolLine(filePath: String, toolName: String, timestamp: String) throws -> String {
+        let input: [String: Any]
+        if toolName == "Write" {
+            input = ["file_path": filePath, "content": "new content"]
+        } else {
+            input = ["file_path": filePath, "old_string": "old", "new_string": "new"]
+        }
+        let payload: [String: Any] = [
+            "parentUuid": "user",
+            "isSidechain": false,
+            "type": "assistant",
+            "message": [
+                "role": "assistant",
+                "content": [[
+                    "type": "tool_use",
+                    "id": UUID().uuidString,
+                    "name": toolName,
+                    "input": input,
+                ]],
+            ],
+            "uuid": UUID().uuidString,
+            "timestamp": timestamp,
+            "sessionId": UUID().uuidString,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 }

@@ -8725,6 +8725,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        let agentRecentFilesModel = AgentRecentFilesModel(provider: agentChatTranscriptService)
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
@@ -8733,6 +8734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            .environment(\.agentRecentFilesModel, agentRecentFilesModel)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it

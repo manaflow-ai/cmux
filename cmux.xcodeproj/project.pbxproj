@@ -29,6 +29,7 @@
 		C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */; };
 		C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71A00000000000000002 /* AgentChatThemeSync.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
+		A6F100000000000000000009 /* AgentChatTranscriptService+RecentFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000000A /* AgentChatTranscriptService+RecentFiles.swift */; };
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
@@ -47,6 +48,10 @@
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
+		A6F100000000000000000001 /* AgentRecentFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000002 /* AgentRecentFile.swift */; };
+		A6F100000000000000000005 /* AgentRecentFileProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000006 /* AgentRecentFileProviding.swift */; };
+		A6F100000000000000000003 /* AgentRecentFileScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000004 /* AgentRecentFileScope.swift */; };
+		A6F100000000000000000007 /* AgentRecentFilesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000008 /* AgentRecentFilesModel.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */; };
 		A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000008 /* AgentSessionBridge.swift */; };
@@ -608,6 +613,7 @@
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
+		A6F10000000000000000000B /* EnvironmentValues+AgentRecentFilesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000000C /* EnvironmentValues+AgentRecentFilesModel.swift */; };
 		5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
 		5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
@@ -957,6 +963,8 @@
 		A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */; };
 		A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		A6F10000000000000000000D /* RecentAgentFilesContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000000E /* RecentAgentFilesContainerView.swift */; };
+		A6F10000000000000000000F /* RecentAgentFilesSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000010 /* RecentAgentFilesSnapshotView.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
@@ -1686,6 +1694,7 @@
 		C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObservationTests.swift; sourceTree = "<group>"; };
 		C0DE71A00000000000000002 /* AgentChatThemeSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatThemeSync.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
+		A6F10000000000000000000A /* AgentChatTranscriptService+RecentFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+RecentFiles.swift"; sourceTree = "<group>"; };
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
@@ -1702,6 +1711,10 @@
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
 		C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPIDProcessIdentity.swift; sourceTree = "<group>"; };
+		A6F100000000000000000002 /* AgentRecentFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRecentFile.swift; sourceTree = "<group>"; };
+		A6F100000000000000000006 /* AgentRecentFileProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRecentFileProviding.swift; sourceTree = "<group>"; };
+		A6F100000000000000000004 /* AgentRecentFileScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRecentFileScope.swift; sourceTree = "<group>"; };
+		A6F100000000000000000008 /* AgentRecentFilesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRecentFilesModel.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSwiftTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000008 /* AgentSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridge.swift; sourceTree = "<group>"; };
@@ -2209,6 +2222,7 @@
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicTracingSignpostInterval.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
+		A6F10000000000000000000C /* EnvironmentValues+AgentRecentFilesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EnvironmentValues+AgentRecentFilesModel.swift"; sourceTree = "<group>"; };
 		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
 		5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+SidebarLazyContractProbe.swift"; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
@@ -2553,6 +2567,8 @@
 		A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenter.swift; sourceTree = "<group>"; };
 		A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenterTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		A6F10000000000000000000E /* RecentAgentFilesContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentAgentFilesContainerView.swift; sourceTree = "<group>"; };
+		A6F100000000000000000010 /* RecentAgentFilesSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentAgentFilesSnapshotView.swift; sourceTree = "<group>"; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
@@ -4329,6 +4345,14 @@
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				A6F100000000000000000002 /* AgentRecentFile.swift */,
+				A6F100000000000000000004 /* AgentRecentFileScope.swift */,
+				A6F100000000000000000006 /* AgentRecentFileProviding.swift */,
+				A6F100000000000000000008 /* AgentRecentFilesModel.swift */,
+				A6F10000000000000000000A /* AgentChatTranscriptService+RecentFiles.swift */,
+				A6F10000000000000000000C /* EnvironmentValues+AgentRecentFilesModel.swift */,
+				A6F10000000000000000000E /* RecentAgentFilesContainerView.swift */,
+				A6F100000000000000000010 /* RecentAgentFilesSnapshotView.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
 				DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */,
 				DCDC1000000000000000B004 /* DockConfigFile.swift */,
@@ -5323,6 +5347,7 @@
 					ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
 				C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
+				A6F100000000000000000009 /* AgentChatTranscriptService+RecentFiles.swift in Sources */,
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
@@ -5333,6 +5358,10 @@
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
 				C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */,
+				A6F100000000000000000001 /* AgentRecentFile.swift in Sources */,
+				A6F100000000000000000005 /* AgentRecentFileProviding.swift in Sources */,
+				A6F100000000000000000003 /* AgentRecentFileScope.swift in Sources */,
+				A6F100000000000000000007 /* AgentRecentFilesModel.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,
 				A9F20000000000000000000C /* AgentSessionBridgeRequest.swift in Sources */,
@@ -5618,6 +5647,7 @@
 				DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */,
+				A6F10000000000000000000B /* EnvironmentValues+AgentRecentFilesModel.swift in Sources */,
 					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
@@ -5852,6 +5882,8 @@
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 					A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				A6F10000000000000000000D /* RecentAgentFilesContainerView.swift in Sources */,
+				A6F10000000000000000000F /* RecentAgentFilesSnapshotView.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,

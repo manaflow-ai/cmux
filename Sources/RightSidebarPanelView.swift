@@ -379,12 +379,20 @@ struct RightSidebarPanelView: View {
         if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
             switch fileExplorerState.mode {
             case .files:
-                FileExplorerPanelView(
-                    store: fileExplorerStore,
-                    state: fileExplorerState,
-                    onOpenFilePreview: onOpenFilePreview,
-                    presentation: .files
-                )
+                VStack(spacing: 0) {
+                    RecentAgentFilesContainerView(
+                        workspaceID: workspaceId,
+                        rootDirectory: fileExplorerStore.rootPath,
+                        isActive: fileExplorerState.isVisible,
+                        onOpenFilePreview: onOpenFilePreview
+                    )
+                    FileExplorerPanelView(
+                        store: fileExplorerStore,
+                        state: fileExplorerState,
+                        onOpenFilePreview: onOpenFilePreview,
+                        presentation: .files
+                    )
+                }
             case .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,

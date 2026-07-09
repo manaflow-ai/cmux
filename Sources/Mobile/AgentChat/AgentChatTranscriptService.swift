@@ -14,6 +14,7 @@ final class AgentChatTranscriptService {
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
+    var recentFileChangeContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
@@ -402,6 +403,12 @@ final class AgentChatTranscriptService {
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
+        if (batch.appended + batch.updated).contains(where: { message in
+            if case .fileEdit = message.kind { return true }
+            return false
+        }) {
+            yieldRecentAgentFileChanges()
+        }
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
         }
@@ -436,6 +443,12 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        if previous == nil
+            || previous?.workspaceID != record.workspaceID
+            || previous?.workingDirectory != record.workingDirectory
+            || previous?.transcriptPath != record.transcriptPath {
+            yieldRecentAgentFileChanges()
+        }
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -484,6 +497,7 @@ final class AgentChatTranscriptService {
         }
         failedResolutions.remove(record.sessionID)
         endedListability.remove(sessionID: record.sessionID)
+        yieldRecentAgentFileChanges()
         guard hasEventSubscribers() else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }

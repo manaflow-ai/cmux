@@ -217,9 +217,21 @@ struct CodexTranscriptParserTests {
         #expect(tool.inputDetail?.contains("plan") == true)
     }
 
-    @Test("custom_tool_call apply_patch maps to toolUse with the first patched file in the summary")
+    @Test("custom_tool_call apply_patch maps every patched file to a fileEdit")
     func applyPatch() {
-        let patch = "*** Begin Patch\n*** Update File: /repo/Sources/App.swift\n@@\n-old\n+new\n*** End Patch"
+        let patch = """
+        *** Begin Patch
+        *** Update File: /repo/Sources/App.swift
+        @@
+        -old
+        +new
+        *** Add File: /repo/Sources/New.swift
+        +first
+        +second
+        *** Delete File: /repo/Sources/Old.swift
+        -obsolete
+        *** End Patch
+        """
         let lines = [
             line(type: "response_item", payload: [
                 "type": "custom_tool_call", "status": "completed",
@@ -231,13 +243,52 @@ struct CodexTranscriptParserTests {
             ]),
         ]
         let result = parser.parse(lines: lines, startingSeq: 0)
-        guard case .toolUse(let tool) = result.messages[0].kind else {
-            Issue.record("expected toolUse kind")
+        #expect(result.messages.count == 3)
+        guard case .fileEdit(let updated) = result.messages[0].kind,
+              case .fileEdit(let added) = result.messages[1].kind,
+              case .fileEdit(let deleted) = result.messages[2].kind else {
+            Issue.record("expected fileEdit kinds")
             return
         }
-        #expect(tool.toolName == "apply_patch")
-        #expect(tool.summary == "apply_patch /repo/Sources/App.swift")
-        #expect(tool.status == .succeeded)
+        #expect(updated.filePath == "/repo/Sources/App.swift")
+        #expect(updated.operation == .edit)
+        #expect(updated.additions == 1)
+        #expect(updated.deletions == 1)
+        #expect(added.filePath == "/repo/Sources/New.swift")
+        #expect(added.operation == .write)
+        #expect(added.additions == 2)
+        #expect(added.deletions == 0)
+        #expect(deleted.filePath == "/repo/Sources/Old.swift")
+        #expect(deleted.operation == .delete)
+        #expect(deleted.additions == 0)
+        #expect(deleted.deletions == 1)
+        #expect(result.messages.map(\.id) == ["call_ap", "call_ap-file-1", "call_ap-file-2"])
+        #expect(result.state.pendingToolUses.isEmpty)
+    }
+
+    @Test("apply_patch move reports the destination path")
+    func applyPatchMove() {
+        let patch = """
+        *** Begin Patch
+        *** Update File: /repo/Old.swift
+        *** Move to: /repo/New.swift
+        @@
+        -old
+        +new
+        *** End Patch
+        """
+        let result = parser.parse(lines: [
+            line(type: "response_item", payload: [
+                "type": "custom_tool_call", "status": "completed",
+                "call_id": "call_move", "name": "apply_patch", "input": patch,
+            ]),
+        ], startingSeq: 0)
+        guard case .fileEdit(let edit) = result.messages.first?.kind else {
+            Issue.record("expected fileEdit kind")
+            return
+        }
+        #expect(edit.filePath == "/repo/New.swift")
+        #expect(edit.operation == .edit)
     }
 
     // MARK: - Robustness

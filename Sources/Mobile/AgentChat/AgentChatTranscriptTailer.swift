@@ -45,6 +45,7 @@ actor AgentChatTranscriptTailer {
     private var watchTask: Task<Void, Never>?
     private var watcher: FileWatcher?
     private var started = false
+    private var loadedInitialSnapshot = false
     private var reportedTitle = false
 
     /// Creates a tailer.
@@ -77,7 +78,7 @@ actor AgentChatTranscriptTailer {
     func start() async {
         guard !started else { return }
         started = true
-        loadInitialTail()
+        loadSnapshot()
         let watcher = FileWatcher(path: path, throttle: .milliseconds(200))
         self.watcher = watcher
         watchTask = Task { [weak self] in
@@ -86,6 +87,16 @@ actor AgentChatTranscriptTailer {
                 await self.drainNewContent()
             }
         }
+    }
+
+    /// Loads bounded transcript history without starting a filesystem watcher.
+    ///
+    /// Used for ended sessions whose history is immutable and should not retain
+    /// background resources after a one-shot sidebar or history projection.
+    func loadSnapshot() {
+        guard !loadedInitialSnapshot else { return }
+        loadedInitialSnapshot = true
+        loadInitialTail()
     }
 
     /// Stops watching and releases resources.

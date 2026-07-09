@@ -284,9 +284,24 @@ public struct CodexTranscriptParser: Sendable {
         guard let name = payload["name"]?.string else { return }
         let callID = payload["call_id"]?.string
         let input = payload["input"]?.string ?? ""
-        var summary = name
-        if name == "apply_patch", let path = firstPatchedFile(in: input) {
-            summary = "\(name) \(budget.summaryArgument(path))"
+        if name == "apply_patch" {
+            let edits = CodexApplyPatchParser(budget: budget).fileEdits(in: input)
+            if !edits.isEmpty {
+                let baseID = callID ?? "line-\(seq)"
+                for (index, edit) in edits.enumerated() {
+                    assembler.append(
+                        ChatMessage(
+                            id: index == 0 ? baseID : "\(baseID)-file-\(index)",
+                            seq: seq,
+                            role: .agent,
+                            timestamp: timestamp,
+                            kind: .fileEdit(edit)
+                        ),
+                        pendingKey: callID
+                    )
+                }
+                return
+            }
         }
         assembler.append(
             ChatMessage(
@@ -297,7 +312,7 @@ public struct CodexTranscriptParser: Sendable {
                 kind: .toolUse(
                     ChatToolUse(
                         toolName: name,
-                        summary: summary,
+                        summary: name,
                         inputDetail: input.isEmpty ? nil : budget.inputDetail(input)
                     )
                 )
@@ -375,15 +390,6 @@ public struct CodexTranscriptParser: Sendable {
             return strings[2...].joined(separator: " ")
         }
         return strings.joined(separator: " ")
-    }
-
-    private func firstPatchedFile(in patch: String) -> String? {
-        guard
-            let match = patch.firstMatch(
-                of: /\*\*\* (?:Update|Add|Delete) File: (.+)/
-            )
-        else { return nil }
-        return String(match.1)
     }
 
     // MARK: - Tool outputs
