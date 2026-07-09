@@ -480,10 +480,10 @@ export async function deleteCmuxAccountData(
 
     await tx.update(stripeCustomers)
       .set({ stackUserId: anonymizedUserId, email: null, updatedAt: now })
-      .where(or(
-        eq(stripeCustomers.stackUserId, input.userId),
-        inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
-      ));
+      .where(eq(stripeCustomers.stackUserId, input.userId));
+    await tx.update(stripeCustomers)
+      .set({ stackUserId: anonymizedUserId, stackTeamId: null, email: null, updatedAt: now })
+      .where(inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds));
     await tx.update(stripeSubscriptions)
       .set({ status: "canceled", cancelAtPeriodEnd: false, raw: null, updatedAt: now })
       .where(or(
@@ -498,10 +498,10 @@ export async function deleteCmuxAccountData(
       ));
     await tx.update(stripeSubscriptions)
       .set({ stackUserId: anonymizedUserId, raw: null, updatedAt: now })
-      .where(or(
-        eq(stripeSubscriptions.stackUserId, input.userId),
-        inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
-      ));
+      .where(eq(stripeSubscriptions.stackUserId, input.userId));
+    await tx.update(stripeSubscriptions)
+      .set({ stackUserId: anonymizedUserId, stackTeamId: null, raw: null, updatedAt: now })
+      .where(inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds));
     await tx.update(billingEmailClaims)
       .set({ stackUserId: anonymizedUserId, email: anonymizedEmail })
       .where(eq(billingEmailClaims.stackUserId, input.userId));
@@ -822,7 +822,7 @@ async function cancelStripeAccountBilling(
 ): Promise<void> {
   const db = runtime.cloudDb();
   const customerRows = await db
-    .select({ id: stripeCustomers.id })
+    .select({ id: stripeCustomers.id, stackTeamId: stripeCustomers.stackTeamId })
     .from(stripeCustomers)
     .where(or(
       and(
@@ -832,7 +832,7 @@ async function cancelStripeAccountBilling(
       inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
     ));
   const subscriptionRows = await db
-    .select({ id: stripeSubscriptions.id })
+    .select({ id: stripeSubscriptions.id, stackTeamId: stripeSubscriptions.stackTeamId })
     .from(stripeSubscriptions)
     .where(and(
       inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
@@ -857,10 +857,20 @@ async function cancelStripeAccountBilling(
 
   const stripeClient = stripe();
   for (const customer of customerRows) {
-    await updateStripeCustomerForAccountDeletion(stripeClient, customer.id, anonymizedUserId);
+    await updateStripeCustomerForAccountDeletion(
+      stripeClient,
+      customer.id,
+      anonymizedUserId,
+      isOwnedBillingTeamId(scope, customer.stackTeamId),
+    );
   }
   for (const subscription of subscriptionRows) {
-    await cancelStripeSubscriptionForAccountDeletion(stripeClient, subscription.id, anonymizedUserId);
+    await cancelStripeSubscriptionForAccountDeletion(
+      stripeClient,
+      subscription.id,
+      anonymizedUserId,
+      isOwnedBillingTeamId(scope, subscription.stackTeamId),
+    );
   }
 }
 
@@ -868,11 +878,12 @@ async function updateStripeCustomerForAccountDeletion(
   stripeClient: ReturnType<typeof stripe>,
   customerId: string,
   anonymizedUserId: string,
+  clearStackTeamId: boolean,
 ): Promise<void> {
   try {
     await stripeClient.customers.update(customerId, {
       email: "",
-      metadata: { stackUserId: "", deletedAccountId: anonymizedUserId },
+      metadata: accountDeletionStripeMetadata(anonymizedUserId, clearStackTeamId),
     });
   } catch (error) {
     if (isStripeMissingResourceError(error)) return;
@@ -884,12 +895,13 @@ async function cancelStripeSubscriptionForAccountDeletion(
   stripeClient: ReturnType<typeof stripe>,
   subscriptionId: string,
   anonymizedUserId: string,
+  clearStackTeamId: boolean,
 ): Promise<void> {
   const subscription = await retrieveStripeSubscriptionForAccountDeletion(stripeClient, subscriptionId);
   if (!subscription || subscription.status === "canceled") return;
 
   await stripeClient.subscriptions.update(subscriptionId, {
-    metadata: { stackUserId: "", deletedAccountId: anonymizedUserId },
+    metadata: accountDeletionStripeMetadata(anonymizedUserId, clearStackTeamId),
   });
 
   try {
@@ -898,6 +910,21 @@ async function cancelStripeSubscriptionForAccountDeletion(
     if (isStripeSubscriptionAlreadyCanceledError(error) || isStripeMissingResourceError(error)) return;
     throw error;
   }
+}
+
+function accountDeletionStripeMetadata(
+  anonymizedUserId: string,
+  clearStackTeamId: boolean,
+): Record<string, string> {
+  return {
+    stackUserId: "",
+    ...(clearStackTeamId ? { stackTeamId: "" } : {}),
+    deletedAccountId: anonymizedUserId,
+  };
+}
+
+function isOwnedBillingTeamId(scope: AccountDeletionScope, stackTeamId: string | null): boolean {
+  return !!stackTeamId && scope.ownedBillingTeamIds.includes(stackTeamId);
 }
 
 async function retrieveStripeSubscriptionForAccountDeletion(

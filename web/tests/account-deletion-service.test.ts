@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
-import { cloudVmLeases, cloudVmSessions, cloudVmUsageEvents, cloudVms, subrouterTenants } from "../db/schema";
+import {
+  cloudVmLeases,
+  cloudVmSessions,
+  cloudVmUsageEvents,
+  cloudVms,
+  stripeCustomers,
+  stripeSubscriptions,
+  subrouterTenants,
+} from "../db/schema";
 import type { ProviderId } from "../services/vms/drivers";
 import {
   claimAccountDeletionProcessing,
@@ -19,6 +27,7 @@ let snapshotRows: Array<{ id: string; provider: ProviderId; snapshotId: string }
 let snapshotDeleteError: unknown = null;
 let subrouterTenantRows: Array<{ tenantId: string }> = [];
 let subrouterRevokeError: unknown = null;
+let updateSets: Array<{ readonly label: string; readonly values: Record<string, unknown> }> = [];
 
 type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -71,6 +80,7 @@ beforeEach(() => {
   snapshotDeleteError = null;
   subrouterTenantRows = [];
   subrouterRevokeError = null;
+  updateSets = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
   runVmWorkflow.mockClear();
@@ -398,6 +408,22 @@ describe("account deletion cleanup", () => {
     expect(calls).toContain("destroy:user-1:provider-vm-2");
     expect(calls).toContain("destroy:user-1:provider-vm-3");
   });
+
+  test("clears owned team Stripe identifiers during local cleanup", async () => {
+    await deleteCmuxAccountData({
+      userId: "user-1",
+      ownedTeamIds: ["team-owned-1"],
+    }, fakeRuntime());
+
+    expect(updateSets).toContainEqual({
+      label: "anonymize-owned-team-stripe-customers",
+      values: expect.objectContaining({ stackTeamId: null }),
+    });
+    expect(updateSets).toContainEqual({
+      label: "anonymize-owned-team-stripe-subscriptions",
+      values: expect.objectContaining({ stackTeamId: null }),
+    });
+  });
 });
 
 function fakeDb() {
@@ -490,6 +516,22 @@ function fakeTransaction() {
     update: (table: unknown) => {
       if (table === cloudVms) return updateBuilder("anonymize-team-cloud-vms");
       if (table === cloudVmUsageEvents) return updateBuilder("anonymize-team-cloud-vm-usage-events");
+      if (table === stripeCustomers) {
+        return updateBuilder(
+          updateSets.some((entry) => entry.label === "anonymize-user-stripe-customers")
+            ? "anonymize-owned-team-stripe-customers"
+            : "anonymize-user-stripe-customers",
+        );
+      }
+      if (table === stripeSubscriptions) {
+        const userSubscriptionUpdates = updateSets.filter((entry) =>
+          entry.label === "anonymize-user-stripe-subscriptions" ||
+          entry.label === "cancel-stripe-subscriptions"
+        ).length;
+        if (userSubscriptionUpdates === 0) return updateBuilder("cancel-stripe-subscriptions");
+        if (userSubscriptionUpdates === 1) return updateBuilder("anonymize-user-stripe-subscriptions");
+        return updateBuilder("anonymize-owned-team-stripe-subscriptions");
+      }
       return updateBuilder();
     },
     delete: (table: unknown) => {
@@ -540,7 +582,10 @@ function updateReturningBuilder(onSet: (values: Record<string, unknown>) => void
 
 function updateBuilder(label?: string) {
   const builder = {
-    set: () => builder,
+    set: (values: Record<string, unknown>) => {
+      if (label) updateSets.push({ label, values });
+      return builder;
+    },
     where: async () => {
       if (label) calls.push(label);
       return [];
