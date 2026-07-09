@@ -32,7 +32,6 @@ extension BrowserPanel {
     func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
         hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
         pendingDiscardRestoreNavigation = nil
-        currentDiscardRestoreAttemptID = nil
         refreshWebViewLifecycleState()
     }
 

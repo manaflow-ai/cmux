@@ -384,6 +384,44 @@ struct BrowserDiscardRestorePolicyCancelTests {
         #expect(resolutions.isEmpty)
     }
 
+    @Test func terminalPolicyCompletionAfterProvisionalCancelCompletesDiscardRestore() throws {
+        let url = try #require(URL(string: "http://example.com/cmux-issue-7504-delayed-policy-terminal"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        panel.hiddenWebViewDiscardManager.markDiscarded(
+            reason: "test.discard",
+            now: Date(timeIntervalSince1970: 250)
+        )
+        panel.noteDiscardedWebViewRestoreNavigationStarted()
+        let restoreAttemptID = try #require(panel.currentDiscardRestoreAttemptID)
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
+
+        panel.navigationDelegate?.didCancelProvisionalNavigation?(panel.webView, nil)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+        #expect(panel.webViewLifecycleTopPayload()["state"] as? String == "discarded")
+
+        panel.navigationDelegate?.didCancelNavigationPolicy?(panel.webView, .terminal(restoreAttemptID: restoreAttemptID))
+
+        let payload = panel.webViewLifecycleTopPayload()
+        #expect(payload["state"] as? String != "discarded")
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+    }
+
     @Test func staleInsecureHTTPPromptDoesNotCompleteNewerRestore() throws {
         let url = try #require(URL(string: "http://example.com/cmux-issue-7504-stale-prompt"))
         let panel = BrowserPanel(
