@@ -59,8 +59,8 @@ function identityRuntime(initialIdentities: StoredIdentity[] = []) {
   let retainedAnonymousIds = new Set<string>();
   const runtime = {
     cloudDb: () => ({
-      transaction: async (fn: (tx: unknown) => Promise<void>) => {
-        await fn({
+      transaction: async <T>(fn: (tx: unknown) => Promise<T>) => {
+        return await fn({
           insert: () => ({
             values: (values: StoredIdentity[]) => ({
               onConflictDoUpdate: async () => {

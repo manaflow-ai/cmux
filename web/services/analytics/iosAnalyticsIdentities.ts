@@ -11,7 +11,7 @@ export type IOSAnalyticsIdentityRuntime = {
   readonly cloudDb: typeof cloudDb;
 };
 
-type IOSAnalyticsIdentityDb = Pick<ReturnType<typeof cloudDb>, "delete" | "select">;
+type IOSAnalyticsIdentityDb = Pick<ReturnType<typeof cloudDb>, "delete" | "insert" | "select">;
 
 const defaultIOSAnalyticsIdentityRuntime: IOSAnalyticsIdentityRuntime = {
   cloudDb,
@@ -24,27 +24,37 @@ export async function recordIOSAnalyticsIdentities(
   },
   runtime: IOSAnalyticsIdentityRuntime = defaultIOSAnalyticsIdentityRuntime,
 ): Promise<readonly string[]> {
+  return await runtime.cloudDb().transaction(async (tx) =>
+    recordIOSAnalyticsIdentitiesInTransaction(input, tx)
+  );
+}
+
+export async function recordIOSAnalyticsIdentitiesInTransaction(
+  input: {
+    readonly userId: string;
+    readonly anonymousIds: readonly string[];
+  },
+  db: IOSAnalyticsIdentityDb,
+): Promise<readonly string[]> {
   const anonymousIds = normalizedDistinctIds(input.anonymousIds)
     .filter((id) => id !== input.userId)
     .slice(0, MAX_IOS_ANALYTICS_IDENTITIES_PER_REQUEST);
   if (anonymousIds.length === 0) return [];
 
   const now = new Date();
-  await runtime.cloudDb().transaction(async (tx) => {
-    await tx
-      .insert(iosAnalyticsIdentities)
-      .values(anonymousIds.map((anonymousId) => ({
-        userId: input.userId,
-        anonymousId,
-        createdAt: now,
-        updatedAt: now,
-      })))
-      .onConflictDoUpdate({
-        target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
-        set: { updatedAt: now },
-      });
-    await pruneIOSAnalyticsIdentitiesForUser(tx, input.userId);
+  await db
+    .insert(iosAnalyticsIdentities)
+    .values(anonymousIds.map((anonymousId) => ({
+      userId: input.userId,
+      anonymousId,
+      createdAt: now,
+      updatedAt: now,
+    })))
+    .onConflictDoUpdate({
+      target: [iosAnalyticsIdentities.userId, iosAnalyticsIdentities.anonymousId],
+      set: { updatedAt: now },
   });
+  await pruneIOSAnalyticsIdentitiesForUser(db, input.userId);
   return anonymousIds;
 }
 

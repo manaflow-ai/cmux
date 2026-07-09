@@ -32,9 +32,9 @@ const recordIOSAnalyticsIdentities = mock(async (...args: unknown[]) => {
 const forwardToPostHog = mock(async () => ({ ok: true as const }));
 async function runAuthenticatedAnalytics<T>(
   _userId: string,
-  run: () => Promise<T>,
+  run: (db: never) => Promise<T>,
 ): Promise<T> {
-  return await run();
+  return await run({} as never);
 }
 
 const {
@@ -169,7 +169,7 @@ describe("iOS analytics route", () => {
       },
       runAuthenticatedAnalytics: async (userId, run) => {
         calls.push(`deletion-lock:${userId}`);
-        const response = await run();
+        const response = await run({} as never);
         calls.push("deletion-unlock");
         return response;
       },
@@ -297,7 +297,8 @@ describe("iOS analytics route", () => {
 function dependencies() {
   return {
     verifyRequest,
-    recordIOSAnalyticsIdentities: recordIOSAnalyticsIdentities as unknown as RecordIOSAnalyticsIdentities,
+    recordIOSAnalyticsIdentities: async (input: Parameters<RecordIOSAnalyticsIdentities>[0]) =>
+      await recordIOSAnalyticsIdentities(input),
     forwardToPostHog,
     runAuthenticatedAnalytics,
   };

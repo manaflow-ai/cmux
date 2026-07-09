@@ -309,6 +309,23 @@ async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
   await ignoreStripeDeletionCleanupError(client.subscriptions.cancel(input.subscription.id));
 }
 
+async function cleanupCheckoutSubscriptionForAccountDeletion(input: {
+  subscription: Stripe.Subscription;
+  stackUserId: string;
+  dependencies: BillingPurchaseDependencies;
+}): Promise<void> {
+  const client = (input.dependencies.stripeClient ?? stripe)();
+  const metadata = accountDeletionStripeMetadata({
+    anonymizedUserId: deletedAccountId(input.stackUserId),
+    clearStackTeamId: false,
+  });
+  await ignoreStripeDeletionCleanupError(
+    client.subscriptions.update(input.subscription.id, { metadata }),
+  );
+  if (input.subscription.status === "canceled") return;
+  await ignoreStripeDeletionCleanupError(client.subscriptions.cancel(input.subscription.id));
+}
+
 async function ignoreStripeDeletionCleanupError<T>(
   operation: Promise<T>,
 ): Promise<void> {
@@ -466,11 +483,9 @@ async function recordTeamCheckoutCompletion(input: {
     missingOwnerMessage: `Stack user not found for Team Stripe purchase: ${input.stackTeamId}`,
   });
   if (guard.blocked) {
-    await cleanupCheckoutStripeObjectsForAccountDeletion({
+    await cleanupCheckoutSubscriptionForAccountDeletion({
       subscription: input.subscription,
-      customerId: input.customerId,
       stackUserId: guard.stackUserId,
-      clearStackTeamId: true,
       dependencies: input.dependencies,
     });
     return {
