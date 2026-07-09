@@ -13246,7 +13246,8 @@ class TerminalController {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
                     return
                 }
-                if tabManager.closeWorkspaceNonInteractively(tab) { result = "OK" }
+                let closeFailure = String(localized: "cli.socket.error.workspaceNotClosed", defaultValue: "Workspace not closed")
+                result = tabManager.closeWorkspaceNonInteractively(tab) ? "OK" : "ERROR: \(closeFailure)"
             }
         }
         return result

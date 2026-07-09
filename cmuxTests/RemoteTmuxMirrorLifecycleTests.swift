@@ -87,9 +87,9 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(!beta.exited)
     }
 
-    @Test func nonInteractiveWindowCloseCommitsEvenWhenInteractiveCloseIsVetoed() {
+    @Test func nonInteractiveWindowCloseCommitsEvenWhenInteractiveCloseIsVetoed() throws {
         _ = NSApplication.shared
-        let appDelegate = AppDelegate()
+        let appDelegate = try #require(AppDelegate.shared)
         let manager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         let window = NSWindow(
@@ -124,9 +124,7 @@ struct RemoteTmuxMirrorLifecycleTests {
 
     @Test func nonInteractiveCloseRemovesLastDeadMirrorAndItsWindow() throws {
         _ = NSApplication.shared
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
+        let appDelegate = try #require(AppDelegate.shared)
         let manager = TabManager()
         let localWorkspace = try #require(manager.selectedWorkspace)
         let host = RemoteTmuxHost(destination: "user@host")
@@ -167,7 +165,6 @@ struct RemoteTmuxMirrorLifecycleTests {
                 appDelegate.remoteTmuxController.detach(host: host, sessionName: "dev")
             }
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            AppDelegate.shared = previousAppDelegate
         }
 
         let resolution = TerminalController.shared.controlCloseWorkspace(

@@ -1,6 +1,66 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
+    /// (style tokens stripped) — exactly the text a native tmux client draws
+    /// in that pane's header, custom formats included. Seeded by the
+    /// pane-rects fetch and kept LIVE by a per-pane subscription
+    /// (`cmux_hdr_<pane>`), so a program retitling its pane updates the strip
+    /// the moment tmux would redraw its own border. The mirror copies its
+    /// windows' subset on reconcile; the view never reads this directly.
+    var paneHeaderLabels: [Int: String] = [:]
+
+    /// Whether each window currently has `pane-border-status top` — i.e.
+    /// tmux itself is drawing header rows, which is the ONLY time the strips
+    /// show label text (a stock tmux displays no titles anywhere; cmux adds
+    /// only the active-pane dot on top of that).
+    var windowTitleRowsVisible: [Int: Bool] = [:]
+
+    /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
+    /// the active pane by reversing its index; the dot carries that signal
+    /// here).
+    static func strippingStyleTokens(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
+        )
+    }
+
+    /// A layout the module has PARSED but not yet PUBLISHED: the layout
+    /// string's leaf rects are wrong under `pane-border-status` (tmux
+    /// publishes the pre-title tree), so raw trees are quarantined here and
+    /// enter `windowsByID` only patched with list-panes rects — observers
+    /// can never see string geometry, structurally.
+    struct PendingLayout {
+        var node: RemoteTmuxLayoutNode
+        var visibleNode: RemoteTmuxLayoutNode?
+        var zoomed: Bool
+        var name: String
+        /// Bumped per stored layout; a rects reply for an older generation
+        /// is stale and discarded (a fresh fetch is already in flight or
+        /// queued via `dirty`).
+        var generation: Int
+        /// A newer layout arrived while a rects fetch was in flight: send
+        /// ONE follow-up fetch when the in-flight reply lands (coalescing —
+        /// a resize storm must not queue a fetch per event).
+        var dirty = false
+        var inFlight = false
+        var retriesRemaining = 1
+    }
+
+    var pendingLayouts: [Int: PendingLayout] = [:]
+
+    /// Window ids from a topology population that started with NO published
+    /// windows (first attach, reconnect reseed into an empty table), still
+    /// awaiting their rects reply. While non-nil, verified windows accumulate
+    /// in `initialBatchStaged` and flush to `windowsByID` in ONE atomic
+    /// publish when the set drains. Without the barrier, each window would
+    /// publish in rects-reply arrival order, and the mirror layer's tab
+    /// creation order — and with it which tab ends up selected and which
+    /// mirrors take their one-time size claim from a hidden, collapsed
+    /// container — would be a race between round trips.
+    var initialBatchAwaiting: Set<Int>?
+    var initialBatchStaged: [Int: RemoteTmuxWindow] = [:]
+
 
 
     func applyLayout(

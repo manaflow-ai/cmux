@@ -5703,14 +5703,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
-        window.close()
+        closeMainWindowWithoutInteractiveVeto(window)
         return true
     }
 
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
-        window.close()
+        closeMainWindowWithoutInteractiveVeto(window)
     }
 
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
