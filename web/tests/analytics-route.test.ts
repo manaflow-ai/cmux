@@ -30,6 +30,7 @@ const recordIOSAnalyticsIdentities = mock(async (...args: unknown[]) => {
   return input.anonymousIds;
 });
 const forwardToPostHog = mock(async () => ({ ok: true as const }));
+const deletePostHogPersonData = mock(async () => undefined);
 async function runAuthenticatedAnalytics<T>(
   _userId: string,
   run: (db: never) => Promise<T>,
@@ -48,6 +49,7 @@ beforeEach(() => {
   recordIOSAnalyticsIdentities.mockClear();
   forwardToPostHog.mockClear();
   forwardToPostHog.mockResolvedValue({ ok: true });
+  deletePostHogPersonData.mockClear();
 });
 
 afterEach(() => {
@@ -181,7 +183,9 @@ describe("iOS analytics route", () => {
       "record-identities",
       "deletion-unlock",
       "deletion-lock:stack-user-1",
+      "deletion-unlock",
       "forward-posthog",
+      "deletion-lock:stack-user-1",
       "deletion-unlock",
     ]);
   });
@@ -213,6 +217,35 @@ describe("iOS analytics route", () => {
       anonymousIds: ["99999999-9999-4999-8999-999999999999"],
     });
     expect(forwardToPostHog).not.toHaveBeenCalled();
+  });
+
+  test("deletes PostHog data when account deletion starts during forwarding", async () => {
+    let lockCount = 0;
+
+    const response = await postAnalyticsEvents(jsonRequest({
+      batch: [{
+        event: "$identify",
+        distinct_id: "stack-user-1",
+        properties: {
+          "$anon_distinct_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+      }],
+    }), {
+      ...dependencies(),
+      runAuthenticatedAnalytics: async (_userId, run) => {
+        lockCount += 1;
+        if (lockCount === 3) throw new AnalyticsAccountDeletionBlockedError();
+        return await run({} as never);
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 0 });
+    expect(forwardToPostHog).toHaveBeenCalled();
+    expect(deletePostHogPersonData).toHaveBeenCalledWith(
+      "stack-user-1",
+      ["stack-user-1", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+    );
   });
 
   test("does not forward authenticated analytics after account deletion starts", async () => {
@@ -350,6 +383,7 @@ function dependencies() {
     recordIOSAnalyticsIdentities: async (input: Parameters<RecordIOSAnalyticsIdentities>[0]) =>
       await recordIOSAnalyticsIdentities(input),
     forwardToPostHog,
+    deletePostHogPersonData,
     runAuthenticatedAnalytics,
   };
 }

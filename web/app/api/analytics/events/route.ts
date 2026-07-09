@@ -30,8 +30,8 @@ import { accountDeletionTombstones } from "../../../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
-  isBlockingAccountDeletionStatus,
 } from "../../../../services/account/deletionLock";
+import { deletePostHogPersonData } from "../../../../services/analytics/posthogDeletion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +52,7 @@ type AnalyticsRouteDependencies = {
     db?: Parameters<typeof recordIOSAnalyticsIdentitiesInTransaction>[1],
   ) => Promise<readonly string[]>;
   readonly forwardToPostHog: typeof forwardToPostHog;
+  readonly deletePostHogPersonData: typeof deletePostHogPersonData;
   readonly runAuthenticatedAnalytics: typeof runAuthenticatedAnalyticsWithAccountDeletionLock;
 };
 
@@ -62,6 +63,7 @@ const defaultAnalyticsRouteDependencies: AnalyticsRouteDependencies = {
       ? await recordIOSAnalyticsIdentitiesInTransaction(input, db)
       : await recordIOSAnalyticsIdentities(input),
   forwardToPostHog,
+  deletePostHogPersonData,
   runAuthenticatedAnalytics: runAuthenticatedAnalyticsWithAccountDeletionLock,
 };
 
@@ -143,21 +145,30 @@ export async function postAnalyticsEvents(
 
     let forwarded: Awaited<ReturnType<typeof forwardToPostHog>>;
     try {
-      // Reacquire the deletion lock after the alias transaction commits. This
-      // makes accepted aliases durable before the PostHog side effect, while
-      // still preventing a concurrent delete from erasing and then recreating
-      // the same user's analytics data.
-      forwarded = await dependencies.runAuthenticatedAnalytics(user.id, async () =>
-        await dependencies.forwardToPostHog(eventsForForwarding, user.id)
-      );
+      await dependencies.runAuthenticatedAnalytics(user.id, async () => undefined);
     } catch (error) {
       if (error instanceof AnalyticsAccountDeletionBlockedError) {
         return jsonResponse({ ok: true, forwarded: 0 });
       }
       throw error;
     }
+    forwarded = await dependencies.forwardToPostHog(eventsForForwarding, user.id);
     if (!forwarded.ok) {
       return jsonResponse({ error: "forward_failed" }, forwarded.status);
+    }
+    try {
+      // Keep PostHog I/O outside the DB transaction. If deletion appeared while
+      // the fetch was in flight, immediately erase the just-forwarded identities.
+      await dependencies.runAuthenticatedAnalytics(user.id, async () => undefined);
+    } catch (error) {
+      if (error instanceof AnalyticsAccountDeletionBlockedError) {
+        await dependencies.deletePostHogPersonData(
+          user.id,
+          postHogDistinctIdsForForwardedEvents(eventsForForwarding, user.id),
+        );
+        return jsonResponse({ ok: true, forwarded: 0 });
+      }
+      throw error;
     }
     return jsonResponse({ ok: true, forwarded: accepted.length });
   }
@@ -228,11 +239,15 @@ async function runAuthenticatedAnalyticsWithAccountDeletionLock<T>(
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)))
       .limit(1);
-    if (deletion && isBlockingAccountDeletionStatus(deletion.status)) {
+    if (deletion && isAnalyticsForwardBlockedTombstoneStatus(deletion.status)) {
       throw new AnalyticsAccountDeletionBlockedError();
     }
     return await run(tx);
   });
+}
+
+function isAnalyticsForwardBlockedTombstoneStatus(status: string): boolean {
+  return status !== "failed";
 }
 
 function sanitizeEvent(candidate: unknown): IncomingEvent | null {
@@ -276,6 +291,13 @@ function authenticatedAnonymousIds(events: readonly IncomingEvent[], userId: str
     if (anonymousId) ids.push(anonymousId);
   }
   return ids;
+}
+
+function postHogDistinctIdsForForwardedEvents(
+  events: readonly IncomingEvent[],
+  userId: string,
+): readonly string[] {
+  return Array.from(new Set([userId, ...authenticatedAnonymousIds(events, userId)]));
 }
 
 function stripUnrecordedAnonymousAliases(

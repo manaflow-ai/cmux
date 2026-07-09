@@ -271,7 +271,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         guard networkAllowed, consent.isTelemetryEnabled else { return }
         let result = await sendIdentify(request)
         if userID != nil {
-            authenticatedIdentifyReplayPending = result != .accepted
+            authenticatedIdentifyReplayPending = result == .retry
         }
     }
 
@@ -282,7 +282,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
             return
         }
         let result = await sendIdentify(request)
-        authenticatedIdentifyReplayPending = result != .accepted
+        authenticatedIdentifyReplayPending = result == .retry
     }
 
     private func sendIdentify(_ request: AnalyticsIdentifyRequest) async -> AnalyticsUploadResult {
