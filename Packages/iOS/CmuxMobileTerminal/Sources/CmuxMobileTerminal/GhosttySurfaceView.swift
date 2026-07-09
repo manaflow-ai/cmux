@@ -94,6 +94,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var renderInFlight: Bool = false
     var renderInFlightSince: CFTimeInterval?
     var needsAnotherRender: Bool = false
+    private let surfaceFreeDrainWatchdog = SurfaceFreeDrainWatchdog()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
     /// swap-chain frame slot from libghostty; if the app is backgrounded while
@@ -2347,22 +2348,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // work from being enqueued once `surface` is nil, so only the bounded
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
-        enqueueSurfaceFree(surface, bridge: currentBridge, on: currentQueue)
+        enqueueSurfaceFree(surface, bridge: currentBridge, generation: surfaceGeneration, on: currentQueue)
     }
 
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         bridge: GhosttySurfaceBridge,
-        on queue: GhosttySurfaceWorkQueue,
+        generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
+        surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
+        queue.async { [weak self] in
             ghostty_surface_free(surface)
             retainedBridge.release()
-            if let completion {
-                Task { @MainActor in completion() }
-            }
+            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
         }
     }
 
@@ -2798,7 +2798,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func setFocus(_ focused: Bool) {
+    func setFocus(_ focused: Bool) {
         guard let surface else { return }
         ghostty_surface_set_focus(surface, focused)
     }

@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import Foundation
 import os
 
@@ -25,6 +26,18 @@ nonisolated struct AgentChatActionInFlightGate {
 }
 
 extension AppDelegate {
+    /// Workstream feed title mapping extracted because `AppDelegate.swift`
+    /// sits at its file-length budget.
+    nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
+        switch event.hookEventName {
+        case .preCompact, .postCompact:
+            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
+        case .subagentStart, .subagentStop:
+            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
+        default:
+            return nil
+        }
+    }
 
     @discardableResult
     func performConfiguredNewAgentChatAction(
