@@ -237,10 +237,6 @@ class TerminalController {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
 
-    private nonisolated static var terminalSurfaceUnavailableSocketError: String {
-        "ERROR: \(terminalSurfaceUnavailableMessage)"
-    }
-
     private nonisolated static let focusIntentV1Commands: Set<String> = [
         "__internal_flags",
         "focus_window",
@@ -11738,19 +11734,19 @@ class TerminalController {
 
         switch keyToken.lowercased() {
         case "left":
-            storedKey = "←"
+            storedKey = "\u{F702}"
             keyCode = 123
             charactersIgnoringModifiers = storedKey
         case "right":
-            storedKey = "→"
+            storedKey = "\u{F703}"
             keyCode = 124
             charactersIgnoringModifiers = storedKey
         case "down":
-            storedKey = "↓"
+            storedKey = "\u{F701}"
             keyCode = 125
             charactersIgnoringModifiers = storedKey
         case "up":
-            storedKey = "↑"
+            storedKey = "\u{F700}"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
         case "enter", "return", "tab":

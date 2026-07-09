@@ -1594,23 +1594,6 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
-    var mode: RightSidebarMode?
-
-    init(mode: RightSidebarMode?) {
-        self.mode = mode
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case mode
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let raw = try container.decodeIfPresent(String.self, forKey: .mode)
-        self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
-    }
-}
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
