@@ -634,6 +634,62 @@ enum BrowserEngineSettings {
     }
 }
 
+/// Engine backing a browser surface. Resolved at surface creation from the
+/// configured `BrowserEngineChoice` and runtime availability, then persisted.
+enum BrowserSurfaceEngineKind: String, Codable, Sendable {
+    case webkit
+    case chromium
+}
+
+extension BrowserEngineSettings {
+    @MainActor private static var didNotifyFallback = false
+
+    /// Engine kind for a newly created (non-restored) surface, posting the
+    /// once-per-run fallback notification when a Chromium request degrades to WebKit.
+    @MainActor
+    static func resolveEngineKindForNewSurface(workspaceId: UUID) -> BrowserSurfaceEngineKind {
+        let resolution = BrowserPanel.resolveEngineKind(
+            configured: configuredEngine(),
+            runtimeAvailable: ChromiumRuntimeManager.shared.isRuntimeAvailable()
+        )
+        if resolution.didFallBack {
+            postFallbackNotificationIfNeeded(workspaceId: workspaceId)
+        }
+        return resolution.kind
+    }
+
+    /// Engine kind for a restored surface: preserve the persisted kind unless a
+    /// persisted Chromium surface can no longer find a runtime, then fall back.
+    @MainActor
+    static func restoredEngineKind(_ persisted: BrowserSurfaceEngineKind, workspaceId: UUID) -> BrowserSurfaceEngineKind {
+        guard persisted == .chromium else { return .webkit }
+        if ChromiumRuntimeManager.shared.isRuntimeAvailable() {
+            return .chromium
+        }
+        postFallbackNotificationIfNeeded(workspaceId: workspaceId)
+        return .webkit
+    }
+
+    @MainActor
+    private static func postFallbackNotificationIfNeeded(workspaceId: UUID) {
+        guard !didNotifyFallback else { return }
+        didNotifyFallback = true
+        TerminalNotificationStore.shared.addNotification(
+            tabId: workspaceId,
+            surfaceId: nil,
+            title: String(
+                localized: "chromium.fallback.title",
+                defaultValue: "Chromium unavailable — using WebKit"
+            ),
+            subtitle: "",
+            body: String(
+                localized: "chromium.fallback.body",
+                defaultValue: "Install a runtime with scripts/fetch-chromium-runtime.sh, then open a new browser surface."
+            )
+        )
+    }
+}
+
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
@@ -2750,6 +2806,23 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
+    /// Engine backing this surface, resolved at creation and persisted with the session.
+    private(set) var engineKind: BrowserSurfaceEngineKind = .webkit
+
+    /// Pure resolution of the configured engine against runtime availability.
+    /// `.chromium` degrades to `.webkit` (with `didFallBack == true`) when no runtime is present.
+    nonisolated static func resolveEngineKind(
+        configured: BrowserEngineChoice,
+        runtimeAvailable: Bool
+    ) -> (kind: BrowserSurfaceEngineKind, didFallBack: Bool) {
+        switch configured {
+        case .webkit:
+            return (.webkit, false)
+        case .chromium:
+            return runtimeAvailable ? (.chromium, false) : (.webkit, true)
+        }
+    }
+
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
@@ -3943,13 +4016,15 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        engineKind: BrowserSurfaceEngineKind = .webkit
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.engineKind = engineKind
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)

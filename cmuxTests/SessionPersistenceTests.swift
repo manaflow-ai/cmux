@@ -487,7 +487,8 @@ final class SessionPersistenceTests: XCTestCase {
             ],
             forwardHistoryURLStrings: [
                 "https://example.com/d"
-            ]
+            ],
+            engineKind: BrowserSurfaceEngineKind.chromium.rawValue
         )
 
         let data = try JSONEncoder().encode(source)
@@ -498,6 +499,22 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.omnibarVisible, false)
         XCTAssertEqual(decoded.backHistoryURLStrings, source.backHistoryURLStrings)
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
+        XCTAssertEqual(decoded.engineKind, "chromium")
+        XCTAssertEqual(BrowserSurfaceEngineKind(rawValue: decoded.engineKind ?? ""), .chromium)
+    }
+
+    func testBrowserPanelEngineKindResolution() {
+        let webkit = BrowserPanel.resolveEngineKind(configured: .webkit, runtimeAvailable: true)
+        XCTAssertEqual(webkit.kind, .webkit)
+        XCTAssertFalse(webkit.didFallBack)
+
+        let chromiumAvailable = BrowserPanel.resolveEngineKind(configured: .chromium, runtimeAvailable: true)
+        XCTAssertEqual(chromiumAvailable.kind, .chromium)
+        XCTAssertFalse(chromiumAvailable.didFallBack)
+
+        let chromiumUnavailable = BrowserPanel.resolveEngineKind(configured: .chromium, runtimeAvailable: false)
+        XCTAssertEqual(chromiumUnavailable.kind, .webkit)
+        XCTAssertTrue(chromiumUnavailable.didFallBack)
     }
 
     func testSessionBrowserPanelSnapshotHistoryDecodesWhenKeysAreMissing() throws {
@@ -517,6 +534,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(decoded.omnibarVisible)
         XCTAssertNil(decoded.backHistoryURLStrings)
         XCTAssertNil(decoded.forwardHistoryURLStrings)
+        XCTAssertNil(decoded.engineKind)
     }
 
     func testScrollbackReplayEnvironmentWritesReplayFile() {
