@@ -8,23 +8,38 @@ import Testing
 /// bridge calls it from its rpc queue while the test thread inspects it.
 final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Sendable {
     private let lock = NSLock()
-    private var _writes: [Data] = []
+    private var _writes: [(data: Data, seq: UInt64?)] = []
     private var _onEvent: ((RemotePTYBridgeEvent) -> Void)?
     private var _eventQueue: DispatchQueue?
     var attachError: (any Error)?
+    var supportsInputSeqAck = false
 
     var writes: [Data] {
         lock.lock()
         defer { lock.unlock() }
-        return _writes
+        return _writes.map(\.data)
+    }
+
+    var writeSeqs: [UInt64?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _writes.map(\.seq)
     }
 
     func emit(_ event: RemotePTYBridgeEvent) {
         lock.lock()
-        let onEvent = _onEvent
         let queue = _eventQueue
         lock.unlock()
-        queue?.async { onEvent?(event) }
+        queue?.async { [weak self] in
+            self?.deliver(event)
+        }
+    }
+
+    private func deliver(_ event: RemotePTYBridgeEvent) {
+        lock.lock()
+        let onEvent = _onEvent
+        lock.unlock()
+        onEvent?(event)
     }
 
     func attachBridgePTY(
@@ -34,6 +49,7 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
         rows: Int,
         command: String?,
         requireExisting: Bool,
+        inputSeqAck: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (RemotePTYBridgeEvent) -> Void
     ) throws -> RemotePTYBridgeAttachment {
@@ -50,10 +66,11 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
         attachmentID: String,
         attachmentToken: String,
         data: Data,
+        seq: UInt64?,
         completion: @escaping ((any Error)?) -> Void
     ) {
         lock.lock()
-        _writes.append(data)
+        _writes.append((data, seq))
         lock.unlock()
         completion(nil)
     }
@@ -61,18 +78,44 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
 }
 
-
 private final class DeferredRecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Sendable {
     private let lock = NSLock()
-    private var _writes: [Data] = []
+    private var _writes: [(data: Data, seq: UInt64?)] = []
     private var completions: [((any Error)?) -> Void] = []
     private var _onEvent: ((RemotePTYBridgeEvent) -> Void)?
     private var _eventQueue: DispatchQueue?
+    let supportsInputSeqAck: Bool
+
+    init(supportsInputSeqAck: Bool) {
+        self.supportsInputSeqAck = supportsInputSeqAck
+    }
 
     var writes: [Data] {
         lock.lock()
         defer { lock.unlock() }
-        return _writes
+        return _writes.map(\.data)
+    }
+
+    var writeSeqs: [UInt64?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _writes.map(\.seq)
+    }
+
+    func emit(_ event: RemotePTYBridgeEvent) {
+        lock.lock()
+        let queue = _eventQueue
+        lock.unlock()
+        queue?.async { [weak self] in
+            self?.deliver(event)
+        }
+    }
+
+    private func deliver(_ event: RemotePTYBridgeEvent) {
+        lock.lock()
+        let onEvent = _onEvent
+        lock.unlock()
+        onEvent?(event)
     }
 
     func attachBridgePTY(
@@ -82,6 +125,7 @@ private final class DeferredRecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClien
         rows: Int,
         command: String?,
         requireExisting: Bool,
+        inputSeqAck: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (RemotePTYBridgeEvent) -> Void
     ) throws -> RemotePTYBridgeAttachment {
@@ -97,12 +141,18 @@ private final class DeferredRecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClien
         attachmentID: String,
         attachmentToken: String,
         data: Data,
+        seq: UInt64?,
         completion: @escaping ((any Error)?) -> Void
     ) {
         lock.lock()
-        _writes.append(data)
-        completions.append(completion)
-        lock.unlock()
+        _writes.append((data, seq))
+        if supportsInputSeqAck {
+            lock.unlock()
+            completion(nil)
+        } else {
+            completions.append(completion)
+            lock.unlock()
+        }
     }
 
     func completePendingWrites() {
@@ -162,6 +212,14 @@ private final class BridgeTestClient: @unchecked Sendable {
         connection.send(content: data, completion: .contentProcessed { _ in })
     }
 
+    func sendBlocking(_ data: Data, timeout: TimeInterval = 5.0) -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        connection.send(content: data, completion: .contentProcessed { _ in
+            semaphore.signal()
+        })
+        return semaphore.wait(timeout: .now() + timeout) == .success
+    }
+
     /// Polls until `predicate` over the received bytes holds or the deadline
     /// passes (generous upper bound only; the happy path returns quickly).
     func waitForReceived(timeout: TimeInterval = 5.0, _ predicate: (Data, Bool) -> Bool) -> Bool {
@@ -206,12 +264,7 @@ struct RemotePTYBridgeServerTests {
     }
 
     private func patternedInput(byteCount: Int) -> Data {
-        var data = Data()
-        data.reserveCapacity(byteCount)
-        for index in 0..<byteCount {
-            data.append(UInt8(index % 251))
-        }
-        return data
+        Data((0..<byteCount).map { UInt8($0 % 251) })
     }
 
     private func waitUntil(timeout: TimeInterval = 5.0, _ predicate: () -> Bool) -> Bool {
@@ -221,53 +274,6 @@ struct RemotePTYBridgeServerTests {
             usleep(20_000)
         }
         return predicate()
-    }
-
-    // Regression test for https://github.com/manaflow-ai/cmux/issues/7708:
-    // input-window overflow must never close the bridge session or drop
-    // accepted bytes; it must backpressure and eventually deliver every
-    // byte to writePTY in order.
-    @Test("legacy input overflow pauses instead of closing and preserves order")
-    func legacyInputOverflowPausesAndPreservesOrder() throws {
-        let rpc = DeferredRecordingPTYBridgeRPCClient()
-        let server = makeServer(client: rpc)
-        defer { server.stop() }
-        let endpoint = try server.start()
-
-        let client = BridgeTestClient(endpoint: endpoint)
-        defer { client.cancel() }
-        client.send(Data("{\"token\":\"\(endpoint.token)\",\"cols\":120,\"rows\":40}\n".utf8))
-        #expect(client.waitForReceived { data, _ in
-            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"deferred-token\"")
-        })
-
-        let input = patternedInput(byteCount: 5 * 1024 * 1024)
-        client.send(input)
-
-        // Phase 1: with no write completions the input window must fill and
-        // the session must backpressure (pause socket reads) — never close.
-        let windowFillTarget = 3 * 1024 * 1024
-        #expect(waitUntil(timeout: 10.0) {
-            rpc.writes.reduce(0) { $0 + $1.count } >= windowFillTarget || client.isClosed
-        })
-        #expect(!client.isClosed)
-
-        // Phase 2: draining completions must deliver every accepted byte,
-        // in order, with the connection still open.
-        let drainDeadline = Date().addingTimeInterval(15.0)
-        while rpc.writes.reduce(0, { $0 + $1.count }) < input.count,
-              Date() < drainDeadline {
-            rpc.completePendingWrites()
-            usleep(20_000)
-        }
-        rpc.completePendingWrites()
-        // Compare via a Bool: on mismatch Swift Testing would otherwise try
-        // to render a byte-level diff of two multi-megabyte Data values.
-        let delivered = rpc.writes.reduce(Data(), +)
-        #expect(delivered.count == input.count)
-        let deliveredMatchesInput = delivered == input
-        #expect(deliveredMatchesInput)
-        #expect(!client.isClosed)
     }
 
     @Test("start binds a loopback endpoint with a fresh token")
@@ -311,6 +317,119 @@ struct RemotePTYBridgeServerTests {
         rpc.emit(.data(Data("OUTPUT".utf8)))
         #expect(client.waitForReceived { data, _ in
             String(decoding: data, as: UTF8.self).contains("OUTPUT")
+        })
+    }
+
+    @Test("legacy input overflow pauses instead of closing and preserves order")
+    func legacyInputOverflowPausesAndPreservesOrder() throws {
+        let rpc = DeferredRecordingPTYBridgeRPCClient(supportsInputSeqAck: false)
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(endpoint.token)\",\"cols\":120,\"rows\":40}\n".utf8))
+        #expect(client.waitForReceived { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"deferred-token\"")
+        })
+
+        let input = patternedInput(byteCount: 5 * 1024 * 1024)
+        client.send(input)
+
+        // Phase 1: with no write completions the input window must fill and
+        // the session must backpressure (pause socket reads) — never close.
+        let windowFillTarget = 3 * 1024 * 1024
+        #expect(waitUntil(timeout: 10.0) {
+            rpc.writes.reduce(0) { $0 + $1.count } >= windowFillTarget || client.isClosed
+        })
+        #expect(!client.isClosed)
+
+        // Phase 2: draining completions must deliver every accepted byte,
+        // in order, with the connection still open.
+        let drainDeadline = Date().addingTimeInterval(15.0)
+        while rpc.writes.reduce(0, { $0 + $1.count }) < input.count,
+              Date() < drainDeadline {
+            rpc.completePendingWrites()
+            usleep(20_000)
+        }
+        rpc.completePendingWrites()
+        // Bool compare: a failed Data #expect would render a huge byte diff.
+        let delivered = rpc.writes.reduce(Data(), +)
+        #expect(delivered.count == input.count)
+        let deliveredMatchesInput = delivered == input
+        #expect(deliveredMatchesInput)
+        #expect(!client.isClosed)
+    }
+
+    @Test("acked input mode drains only on cumulative ack and preserves seq order")
+    func ackedInputModeDrainsOnAck() throws {
+        let rpc = DeferredRecordingPTYBridgeRPCClient(supportsInputSeqAck: true)
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(endpoint.token)\",\"cols\":120,\"rows\":40}\n".utf8))
+        #expect(client.waitForReceived { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"deferred-token\"")
+        })
+
+        let input = patternedInput(byteCount: 5 * 1024 * 1024)
+        #expect(client.sendBlocking(input))
+
+        // No acks: the window must fill and pause, bounding delivery.
+        let windowFillTarget = 3 * 1024 * 1024
+        #expect(waitUntil(timeout: 10.0) {
+            rpc.writes.reduce(0) { $0 + $1.count } >= windowFillTarget || client.isClosed
+        })
+        let firstSeqs = rpc.writeSeqs.compactMap { $0 }
+        #expect(firstSeqs == firstSeqs.indices.map { UInt64($0 + 1) })
+        #expect(!client.isClosed)
+        #expect(rpc.writes.reduce(0) { $0 + $1.count } <= 4 * 1024 * 1024)
+
+        let ackDeadline = Date().addingTimeInterval(10.0)
+        while rpc.writes.reduce(0, { $0 + $1.count }) < input.count,
+              Date() < ackDeadline {
+            let seqs = rpc.writeSeqs.compactMap { $0 }
+            if let last = seqs.last {
+                rpc.emit(.inputAck(seq: last))
+            }
+            usleep(20_000)
+        }
+        let seqs = rpc.writeSeqs.compactMap { $0 }
+        #expect(seqs == seqs.indices.map { UInt64($0 + 1) })
+        let delivered = rpc.writes.reduce(Data(), +)
+        #expect(delivered.count == input.count)
+        let deliveredMatchesInput = delivered == input
+        #expect(deliveredMatchesInput)
+        #expect(!client.isClosed)
+    }
+
+    @Test("a pty.error mid-stream closes the session")
+    func ptyErrorMidStreamClosesSession() throws {
+        let rpc = DeferredRecordingPTYBridgeRPCClient(supportsInputSeqAck: true)
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(endpoint.token)\",\"cols\":120,\"rows\":40}\n".utf8))
+        #expect(client.waitForReceived { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"deferred-token\"")
+        })
+
+        client.send(Data("echo hi\n".utf8))
+        #expect(waitUntil {
+            !rpc.writes.isEmpty
+        })
+        #expect(!client.isClosed)
+
+        rpc.emit(.error("PTY input sequence gap: got 3, want 2"))
+        #expect(waitUntil {
+            client.isClosed
         })
     }
 

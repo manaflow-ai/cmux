@@ -111,12 +111,18 @@ const (
 type wsPTYOutgoingFrame struct {
 	messageType websocket.MessageType
 	payload     []byte
+	inputAck    bool
 }
 
 type wsPTYInputChunk struct {
-	attachmentID string
-	attachment   *wsPTYAttachment
-	payload      []byte
+	attachmentID  string
+	attachment    *wsPTYAttachment
+	payload       []byte
+	seq           uint64
+	finalSeqChunk bool
+	// flushDone marks a barrier sentinel: the input loop closes it once every
+	// chunk enqueued before it has been written to the PTY. No payload.
+	flushDone chan struct{}
 }
 
 type wsPTYInputWriteStatus uint8
@@ -125,18 +131,24 @@ const (
 	wsPTYInputWriteOK wsPTYInputWriteStatus = iota
 	wsPTYInputWriteNotFound
 	wsPTYInputWriteQueueFull
+	wsPTYInputWriteSeqGap
 )
 
 type wsPTYAttachment struct {
-	sessionKey  wsPTYSessionKey
-	id          string
-	clientToken string
-	cols        int
-	rows        int
-	send        chan wsPTYOutgoingFrame
-	cancel      context.CancelFunc
-	conn        *websocket.Conn
-	persistent  bool
+	sessionKey      wsPTYSessionKey
+	id              string
+	clientToken     string
+	cols            int
+	rows            int
+	send            chan wsPTYOutgoingFrame
+	cancel          context.CancelFunc
+	conn            *websocket.Conn
+	persistent      bool
+	inputSeqAck     bool
+	lastAcceptedSeq uint64
+	ackMu           sync.Mutex
+	ackQueued       bool
+	ackSeq          uint64
 }
 
 type wsPTYSessionKey struct {
@@ -748,6 +760,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		"",
 		"",
 		false,
+		false,
 	)
 	if err != nil {
 		return nil, err
@@ -765,6 +778,7 @@ func (h *wsPTYHub) attachRPC(
 	command string,
 	clientToken string,
 	requireExisting bool,
+	inputSeqAck bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -772,7 +786,7 @@ func (h *wsPTYHub) attachRPC(
 	}
 	attachmentID = strings.TrimSpace(attachmentID)
 	cols, rows = normalizePTYSize(cols, rows)
-	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, clientToken, requireExisting)
+	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, clientToken, requireExisting, inputSeqAck)
 }
 
 func (h *wsPTYHub) prepareAttachment(
@@ -786,6 +800,7 @@ func (h *wsPTYHub) prepareAttachment(
 	command string,
 	clientToken string,
 	requireExisting bool,
+	inputSeqAck bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	h.mu.Lock()
 
@@ -813,11 +828,33 @@ func (h *wsPTYHub) prepareAttachment(
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
 	}
-	var superseded *wsPTYAttachment
-	if old := session.attachments[attachmentID]; old != nil {
+	// Supersede any existing attachment with this id, quiescing its accepted
+	// input before the replacement may enqueue. Waiting on the flush barrier
+	// drops h.mu, so re-check the slot afterwards: a concurrent attach for the
+	// same id may have registered in the window and must be superseded too,
+	// never silently overwritten.
+	var superseded []*wsPTYAttachment
+	closeSuperseded := func() {
+		for _, old := range superseded {
+			old.closeNow()
+		}
+	}
+	for {
+		old := session.attachments[attachmentID]
+		if old == nil {
+			break
+		}
 		old.cancel()
 		delete(session.attachments, attachmentID)
-		superseded = old
+		superseded = append(superseded, old)
+		h.mu.Unlock()
+		h.flushAcceptedInput(session)
+		h.mu.Lock()
+		if h.sessions[sessionKey] != session || session.closed {
+			h.mu.Unlock()
+			closeSuperseded()
+			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is not running", sessionID)
+		}
 	}
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
@@ -832,22 +869,19 @@ func (h *wsPTYHub) prepareAttachment(
 		cancel:      cancel,
 		conn:        conn,
 		persistent:  persistent,
+		inputSeqAck: inputSeqAck,
 	}
 	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
 		cancel()
 		h.mu.Unlock()
-		if superseded != nil {
-			superseded.closeNow()
-		}
+		closeSuperseded()
 		return nil, nil, nil, errors.New("failed to queue ready frame")
 	}
 	if ok := enqueuePTYReplay(attachment, replay); !ok {
 		cancel()
 		h.mu.Unlock()
-		if superseded != nil {
-			superseded.closeNow()
-		}
+		closeSuperseded()
 		return nil, nil, nil, errors.New("failed to queue replay frame")
 	}
 	session.attachments[attachmentID] = attachment
@@ -855,9 +889,7 @@ func (h *wsPTYHub) prepareAttachment(
 	sessionDone := session.done
 	h.mu.Unlock()
 
-	if superseded != nil {
-		superseded.closeNow()
-	}
+	closeSuperseded()
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
@@ -1137,12 +1169,22 @@ func (h *wsPTYHub) closeAll() {
 	}
 }
 
+type wsPTYInputWriteResult struct {
+	status wsPTYInputWriteStatus
+	got    uint64
+	want   uint64
+}
+
 func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, attachmentToken string, payload []byte) wsPTYInputWriteStatus {
+	return h.writeInputByIDWithSeq(sessionID, attachmentID, attachmentToken, payload, 0, false).status
+}
+
+func (h *wsPTYHub) writeInputByIDWithSeq(sessionID string, attachmentID string, attachmentToken string, payload []byte, seq uint64, hasSeq bool) wsPTYInputWriteResult {
 	attachment := h.attachmentByID(sessionID, attachmentID, attachmentToken)
 	if attachment == nil {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
-	return h.writeInput(attachment, payload)
+	return h.writeInput(attachment, payload, seq, hasSeq)
 }
 
 func (h *wsPTYHub) resizeByID(sessionID string, attachmentID string, attachmentToken string, cols int, rows int) bool {
@@ -1520,13 +1562,13 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 	return false
 }
 
-func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTYInputWriteStatus {
+func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte, seq uint64, hasSeq bool) wsPTYInputWriteResult {
 	session := h.sessionForAttachment(attachment.sessionKey)
 	if session == nil {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
 	if len(payload) == 0 {
-		return wsPTYInputWriteOK
+		return wsPTYInputWriteResult{status: wsPTYInputWriteOK}
 	}
 
 	h.mu.Lock()
@@ -1536,19 +1578,23 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTY
 		session.input != nil
 	h.mu.Unlock()
 	if !current {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
 
 	chunks := make([]wsPTYInputChunk, 0, (len(payload)+defaultPTYInputChunkBytes-1)/defaultPTYInputChunkBytes)
+	remaining := len(payload)
 	for len(payload) > 0 {
 		chunkLen := len(payload)
 		if chunkLen > defaultPTYInputChunkBytes {
 			chunkLen = defaultPTYInputChunkBytes
 		}
+		remaining -= chunkLen
 		chunks = append(chunks, wsPTYInputChunk{
-			attachmentID: attachment.id,
-			attachment:   attachment,
-			payload:      append([]byte(nil), payload[:chunkLen]...),
+			attachmentID:  attachment.id,
+			attachment:    attachment,
+			payload:       append([]byte(nil), payload[:chunkLen]...),
+			seq:           seq,
+			finalSeqChunk: attachment.inputSeqAck && remaining == 0,
 		})
 		payload = payload[chunkLen:]
 	}
@@ -1561,24 +1607,43 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTY
 		!session.closed &&
 		session.attachments[attachment.id] == attachment &&
 		session.input != nil
+	if current && attachment.inputSeqAck {
+		want := attachment.lastAcceptedSeq + 1
+		if !hasSeq || seq != want {
+			h.mu.Unlock()
+			return wsPTYInputWriteResult{status: wsPTYInputWriteSeqGap, got: seq, want: want}
+		}
+	}
 	h.mu.Unlock()
 	if !current {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
 	if len(chunks) > cap(session.input)-len(session.input) {
 		if h.stderr != nil {
 			_, _ = fmt.Fprintf(h.stderr, "ws pty input queue full session=%s attachment=%s\n", session.id, attachment.id)
 		}
-		return wsPTYInputWriteQueueFull
+		return wsPTYInputWriteResult{status: wsPTYInputWriteQueueFull}
+	}
+	if attachment.inputSeqAck {
+		h.mu.Lock()
+		if h.sessions[attachment.sessionKey] != session ||
+			session.closed ||
+			session.attachments[attachment.id] != attachment ||
+			session.input == nil {
+			h.mu.Unlock()
+			return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
+		}
+		attachment.lastAcceptedSeq = seq
+		h.mu.Unlock()
 	}
 	for _, chunk := range chunks {
 		select {
 		case session.input <- chunk:
 		case <-session.done:
-			return wsPTYInputWriteNotFound
+			return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 		}
 	}
-	return wsPTYInputWriteOK
+	return wsPTYInputWriteResult{status: wsPTYInputWriteOK}
 }
 
 func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
@@ -1593,18 +1658,24 @@ func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk) bool {
+	if chunk.flushDone != nil {
+		close(chunk.flushDone)
+		return true
+	}
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
 
 	h.mu.Lock()
-	current := h.sessions[session.key] == session &&
-		!session.closed &&
-		session.attachments[chunk.attachmentID] == chunk.attachment
+	current := h.sessions[session.key] == session && !session.closed
 	ptyFile := session.ptyFile
 	h.mu.Unlock()
 	if !current || ptyFile == nil {
 		return false
 	}
+	return h.writeInputChunkWithPTYFile(ptyFile, chunk)
+}
+
+func (h *wsPTYHub) writeInputChunkWithPTYFile(ptyFile *os.File, chunk wsPTYInputChunk) bool {
 	total := 0
 	for total < len(chunk.payload) {
 		n, err := ptyFile.Write(chunk.payload[total:])
@@ -1618,7 +1689,36 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 			return false
 		}
 	}
+	h.ackInputChunk(chunk)
 	return true
+}
+
+// flushAcceptedInput blocks until every input chunk enqueued before the call
+// has been written to the PTY. writeInputLoop stays the sole consumer of
+// session.input (a second consumer could reorder a chunk the loop already
+// dequeued but has not yet written); the barrier sentinel is enqueued under
+// inputEnqueueMu so no concurrent write can slip in ahead of it.
+func (h *wsPTYHub) flushAcceptedInput(session *wsPTYSession) {
+	session.inputEnqueueMu.Lock()
+	flushDone := make(chan struct{})
+	select {
+	case session.input <- wsPTYInputChunk{flushDone: flushDone}:
+	case <-session.done:
+		session.inputEnqueueMu.Unlock()
+		return
+	}
+	session.inputEnqueueMu.Unlock()
+	select {
+	case <-flushDone:
+	case <-session.done:
+	}
+}
+
+func (h *wsPTYHub) ackInputChunk(chunk wsPTYInputChunk) {
+	if !chunk.finalSeqChunk || chunk.attachment == nil || !chunk.attachment.inputSeqAck {
+		return
+	}
+	chunk.attachment.enqueueInputAck(chunk.seq)
 }
 
 func (h *wsPTYHub) sessionForAttachment(sessionKey wsPTYSessionKey) *wsPTYSession {
@@ -1706,6 +1806,38 @@ func (a *wsPTYAttachment) enqueue(messageType websocket.MessageType, payload []b
 	}
 }
 
+func (a *wsPTYAttachment) enqueueInputAck(seq uint64) bool {
+	a.ackMu.Lock()
+	if seq > a.ackSeq {
+		a.ackSeq = seq
+	}
+	if a.ackQueued {
+		a.ackMu.Unlock()
+		return true
+	}
+	a.ackQueued = true
+	a.ackMu.Unlock()
+
+	select {
+	case a.send <- wsPTYOutgoingFrame{inputAck: true}:
+		return true
+	default:
+		a.ackMu.Lock()
+		a.ackQueued = false
+		a.ackMu.Unlock()
+		a.cancel()
+		return false
+	}
+}
+
+func (a *wsPTYAttachment) consumeInputAck() uint64 {
+	a.ackMu.Lock()
+	defer a.ackMu.Unlock()
+	seq := a.ackSeq
+	a.ackQueued = false
+	return seq
+}
+
 func (a *wsPTYAttachment) writeLoop(ctx context.Context, conn *websocket.Conn, sessionDone <-chan struct{}) {
 	for {
 		select {
@@ -1753,6 +1885,15 @@ func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, 
 }
 
 func rpcPTYEventForFrame(attachment *wsPTYAttachment, frame wsPTYOutgoingFrame) rpcEvent {
+	if frame.inputAck {
+		return rpcEvent{
+			Event:           "pty.input_ack",
+			SessionID:       attachment.sessionKey.sessionID,
+			AttachmentID:    attachment.id,
+			AttachmentToken: attachment.clientToken,
+			Seq:             attachment.consumeInputAck(),
+		}
+	}
 	event := rpcEvent{
 		Event:           "pty.data",
 		SessionID:       attachment.sessionKey.sessionID,
@@ -1805,7 +1946,7 @@ func pumpWebSocketToPTY(ctx context.Context, hub *wsPTYHub, attachment *wsPTYAtt
 		}
 		switch msgType {
 		case websocket.MessageBinary:
-			if status := hub.writeInput(attachment, payload); status != wsPTYInputWriteOK {
+			if status := hub.writeInput(attachment, payload, 0, false).status; status != wsPTYInputWriteOK {
 				return
 			}
 		case websocket.MessageText:
