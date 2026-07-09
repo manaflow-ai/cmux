@@ -36,17 +36,22 @@ public struct BrowserWebExtensionEntry: Codable, Sendable, Equatable, Hashable, 
     public var path: String
     /// Whether the extension loads into the browser.
     public var enabled: Bool
+    /// Human-readable name captured when the extension was imported
+    /// (e.g. the containing app's name), shown in the settings list.
+    public var displayName: String?
 
     /// - Parameters:
     ///   - id: Stable identity (appex plug-in identifier, or directory path).
     ///   - kind: Where the extension's resources come from.
     ///   - path: Absolute path to the `.appex` bundle or unpacked directory.
     ///   - enabled: Whether the extension loads into the browser.
-    public init(id: String, kind: Kind, path: String, enabled: Bool) {
+    ///   - displayName: Human-readable name captured at import time.
+    public init(id: String, kind: Kind, path: String, enabled: Bool, displayName: String? = nil) {
         self.id = id
         self.kind = kind
         self.path = path
         self.enabled = enabled
+        self.displayName = displayName
     }
 }
 
