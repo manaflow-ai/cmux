@@ -11,7 +11,6 @@ import {
 import { decryptTenantKey, encryptTenantKey } from "./crypto";
 
 type CloudDb = ReturnType<typeof cloudDb>;
-export type SubrouterTenantTransaction = Pick<CloudDb, "execute" | "insert" | "select">;
 
 export type SubrouterTenantAccess = {
   readonly tenantId: string;
@@ -71,66 +70,51 @@ export async function getOrCreateTenantForTeam(
     throw new SubrouterNotConfiguredError();
   }
 
-  return await db.transaction(async (tx) =>
-    await getOrCreateTenantForTeamInTransaction(
-      tx as SubrouterTenantTransaction,
-      teamId,
-      teamName,
-      client,
-      tenantKeySecret,
-    )
-  );
-}
-
-export async function getOrCreateTenantForTeamInTransaction(
-  tx: SubrouterTenantTransaction,
-  teamId: string,
-  teamName: string,
-  client: SubrouterClient,
-  tenantKeySecret: string,
-): Promise<SubrouterTenantAccess> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${teamId}, 8))`);
-
-  const [existing] = await tx
-    .select({
-      tenantId: subrouterTenants.tenantId,
-      encryptedTenantKey: subrouterTenants.encryptedTenantKey,
-    })
-    .from(subrouterTenants)
-    .where(eq(subrouterTenants.teamId, teamId))
-    .limit(1);
-
-  if (existing) {
-    return {
-      tenantId: existing.tenantId,
-      tenantKey: decryptTenantKey(existing.encryptedTenantKey, tenantKeySecret),
-    };
-  }
-
-  encryptTenantKey("subrouter-tenant-key-secret-probe", tenantKeySecret);
   const normalizedTeamName = teamName.trim() || teamId;
-  const tenant = await client.createTenant({ name: normalizedTeamName });
 
-  try {
-    const encryptedTenantKey = encryptTenantKey(tenant.key, tenantKeySecret);
-    const now = new Date();
-    await tx.insert(subrouterTenants).values({
-      teamId,
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${teamId}, 8))`);
+
+    const [existing] = await tx
+      .select({
+        tenantId: subrouterTenants.tenantId,
+        encryptedTenantKey: subrouterTenants.encryptedTenantKey,
+      })
+      .from(subrouterTenants)
+      .where(eq(subrouterTenants.teamId, teamId))
+      .limit(1);
+
+    if (existing) {
+      return {
+        tenantId: existing.tenantId,
+        tenantKey: decryptTenantKey(existing.encryptedTenantKey, tenantKeySecret),
+      };
+    }
+
+    encryptTenantKey("subrouter-tenant-key-secret-probe", tenantKeySecret);
+    const tenant = await client.createTenant({ name: normalizedTeamName });
+
+    try {
+      const encryptedTenantKey = encryptTenantKey(tenant.key, tenantKeySecret);
+      const now = new Date();
+      await tx.insert(subrouterTenants).values({
+        teamId,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        encryptedTenantKey,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (err) {
+      await revokeTenantBestEffort(client, tenant.id);
+      throw err;
+    }
+
+    return {
       tenantId: tenant.id,
-      tenantName: tenant.name,
-      encryptedTenantKey,
-      createdAt: now,
-      updatedAt: now,
-    });
-  } catch (err) {
-    await revokeTenantBestEffort(client, tenant.id);
-    throw err;
-  }
-
-  return {
-    tenantId: tenant.id,
-    tenantKey: tenant.key,
-  };
+      tenantKey: tenant.key,
+    };
+  });
 }
 
 async function revokeTenantBestEffort(client: SubrouterClient, tenantId: string): Promise<void> {

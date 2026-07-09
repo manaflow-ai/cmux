@@ -332,6 +332,27 @@ describe("subrouter accounts route", () => {
     expect(fakeDb.rows).toHaveLength(0);
   });
 
+  test("keeps first tenant mapping when account creation fails", async () => {
+    upstream.createAccountFailureStatus = 502;
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(502);
+    expect(JSON.parse(body)).toEqual({ error: "upstream_request_failed" });
+    expect(upstream.adminCreates).toBe(1);
+    expect(fakeDb.rows).toHaveLength(1);
+    expect(fakeDb.rows[0].tenantId).toBe("tenant-team-a");
+  });
+
   test("delete proxies to the tenant account endpoint", async () => {
     seedTenantMapping(fakeDb);
     const response = await accountRoute.DELETE(
@@ -508,6 +529,7 @@ function createMockSubrouter() {
     deletedAccountIds: [] as string[],
     lastCreateAccountUrl: null as URL | null,
     lastCreateAccountBody: null as unknown,
+    createAccountFailureStatus: null as number | null,
     fetch: undefined as unknown as ReturnType<typeof mock>,
   };
 
@@ -539,6 +561,9 @@ function createMockSubrouter() {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
       state.lastCreateAccountUrl = url;
       state.lastCreateAccountBody = JSON.parse(String(init?.body ?? "{}"));
+      if (state.createAccountFailureStatus) {
+        return jsonResponse({ error: "create failed" }, state.createAccountFailureStatus);
+      }
       const body = state.lastCreateAccountBody as { provider: string; label?: string };
       const account = {
         id: "acct-created",
@@ -583,6 +608,7 @@ function createFakeRouteDb() {
     status: string;
   }> = [];
   let tail = Promise.resolve();
+  let transactionDepth = 0;
 
   const selectRows = (projection: Record<string, unknown> | undefined) =>
     projection && "status" in projection && "userIdHash" in projection
@@ -601,7 +627,8 @@ function createFakeRouteDb() {
       }),
     }),
     transaction: async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => {
-      const run = tail.then(async () => {
+      const runCallback = async () => {
+        transactionDepth += 1;
         const tx = {
           execute: async () => [],
           select: (projection?: Record<string, unknown>) => ({
@@ -618,8 +645,15 @@ function createFakeRouteDb() {
             },
           }),
         };
-        return await callback(tx);
-      });
+        try {
+          return await callback(tx);
+        } finally {
+          transactionDepth -= 1;
+        }
+      };
+      if (transactionDepth > 0) return await runCallback();
+
+      const run = tail.then(runCallback);
       tail = run.then(() => undefined, () => undefined);
       return await run;
     },

@@ -27,7 +27,7 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import {
   getTenantForTeam,
-  getOrCreateTenantForTeamInTransaction,
+  getOrCreateTenantForTeam,
 } from "../../../../services/subrouter/tenants";
 
 export const runtime = "nodejs";
@@ -75,13 +75,15 @@ export async function POST(request: Request): Promise<Response> {
     const account = await withAccountDeletionUserMutationLock(
       db,
       context.userId,
-      async (tx) => {
-        const tenant = await getOrCreateTenantForTeamInTransaction(
-          tx,
+      async () => {
+        const tenant = await getOrCreateTenantForTeam(
+          db,
           context.team.teamId,
           context.team.teamName,
-          context.client,
-          context.config.tenantKeySecret,
+          {
+            client: context.client,
+            tenantKeySecret: context.config.tenantKeySecret,
+          },
         );
         return await context.client.createAccount(tenant.tenantKey, input.value, { validate });
       },

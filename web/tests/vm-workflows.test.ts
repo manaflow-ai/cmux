@@ -292,7 +292,8 @@ describe("VM Effect workflows", () => {
       providerVmId: "provider-vm-snapshot-finalize-race",
       status: "running",
     });
-    const repo = testWorkflowRepo({ vm, completeSnapshotUsageEventResult: false });
+    const deletedSnapshotUsageEventIds: string[] = [];
+    const repo = testWorkflowRepo({ vm, completeSnapshotUsageEventResult: false, deletedSnapshotUsageEventIds });
     const deletedSnapshots: string[] = [];
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
@@ -319,6 +320,50 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBeInstanceOf(VmNotFoundError);
     expect(deletedSnapshots).toEqual(["snapshot-finalize-race"]);
+    expect(deletedSnapshotUsageEventIds).toEqual(["snapshot-usage-event"]);
+  });
+
+  test("deletes a just-created snapshot when cleanup reservation finalization throws", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000115",
+      userId: "user-workflow-snapshot-finalize-throws",
+      billingTeamId: null,
+      providerVmId: "provider-vm-snapshot-finalize-throws",
+      status: "running",
+    });
+    const completionError = new VmDatabaseError({
+      operation: "completeSnapshotUsageEvent",
+      cause: new Error("complete failed"),
+    });
+    const deletedSnapshotUsageEventIds: string[] = [];
+    const repo = testWorkflowRepo({ vm, completeSnapshotUsageEventError: completionError, deletedSnapshotUsageEventIds });
+    const deletedSnapshots: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () =>
+        Effect.succeed({
+          id: "snapshot-finalize-throws",
+          createdAt: Date.now(),
+        }),
+      deleteSnapshot: (_provider, snapshotId) =>
+        Effect.sync(() => {
+          deletedSnapshots.push(snapshotId);
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      snapshotVm({
+        userId: "user-workflow-snapshot-finalize-throws",
+        providerVmId: "provider-vm-snapshot-finalize-throws",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(error).toBe(completionError);
+    expect(deletedSnapshots).toEqual(["snapshot-finalize-throws"]);
+    expect(deletedSnapshotUsageEventIds).toEqual(["snapshot-usage-event"]);
   });
 
   test("exec failure with running provider status propagates the original error without retry", async () => {
@@ -4908,9 +4953,10 @@ function testWorkflowRepo(input: {
     readonly leaseRevocationRetries?: LeaseRevocationRetry[];
     readonly observedStatuses?: ObservedStatusUpdate[];
     readonly recordUsageEventResult?: boolean;
-    readonly reserveSnapshotUsageEventResult?: string | null;
-    readonly completeSnapshotUsageEventResult?: boolean;
-    readonly snapshotReservations?: Array<Parameters<VmRepositoryShape["reserveSnapshotUsageEvent"]>[0] & { id: string }>;
+	    readonly reserveSnapshotUsageEventResult?: string | null;
+	    readonly completeSnapshotUsageEventResult?: boolean;
+	    readonly completeSnapshotUsageEventError?: VmDatabaseError;
+	    readonly snapshotReservations?: Array<Parameters<VmRepositoryShape["reserveSnapshotUsageEvent"]>[0] & { id: string }>;
     readonly completedSnapshots?: Parameters<VmRepositoryShape["completeSnapshotUsageEvent"]>[0][];
     readonly deletedSnapshotUsageEventIds?: string[];
     readonly callOrder?: string[];
@@ -5029,13 +5075,19 @@ function testWorkflowRepo(input: {
           if (id) input.snapshotReservations?.push({ id, ...event });
           return id;
         }),
-      completeSnapshotUsageEvent: (event) =>
-        Effect.sync(() => {
-          input.callOrder?.push("complete-snapshot");
-          const completed = input.completeSnapshotUsageEventResult ?? true;
-          if (completed) input.completedSnapshots?.push(event);
-          return completed;
-        }),
+	      completeSnapshotUsageEvent: (event) => {
+	        if (input.completeSnapshotUsageEventError) {
+	          return Effect.sync(() => {
+	            input.callOrder?.push("complete-snapshot");
+	          }).pipe(Effect.zipRight(Effect.fail(input.completeSnapshotUsageEventError)));
+	        }
+	        return Effect.sync(() => {
+	          input.callOrder?.push("complete-snapshot");
+	          const completed = input.completeSnapshotUsageEventResult ?? true;
+	          if (completed) input.completedSnapshots?.push(event);
+	          return completed;
+	        });
+	      },
       deleteSnapshotUsageEvent: (event) =>
         Effect.sync(() => {
           input.deletedSnapshotUsageEventIds?.push(event.eventId);

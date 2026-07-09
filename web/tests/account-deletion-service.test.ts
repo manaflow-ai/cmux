@@ -55,7 +55,13 @@ let providerlessProvisioningRows: Array<{ id: string }> = [];
 let providerlessProvisioningSelectsRemaining = 0;
 let providerlessCloudVmUpdateCount = 0;
 let workflowErrorsByProviderId = new Map<string, unknown>();
-let snapshotRows: Array<{ id: string; eventType?: string; provider: ProviderId; snapshotId: string | null }> = [];
+let snapshotRows: Array<{
+  id: string;
+  eventType?: string;
+  provider: ProviderId;
+  snapshotId: string | null;
+  createdAt?: Date;
+}> = [];
 let snapshotDeleteError: unknown = null;
 let identityLeaseRows: Array<{ id: string; provider: ProviderId; providerIdentityHandle: string | null }> = [];
 let identityLeaseRevokeError: unknown = null;
@@ -649,6 +655,7 @@ describe("account deletion cleanup", () => {
       eventType: "vm.snapshot.pending",
       provider: "freestyle",
       snapshotId: null,
+      createdAt: new Date(),
     }];
 
     await expect(deleteCmuxAccountData({
@@ -658,6 +665,25 @@ describe("account deletion cleanup", () => {
     expect(calls).toContain("select-snapshot-usage-events");
     expect(calls).not.toContain("delete-snapshot-usage-events");
     expect(calls).not.toContain("transaction");
+  });
+
+  test("drops stale pending provider snapshot reservations during account deletion", async () => {
+    snapshotRows = [{
+      id: "00000000-0000-4000-8000-000000000204",
+      eventType: "vm.snapshot.pending",
+      provider: "freestyle",
+      snapshotId: null,
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    }];
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls).toContain("select-snapshot-usage-events");
+    expect(calls).toContain("delete-snapshot-usage-events");
+    expect(calls).not.toContain("delete-snapshot:freestyle:null");
+    expect(calls.indexOf("delete-snapshot-usage-events")).toBeLessThan(calls.indexOf("transaction"));
   });
 
   test("marks stale providerless provisioning VMs before claiming providerless rows", async () => {

@@ -602,9 +602,23 @@ export function snapshotVm(input: {
       snapshotId: snapshot.id,
       named: !!input.name,
       name: input.name ?? null,
-    });
+    }).pipe(
+      Effect.catchAll((error) =>
+        deleteProviderSnapshot(providers, vm.provider, snapshot.id).pipe(
+          Effect.zipRight(
+            repo.deleteSnapshotUsageEvent({ eventId: reservationId, userId: vm.userId }).pipe(
+              Effect.catchAll(() => Effect.void),
+            ),
+          ),
+          Effect.zipRight(Effect.fail(error)),
+        )
+      ),
+    );
     if (!recorded) {
       yield* deleteProviderSnapshot(providers, vm.provider, snapshot.id);
+      yield* repo.deleteSnapshotUsageEvent({ eventId: reservationId, userId: vm.userId }).pipe(
+        Effect.catchAll(() => Effect.void),
+      );
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     return snapshot;

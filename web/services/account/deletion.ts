@@ -52,6 +52,7 @@ const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 const ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE = 50;
 const ACCOUNT_VM_LEASE_REVOKE_BATCH_SIZE = 50;
 const VAULT_ACCOUNT_DELETION_BATCH_SIZE = 100;
+const ACCOUNT_VM_PENDING_SNAPSHOT_STALE_MS = 60 * 60 * 1000;
 
 type AccountDeletionWorkflow = unknown;
 type AccountDeletionRuntime = {
@@ -886,10 +887,12 @@ async function deleteAccountVmSnapshots(
     const snapshots = await accountVmSnapshotRows(scope, runtime);
     if (snapshots.length === 0) return;
     for (const snapshot of snapshots) {
-      await runtime.runVmWorkflow(buildWorkflow({
-        provider: snapshot.provider,
-        snapshotId: snapshot.snapshotId,
-      }));
+      if (snapshot.snapshotId) {
+        await runtime.runVmWorkflow(buildWorkflow({
+          provider: snapshot.provider,
+          snapshotId: snapshot.snapshotId,
+        }));
+      }
     }
     await db.delete(cloudVmUsageEvents).where(inArray(cloudVmUsageEvents.id, snapshots.map((row) => row.id)));
   }
@@ -898,14 +901,16 @@ async function deleteAccountVmSnapshots(
 async function accountVmSnapshotRows(
   scope: AccountDeletionScope,
   runtime: AccountDeletionRuntime,
-): Promise<readonly { readonly id: string; readonly provider: ProviderId; readonly snapshotId: string }[]> {
+): Promise<readonly { readonly id: string; readonly provider: ProviderId; readonly snapshotId: string | null }[]> {
   const db = runtime.cloudDb();
+  const stalePendingBefore = new Date(Date.now() - ACCOUNT_VM_PENDING_SNAPSHOT_STALE_MS);
   const rows = await db
     .select({
       id: cloudVmUsageEvents.id,
       eventType: cloudVmUsageEvents.eventType,
       provider: cloudVmUsageEvents.provider,
       snapshotId: sql<string | null>`${cloudVmUsageEvents.metadata}->>'snapshotId'`,
+      createdAt: cloudVmUsageEvents.createdAt,
     })
     .from(cloudVmUsageEvents)
     .where(and(
@@ -914,16 +919,25 @@ async function accountVmSnapshotRows(
       isNotNull(cloudVmUsageEvents.provider),
     ))
     .limit(ACCOUNT_VM_SNAPSHOT_CLEANUP_BATCH_SIZE);
-  return rows.flatMap((row) => {
+  const cleanupRows: Array<{ id: string; provider: ProviderId; snapshotId: string | null }> = [];
+  for (const row of rows) {
     if (row.eventType === "vm.snapshot.pending") {
-      throw new Error("Cloud VM snapshot cleanup is waiting for an in-flight snapshot to settle");
+      if (row.createdAt > stalePendingBefore) {
+        throw new Error("Cloud VM snapshot cleanup is waiting for an in-flight snapshot to settle");
+      }
+      if (!row.provider) {
+        throw new Error("Cloud VM snapshot cleanup found a snapshot row without a provider");
+      }
+      cleanupRows.push({ id: row.id, provider: row.provider, snapshotId: null });
+      continue;
     }
     const snapshotId = row.snapshotId?.trim();
     if (!row.provider || !snapshotId) {
       throw new Error("Cloud VM snapshot cleanup found a snapshot row without a provider snapshot id");
     }
-    return [{ id: row.id, provider: row.provider, snapshotId }];
-  });
+    cleanupRows.push({ id: row.id, provider: row.provider, snapshotId });
+  }
+  return cleanupRows;
 }
 
 async function revokeAccountVmIdentityLeases(

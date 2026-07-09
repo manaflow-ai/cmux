@@ -1644,7 +1644,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("completeSnapshotUsageEvent", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
-        await hasAccountDeletionTombstoneWithLock(tx, input.userId);
+        if (await hasAccountDeletionTombstoneWithLock(tx, input.userId)) return false;
         const [updated] = await tx
           .update(cloudVmUsageEvents)
           .set({
