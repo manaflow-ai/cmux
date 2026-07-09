@@ -68,11 +68,34 @@ async function assertBulkDeleteResponseSucceeded(response: Response): Promise<vo
   if (!Array.isArray(deletionErrors)) {
     throw new Error("PostHog account deletion failed: invalid deletion errors");
   }
-  if (deletionErrors.length > 0) {
-    throw new Error(`PostHog account deletion failed: ${deletionErrors.length} deletion error(s)`);
+  const blockingErrors = deletionErrors.filter((error) => !isAlreadyDeletedPostHogError(error));
+  if (blockingErrors.length > 0) {
+    throw new Error(`PostHog account deletion failed: ${blockingErrors.length} deletion error(s)`);
   }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAlreadyDeletedPostHogError(value: unknown): boolean {
+  const normalized = postHogDeletionErrorText(value).toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  return /\b(not found|does not exist|no such|already deleted|has been deleted|was deleted|missing)\b/.test(normalized);
+}
+
+function postHogDeletionErrorText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return "";
+  const textParts = [
+    value.error,
+    value.message,
+    value.detail,
+    value.code,
+  ].filter((part): part is string => typeof part === "string");
+  if (textParts.length > 0) return textParts.join(" ");
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
 }
