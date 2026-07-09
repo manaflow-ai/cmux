@@ -2154,6 +2154,7 @@ private struct NotificationsPopoverView: View {
     // UserDefaults.didChangeNotification, which wakes up every observer in the app.
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
+    @State private var workspaceTitles: [UUID: String] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2167,6 +2168,16 @@ private struct NotificationsPopoverView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
+        }
+        .onAppear { refreshWorkspaceTitles() }
+        .onChange(of: notificationStore.notifications.map(\.tabId)) { _, _ in
+            refreshWorkspaceTitles()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceGroupNameDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
         }
     }
 
@@ -2333,13 +2344,13 @@ private struct NotificationsPopoverView: View {
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
-            let workspaceTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
+            let titleSnapshot = workspaceTitles.isEmpty ? currentWorkspaceTitles() : workspaceTitles
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            workspaceTitle: workspaceTitles[notification.tabId],
+                            workspaceTitle: titleSnapshot[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2377,6 +2388,33 @@ private struct NotificationsPopoverView: View {
                 }
             }
         }
+    }
+
+    private func currentWorkspaceTitles() -> [UUID: String] {
+        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        return (AppDelegate.shared?.tabTitlesByTabId() ?? [:]).filter {
+            notificationWorkspaceIds.contains($0.key)
+        }
+    }
+
+    private func refreshWorkspaceTitles(ifRelevantTo notification: Notification? = nil) {
+        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        if let notification {
+            switch notification.name {
+            case .workspaceTitleDidChange:
+                guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                      notificationWorkspaceIds.contains(workspaceId) else { return }
+            case .workspaceGroupNameDidChange:
+                guard let manager = notification.object as? TabManager,
+                      manager.tabs.contains(where: { notificationWorkspaceIds.contains($0.id) }) else { return }
+            default:
+                return
+            }
+        }
+
+        let nextTitles = currentWorkspaceTitles()
+        guard nextTitles != workspaceTitles else { return }
+        workspaceTitles = nextTitles
     }
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
@@ -2425,72 +2463,6 @@ private struct NotificationsPopoverView: View {
             _ = AppDelegate.shared?.openTerminalNotification(notification)
             onDismiss()
         }
-    }
-}
-
-private struct ResizeGripperRepresentable: NSViewRepresentable {
-    let onBegin: () -> (CGFloat, CGFloat)
-    let onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void
-    let onEnd: () -> Void
-
-    func makeNSView(context: Context) -> ResizeGripperNSView {
-        ResizeGripperNSView()
-    }
-
-    func updateNSView(_ nsView: ResizeGripperNSView, context: Context) {
-        nsView.onBegin = onBegin
-        nsView.onDrag = onDrag
-        nsView.onEnd = onEnd
-    }
-}
-
-private final class ResizeGripperNSView: NSView {
-    var onBegin: () -> (CGFloat, CGFloat) = { (0, 0) }
-    var onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
-    var onEnd: () -> Void = {}
-
-    private var pressLocation: NSPoint?
-    private var pressStartWidth: CGFloat = 0
-    private var pressStartHeight: CGFloat = 0
-
-    private static let diagonalResizeCursor: NSCursor = {
-        // AppKit ships a NW–SE diagonal resize cursor for window corners but doesn't expose
-        // it publicly. It has lived under this selector for years and is widely used by Mac
-        // apps that need a diagonal resize affordance.
-        let selector = NSSelectorFromString("_windowResizeNorthWestSouthEastCursor")
-        if let method = NSCursor.responds(to: selector) ? NSCursor.perform(selector) : nil,
-           let cursor = method.takeUnretainedValue() as? NSCursor {
-            return cursor
-        }
-        return NSCursor.crosshair
-    }()
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: Self.diagonalResizeCursor)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        // NSEvent.mouseLocation is screen-coordinate and stable while the popover resizes.
-        pressLocation = NSEvent.mouseLocation
-        let (w, h) = onBegin()
-        pressStartWidth = w
-        pressStartHeight = h
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let start = pressLocation else { return }
-        let current = NSEvent.mouseLocation
-        let dx = current.x - start.x
-        // Screen-y grows upward; popover should grow as the pointer moves down (toward
-        // smaller screen-y), so invert.
-        let dy = start.y - current.y
-        onDrag(pressStartWidth, pressStartHeight, dx, dy)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        pressLocation = nil
-        onEnd()
     }
 }
 
