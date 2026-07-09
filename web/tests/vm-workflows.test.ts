@@ -23,6 +23,8 @@ import {
 } from "../services/vms/repository";
 import {
   VmCreateCreditsInsufficientError,
+  VmAccountDeletionInProgressError,
+  VmAccountDeletionIdentityRevocationError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmDatabaseError,
@@ -30,7 +32,10 @@ import {
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  isVmCreateDisabledError,
+  vmWorkflowErrorCause,
 } from "../services/vms/errors";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 import {
   createVm,
   destroyVm,
@@ -40,6 +45,7 @@ import {
   openAttachEndpoint,
   openSshEndpoint,
   revokeExpiredIdentityLeases,
+  revokeUserIdentityLeasesForAccountDeletion,
   resetBaseVm,
   restoreVm,
   reconcileVmProviderStatuses,
@@ -434,6 +440,209 @@ describe("VM Effect workflows", () => {
 
     expect(revokeCalls).toBe(0);
     expect(destroyCalls).toBe(0);
+  });
+
+  test("revokes account-deletion SSH identities and marks their leases revoked", async () => {
+    const revokedLeaseIds: string[] = [];
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: () =>
+        Effect.succeed([
+          testIdentityLease("lease-account-delete-1", "identity-account-delete-1"),
+          testIdentityLease("lease-account-delete-2", "identity-account-delete-2"),
+        ]),
+      revokedLeaseIds,
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) =>
+        Effect.sync(() => {
+          revokedIdentities.push(identityHandle);
+        }),
+    };
+
+    const revokedCount = await Effect.runPromise(
+      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete").pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revokedCount).toBe(2);
+    expect(revokedIdentities).toEqual([
+      "identity-account-delete-1",
+      "identity-account-delete-2",
+    ]);
+    expect(revokedLeaseIds).toEqual([
+      "lease-account-delete-1",
+      "lease-account-delete-2",
+    ]);
+  });
+
+  test("marks empty account-deletion SSH identity handles revoked without a provider call", async () => {
+    const revokedLeaseIds: string[] = [];
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: () =>
+        Effect.succeed([
+          testIdentityLease("lease-account-delete-empty", ""),
+          testIdentityLease("lease-account-delete-real", "identity-account-delete-real"),
+        ]),
+      revokedLeaseIds,
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) =>
+        Effect.sync(() => {
+          revokedIdentities.push(identityHandle);
+        }),
+    };
+
+    const revokedCount = await Effect.runPromise(
+      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete").pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revokedCount).toBe(2);
+    expect(revokedIdentities).toEqual(["identity-account-delete-real"]);
+    expect(revokedLeaseIds).toEqual([
+      "lease-account-delete-empty",
+      "lease-account-delete-real",
+    ]);
+  });
+
+  test("revokes account-deletion SSH identities in bounded batches", async () => {
+    const requestedLimits: number[] = [];
+    const refreshedAfterBatch: number[] = [];
+    const leaseBatches = [
+      [
+        testIdentityLease("lease-account-delete-1", "identity-account-delete-1"),
+        testIdentityLease("lease-account-delete-2", "identity-account-delete-2"),
+      ],
+      [
+        testIdentityLease("lease-account-delete-3", "identity-account-delete-3"),
+      ],
+    ];
+    const revokedLeaseBatches: string[][] = [];
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: (input) =>
+        Effect.sync(() => {
+          requestedLimits.push(input.limit);
+          return leaseBatches.shift() ?? [];
+        }),
+      revokedLeaseBatches,
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) =>
+        Effect.sync(() => {
+          revokedIdentities.push(identityHandle);
+        }),
+    };
+
+    const revokedCount = await Effect.runPromise(
+      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete", {
+        limit: 2,
+        afterBatch: () =>
+          Effect.sync(() => {
+            refreshedAfterBatch.push(revokedLeaseBatches.length);
+          }),
+      }).pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revokedCount).toBe(3);
+    expect(requestedLimits).toEqual([2, 2]);
+    expect(revokedIdentities).toEqual([
+      "identity-account-delete-1",
+      "identity-account-delete-2",
+      "identity-account-delete-3",
+    ]);
+    expect(revokedLeaseBatches).toEqual([
+      ["lease-account-delete-1", "lease-account-delete-2"],
+      ["lease-account-delete-3"],
+    ]);
+    expect(refreshedAfterBatch).toEqual([1, 2]);
+  });
+
+  test("keeps account-deletion SSH identity cleanup retryable when provider revocation fails", async () => {
+    const revokedLeaseIds: string[] = [];
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: () =>
+        Effect.succeed([
+          testIdentityLease("lease-account-delete-success", "identity-account-delete-success"),
+          testIdentityLease("lease-account-delete-failure", "identity-account-delete-failure"),
+        ]),
+      revokedLeaseIds,
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) => {
+        revokedIdentities.push(identityHandle);
+        if (identityHandle === "identity-account-delete-failure") {
+          return Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed"));
+        }
+        return Effect.void;
+      },
+    };
+
+    await expect(
+      Effect.runPromise(
+        revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete").pipe(
+          Effect.provide(workflowLayer(repo, provider)),
+        ),
+      ),
+    ).rejects.toThrow();
+
+    expect(revokedIdentities).toEqual([
+      "identity-account-delete-success",
+      "identity-account-delete-failure",
+    ]);
+    expect(revokedLeaseIds).toEqual(["lease-account-delete-success"]);
+  });
+
+  test("marks account-deletion SSH identity cleanup destructive when lease marking fails after revoke", async () => {
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: () =>
+        Effect.succeed([
+          testIdentityLease("lease-account-delete-success", "identity-account-delete-success"),
+        ]),
+      markLeasesRevoked: () =>
+        Effect.fail(new VmDatabaseError({
+          operation: "markLeasesRevoked",
+          cause: new Error("db unavailable"),
+        })),
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) =>
+        Effect.sync(() => {
+          revokedIdentities.push(identityHandle);
+        }),
+    };
+
+    let thrown: unknown;
+    try {
+      await Effect.runPromise(
+        revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete").pipe(
+          Effect.provide(workflowLayer(repo, provider)),
+        ),
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(revokedIdentities).toEqual(["identity-account-delete-success"]);
+    expect(String(thrown)).toContain(VmAccountDeletionIdentityRevocationError.name);
   });
 
   test("revokeExpiredIdentityLeases uses a small default cron batch", async () => {
@@ -1444,6 +1653,7 @@ describe("VM Effect workflows", () => {
       findUserVm: () => Effect.succeed(null),
       markDestroyed: () => Effect.void,
       recordLease: () => Effect.void,
+      accountDeletionIdentityLeases: () => Effect.succeed([]),
       listVmSessions: () => Effect.succeed([]),
       upsertVmSession: () => Effect.fail(new Error("unused") as never),
       activeIdentityLeases: () => Effect.succeed([]),
@@ -1583,6 +1793,122 @@ describe("VM Effect workflows", () => {
     expect(vmCount).toBe("2");
     expect(usageCount).toBe("2");
     expect(imageVersion).toBe("test-version");
+  });
+
+  dbTest("does not open or reset Base while account deletion blocks VM creation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`
+      truncate account_deletion_tombstones, cloud_vm_base_events, cloud_vm_base_generations,
+        cloud_vm_bases, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases,
+        cloud_vms restart identity cascade
+    `;
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash("user-base-deleting")}, 'user-base-deleting', 'completed')
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-base-deleting",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+    const input = {
+      userId: "user-base-deleting",
+      billingCustomerType: "user" as const,
+      billingTeamId: "user-base-deleting",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "e2b" as const,
+      image: "cmuxd-ws:test",
+      baseName: "default",
+    };
+
+    for (const workflow of [
+      openBaseVm(input),
+      resetBaseVm({ ...input, reason: "try during deletion" }),
+    ]) {
+      try {
+        await Effect.runPromise(workflow.pipe(Effect.provide(layer)));
+        throw new Error("expected Base VM creation to be blocked");
+      } catch (error) {
+        const workflowError = vmWorkflowErrorCause(error) ?? error;
+        expect(workflowError).toBeInstanceOf(VmAccountDeletionInProgressError);
+      }
+    }
+
+    expect(createCalls).toBe(0);
+    const [{ vmCount }] = await sql<{ vmCount: string }[]>`
+      select count(*)::text as "vmCount" from cloud_vms
+      where user_id = 'user-base-deleting'
+    `;
+    expect(vmCount).toBe("0");
+  });
+
+  dbTest("opens Base after a pending account deletion lease expires", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`
+      truncate account_deletion_tombstones, cloud_vm_base_events, cloud_vm_base_generations,
+        cloud_vm_bases, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases,
+        cloud_vms restart identity cascade
+    `;
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
+      values (
+        ${accountDeletionUserHash("user-base-stale-delete")},
+        'user-base-stale-delete',
+        'pending',
+        now() - interval '20 minutes'
+      )
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-base-stale-delete",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    const vm = await Effect.runPromise(openBaseVm({
+      userId: "user-base-stale-delete",
+      billingCustomerType: "user",
+      billingTeamId: "user-base-stale-delete",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      baseName: "default",
+    }).pipe(Effect.provide(providerLayer(provider))));
+
+    expect(createCalls).toBe(1);
+    expect(vm.providerVmId).toBe("provider-vm-base-stale-delete");
   });
 
   dbTest("opens Base as one stable VM per account scope", async () => {
@@ -4251,7 +4577,10 @@ function testWorkflowRepo(input: {
   readonly leases?: RecordedLease[];
   readonly activeIdentityLeases?: CloudVmLeaseRow[];
   readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
+  readonly accountDeletionIdentityLeases?: VmRepositoryShape["accountDeletionIdentityLeases"];
+  readonly markLeasesRevoked?: VmRepositoryShape["markLeasesRevoked"];
   readonly revokedLeaseIds?: string[];
+  readonly revokedLeaseBatches?: string[][];
   readonly leaseRevocationRetries?: LeaseRevocationRetry[];
   readonly observedStatuses?: ObservedStatusUpdate[];
   readonly markProviderObservedStatus?: (
@@ -4297,6 +4626,7 @@ function testWorkflowRepo(input: {
         input.leases?.push(lease);
       }),
     expiredIdentityLeases: input.expiredIdentityLeases,
+    accountDeletionIdentityLeases: input.accountDeletionIdentityLeases ?? (() => Effect.succeed([])),
     markLeaseRevocationRetry: (retry) =>
       Effect.sync(() => {
         input.leaseRevocationRetries?.push(retry);
@@ -4334,7 +4664,10 @@ function testWorkflowRepo(input: {
           : input.activeIdentityLeases ?? [],
       ),
     markLeasesRevoked: (leaseIds) =>
-      Effect.sync(() => {
+      input.markLeasesRevoked
+        ? input.markLeasesRevoked(leaseIds)
+        : Effect.sync(() => {
+        input.revokedLeaseBatches?.push([...leaseIds]);
         input.revokedLeaseIds?.push(...leaseIds);
       }),
     recordUsageEvent: (event) =>
@@ -4376,6 +4709,25 @@ function providerOperationError(operation: string, message: string): VmProviderO
     operation,
     cause: new Error(message),
   });
+}
+
+function testIdentityLease(id: string, providerIdentityHandle: string): CloudVmIdentityLeaseRow {
+  return {
+    id,
+    vmId: "00000000-0000-4000-8000-000000000765",
+    userId: "user-workflow-account-delete",
+    kind: "ssh",
+    tokenHash: `${id}-token`,
+    providerIdentityHandle,
+    sessionId: null,
+    transport: "ssh",
+    metadata: {},
+    expiresAt: new Date(Date.now() + 60_000),
+    consumedAt: null,
+    revokedAt: null,
+    createdAt: new Date(),
+    provider: "freestyle",
+  };
 }
 
 function testVmHandle(overrides: Partial<VMHandle> = {}): VMHandle {
