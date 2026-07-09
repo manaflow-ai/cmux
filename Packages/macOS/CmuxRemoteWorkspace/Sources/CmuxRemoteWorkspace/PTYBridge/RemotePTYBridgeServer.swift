@@ -68,8 +68,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     /// - Parameters:
     ///   - rpcClient: Daemon RPC seam used to attach/write/detach.
     ///   - sessionID: Remote persistent PTY session identifier.
-    ///   - lifecycleID: Stable logical generation reused across reconnect attempts;
-    ///     defaults to `attachmentID` for standalone callers.
+    ///   - lifecycleID: Stable logical generation reused across reconnect attempts.
     ///   - attachmentID: Attachment identifier to request.
     ///   - command: Optional command to start when the session does not
     ///     exist yet.
@@ -84,7 +83,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     public init(
         rpcClient: any RemotePTYBridgeRPCClient,
         sessionID: String,
-        lifecycleID: String? = nil,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool,
@@ -94,7 +93,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     ) {
         self.rpcClient = rpcClient
         self.sessionID = sessionID
-        self.lifecycleID = lifecycleID ?? attachmentID
+        self.lifecycleID = lifecycleID
         self.attachmentID = attachmentID
         self.command = command
         self.requireExisting = requireExisting

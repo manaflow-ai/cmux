@@ -2,7 +2,52 @@ import Darwin
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testSSHPTYReconciliationRejectsMalformedLifecyclePayloads() throws {
+        let malformedResults: [[String: Any]] = [
+            ["errors": []],
+            ["sessions": [], "errors": "invalid"],
+        ]
+        for (index, malformedResult) in malformedResults.enumerated() {
+            let socketPath = makeSocketPath("sshptymalformed\(index)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.remote.pty_sessions" else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return self.v2Response(id: id, ok: true, result: malformedResult)
+            }
+
+            do {
+                _ = try reconcileSSHPTYBridgeEnd(
+                    client: SocketClient(path: socketPath),
+                    workspaceId: "workspace",
+                    surfaceID: "surface",
+                    sessionID: "session",
+                    lifecycleID: "lifecycle",
+                    intentionalOnly: false
+                )
+                Issue.record("malformed lifecycle payload was accepted: \(malformedResult)")
+            } catch let error as CLIError {
+                #expect(error.exitCode == SSHPTYAttachExitCode.retryableTransient.rawValue)
+            }
+            wait(for: [socketHandled], timeout: 5)
+        }
+    }
+
     func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyprobe")

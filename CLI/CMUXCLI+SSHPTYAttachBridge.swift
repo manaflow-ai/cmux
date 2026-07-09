@@ -97,6 +97,7 @@ extension CMUXCLI {
         lifecycleID: String,
         intentionalOnly: Bool
     ) throws -> Bool {
+        let reconciliationFailure = "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed"
         let response: [String: Any]
         do {
             var params: [String: Any] = [
@@ -112,23 +113,33 @@ extension CMUXCLI {
             response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
         } catch {
             throw CLIError(
-                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(userFacingRemotePTYErrorMessage(error))",
+                message: "\(reconciliationFailure): \(userFacingRemotePTYErrorMessage(error))",
                 exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
 
         let intentionallyClosed = ((response["requested_session_lifecycle"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)) == "intentionally_closed"
-        let errors = response["errors"] as? [[String: Any]] ?? []
+        guard let sessions = response["sessions"] as? [[String: Any]] else {
+            throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
+        }
+        let errors: [[String: Any]]
+        if let rawErrors = response["errors"] {
+            guard let parsedErrors = rawErrors as? [[String: Any]] else {
+                throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
+            }
+            errors = parsedErrors
+        } else {
+            errors = []
+        }
         if !intentionallyClosed, !errors.isEmpty {
             throw CLIError(
-                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
+                message: "\(reconciliationFailure)\n\(sshSessionListFailureMessage(errors))",
                 exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
         if intentionalOnly, !intentionallyClosed { return false }
 
-        let sessions = response["sessions"] as? [[String: Any]] ?? []
         let sessionStillRunning = sessions.contains {
             (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
         }

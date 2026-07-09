@@ -13,6 +13,7 @@ struct RemotePTYBridgeSessionErrorCodeTests {
         let server = RemotePTYBridgeServer(
             rpcClient: rpc,
             sessionID: "session-1",
+            lifecycleID: "attachment-1",
             attachmentID: "attachment-1",
             command: nil,
             requireExisting: true,

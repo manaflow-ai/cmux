@@ -255,7 +255,7 @@ struct RemotePTYBridgeServerTests {
         RemotePTYBridgeServer(
             rpcClient: client,
             sessionID: "session-1",
-            attachmentID: "attachment-1",
+            lifecycleID: "attachment-1", attachmentID: "attachment-1",
             command: nil,
             requireExisting: false,
             strings: TestPTYBridgeStrings(),
