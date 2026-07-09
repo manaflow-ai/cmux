@@ -354,20 +354,24 @@ describe("account deletion processor", () => {
     ]);
   });
 
-  test("keeps missing Stack user scope retryable before cleanup", async () => {
-    await expect(
-      processAccountDeletionForUser({ userId: "user-1" }, dependencies({
-        loadStackUser: async (userId) => {
-          calls.push(`load-stack:${userId}`);
-          return null;
-        },
-      })),
-    ).rejects.toThrow("Stack account deletion team scope is unavailable.");
+  test("cleans local account data when the Stack user is already gone before cleanup", async () => {
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return null;
+      },
+    }));
 
+    expect(result).toBe("processed");
     expect(calls).toEqual([
       "claim:user-1",
       "load-stack:user-1",
-      "retry-pending:user-1:Stack account deletion team scope is unavailable.",
+      "cleanup:user-1",
+      "list-analytics-identities:user-1",
+      "posthog:user-1:user-1,anon-1",
+      "delete-analytics-identities:user-1",
+      "stack-delete-pending:user-1",
+      "completed:user-1",
     ]);
   });
 
