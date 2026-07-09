@@ -136,6 +136,25 @@ describe("app pricing page", () => {
     );
   });
 
+  test("hides the billing portal link for Pro users in App Store distribution mode", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    stripeSubscriptionRows = [{ id: "sub_123" }];
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_distribution: "appstore",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    // Apple 3.1.1: no external billing/purchase links inside App Store builds.
+    expect(html).not.toContain("/api/billing/portal");
+    expect(html).toContain("Current plan");
+  });
+
   test("renders Manage billing for Stripe-managed Pro users", async () => {
     stackConfigured = true;
     currentUser = proUser;
