@@ -128,6 +128,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            pinnedWorkingDirectory: pinnedWorkingDirectory,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
@@ -230,6 +231,12 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        pinnedWorkingDirectory = isPinned
+            ? Self.normalizedTerminalWorkingDirectory(snapshot.pinnedWorkingDirectory)
+            : nil
+        if isPinned, pinnedWorkingDirectory == nil {
+            updatePinnedWorkingDirectoryForCurrentState()
+        }
         groupId = snapshot.groupId
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -1957,6 +1964,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    @Published var pinnedWorkingDirectory: String?
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
@@ -3839,6 +3847,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
         return nil
+    }
+
+    func updatePinnedWorkingDirectoryForCurrentState() {
+        pinnedWorkingDirectory = isPinned
+            ? resolvedWorkingDirectory().flatMap(Self.normalizedTerminalWorkingDirectory)
+            : nil
     }
 
     private func surfaceKind(for panel: any Panel) -> String {
@@ -6843,6 +6857,9 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> String? {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
+        }
+        if isPinned, let pinnedWorkingDirectory = Self.normalizedTerminalWorkingDirectory(pinnedWorkingDirectory) {
+            return pinnedWorkingDirectory
         }
         if let sourcePanelId,
            let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
@@ -10143,7 +10160,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
-    func createReplacementTerminalPanel() -> TerminalPanel {
+    func createReplacementTerminalPanel(workingDirectory: String? = nil) -> TerminalPanel {
         var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
@@ -10165,6 +10182,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: replacementConfig,
+            workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
@@ -12378,6 +12396,13 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        let replacementWorkingDirectory = [
+            isPinned ? pinnedWorkingDirectory : nil,
+            (panel as? TerminalPanel)?.requestedWorkingDirectory,
+            panelDirectories[panelId],
+            currentDirectory,
+        ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+
         let closedRemoteCleanupConfiguration = discardClosedPanelLifecycleState(
             panelId: panelId,
             tabId: tabId,
@@ -12421,7 +12446,7 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacement?.target ?? "nil")")
             #endif
-            let replacement = createReplacementTerminalPanel()
+            let replacement = createReplacementTerminalPanel(workingDirectory: replacementWorkingDirectory)
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {
                 bonsplitController.focusPane(replacementPane)

@@ -63,6 +63,68 @@ struct LastSurfaceClosePreferenceTests {
     }
 
     @Test
+    func tabCloseButtonReplacementKeepsClosedTerminalWorkingDirectory() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let workspace = manager.addWorkspace(
+                workingDirectory: "/Users/cmux/project",
+                inheritWorkingDirectory: false
+            )
+            manager.selectWorkspace(workspace)
+
+            let closingPanelId = try #require(workspace.focusedPanelId)
+            let closingSurfaceId = try #require(workspace.surfaceIdFromPanelId(closingPanelId))
+            workspace.panelDirectories[closingPanelId] = "/tmp/elsewhere"
+            workspace.currentDirectory = "/Users/cmux/fallback"
+
+            var didClose = false
+            workspace.withClosedPanelHistorySuppressed {
+                workspace.markTabCloseButtonClose(surfaceId: closingSurfaceId)
+                didClose = workspace.closePanel(closingPanelId)
+            }
+            #expect(didClose)
+            drainMainQueue()
+            drainMainQueue()
+
+            let replacementPanelId = try #require(workspace.focusedPanelId)
+            let replacementPanel = try #require(workspace.terminalPanel(for: replacementPanelId))
+            #expect(replacementPanelId != closingPanelId)
+            #expect(replacementPanel.requestedWorkingDirectory == "/Users/cmux/project")
+        }
+    }
+
+    @Test
+    func tabCloseButtonReplacementUsesDirectoryCapturedWhenWorkspaceWasPinned() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let workspace = manager.addWorkspace()
+            manager.selectWorkspace(workspace)
+
+            let closingPanelId = try #require(workspace.focusedPanelId)
+            let closingSurfaceId = try #require(workspace.surfaceIdFromPanelId(closingPanelId))
+            workspace.panelDirectories[closingPanelId] = "/Users/cmux/project"
+            workspace.currentDirectory = "/Users/cmux/project"
+            manager.setPinned(workspace, pinned: true)
+            #expect(workspace.pinnedWorkingDirectory == "/Users/cmux/project")
+
+            workspace.panelDirectories[closingPanelId] = "/tmp/elsewhere"
+            workspace.currentDirectory = "/tmp/elsewhere"
+
+            var didClose = false
+            workspace.withClosedPanelHistorySuppressed {
+                workspace.markTabCloseButtonClose(surfaceId: closingSurfaceId)
+                didClose = workspace.closePanel(closingPanelId)
+            }
+            #expect(didClose)
+            drainMainQueue()
+            drainMainQueue()
+
+            let replacementPanelId = try #require(workspace.focusedPanelId)
+            let replacementPanel = try #require(workspace.terminalPanel(for: replacementPanelId))
+            #expect(replacementPanelId != closingPanelId)
+            #expect(replacementPanel.requestedWorkingDirectory == "/Users/cmux/project")
+        }
+    }
+
+    @Test
     func middleClickClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]
