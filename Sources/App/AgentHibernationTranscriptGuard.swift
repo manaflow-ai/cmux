@@ -199,9 +199,7 @@ enum AgentHibernationTranscriptGuard {
             return false
         }
         guard !fileManager.fileExists(atPath: snapshot.transcriptPath) ||
-            transcriptContainsOnlyNonProtectiveMetadata(atPath: snapshot.transcriptPath, fileManager: fileManager) else {
-            return false
-        }
+            transcriptContainsOnlyNonProtectiveMetadata(atPath: snapshot.transcriptPath, fileManager: fileManager) else { return false }
 
         let transcriptURL = URL(fileURLWithPath: snapshot.transcriptPath)
         let directoryURL = transcriptURL.deletingLastPathComponent()
@@ -389,8 +387,9 @@ enum AgentHibernationTranscriptGuard {
         var sawMetadata = false
         var buffered = Data()
         while true {
-            guard let chunk = try? handle.read(upToCount: 64 * 1024),
-                  !chunk.isEmpty else {
+            let chunk: Data
+            do { chunk = try handle.read(upToCount: 64 * 1024) ?? Data() } catch { return false }
+            guard !chunk.isEmpty else {
                 guard buffered.count <= maxScannedLineBytes,
                       lineDataIsNonProtectiveMetadata(buffered, sawMetadata: &sawMetadata) else {
                     return false

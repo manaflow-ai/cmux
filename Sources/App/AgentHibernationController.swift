@@ -99,6 +99,11 @@ final class AgentHibernationController {
         let stableSince: TimeInterval
     }
 
+    struct UnableToProtectMarker {
+        let fingerprint: String
+        let lastActivityAt: TimeInterval
+    }
+
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
@@ -107,6 +112,7 @@ final class AgentHibernationController {
     var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var teardownValidationEpochByPanel: [AgentHibernationPanelKey: UInt64] = [:]
     var teardownValidationGeneration: UInt64 = 0
+    var unableToProtectByPanel: [AgentHibernationPanelKey: UnableToProtectMarker] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
 
@@ -172,6 +178,7 @@ final class AgentHibernationController {
         activityByPanel[key] = recordedAt.timeIntervalSince1970
         bumpTeardownValidationEpoch(key)
         confirmations.removeValue(forKey: key)
+        unableToProtectByPanel.removeValue(forKey: key)
         return key
     }
 
@@ -242,6 +249,7 @@ final class AgentHibernationController {
                 bumpTeardownValidationEpoch(record.key)
                 tailFingerprintSamples.removeValue(forKey: record.key)
                 confirmations.removeValue(forKey: record.key)
+                unableToProtectByPanel.removeValue(forKey: record.key)
             }
             if shouldMaintainTailSamples,
                isLive,
@@ -295,6 +303,7 @@ final class AgentHibernationController {
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
+            unableToProtectByPanel.removeValue(forKey: record.key)
             return
         }
 
@@ -319,6 +328,12 @@ final class AgentHibernationController {
         }
 
         guard let fingerprint = hibernationFingerprint(for: record) else { return }
+        if let marker = unableToProtectByPanel[record.key],
+           marker.fingerprint == fingerprint,
+           marker.lastActivityAt == effectiveLastActivityAt {
+            return
+        }
+        unableToProtectByPanel.removeValue(forKey: record.key)
         confirmations[record.key] = Confirmation(
             fingerprint: fingerprint,
             sampledAt: now,
@@ -422,6 +437,7 @@ final class AgentHibernationController {
         terminalInputByPanel.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
+        unableToProtectByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
     }
@@ -434,6 +450,7 @@ final class AgentHibernationController {
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
+        unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
         }
