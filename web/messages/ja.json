@@ -124,6 +124,12 @@
         "cancelSummary": "プランをキャンセル",
         "confirmCancel": "キャンセルを確定",
         "resume": "プランを再開"
+      },
+      "plan": {
+        "heading": "現在のプラン",
+        "free": "無料",
+        "pro": "Pro",
+        "loading": "読み込み中…"
       }
     },
     "testflight": {

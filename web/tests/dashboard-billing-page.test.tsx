@@ -79,6 +79,7 @@ mock.module("../db/client", () => ({
 }));
 
 const { default: DashboardBillingPage } = await import("../app/[locale]/dashboard/billing/page");
+const { DashboardQueryProvider } = await import("../app/[locale]/dashboard/components/query-provider");
 
 describe("dashboard billing page", () => {
   beforeEach(() => {
@@ -237,7 +238,11 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
     params: Promise.resolve({ locale: "en" }),
     searchParams: Promise.resolve(searchParams),
   });
-  return renderToStaticMarkup(element);
+  return renderToStaticMarkup(
+    <DashboardQueryProvider>
+      {element}
+    </DashboardQueryProvider>,
+  );
 }
 
 function stripeSubscriptionRow({

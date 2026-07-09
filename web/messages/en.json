@@ -124,6 +124,12 @@
         "cancelSummary": "Cancel plan",
         "confirmCancel": "Confirm cancellation",
         "resume": "Resume plan"
+      },
+      "plan": {
+        "heading": "Your plan",
+        "free": "Free",
+        "pro": "Pro",
+        "loading": "Loading…"
       }
     },
     "testflight": {

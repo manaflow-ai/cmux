@@ -21,6 +21,7 @@ import {
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
+import { AccountPlanBadge } from "../components/account-plan-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,9 @@ export default async function DashboardBillingPage({
         <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+        <div className="mt-2">
+          <AccountPlanBadge />
+        </div>
       </div>
 
       {banner ? (
