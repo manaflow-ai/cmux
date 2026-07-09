@@ -19,7 +19,7 @@ let currentUser: {
   grantPermission?: ReturnType<typeof mock>;
 } | null = null;
 let redirectTarget: string | null = null;
-let inviteRoleRows = new Map<string, "admin" | "member">();
+let inviteRoleRows = new Map<string, { role: "admin" | "member"; stackTeamId: string }>();
 const getUser = mock(async () => currentUser);
 const redirect = mock((target: unknown) => {
   redirectTarget = String(target);
@@ -51,7 +51,7 @@ mock.module("../db/client", () => ({
         where: () => ({
           limit: mock(async () => {
             const row = Array.from(inviteRoleRows.values())[0];
-            return row ? [{ role: row }] : [];
+            return row ? [{ role: row.role, stackTeamId: row.stackTeamId }] : [];
           }),
         }),
       }),
@@ -110,7 +110,7 @@ describe("team invite accept page", () => {
     const accept = mock(async () => undefined);
     const grantPermission = mock(async () => undefined);
     const team = { id: "team-1", displayName: "Team One" };
-    inviteRoleRows.set("inv_admin", "admin");
+    inviteRoleRows.set("inv_admin", { role: "admin", stackTeamId: "team-1" });
     currentUser = {
       listTeamInvitations: mock(async () => [{ id: "inv_admin", teamId: "team-1", accept }]),
       listTeams: mock(async () => [team]),
@@ -128,7 +128,7 @@ describe("team invite accept page", () => {
     const acceptTeamInvitation = mock(async () => undefined);
     const grantPermission = mock(async () => undefined);
     const team = { id: "team-1", displayName: "Team One" };
-    inviteRoleRows.set("inv_admin", "admin");
+    inviteRoleRows.set("inv_admin", { role: "admin", stackTeamId: "team-1" });
     currentUser = {
       acceptTeamInvitation,
       listTeamInvitations: mock(async () => [{ id: "inv_admin", teamId: "team-1" }]),

@@ -336,16 +336,26 @@ export async function updateTeamMemberRole(
 export async function applyAcceptedInvitationRole(params: {
   user: StackTeamUserLike;
   invitationId: string;
-  teamId?: string | null;
 }): Promise<void> {
-  const role = await storedInviteRole(params.invitationId);
-  if (role !== "admin") {
+  const invite = await storedInvite(params.invitationId);
+  if (!invite || invite.role !== "admin") {
     await markInviteAccepted(params.invitationId);
     return;
   }
-  const team = await acceptedTeam(params.user, params.teamId);
-  await grantTeamAdmin(params.user, team);
+  // Grant admin on the team the invite was created FOR (the authoritative
+  // stackTeamId stored at invite time), never a passed-in/received teamId that
+  // could be missing and resolve to the wrong team. Only grant if the accepting
+  // user is actually a member of that team.
+  const team = await memberTeamById(params.user, invite.stackTeamId);
+  if (team) await grantTeamAdmin(params.user, team);
   await markInviteAccepted(params.invitationId);
+}
+
+async function memberTeamById(user: StackTeamUserLike, teamId: string): Promise<StackTeam | null> {
+  const teams = typeof user.listTeams === "function" ? await user.listTeams() : [];
+  return teams
+    .map(stackTeamFromUnknown)
+    .find((candidate): candidate is StackTeam => !!candidate && candidate.id === teamId) ?? null;
 }
 
 export function teamInviteJson(data: unknown, status = 200): Response {
@@ -634,15 +644,6 @@ async function guardTargetIsNotLastAdmin(
   if (adminCount <= 1) throw new TeamInviteHttpError(code, 400);
 }
 
-async function acceptedTeam(user: StackTeamUserLike, teamId: string | null | undefined): Promise<StackTeam> {
-  const teams = typeof user.listTeams === "function" ? await user.listTeams() : [];
-  const team = teams.map(stackTeamFromUnknown).find((candidate): candidate is StackTeam =>
-    !!candidate && (!teamId || candidate.id === teamId)
-  );
-  if (!team) throw new TeamInviteHttpError("team_not_found", 404);
-  return team;
-}
-
 async function recordInviteRole(params: {
   invitationId: string;
   stackTeamId: string;
@@ -671,6 +672,18 @@ async function storedInviteRole(invitationId: string): Promise<TeamRole> {
     .where(eq(teamInviteRoles.invitationId, invitationId))
     .limit(1);
   return row?.role === "admin" ? "admin" : "member";
+}
+
+async function storedInvite(
+  invitationId: string,
+): Promise<{ role: TeamRole; stackTeamId: string } | null> {
+  const [row] = await cloudDb()
+    .select({ role: teamInviteRoles.role, stackTeamId: teamInviteRoles.stackTeamId })
+    .from(teamInviteRoles)
+    .where(eq(teamInviteRoles.invitationId, invitationId))
+    .limit(1);
+  if (!row) return null;
+  return { role: row.role === "admin" ? "admin" : "member", stackTeamId: row.stackTeamId };
 }
 
 async function markInviteAccepted(invitationId: string): Promise<void> {

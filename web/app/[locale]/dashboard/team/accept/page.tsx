@@ -42,7 +42,6 @@ export default async function TeamInviteAcceptPage({
   const user = await getStackServerApp().getUser({ or: "return-null" }) as StackAcceptUser | null;
   if (!user) redirect(vaultSignInHref(acceptPath));
   let acceptedInvitationId: string | null = null;
-  let acceptedTeamId: string | null = null;
   try {
     if (code) {
       if (!user.acceptTeamInvitation) throw new Error("acceptTeamInvitation unavailable");
@@ -56,7 +55,6 @@ export default async function TeamInviteAcceptPage({
       if (isStackResultError(result)) throw result.error;
       if (pending.length === 1) {
         acceptedInvitationId = pending[0].id;
-        acceptedTeamId = pending[0].teamId ?? null;
       }
     } else {
       if (!user.listTeamInvitations) throw new Error("listTeamInvitations unavailable");
@@ -64,7 +62,6 @@ export default async function TeamInviteAcceptPage({
       if (!invitation?.accept) throw new Error("VerificationCodeError");
       await invitation.accept();
       acceptedInvitationId = invitation.id;
-      acceptedTeamId = invitation.teamId ?? null;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -74,7 +71,7 @@ export default async function TeamInviteAcceptPage({
     return <AcceptError title={t("badCodeTitle")} body={t("badCodeBody")} switchAccount={t("switchAccount")} />;
   }
   if (acceptedInvitationId) {
-    await applyAcceptedInvitationRole({ user, invitationId: acceptedInvitationId, teamId: acceptedTeamId });
+    await applyAcceptedInvitationRole({ user, invitationId: acceptedInvitationId });
   }
   redirect(localizedVaultPath(locale, "/dashboard/team?joined=1"));
 }

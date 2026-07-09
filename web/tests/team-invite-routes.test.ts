@@ -7,6 +7,7 @@ const errorsModule = await import("../services/errors");
 const dbClientModule = await import("../db/client");
 const billingProModule = await import("../services/billing/pro");
 const stackModule = await import("../app/lib/stack");
+const envModule = await import("../app/env");
 
 let currentUser: ReturnType<typeof stackUser> | null = null;
 let members: Array<{ id: string; primaryEmail: string }> = [];
@@ -51,8 +52,13 @@ mock.module("../app/lib/stack", () => ({
 // built query, so real operators/tables are harmless here and mocking them
 // process-wide would corrupt every later db test.
 
+// Spread the real env so no key is dropped process-wide (a partial env mock
+// leaked into notifications-push-route on CI, shrinking its body-size limit and
+// turning a 429 into a 413). Only override the three keys these tests control.
 mock.module("../app/env", () => ({
+  ...envModule,
   env: {
+    ...envModule.env,
     RESEND_API_KEY: "resend-test",
     CMUX_FEEDBACK_FROM_EMAIL: "austin@manaflow.ai",
     CMUX_FEEDBACK_RATE_LIMIT_ID: "team-invites-test",
