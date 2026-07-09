@@ -108,6 +108,24 @@ type CheckoutCompletionResult =
   | { scope: "team"; stackTeamId: string; subscriptionId: string }
   | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string };
 
+type UserCheckoutPostCommitSync = {
+  user: StackBillingUser;
+  email: string | null;
+  stripeCustomerId: string;
+  stackUserId: string;
+  stackApp: StackBillingApp | null | undefined;
+};
+
+type CheckoutCompletionLockedResult = {
+  result: CheckoutCompletionResult;
+  deleteCheckoutStripeResources: boolean;
+  postCommitUserSync?: UserCheckoutPostCommitSync;
+  postCommitTeamSync?: {
+    stackTeamId: string;
+    stackApp: StackBillingApp | null | undefined;
+  };
+};
+
 export async function recordCheckoutCompletion(
   input: CheckoutCompletionInput,
   dependencies: BillingPurchaseDependencies = {},
@@ -137,14 +155,11 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
+  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
   const lockedResult = await withAccountDeletionUserLock(
     db,
     stackUserId,
-    async (tx): Promise<{
-      result: CheckoutCompletionResult;
-      deleteCheckoutStripeResources: boolean;
-    }> => {
-      const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+    async (tx): Promise<CheckoutCompletionLockedResult> => {
       if (
         await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx) ||
         (user && isAccountDeletionInProgress(user))
@@ -173,19 +188,15 @@ export async function recordCheckoutCompletion(
         scope: "user",
       });
 
-      if (email) {
-        await attachPurchaseEmailOrRecordClaim(tx, {
+      return {
+        deleteCheckoutStripeResources: false,
+        postCommitUserSync: {
           user,
           email,
           stripeCustomerId: customerId,
           stackUserId,
           stackApp: dependencies.stackApp ?? stackServerApp,
-        });
-      }
-      await syncProPlanMetadata(user, true);
-
-      return {
-        deleteCheckoutStripeResources: false,
+        },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
     },
@@ -194,8 +205,27 @@ export async function recordCheckoutCompletion(
   if (lockedResult.deleteCheckoutStripeResources) {
     await deleteCheckoutStripeResourcesForAccountDeletion(subscription, customerId, dependencies);
   }
+  if (lockedResult.postCommitUserSync) {
+    await syncUserCheckoutAfterCommit(db, lockedResult.postCommitUserSync);
+  }
 
   return lockedResult.result;
+}
+
+async function syncUserCheckoutAfterCommit(
+  db: BillingDb,
+  input: UserCheckoutPostCommitSync,
+): Promise<void> {
+  if (input.email) {
+    await attachPurchaseEmailOrRecordClaim(db, {
+      user: input.user,
+      email: input.email,
+      stripeCustomerId: input.stripeCustomerId,
+      stackUserId: input.stackUserId,
+      stackApp: input.stackApp,
+    });
+  }
+  await syncProPlanMetadata(input.user, true);
 }
 
 async function deleteCheckoutStripeResourcesForAccountDeletion(
@@ -469,8 +499,15 @@ async function recordTeamCheckoutCompletion(input: {
       stackTeamId: input.stackTeamId,
       customerId: input.customerId,
     }));
-  const lockStackUserId = checkoutOwnerStackUserId ?? input.stackTeamId;
-  const lockedResult = await withAccountDeletionUserLock(db, lockStackUserId, async (tx) => {
+  const resolvedStackUserId = checkoutOwnerStackUserId ?? input.stackTeamId;
+  const ownerStackUserId =
+    resolvedStackUserId !== input.stackTeamId && resolvedStackUserId !== DELETED_ACCOUNT_ACTOR_ID
+      ? resolvedStackUserId
+      : null;
+  const owner = ownerStackUserId
+    ? await loadOptionalStackUser(ownerStackUserId, input.dependencies.stackApp)
+    : null;
+  const lockedResult = await withAccountDeletionUserLock(db, resolvedStackUserId, async (tx) => {
     const stackUserId =
       input.stackUserId ??
       (await stackUserIdForTeamStripeCustomer(tx, {
@@ -479,17 +516,16 @@ async function recordTeamCheckoutCompletion(input: {
       })) ??
       checkoutOwnerStackUserId ??
       input.stackTeamId;
-    const ownerStackUserId =
+    const transactionOwnerStackUserId =
       stackUserId !== input.stackTeamId && stackUserId !== DELETED_ACCOUNT_ACTOR_ID
         ? stackUserId
         : null;
-    const owner = ownerStackUserId
-      ? await loadOptionalStackUser(ownerStackUserId, input.dependencies.stackApp)
-      : null;
+    const ownerChangedDuringCheckout = transactionOwnerStackUserId !== ownerStackUserId;
     if (
       stackUserId === DELETED_ACCOUNT_ACTOR_ID ||
       (await hasCheckoutBlockingAccountDeletionTombstone(stackUserId, tx)) ||
-      (ownerStackUserId && !owner) ||
+      ownerChangedDuringCheckout ||
+      (transactionOwnerStackUserId && !owner) ||
       (owner && isAccountDeletionInProgress(owner))
     ) {
       return {
@@ -515,10 +551,12 @@ async function recordTeamCheckoutCompletion(input: {
       scope: "team",
     });
 
-    const team = await loadStackTeam(input.stackTeamId, input.dependencies.stackApp);
-    await syncTeamPlanMetadata(team, true);
     return {
       deleteCheckoutStripeResources: false,
+      postCommitTeamSync: {
+        stackTeamId: input.stackTeamId,
+        stackApp: input.dependencies.stackApp,
+      },
       result: {
         scope: "team" as const,
         stackTeamId: input.stackTeamId,
@@ -533,6 +571,13 @@ async function recordTeamCheckoutCompletion(input: {
       input.customerId,
       input.dependencies,
     );
+  }
+  if (lockedResult.postCommitTeamSync) {
+    const team = await loadStackTeam(
+      lockedResult.postCommitTeamSync.stackTeamId,
+      lockedResult.postCommitTeamSync.stackApp,
+    );
+    await syncTeamPlanMetadata(team, true);
   }
 
   return lockedResult.result;

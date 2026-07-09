@@ -256,7 +256,7 @@ describe("recordCheckoutCompletion", () => {
     expect(updates).toHaveLength(0);
   });
 
-  test("syncs checkout metadata while holding the account deletion lock", async () => {
+  test("syncs checkout metadata after the account deletion lock commits", async () => {
     let transactionOpen = false;
     let lockAcquired = false;
     const baseDb = fakeDb();
@@ -279,7 +279,7 @@ describe("recordCheckoutCompletion", () => {
       },
     };
     const update = mock(async () => {
-      expect(transactionOpen).toBe(true);
+      expect(transactionOpen).toBe(false);
       expect(lockAcquired).toBe(true);
     });
     const user = {
