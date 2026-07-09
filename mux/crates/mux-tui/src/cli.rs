@@ -10,6 +10,7 @@ const REQUEST_ID: u64 = 1;
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
+type LocalFn = fn(&GlobalArgs, &FlagMap) -> i32;
 
 pub struct UsageError(String);
 
@@ -34,345 +35,323 @@ struct FlagMap {
 
 struct VerbSpec {
     name: &'static str,
+    help: &'static str,
     allowed: &'static [&'static str],
-    build: BuildFn,
-    print: PrintFn,
-    stream: bool,
+    kind: VerbKind,
+}
+
+#[derive(Clone, Copy)]
+enum VerbKind {
+    Socket { build: BuildFn, print: PrintFn, stream: bool },
+    Local(LocalFn),
 }
 
 const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "identify",
+        help: "Print session metadata.",
         allowed: &[],
-        build: build_no_args,
-        print: print_identify,
-        stream: false,
+        kind: socket(build_no_args, print_identify, false),
     },
-    VerbSpec { name: "ping", allowed: &[], build: build_no_args, print: print_ping, stream: false },
+    VerbSpec {
+        name: "ping",
+        help: "Check session liveness.",
+        allowed: &[],
+        kind: socket(build_no_args, print_ping, false),
+    },
     VerbSpec {
         name: "reload-config",
+        help: "Ask a running TUI to reload mux.json.",
         allowed: &[],
-        build: build_no_args,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_no_args, print_empty, false),
     },
     VerbSpec {
         name: "set-window-title",
+        help: "Set the host terminal window title.",
         allowed: &["title"],
-        build: build_set_window_title,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_set_window_title, print_empty, false),
     },
     VerbSpec {
         name: "clear-window-title",
+        help: "Clear the host terminal window title.",
         allowed: &[],
-        build: build_no_args,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_no_args, print_empty, false),
     },
     VerbSpec {
         name: "list-workspaces",
+        help: "List workspaces, screens, panes, and surfaces.",
         allowed: &[],
-        build: build_no_args,
-        print: print_tree,
-        stream: false,
+        kind: socket(build_no_args, print_tree, false),
     },
     VerbSpec {
         name: "export-layout",
+        help: "Export a screen layout.",
         allowed: &["screen"],
-        build: build_export_layout,
-        print: print_json_data,
-        stream: false,
+        kind: socket(build_export_layout, print_json_data, false),
     },
     VerbSpec {
         name: "apply-layout",
+        help: "Apply a screen layout.",
         allowed: &["workspace", "name", "layout"],
-        build: build_apply_layout,
-        print: print_applied_layout,
-        stream: false,
+        kind: socket(build_apply_layout, print_applied_layout, false),
     },
     VerbSpec {
         name: "send",
+        help: "Send text or bytes to a surface.",
         allowed: &["surface", "text", "bytes"],
-        build: build_send,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_send, print_empty, false),
     },
     VerbSpec {
         name: "read-screen",
+        help: "Print visible screen text for a surface.",
         allowed: &["surface"],
-        build: build_surface,
-        print: print_read_screen,
-        stream: false,
+        kind: socket(build_surface, print_read_screen, false),
     },
     VerbSpec {
         name: "wait-for",
+        help: "Wait for a regex in visible screen text.",
         allowed: &["surface", "pattern", "timeout-ms"],
-        build: build_wait_for,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_wait_for, print_empty, false),
     },
     VerbSpec {
         name: "run",
+        help: "Run a command in a new or existing pane.",
         allowed: &["pane", "new-workspace", "cwd", "name", "command"],
-        build: build_run,
-        print: print_surface,
-        stream: false,
+        kind: socket(build_run, print_surface, false),
     },
     VerbSpec {
         name: "send-key",
+        help: "Send encoded key names to a surface.",
         allowed: &["surface"],
-        build: build_send_key,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_send_key, print_empty, false),
     },
     VerbSpec {
         name: "copy",
+        help: "Copy text from a surface.",
         allowed: &["surface", "mode"],
-        build: build_copy,
-        print: print_read_screen,
-        stream: false,
+        kind: socket(build_copy, print_read_screen, false),
     },
-    VerbSpec { name: "ids", allowed: &["kind"], build: build_ids, print: print_ids, stream: false },
+    VerbSpec {
+        name: "ids",
+        help: "List ids and short ids.",
+        allowed: &["kind"],
+        kind: socket(build_ids, print_ids, false),
+    },
     VerbSpec {
         name: "notify",
+        help: "Show a cmux notification.",
         allowed: &["title", "body", "level", "surface"],
-        build: build_notify,
-        print: print_notification,
-        stream: false,
+        kind: socket(build_notify, print_notification, false),
     },
     VerbSpec {
         name: "list-agents",
+        help: "List reported agent states.",
         allowed: &["surface", "state"],
-        build: build_list_agents,
-        print: print_agents,
-        stream: false,
+        kind: socket(build_list_agents, print_agents, false),
     },
     VerbSpec {
         name: "report-agent",
+        help: "Report an agent state.",
         allowed: &["surface", "state", "source", "session"],
-        build: build_report_agent,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_report_agent, print_empty, false),
     },
     VerbSpec {
         name: "vt-state",
+        help: "Print base64 terminal state for a surface.",
         allowed: &["surface"],
-        build: build_surface,
-        print: print_vt_state,
-        stream: false,
+        kind: socket(build_surface, print_vt_state, false),
     },
     VerbSpec {
         name: "new-tab",
+        help: "Create a new tab.",
         allowed: &["pane", "cwd", "cols", "rows"],
-        build: build_new_tab,
-        print: print_surface,
-        stream: false,
+        kind: socket(build_new_tab, print_surface, false),
     },
     VerbSpec {
         name: "new-browser-tab",
+        help: "Create a browser tab.",
         allowed: &["url", "pane", "cols", "rows"],
-        build: build_new_browser_tab,
-        print: print_surface,
-        stream: false,
+        kind: socket(build_new_browser_tab, print_surface, false),
     },
     VerbSpec {
         name: "new-workspace",
+        help: "Create a workspace.",
         allowed: &["name", "cols", "rows"],
-        build: build_new_workspace,
-        print: print_surface,
-        stream: false,
+        kind: socket(build_new_workspace, print_surface, false),
     },
     VerbSpec {
         name: "new-screen",
+        help: "Create a screen.",
         allowed: &["workspace", "cols", "rows"],
-        build: build_new_screen,
-        print: print_surface,
-        stream: false,
+        kind: socket(build_new_screen, print_surface, false),
     },
     VerbSpec {
         name: "split",
+        help: "Split a pane.",
         allowed: &["pane", "dir", "cols", "rows"],
-        build: build_split,
-        print: print_surface,
-        stream: false,
+        kind: socket(build_split, print_surface, false),
     },
     VerbSpec {
         name: "set-ratio",
+        help: "Set a split ratio.",
         allowed: &["pane", "dir", "ratio"],
-        build: build_set_ratio,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_set_ratio, print_empty, false),
     },
     VerbSpec {
         name: "pane-neighbor",
+        help: "Find a pane neighbor.",
         allowed: &["pane", "dir"],
-        build: build_pane_direction,
-        print: print_optional_pane,
-        stream: false,
+        kind: socket(build_pane_direction, print_optional_pane, false),
     },
     VerbSpec {
         name: "focus-direction",
+        help: "Focus a pane by direction.",
         allowed: &["pane", "dir"],
-        build: build_optional_pane_direction,
-        print: print_pane,
-        stream: false,
+        kind: socket(build_optional_pane_direction, print_pane, false),
     },
     VerbSpec {
         name: "swap-pane",
+        help: "Swap panes.",
         allowed: &["pane", "dir", "target"],
-        build: build_swap_pane,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_swap_pane, print_empty, false),
     },
     VerbSpec {
         name: "zoom-pane",
+        help: "Toggle or set pane zoom.",
         allowed: &["pane", "mode"],
-        build: build_zoom_pane,
-        print: print_zoom_state,
-        stream: false,
+        kind: socket(build_zoom_pane, print_zoom_state, false),
     },
     VerbSpec {
         name: "process-info",
+        help: "Print process metadata for a surface.",
         allowed: &["surface"],
-        build: build_surface,
-        print: print_process_info,
-        stream: false,
+        kind: socket(build_surface, print_process_info, false),
     },
     VerbSpec {
         name: "set-default-colors",
+        help: "Set default terminal colors.",
         allowed: &["fg", "bg"],
-        build: build_set_default_colors,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_set_default_colors, print_empty, false),
     },
     VerbSpec {
         name: "close-surface",
+        help: "Close a surface.",
         allowed: &["surface"],
-        build: build_surface,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_surface, print_empty, false),
     },
     VerbSpec {
         name: "close-pane",
+        help: "Close a pane.",
         allowed: &["pane"],
-        build: build_pane,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_pane, print_empty, false),
     },
     VerbSpec {
         name: "close-screen",
+        help: "Close a screen.",
         allowed: &["screen"],
-        build: build_screen,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_screen, print_empty, false),
     },
     VerbSpec {
         name: "close-workspace",
+        help: "Close a workspace.",
         allowed: &["workspace"],
-        build: build_workspace,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_workspace, print_empty, false),
     },
     VerbSpec {
         name: "rename-pane",
+        help: "Rename a pane.",
         allowed: &["pane", "name"],
-        build: build_rename_pane,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_rename_pane, print_empty, false),
     },
     VerbSpec {
         name: "rename-surface",
+        help: "Rename a surface.",
         allowed: &["surface", "name"],
-        build: build_rename_surface,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_rename_surface, print_empty, false),
     },
     VerbSpec {
         name: "rename-screen",
+        help: "Rename a screen.",
         allowed: &["screen", "name"],
-        build: build_rename_screen,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_rename_screen, print_empty, false),
     },
     VerbSpec {
         name: "rename-workspace",
+        help: "Rename a workspace.",
         allowed: &["workspace", "name"],
-        build: build_rename_workspace,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_rename_workspace, print_empty, false),
     },
     VerbSpec {
         name: "resize-surface",
+        help: "Resize a surface PTY.",
         allowed: &["surface", "cols", "rows"],
-        build: build_resize_surface,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_resize_surface, print_empty, false),
     },
     VerbSpec {
         name: "focus-pane",
+        help: "Focus a pane.",
         allowed: &["pane"],
-        build: build_pane,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_pane, print_empty, false),
     },
     VerbSpec {
         name: "select-tab",
+        help: "Select a tab by index or delta.",
         allowed: &["pane", "index", "delta"],
-        build: build_select_tab,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_select_tab, print_empty, false),
     },
     VerbSpec {
         name: "select-screen",
+        help: "Select a screen by index or delta.",
         allowed: &["index", "delta"],
-        build: build_select_screen,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_select_screen, print_empty, false),
     },
     VerbSpec {
         name: "select-workspace",
+        help: "Select a workspace by index or delta.",
         allowed: &["index", "delta"],
-        build: build_select_workspace,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_select_workspace, print_empty, false),
     },
     VerbSpec {
         name: "move-tab",
+        help: "Move a tab to a pane and index.",
         allowed: &["surface", "pane", "index"],
-        build: build_move_tab,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_move_tab, print_empty, false),
     },
     VerbSpec {
         name: "move-workspace",
+        help: "Move a workspace to an index.",
         allowed: &["workspace", "index"],
-        build: build_move_workspace,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_move_workspace, print_empty, false),
     },
     VerbSpec {
         name: "scroll-surface",
+        help: "Scroll a surface.",
         allowed: &["surface", "delta"],
-        build: build_scroll_surface,
-        print: print_empty,
-        stream: false,
+        kind: socket(build_scroll_surface, print_empty, false),
     },
     VerbSpec {
         name: "subscribe",
+        help: "Subscribe to session events.",
         allowed: &[],
-        build: build_no_args,
-        print: print_empty,
-        stream: true,
+        kind: socket(build_no_args, print_empty, true),
     },
     VerbSpec {
         name: "attach-surface",
+        help: "Attach to a surface stream.",
         allowed: &["surface"],
-        build: build_surface,
-        print: print_empty,
-        stream: true,
+        kind: socket(build_surface, print_empty, true),
+    },
+    VerbSpec {
+        name: "plugin",
+        help: "Manage installed sidebar plugins locally.",
+        allowed: &["name", "force", "builtin"],
+        kind: VerbKind::Local(run_plugin),
     },
 ];
+
+const fn socket(build: BuildFn, print: PrintFn, stream: bool) -> VerbKind {
+    VerbKind::Socket { build, print, stream }
+}
 
 pub fn is_cli_invocation(args: &[String]) -> bool {
     matches!(first_command_arg(args), FirstCommand::Help | FirstCommand::Verb)
@@ -381,7 +360,7 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
 pub fn run(args: &[String], usage: &str) -> i32 {
     match parse(args) {
         Ok(Parsed::Help) => {
-            print!("{usage}");
+            print_help(usage);
             0
         }
         Ok(Parsed::Command(args)) => run_command(args),
@@ -389,6 +368,15 @@ pub fn run(args: &[String], usage: &str) -> i32 {
             eprintln!("cmux-mux: {}", err.0);
             2
         }
+    }
+}
+
+pub fn print_help(usage: &str) {
+    print!("{usage}");
+    println!();
+    println!("VERB HELP");
+    for verb in VERBS {
+        println!("  {:<18} {}", verb.name, verb.help);
     }
 }
 
@@ -474,7 +462,7 @@ fn parse(args: &[String]) -> Result<Parsed, UsageError> {
                 if !spec.allowed.contains(&name) {
                     return Err(UsageError(format!("unknown flag {arg:?} for {}", spec.name)));
                 }
-                if spec.name == "run" && name == "new-workspace" {
+                if is_boolean_flag(spec, name) {
                     if flags.values.insert(name.to_string(), "true".to_string()).is_some() {
                         return Err(UsageError(format!("duplicate flag {arg:?}")));
                     }
@@ -489,7 +477,7 @@ fn parse(args: &[String]) -> Result<Parsed, UsageError> {
             }
             _ if verb.is_some() => {
                 let spec = verb.unwrap();
-                if spec.name == "send-key" {
+                if spec.name == "send-key" || matches!(spec.kind, VerbKind::Local(_)) {
                     flags.positionals.push(arg.to_string());
                     i += 1;
                 } else {
@@ -513,7 +501,11 @@ fn verb_by_name(name: &str) -> Option<&'static VerbSpec> {
 }
 
 fn run_command(args: CliArgs) -> i32 {
-    let request = match (args.verb.build)(&args.flags) {
+    let (build, print, stream_mode) = match args.verb.kind {
+        VerbKind::Socket { build, print, stream } => (build, print, stream),
+        VerbKind::Local(run) => return run(&args.global, &args.flags),
+    };
+    let request = match build(&args.flags) {
         Ok(mut value) => {
             value["cmd"] = json!(args.verb.name);
             value["id"] = json!(REQUEST_ID);
@@ -532,7 +524,7 @@ fn run_command(args: CliArgs) -> i32 {
             return 3;
         }
     };
-    if args.verb.stream {
+    if stream_mode {
         let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     } else {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
@@ -551,11 +543,30 @@ fn run_command(args: CliArgs) -> i32 {
     }
 
     let mut reader = BufReader::new(stream);
-    if args.verb.stream {
+    if stream_mode {
         run_stream(reader)
     } else {
-        run_one_response(&mut reader, args.global.json, args.verb.print)
+        run_one_response(&mut reader, args.global.json, print)
     }
+}
+
+fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
+    (spec.name == "run" && name == "new-workspace")
+        || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
+}
+
+fn run_plugin(global: &GlobalArgs, flags: &FlagMap) -> i32 {
+    crate::plugin_manager::run(
+        &flags.positionals,
+        crate::plugin_manager::CliOptions {
+            json: global.json,
+            socket: global.socket.clone(),
+            session: global.session.clone(),
+            name: flags.optional("name"),
+            force: flags.optional("force").is_some(),
+            builtin: flags.optional("builtin").is_some(),
+        },
+    )
 }
 
 fn resolve_socket(global: &GlobalArgs) -> PathBuf {
@@ -1328,5 +1339,25 @@ fn atom(value: Option<&Value>) -> String {
         Some(Value::String(text)) => serde_json::to_string(text).unwrap_or_default(),
         Some(Value::Null) | None => "null".to_string(),
         Some(value) => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_verb_is_registered_as_local_with_help() {
+        let plugin = verb_by_name("plugin").expect("plugin verb registered");
+        assert!(matches!(plugin.kind, VerbKind::Local(_)));
+        assert!(plugin.allowed.contains(&"name"));
+        assert!(plugin.allowed.contains(&"force"));
+        assert!(plugin.allowed.contains(&"builtin"));
+        assert!(plugin.help.contains("sidebar plugins"));
+    }
+
+    #[test]
+    fn registered_verbs_have_help_text() {
+        assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
     }
 }
