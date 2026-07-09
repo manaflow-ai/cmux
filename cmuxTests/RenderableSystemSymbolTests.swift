@@ -104,8 +104,8 @@ struct RenderableSystemSymbolTests {
             pointSize: 11,
             weight: .regular
         ) == nil)
-        #expect(RenderableSystemSymbol.cachedRenderabilityForTesting("not.an.sf.symbol") == false)
+        #expect(RenderableSystemSymbol.renderabilityCache["not.an.sf.symbol"] == false)
         #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
-        #expect(RenderableSystemSymbol.cachedRenderabilityForTesting("not.an.sf.symbol") == false)
+        #expect(RenderableSystemSymbol.renderabilityCache["not.an.sf.symbol"] == false)
     }
 }

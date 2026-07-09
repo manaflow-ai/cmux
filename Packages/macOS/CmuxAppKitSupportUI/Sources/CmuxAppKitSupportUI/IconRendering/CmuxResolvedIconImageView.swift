@@ -77,30 +77,59 @@ public final class CmuxResolvedIconImageView: NSView {
     }
 
     private struct RenderKey: Equatable {
-        let source: String
-        let width: CGFloat
-        let height: CGFloat
-        let tint: String?
-        let symbolWeight: CGFloat
-        let appearanceName: String
+        private let source: SourceKey
+        private let width: CGFloat
+        private let height: CGFloat
+        private let tint: NSColor?
+        private let symbolWeight: CGFloat
+        private let appearanceName: NSAppearance.Name
+        private let appearanceIdentity: ObjectIdentifier
 
         init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
-            self.source = Self.sourceKey(request.source)
+            self.source = SourceKey(request.source)
             self.width = request.size.width
             self.height = request.size.height
-            self.tint = request.tintColor.map(String.init(describing:))
+            self.tint = request.tintColor
             self.symbolWeight = request.symbolWeight.rawValue
-            self.appearanceName = appearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? appearance.name.rawValue
+            self.appearanceName = appearance.name
+            self.appearanceIdentity = ObjectIdentifier(appearance)
         }
 
-        private static func sourceKey(_ source: CmuxResolvedIconSource) -> String {
-            switch source {
-            case .systemSymbol(let name, let accessibilityDescription):
-                "symbol:\(name):\(accessibilityDescription ?? "")"
-            case .asset(let name, let bundle):
-                "asset:\(name):\(bundle.bundleIdentifier ?? bundle.bundlePath)"
-            case .image(let image):
-                "image:\(ObjectIdentifier(image).hashValue):\(image.size.width):\(image.size.height)"
+        static func == (lhs: RenderKey, rhs: RenderKey) -> Bool {
+            lhs.source == rhs.source &&
+                lhs.width == rhs.width &&
+                lhs.height == rhs.height &&
+                lhs.symbolWeight == rhs.symbolWeight &&
+                lhs.appearanceName == rhs.appearanceName &&
+                lhs.appearanceIdentity == rhs.appearanceIdentity &&
+                colorsEqual(lhs.tint, rhs.tint)
+        }
+
+        private static func colorsEqual(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
+            switch (lhs, rhs) {
+            case (.none, .none):
+                return true
+            case let (lhs?, rhs?):
+                return lhs.isEqual(rhs)
+            default:
+                return false
+            }
+        }
+
+        private enum SourceKey: Equatable {
+            case systemSymbol(name: String, accessibilityDescription: String?)
+            case asset(name: String, bundle: ObjectIdentifier)
+            case image(ObjectIdentifier, width: CGFloat, height: CGFloat)
+
+            init(_ source: CmuxResolvedIconSource) {
+                switch source {
+                case .systemSymbol(let name, let accessibilityDescription):
+                    self = .systemSymbol(name: name, accessibilityDescription: accessibilityDescription)
+                case .asset(let name, let bundle):
+                    self = .asset(name: name, bundle: ObjectIdentifier(bundle))
+                case .image(let image):
+                    self = .image(ObjectIdentifier(image), width: image.size.width, height: image.size.height)
+                }
             }
         }
     }

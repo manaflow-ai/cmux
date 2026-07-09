@@ -10,7 +10,7 @@ enum RenderableSystemSymbol {
     private static let renderabilityCacheLimit = 512
     private static let appKitImageCacheLimit = 256
     @MainActor
-    private static var renderabilityCache: [String: Bool] = [:]
+    static var renderabilityCache: [String: Bool] = [:]
     @MainActor
     private static var renderabilityCacheTimestamps: [String: Date] = [:]
     @MainActor
@@ -205,11 +205,6 @@ enum RenderableSystemSymbol {
         renderabilityCacheInsertionOrder.removeAll()
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
-    }
-
-    @MainActor
-    static func cachedRenderabilityForTesting(_ symbol: String) -> Bool? {
-        cachedRenderability(symbol)
     }
     #endif
 }

@@ -39,6 +39,46 @@ import Testing
         #expect(visiblePixelCount(in: darkImage) > 0)
     }
 
+    @Test func imageViewRerendersWhenEffectiveAppearanceHasSameAquaBestMatch() throws {
+        let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        view.appearance = NSAppearance(named: .aqua)
+        view.apply(CmuxResolvedIconRequest(
+            source: .systemSymbol(name: "doc", accessibilityDescription: nil),
+            size: NSSize(width: 16, height: 16),
+            tintColor: .labelColor,
+            symbolWeight: .regular
+        ))
+        let lightImage = try #require(view.renderedImage)
+
+        view.appearance = NSAppearance(named: .vibrantLight)
+        view.viewDidChangeEffectiveAppearance()
+        let vibrantImage = try #require(view.renderedImage)
+
+        #expect(vibrantImage !== lightImage)
+        #expect(visiblePixelCount(in: vibrantImage) > 0)
+    }
+
+    @Test func imageViewSkipsRenderWhenRequestAndAppearanceAreUnchanged() throws {
+        let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        view.appearance = NSAppearance(named: .aqua)
+        view.apply(CmuxResolvedIconRequest(
+            source: .systemSymbol(name: "doc", accessibilityDescription: nil),
+            size: NSSize(width: 16, height: 16),
+            tintColor: .labelColor,
+            symbolWeight: .regular
+        ))
+        let firstImage = try #require(view.renderedImage)
+
+        view.apply(CmuxResolvedIconRequest(
+            source: .systemSymbol(name: "doc", accessibilityDescription: nil),
+            size: NSSize(width: 16, height: 16),
+            tintColor: .labelColor,
+            symbolWeight: .regular
+        ))
+
+        #expect(view.renderedImage === firstImage)
+    }
+
     @Test func pngDataUsesRenderedNonTemplateImage() throws {
         let renderer = CmuxResolvedIconRenderer()
         let request = CmuxResolvedIconRequest(

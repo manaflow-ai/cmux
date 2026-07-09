@@ -7821,13 +7821,13 @@ final class Workspace: Identifiable, ObservableObject {
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
-
+        let iconPayload = terminalTabAgentIconPayload(forPanelId: pair.key)
         bonsplitController.updateTab(
             tabId,
             title: replacementPanel.displayTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(terminalTabAgentIconPayload(forPanelId: pair.key).imageData),
-            iconAsset: .some(terminalTabAgentIconPayload(forPanelId: pair.key).assetName),
+            iconImageData: .some(iconPayload.imageData),
+            iconAsset: .some(iconPayload.assetName),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
@@ -7957,14 +7957,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         bindSurface(tabId, toPanelId: panelId)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
-
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
+        let iconPayload = terminalTabAgentIconPayload(forPanelId: panelId)
         bonsplitController.updateTab(
             tabId,
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(terminalTabAgentIconPayload(forPanelId: panelId).imageData),
-            iconAsset: .some(terminalTabAgentIconPayload(forPanelId: panelId).assetName),
+            iconImageData: .some(iconPayload.imageData),
+            iconAsset: .some(iconPayload.assetName),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: customTitle != nil,
             isDirty: replacementPanel.isDirty,
@@ -9446,13 +9446,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
-
+        let detachedIconPayload = terminalTabAgentIconPayload(forDetached: detached)
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
-            iconImageData: terminalTabAgentIconPayload(forDetached: detached).imageData,
-            iconAsset: terminalTabAgentIconPayload(forDetached: detached).assetName,
+            iconImageData: detachedIconPayload.imageData,
+            iconAsset: detachedIconPayload.assetName,
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,

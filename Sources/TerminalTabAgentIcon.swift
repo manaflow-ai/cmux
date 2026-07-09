@@ -8,6 +8,17 @@ struct TerminalTabAgentIconPayload: Equatable {
     let assetName: String?
 }
 
+@MainActor
+fileprivate func terminalTabAgentIconImageData(assetName: String) -> Data? {
+    CmuxResolvedIconRenderer().pngData(
+        for: CmuxResolvedIconRequest(
+            source: .asset(name: assetName, bundle: .main),
+            size: NSSize(width: 14, height: 14)
+        ),
+        appearance: NSApplication.shared.effectiveAppearance
+    )
+}
+
 /// Resolves the asset-catalog brand mark shown in a terminal tab's fixed icon
 /// slot from the panel's agent state: live agents win over a restored
 /// (resumable) agent snapshot, and among several recognized live agents the
@@ -362,17 +373,6 @@ extension Workspace {
         return terminalTabAgentIconPayload(forPanelId: detached.panelId)
     }
 
-    @MainActor
-    private func terminalTabAgentIconImageData(assetName: String) -> Data? {
-        CmuxResolvedIconRenderer().pngData(
-            for: CmuxResolvedIconRequest(
-                source: .asset(name: assetName, bundle: .main),
-                size: NSSize(width: 14, height: 14)
-            ),
-            appearance: NSApplication.shared.effectiveAppearance
-        )
-    }
-
     func syncTerminalTabAgentIconAsset(forPanelId panelId: UUID) {
         guard panels[panelId] is TerminalPanel,
               let tabId = surfaceIdFromPanelId(panelId),
@@ -434,17 +434,6 @@ extension DockSplitStore {
         TerminalTabAgentIconResolver().payload(
             assetName: terminalTabAgentIconAsset(forPanelId: panelId),
             imageData: terminalTabAgentIconImageData(assetName:)
-        )
-    }
-
-    @MainActor
-    private func terminalTabAgentIconImageData(assetName: String) -> Data? {
-        CmuxResolvedIconRenderer().pngData(
-            for: CmuxResolvedIconRequest(
-                source: .asset(name: assetName, bundle: .main),
-                size: NSSize(width: 14, height: 14)
-            ),
-            appearance: NSApplication.shared.effectiveAppearance
         )
     }
 
