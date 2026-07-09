@@ -566,11 +566,11 @@ describe("recordCheckoutCompletion", () => {
 
     const customerUpdate = mockCall(updateCustomer);
     expect(customerUpdate[0]).toBe("cus_team");
-    expectDeletedAccountEmail((customerUpdate[1] as { email?: unknown }).email);
-    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: false });
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
-    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: false });
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
     expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
@@ -622,11 +622,11 @@ describe("recordCheckoutCompletion", () => {
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
     const customerUpdate = mockCall(updateCustomer);
     expect(customerUpdate[0]).toBe("cus_team");
-    expectDeletedAccountEmail((customerUpdate[1] as { email?: unknown }).email);
-    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: false });
+    expectDeletedAccountEmail((customerUpdate[1] as { email: string }).email);
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
     const subscriptionUpdate = mockCall(updateSubscription);
     expect(subscriptionUpdate[0]).toBe("sub_team");
-    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: false });
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
     expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);

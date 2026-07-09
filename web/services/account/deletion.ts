@@ -436,17 +436,19 @@ export async function deleteCmuxAccountData(
   await destroyProviderBackedAccountVms(scope, runtime);
   await deleteAccountVmSnapshots(scope, runtime);
   await deletePersonalSubrouterTenants(scope, runtime);
-  await withVaultUserQuotaLock(
+  const vaultObjectsDeleted = await withVaultUserQuotaLock(
     runtime.cloudDb(),
     input.userId,
-    async (lockedDb) => {
-      await deleteAccountVaultObjects(input.userId, {
+    async (lockedDb) =>
+      await deleteAccountVaultObjectBatch(input.userId, {
         ...runtime,
         cloudDb: () => lockedDb,
-      });
-    },
+      }),
     { allowAccountDeletion: true },
   );
+  if (!vaultObjectsDeleted) {
+    throw new Error("Account deletion vault cleanup has more objects to delete");
+  }
 
   await cancelStripeAccountBilling(scope, anonymizedUserId, runtime);
 
@@ -875,17 +877,14 @@ async function accountVmIdentityLeaseRows(
     .limit(ACCOUNT_VM_LEASE_REVOKE_BATCH_SIZE);
 }
 
-async function deleteAccountVaultObjects(
+async function deleteAccountVaultObjectBatch(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<void> {
-  for (;;) {
-    const deleted =
-      await deleteVaultSnapshotObjectBatch(userId, runtime) +
-      await deleteVaultUploadGrantObjectBatch(userId, runtime) +
-      await deleteVaultUploadTombstoneObjectBatch(userId, runtime);
-    if (deleted === 0) return;
-  }
+): Promise<boolean> {
+  if (await deleteVaultSnapshotObjectBatch(userId, runtime) > 0) return false;
+  if (await deleteVaultUploadGrantObjectBatch(userId, runtime) > 0) return false;
+  if (await deleteVaultUploadTombstoneObjectBatch(userId, runtime) > 0) return false;
+  return true;
 }
 
 async function deleteVaultSnapshotObjectBatch(

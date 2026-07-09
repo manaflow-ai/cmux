@@ -9,6 +9,10 @@ import {
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
+  vaultSessions,
+  vaultSnapshots,
+  vaultUploadGrants,
+  vaultUploadTombstones,
 } from "../db/schema";
 import type { ProviderId } from "../services/vms/drivers";
 import {
@@ -57,6 +61,9 @@ let stripeRemoteSubscriptionStatuses = new Map<string, string>();
 let stripeCustomerUpdates: Array<{ readonly id: string; readonly params: StripeUpdateParams }> = [];
 let stripeSubscriptionUpdates: Array<{ readonly id: string; readonly params: StripeUpdateParams }> = [];
 let stripeSubscriptionCancels: string[] = [];
+let vaultSnapshotRows: Array<{ id: string; objectKey: string }> = [];
+let vaultUploadGrantRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
+let vaultUploadTombstoneRows: Array<{ id: string; objectKey: string; uploadObjectKey: string }> = [];
 
 type DestroyAccountOwnedVmInput = { userId: string; provider: ProviderId; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -154,6 +161,9 @@ beforeEach(() => {
   stripeCustomerUpdates = [];
   stripeSubscriptionUpdates = [];
   stripeSubscriptionCancels = [];
+  vaultSnapshotRows = [];
+  vaultUploadGrantRows = [];
+  vaultUploadTombstoneRows = [];
   destroyAccountOwnedVm.mockClear();
   deleteVmSnapshot.mockClear();
   revokeVmIdentityLease.mockClear();
@@ -372,6 +382,26 @@ describe("account deletion cleanup", () => {
     expect(calls.indexOf("revoke-subrouter-tenant:tenant-team-personal")).toBeLessThan(
       calls.indexOf("transaction"),
     );
+  });
+
+  test("bounds vault object cleanup to one committed batch before local row purge", async () => {
+    vaultSnapshotRows = [{ id: "snapshot-row-1", objectKey: "vault/snapshot-1.zst" }];
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("vault cleanup has more objects to delete");
+
+    expect(deleteObject).toHaveBeenCalledWith("vault/snapshot-1.zst");
+    expect(calls).toContain("delete-vault-snapshots");
+    expect(calls).not.toContain("delete-vault-sessions");
+    expect(calls).not.toContain("delete-user-devices");
+
+    calls.length = 0;
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).resolves.toBeUndefined();
+    expect(calls).toContain("delete-vault-sessions");
+    expect(calls).toContain("delete-user-devices");
   });
 
   test("fails closed when personal Subrouter tenant revoke fails", async () => {
@@ -722,9 +752,9 @@ function fakeDb() {
       if (table === subrouterTenants) return writeBuilder("delete-subrouter-tenant");
       return writeBuilder();
     },
-    transaction: async (callback: (tx: ReturnType<typeof fakeTransaction>) => Promise<void>) => {
+    transaction: async <T>(callback: (tx: ReturnType<typeof fakeTransaction>) => Promise<T>) => {
       calls.push("transaction");
-      await callback(fakeTransaction());
+      return await callback(fakeTransaction());
     },
   };
 }
@@ -755,6 +785,9 @@ function fakeDbSelectBuilder() {
       calls.push("select-identity-leases");
       return identityLeaseRows.splice(0, 50);
     }
+    if (table === vaultSnapshots) return vaultSnapshotRows.splice(0, 50);
+    if (table === vaultUploadGrants) return vaultUploadGrantRows.splice(0, 50);
+    if (table === vaultUploadTombstones) return vaultUploadTombstoneRows.splice(0, 50);
     if (table === stripeCustomers) return stripeCustomerRows;
     if (table === stripeSubscriptions) return stripeSubscriptionRows;
     return [];
@@ -828,6 +861,10 @@ function fakeTransaction() {
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
       if (table === cloudVmLeases) return writeBuilder("delete-cloud-vm-leases");
       if (table === cloudVms) return writeBuilder("delete-personal-cloud-vms");
+      if (table === vaultSnapshots) return writeBuilder("delete-vault-snapshots");
+      if (table === vaultUploadGrants) return writeBuilder("delete-vault-upload-grants");
+      if (table === vaultUploadTombstones) return writeBuilder("delete-vault-upload-tombstones");
+      if (table === vaultSessions) return writeBuilder("delete-vault-sessions");
       return writeBuilder();
     },
   };

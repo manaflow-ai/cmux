@@ -470,7 +470,7 @@ async function recordTeamCheckoutCompletion(input: {
       subscription: input.subscription,
       customerId: input.customerId,
       stackUserId: guard.stackUserId,
-      clearStackTeamId: false,
+      clearStackTeamId: true,
       dependencies: input.dependencies,
     });
     return {
