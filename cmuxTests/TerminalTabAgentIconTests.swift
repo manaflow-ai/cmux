@@ -208,6 +208,18 @@ struct TerminalTabAgentIconTests {
     }
 
     @MainActor
+    @Test func terminalTitleDoesNotBecomeAgentIdentity() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: "codex --yolo"))
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+    }
+
+    @MainActor
     @Test func terminalTitleChangeReplacesStaleClaudeRuntimeIconWithCodex() throws {
         try assertStaleAgentIconTransition(
             stalePIDKey: "claude_code.old-session",
