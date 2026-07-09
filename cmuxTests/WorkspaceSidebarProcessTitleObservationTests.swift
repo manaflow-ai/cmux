@@ -129,6 +129,30 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         withExtendedLifetime(observationStream) {}
     }
 
+    @Test func singlePanelTitleUpdateSignalsSettleModel() throws {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+        let observationStream = model.changes()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        // Terminal titles reach a single-panel workspace through
+        // updatePanelTitle, which writes `title` directly (applyProcessTitle
+        // then early-returns on `self.title != title`). The settle model must
+        // still see the change, or sidebar rows never learn any automatic
+        // title.
+        _ = workspace.updatePanelTitle(panelId: panelId, title: "Agent tick 1")
+
+        #expect(workspace.title == "Agent tick 1")
+        #expect(
+            scheduler.scheduledActionCount > 0,
+            "A single-panel automatic title write must signal the sidebar settle model."
+        )
+        scheduler.fireAll()
+        #expect(model.changeGeneration == 1)
+        withExtendedLifetime(observationStream) {}
+    }
+
     @Test func customTitleCancelsPendingProcessTitleRefresh() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
