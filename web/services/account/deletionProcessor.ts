@@ -112,9 +112,10 @@ export async function processAccountDeletionForUser(
   try {
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
-      const teamScope = user
-        ? await accountDeletionTeamScopeForUser(user)
-        : { ownedTeamIds: [], retainedTeamBillingOwners: [] };
+      if (!user) {
+        throw new AccountDeletionTeamScopeUnavailableError("Stack account deletion team scope is unavailable.");
+      }
+      const teamScope = await accountDeletionTeamScopeForUser(user);
       await dependencies.deleteCmuxAccountData({
         userId: input.userId,
         ownedTeamIds: teamScope.ownedTeamIds,
