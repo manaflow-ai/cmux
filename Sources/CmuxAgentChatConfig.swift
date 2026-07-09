@@ -249,7 +249,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
     func prepareStateFileURL(launchDate: Date) async -> URL? {
         let stateFileURL = stateFileURL
         let fileSystem = fileSystem
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) { () -> URL? in
             let directoryURL = stateFileURL.deletingLastPathComponent()
             let fileManager = fileSystem.fileManager
             do {
@@ -284,7 +284,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
     ) async -> AgentChatOwnedServerSession? {
         let stateFileURL = stateFileURL
         let fileSystem = fileSystem
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) { () -> AgentChatOwnedServerSession? in
             let fileManager = fileSystem.fileManager
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(10))
