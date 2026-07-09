@@ -3985,13 +3985,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your deletion request was accepted and account cleanup is still running. cmux has locked account writes while deletion finishes. If this account is still visible later, try again or contact founders@manaflow.com."
+            "value": "Your deletion request was accepted and account cleanup is still running. cmux has locked account writes while deletion finishes. This device will sign out after you tap OK."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除リクエストを受け付けました。アカウントのクリーンアップはまだ実行中です。削除が完了するまで、cmux はアカウントへの書き込みをロックします。後でこのアカウントがまだ表示される場合は、もう一度お試しいただくか founders@manaflow.com までお問い合わせください。"
+            "value": "削除リクエストを受け付けました。アカウントのクリーンアップはまだ実行中です。削除が完了するまで、cmux はアカウントへの書き込みをロックします。OK をタップすると、このデバイスからサインアウトします。"
           }
         }
       }

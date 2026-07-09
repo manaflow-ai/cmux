@@ -52,7 +52,7 @@ struct MobileSettingsView: View {
         self.store = store
         self.telemetryConsentStore = telemetryConsentStore
         self.accountDeletionClient = accountDeletionClient
-        _productAnalyticsEnabled = State(initialValue: false)
+        _productAnalyticsEnabled = State(initialValue: telemetryConsentStore.isEnabled)
     }
 
     var body: some View {
@@ -372,7 +372,8 @@ struct MobileSettingsView: View {
                 showingConfirmation: $showingDeleteAccountConfirmation,
                 errorMessage: $accountDeletionErrorMessage,
                 acceptedMessage: $accountDeletionAcceptedMessage,
-                deleteAccount: deleteAccount
+                deleteAccount: deleteAccount,
+                acceptedAcknowledged: finishAcceptedAccountDeletion
             )
         }
         .interactiveDismissDisabled(isDeletingAccount)
@@ -410,7 +411,7 @@ struct MobileSettingsView: View {
                     case .accepted:
                         accountDeletionAcceptedMessage = L10n.string(
                             "mobile.settings.deleteAccountAcceptedMessage",
-                            defaultValue: "Your deletion request was accepted and account cleanup is still running. cmux has locked account writes while deletion finishes. If this account is still visible later, try again or contact founders@manaflow.com."
+                            defaultValue: "Your deletion request was accepted and account cleanup is still running. cmux has locked account writes while deletion finishes. This device will sign out after you tap OK."
                         )
                     }
                 }
@@ -421,6 +422,12 @@ struct MobileSettingsView: View {
                 }
             }
         }
+    }
+
+    private func finishAcceptedAccountDeletion() {
+        accountDeletionAcceptedMessage = nil
+        signOut?()
+        dismiss()
     }
 
     private func accountDeletionFailureMessage(for error: Error) -> String {

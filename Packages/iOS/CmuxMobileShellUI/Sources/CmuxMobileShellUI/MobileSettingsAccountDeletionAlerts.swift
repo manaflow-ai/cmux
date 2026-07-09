@@ -7,6 +7,7 @@ private struct MobileSettingsAccountDeletionAlerts: ViewModifier {
     @Binding var errorMessage: String?
     @Binding var acceptedMessage: String?
     let deleteAccount: () -> Void
+    let acceptedAcknowledged: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -38,7 +39,11 @@ private struct MobileSettingsAccountDeletionAlerts: ViewModifier {
                 L10n.string("mobile.settings.deleteAccountAcceptedTitle", defaultValue: "Deletion Request Started"),
                 isPresented: Binding(get: { acceptedMessage != nil }, set: { if !$0 { acceptedMessage = nil } })
             ) {
-                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+                Button(
+                    L10n.string("mobile.common.ok", defaultValue: "OK"),
+                    role: .cancel,
+                    action: acceptedAcknowledged
+                )
             } message: {
                 Text(acceptedMessage ?? "")
             }
@@ -50,13 +55,15 @@ extension View {
         showingConfirmation: Binding<Bool>,
         errorMessage: Binding<String?>,
         acceptedMessage: Binding<String?>,
-        deleteAccount: @escaping () -> Void
+        deleteAccount: @escaping () -> Void,
+        acceptedAcknowledged: @escaping () -> Void
     ) -> some View {
         modifier(MobileSettingsAccountDeletionAlerts(
             showingConfirmation: showingConfirmation,
             errorMessage: errorMessage,
             acceptedMessage: acceptedMessage,
-            deleteAccount: deleteAccount
+            deleteAccount: deleteAccount,
+            acceptedAcknowledged: acceptedAcknowledged
         ))
     }
 }
