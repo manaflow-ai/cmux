@@ -28,6 +28,8 @@ const VM_ENV_KEYS = [
   "CMUX_VM_PAID_MAX_ACTIVE_VMS",
   "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
   "CMUX_VM_REQUIRE_PRO",
+  "DATABASE_URL",
+  "DIRECT_DATABASE_URL",
   "VERCEL",
   "VERCEL_ENV",
 ] as const;
@@ -62,6 +64,7 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
+let stubCloudDb: ReturnType<typeof realCloudDb> | null = null;
 
 function callMock(fn: unknown, args: unknown[]) {
   return (fn as (...args: unknown[]) => unknown)(...args);
@@ -121,6 +124,7 @@ mock.module("../db/client", () => ({
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
     if (!useStubDb) return realCloudDb();
+    if (stubCloudDb) return stubCloudDb;
     throw new Error("DATABASE_URL is required for Cloud VM database access");
   },
 }));
@@ -171,6 +175,7 @@ beforeEach(() => {
   openSshEndpoint.mockClear();
   restoreVm.mockClear();
   snapshotVm.mockClear();
+  stubCloudDb = null;
 });
 
 afterEach(() => {
@@ -1237,6 +1242,27 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("blocks Stack deletion metadata when the tombstone store is configured but empty", async () => {
+    process.env.DATABASE_URL = "postgres://cmux:cmux@localhost:5432/cmux_test";
+    stubCloudDb = emptyAccountDeletionTombstoneDb();
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxAccountDeletionInProgress: true },
+    });
+
+    const user = await verifyRequest(
+      new Request("https://cmux.test/api/vm", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+      { allowCookie: false },
+    );
+
+    expect(user).toBeNull();
+  });
+
   test("blocks VM create kill switch before workflow", async () => {
     process.env.CMUX_VM_CREATE_ENABLED = "0";
     getUser.mockResolvedValue(authedStackUser());
@@ -1405,6 +1431,22 @@ function freePlanStackUser() {
       clientReadOnlyMetadata: { cmuxVmPlan: "free" },
     }],
   };
+}
+
+function emptyAccountDeletionTombstoneDb(): ReturnType<typeof realCloudDb> {
+  type SelectChain = {
+    from(): SelectChain;
+    where(): SelectChain;
+    limit(): Promise<[]>;
+  };
+  const chain: SelectChain = {
+    from: () => chain,
+    where: () => chain,
+    limit: async () => [],
+  };
+  return {
+    select: () => chain,
+  } as unknown as ReturnType<typeof realCloudDb>;
 }
 
 function expectNoCloudVmImplementationLeaks(payload: unknown): void {

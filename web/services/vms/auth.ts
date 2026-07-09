@@ -78,7 +78,8 @@ export async function verifyRequest(
 
 async function isAccountDeletionBlocked(user: StackUserLike): Promise<boolean> {
   const metadataBlocked = isStackAccountDeletionInProgress(user.clientReadOnlyMetadata);
-  if (!isAccountDeletionTombstoneStoreConfigured()) return metadataBlocked;
+  if (metadataBlocked) return true;
+  if (!isAccountDeletionTombstoneStoreConfigured()) return false;
   return await hasAccountDeletionTombstone({ userId: user.id });
 }
 
