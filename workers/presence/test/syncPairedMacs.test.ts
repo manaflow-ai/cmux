@@ -10,6 +10,7 @@ import {
   listBackupSnapshot,
   listBackupSnapshotWithUnscopedFallback,
   listLiveBackup,
+  LEGACY_PAIRED_MACS_PATH,
   MAX_BACKUP_OPS,
   MAX_CLIENT_SCOPE_LENGTH,
   MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER,
@@ -20,7 +21,9 @@ import {
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
+  pairedMacBackupPathAcceptsScope,
   parsePairedMacBackup,
+  STRICT_PAIRED_MACS_PATH,
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
 import {
@@ -32,6 +35,18 @@ import {
 } from "../src/syncStorage";
 
 const T0 = 1_750_000_000_000;
+
+describe("paired-Mac backup protocol", () => {
+  const strict = "cmux-dev:v2:ZmVhdHVyZQ";
+
+  it("keeps strict v2 and legacy v1 endpoints disjoint", () => {
+    expect(pairedMacBackupPathAcceptsScope(STRICT_PAIRED_MACS_PATH, strict)).toBe(true);
+    expect(pairedMacBackupPathAcceptsScope(LEGACY_PAIRED_MACS_PATH, strict)).toBe(false);
+    expect(pairedMacBackupPathAcceptsScope(STRICT_PAIRED_MACS_PATH, "ios:legacy")).toBe(false);
+    expect(pairedMacBackupPathAcceptsScope(LEGACY_PAIRED_MACS_PATH, "ios:legacy")).toBe(true);
+    expect(pairedMacBackupPathAcceptsScope(LEGACY_PAIRED_MACS_PATH)).toBe(true);
+  });
+});
 
 class FakeStorage implements SyncStorage {
   private map = new Map<string, unknown>();
