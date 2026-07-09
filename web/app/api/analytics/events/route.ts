@@ -116,9 +116,7 @@ export async function postAnalyticsEvents(
 
   if (user) {
     try {
-      return await dependencies.runAuthenticatedAnalytics(user.id, async () =>
-        forwardAuthenticatedEvents(accepted, user.id, dependencies)
-      );
+      return await forwardAuthenticatedEvents(accepted, user.id, dependencies);
     } catch (error) {
       if (error instanceof AnalyticsAccountDeletionBlockedError) {
         return jsonResponse({ ok: true, forwarded: 0 });
@@ -141,16 +139,18 @@ async function forwardAuthenticatedEvents(
 ): Promise<Response> {
   const anonymousIds = authenticatedAnonymousIds(accepted, userId);
   let recordedAnonymousIds: readonly string[] = [];
-  if (anonymousIds.length > 0) {
-    try {
-      recordedAnonymousIds = await dependencies.recordIOSAnalyticsIdentities({
+  try {
+    recordedAnonymousIds = await dependencies.runAuthenticatedAnalytics(userId, async () => {
+      if (anonymousIds.length === 0) return [];
+      return await dependencies.recordIOSAnalyticsIdentities({
         userId,
         anonymousIds,
       });
-    } catch (error) {
-      console.error("[ios-analytics] identity recording failed", { error });
-      return jsonResponse({ error: "identity_recording_failed" }, 503);
-    }
+    });
+  } catch (error) {
+    if (error instanceof AnalyticsAccountDeletionBlockedError) throw error;
+    console.error("[ios-analytics] identity recording failed", { error });
+    return jsonResponse({ error: "identity_recording_failed" }, 503);
   }
   const eventsForForwarding = stripUnrecordedAnonymousAliases(
     accepted,

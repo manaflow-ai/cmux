@@ -80,7 +80,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isAlreadyDeletedPostHogError(value: unknown): boolean {
   const normalized = postHogDeletionErrorText(value).toLowerCase().replace(/[^a-z0-9]+/g, " ");
-  return /\b(not found|does not exist|no such|already deleted|has been deleted|was deleted|missing)\b/.test(normalized);
+  return /\b(not found|does not exist|no such|already deleted|has been deleted|was deleted)\b/.test(normalized);
 }
 
 function postHogDeletionErrorText(value: unknown): string {
