@@ -63,7 +63,8 @@ actor LivenessHostRouter {
         id: UUID,
         method: String,
         expectedCount: Int,
-        continuation: CheckedContinuation<Void, Never>
+        continuation: CheckedContinuation<Bool, Never>,
+        timeoutTask: Task<Void, Never>
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
@@ -104,41 +105,43 @@ actor LivenessHostRouter {
         timeoutNanoseconds: UInt64 = 3_000_000_000,
         recordIssueOnTimeout: Bool = true
     ) async -> Bool {
-        let reached = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await self.waitUntilCountReached(of: method, atLeast: expectedCount)
-                return true
-            }
-            group.addTask {
-                // Test assertion deadline only; request arrival is signaled by record().
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                return false
-            }
-            let reached = await group.next() ?? false
-            group.cancelAll()
-            return reached
-        }
+        let reached = await waitUntilCountReached(
+            of: method,
+            atLeast: expectedCount,
+            timeoutNanoseconds: timeoutNanoseconds
+        )
         if !reached, recordIssueOnTimeout {
             Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
         }
         return reached
     }
 
-    private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
-        guard count(of: method) < expectedCount else { return }
+    private func waitUntilCountReached(
+        of method: String,
+        atLeast expectedCount: Int,
+        timeoutNanoseconds: UInt64
+    ) async -> Bool {
+        guard count(of: method) < expectedCount else { return true }
         let waiterID = UUID()
-        await withTaskCancellationHandler {
+        return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
+                let timeoutTask = Task { [weak self] in
+                    // Test assertion deadline only; request arrival is signaled by record().
+                    try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    guard !Task.isCancelled else { return }
+                    await self?.completeCountWaiter(id: waiterID, reached: false)
+                }
                 countWaiters.append((
                     id: waiterID,
                     method: method,
                     expectedCount: expectedCount,
-                    continuation: continuation
+                    continuation: continuation,
+                    timeoutTask: timeoutTask
                 ))
                 resumeSatisfiedCountWaiters()
             }
         } onCancel: {
-            Task { await self.cancelCountWaiter(id: waiterID) }
+            Task { await self.completeCountWaiter(id: waiterID, reached: false) }
         }
     }
 
@@ -147,28 +150,34 @@ actor LivenessHostRouter {
             id: UUID,
             method: String,
             expectedCount: Int,
-            continuation: CheckedContinuation<Void, Never>
+            continuation: CheckedContinuation<Bool, Never>,
+            timeoutTask: Task<Void, Never>
         )] = []
-        var satisfied: [CheckedContinuation<Void, Never>] = []
+        var satisfied: [(
+            continuation: CheckedContinuation<Bool, Never>,
+            timeoutTask: Task<Void, Never>
+        )] = []
         for waiter in countWaiters {
             if count(of: waiter.method) >= waiter.expectedCount {
-                satisfied.append(waiter.continuation)
+                satisfied.append((waiter.continuation, waiter.timeoutTask))
             } else {
                 remaining.append(waiter)
             }
         }
         countWaiters = remaining
-        for continuation in satisfied {
-            continuation.resume()
+        for waiter in satisfied {
+            waiter.timeoutTask.cancel()
+            waiter.continuation.resume(returning: true)
         }
     }
 
-    private func cancelCountWaiter(id: UUID) {
+    private func completeCountWaiter(id: UUID, reached: Bool) {
         guard let index = countWaiters.firstIndex(where: { $0.id == id }) else {
             return
         }
         let waiter = countWaiters.remove(at: index)
-        waiter.continuation.resume()
+        waiter.timeoutTask.cancel()
+        waiter.continuation.resume(returning: reached)
     }
 
     func topics(for method: String) -> [[String]] {
