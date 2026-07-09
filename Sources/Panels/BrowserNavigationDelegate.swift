@@ -395,7 +395,9 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
+            reportTerminalCancellation()
             decisionHandler(.cancel)
             return
         }

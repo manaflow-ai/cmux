@@ -3016,8 +3016,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
-    private var insecureHTTPAlertFactory: () -> NSAlert
-    private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
+    var insecureHTTPAlertFactory: () -> NSAlert
+    var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
     @Published var isReactGrabActive: Bool = false {
@@ -5882,7 +5882,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func presentInsecureHTTPAlert(
+    func presentInsecureHTTPAlert(
         for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool,
@@ -7885,37 +7885,7 @@ extension BrowserPanel {
     }
 }
 
-#if DEBUG
 extension BrowserPanel {
-    func configureInsecureHTTPAlertHooksForTesting(
-        alertFactory: @escaping () -> NSAlert,
-        windowProvider: @escaping () -> NSWindow?
-    ) {
-        insecureHTTPAlertFactory = alertFactory
-        insecureHTTPAlertWindowProvider = windowProvider
-    }
-
-    func resetInsecureHTTPAlertHooksForTesting() {
-        insecureHTTPAlertFactory = { NSAlert() }
-        insecureHTTPAlertWindowProvider = { [weak self] in
-            if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
-                return window
-            }
-            return browserFallbackInteractiveModalHostWindow()
-        }
-    }
-
-    func presentInsecureHTTPAlertForTesting(
-        url: URL,
-        recordTypedNavigation: Bool = false
-    ) {
-        presentInsecureHTTPAlert(
-            for: URLRequest(url: url),
-            intent: .currentTab,
-            recordTypedNavigation: recordTypedNavigation
-        )
-    }
-
     private static func debugRectDescription(_ rect: NSRect) -> String {
         String(
             format: "%.1f,%.1f %.1fx%.1f",
