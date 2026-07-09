@@ -8,29 +8,37 @@ extension AgentHibernationRecord {
 }
 
 extension AgentHibernationController {
+    struct ConfirmedTeardownRequest {
+        let record: AgentHibernationRecord
+        let confirmationFingerprint: String
+        let effectiveLastActivityAt: TimeInterval
+        let requestID: UUID
+        let epoch: UInt64
+        let generation: UInt64
+    }
+
     /// Runs the transcript snapshot off the main actor, then resumes teardown on the
     /// main actor only if the pane still qualifies. The snapshot MUST complete before
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
     /// so the teardown is sequenced after it rather than racing it; the re-validation
     /// below covers disable/stop and anything else that changed during the brief I/O hop.
-    func beginConfirmedTeardown(
-        record: AgentHibernationRecord,
-        confirmationFingerprint: String,
-        effectiveLastActivityAt: TimeInterval,
-        requestID: UUID
-    ) {
-        let agent = record.agent
-        let epoch = teardownValidationEpochByPanel[record.key] ?? 0
-        let generation = teardownValidationGeneration
+    func beginConfirmedTeardowns(_ requests: [ConfirmedTeardownRequest]) {
+        guard !requests.isEmpty else { return }
         Task { @MainActor in
-            defer { self.clearInFlightTeardown(record.key, requestID: requestID) }
-            let snapshotOutcome = await Task.detached(priority: .utility) {
-                AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
-            }.value
-            var restoreTaskOwnsSnapshot = false
             defer {
-                if !restoreTaskOwnsSnapshot,
-                   case .snapshot(let snapshot) = snapshotOutcome {
+                for request in requests {
+                    self.clearInFlightTeardown(request.record.key, requestID: request.requestID)
+                }
+            }
+
+            let snapshotOutcomes = await Self.snapshotOutcomes(for: requests)
+            var restoreOwnedSnapshotPaths: Set<String> = []
+            defer {
+                for outcome in snapshotOutcomes.values {
+                    guard case .snapshot(let snapshot) = outcome,
+                          !restoreOwnedSnapshotPaths.contains(snapshot.snapshotPath) else {
+                        continue
+                    }
                     try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
                 }
             }
@@ -38,80 +46,129 @@ extension AgentHibernationController {
             let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
                 minimumStartSequence: postSnapshotSequence
             ).value
-            let currentAgent = record.workspace.restorableAgentForHibernation(
-                panelId: record.key.panelId,
-                index: postSnapshotIndex
-            )
-            // Re-validate: the pane must still be exactly as confirmed. Any activity,
-            // scrollback change, visibility/protection change, hibernation disable,
-            // hibernation, or surface loss during the hop aborts; the regular 30s
-            // tick will re-arm if still idle.
-            guard AgentHibernationTrackingGate.isEnabled(),
-                  record.isStillOwnedByOriginalWorkspace,
-                  !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
-                  TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
-                      TabManager.restorableAgentSnapshotFingerprint(record.agent),
-                  !record.terminalPanel.isAgentHibernated,
-                  record.terminalPanel.surface.hasLiveSurface,
-                  AppDelegate.shared?.agentHibernationPanelIsProtected(
-                      workspace: record.workspace,
-                      panelId: record.key.panelId
-                  ) == false,
-                  record.workspace.agentHibernationLifecycleState(
-                      panelId: record.key.panelId,
-                      fallback: record.lifecycle
-                  ).allowsHibernation,
-                  (self.terminalInputByPanel[record.key] ?? 0) <=
-                      (self.lifecycleChangeByPanel[record.key] ?? 0),
-                  self.teardownValidationGeneration == generation,
-                  (self.teardownValidationEpochByPanel[record.key] ?? 0) == epoch,
-                  let currentFingerprint = self.hibernationFingerprint(for: record),
-                  currentFingerprint == confirmationFingerprint,
-                  (self.activityByPanel[record.key] ?? 0) <= effectiveLastActivityAt else {
-                return
-            }
 
-            let snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot?
-            switch snapshotOutcome {
-            case .snapshot(let value):
-                snapshot = value
-            case .nothingToProtect:
-                snapshot = nil
-            case .unableToProtect:
-                // Forfeit hibernation rather than risk issue #6565 transcript loss.
-                self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
-                    fingerprint: confirmationFingerprint,
-                    lastActivityAt: effectiveLastActivityAt,
-                    retryAfter: Date().timeIntervalSince1970 + Self.unableToProtectRetrySeconds
+            for request in requests {
+                let record = request.record
+                guard let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
+                let currentAgent = record.workspace.restorableAgentForHibernation(
+                    panelId: record.key.panelId,
+                    index: postSnapshotIndex
                 )
-                return
-            }
+                let currentLifecycle = postSnapshotLifecycle(for: record, index: postSnapshotIndex)
+                let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
+                    for: record,
+                    index: postSnapshotIndex
+                )
+                // Re-validate: the pane must still be exactly as confirmed. Any activity,
+                // scrollback change, visibility/protection change, hibernation disable,
+                // hibernation, or surface loss during the hop aborts; the regular 30s
+                // tick will re-arm if still idle.
+                guard AgentHibernationTrackingGate.isEnabled(),
+                      record.isStillOwnedByOriginalWorkspace,
+                      !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
+                      TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
+                          TabManager.restorableAgentSnapshotFingerprint(record.agent),
+                      !record.terminalPanel.isAgentHibernated,
+                      record.terminalPanel.surface.hasLiveSurface,
+                      AppDelegate.shared?.agentHibernationPanelIsProtected(
+                          workspace: record.workspace,
+                          panelId: record.key.panelId
+                      ) == false,
+                      currentLifecycle.allowsHibernation,
+                      (self.terminalInputByPanel[record.key] ?? 0) <=
+                          (self.lifecycleChangeByPanel[record.key] ?? 0),
+                      self.teardownValidationGeneration == request.generation,
+                      (self.teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
+                      let currentFingerprint = self.hibernationFingerprint(for: record),
+                      currentFingerprint == request.confirmationFingerprint,
+                      currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
+                    continue
+                }
 
-            self.terminateScopedProcessesForHibernation(record: record)
-            record.workspace.enterAgentHibernation(
-                panelId: record.key.panelId,
-                agent: record.agent,
-                lastActivityAt: Date(timeIntervalSince1970: effectiveLastActivityAt)
-            )
-            guard let snapshot else { return }
-            restoreTaskOwnsSnapshot = true
-            let processIDs = record.processIDs
-            let restoreKey = record.key
-            let restoreRequestID = UUID()
-            let restoreTask = Task.detached(priority: .utility) {
-                await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
-                    snapshot: snapshot,
-                    processIDs: processIDs
-                )
-                await MainActor.run {
-                    AgentHibernationController.shared.clearPostTeardownRestoreTask(
-                        restoreKey,
-                        requestID: restoreRequestID
+                let snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot?
+                switch snapshotOutcome {
+                case .snapshot(let value):
+                    snapshot = value
+                case .nothingToProtect:
+                    snapshot = nil
+                case .unableToProtect:
+                    // Forfeit hibernation rather than risk issue #6565 transcript loss.
+                    self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
+                        fingerprint: request.confirmationFingerprint,
+                        lastActivityAt: request.effectiveLastActivityAt,
+                        retryAfter: Date().timeIntervalSince1970 + Self.unableToProtectRetrySeconds
                     )
+                    continue
+                }
+
+                self.terminateScopedProcessesForHibernation(record: record)
+                record.workspace.enterAgentHibernation(
+                    panelId: record.key.panelId,
+                    agent: record.agent,
+                    lastActivityAt: Date(timeIntervalSince1970: request.effectiveLastActivityAt)
+                )
+                guard let snapshot else { continue }
+                restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+                let processIDs = record.processIDs
+                let restoreKey = record.key
+                let restoreRequestID = UUID()
+                let restoreTask = Task.detached(priority: .utility) {
+                    await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+                        snapshot: snapshot,
+                        processIDs: processIDs
+                    )
+                    await MainActor.run {
+                        AgentHibernationController.shared.clearPostTeardownRestoreTask(
+                            restoreKey,
+                            requestID: restoreRequestID
+                        )
+                    }
+                }
+                self.storePostTeardownRestoreTask(restoreTask, key: restoreKey, requestID: restoreRequestID)
+            }
+        }
+    }
+
+    private static func snapshotOutcomes(
+        for requests: [ConfirmedTeardownRequest]
+    ) async -> [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] {
+        let agents = requests.map { ($0.record.key, $0.record.agent) }
+        return await withTaskGroup(
+            of: (AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownSnapshotOutcome).self,
+            returning: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome].self
+        ) { group in
+            for (key, agent) in agents {
+                group.addTask(priority: .utility) {
+                    (key, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent))
                 }
             }
-            self.storePostTeardownRestoreTask(restoreTask, key: restoreKey, requestID: restoreRequestID)
+            var outcomes: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] = [:]
+            for await (key, outcome) in group {
+                outcomes[key] = outcome
+            }
+            return outcomes
         }
+    }
+
+    func postSnapshotLifecycle(
+        for record: AgentHibernationRecord,
+        index: RestorableAgentSessionIndex
+    ) -> AgentHibernationLifecycleState {
+        record.workspace.agentHibernationLifecycleState(
+            panelId: record.key.panelId,
+            fallback: index.lifecycle(workspaceId: record.key.workspaceId, panelId: record.key.panelId)
+        )
+    }
+
+    func postSnapshotEffectiveLastActivityAt(
+        for record: AgentHibernationRecord,
+        index: RestorableAgentSessionIndex
+    ) -> TimeInterval {
+        let indexActivity = index.updatedAt(workspaceId: record.key.workspaceId, panelId: record.key.panelId) ?? 0
+        let localActivity = activityByPanel[record.key] ?? 0
+        let createdAt = record.terminalPanel.surface.debugRuntimeSurfaceCreatedAt()?.timeIntervalSince1970
+            ?? record.terminalPanel.surface.debugCreatedAt().timeIntervalSince1970
+        return max(indexActivity, localActivity, createdAt)
     }
 
     func storePostTeardownRestoreTask(

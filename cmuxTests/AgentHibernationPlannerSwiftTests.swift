@@ -214,6 +214,91 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @MainActor
+    @Test
+    func postSnapshotValidationReusesTaskForSameBatchBoundary() {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+
+        let boundary = controller.markPostSnapshotValidationPoint()
+        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
+        let firstRequestID = controller.postSnapshotValidationIndexTask?.requestID
+
+        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
+
+        #expect(controller.postSnapshotValidationIndexTask?.requestID == firstRequestID)
+        #expect(controller.postSnapshotValidationIndexTask?.startSequence == boundary)
+    }
+
+    @MainActor
+    @Test
+    func postSnapshotValidationUsesFreshIndexLifecycleAndActivity() throws {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-post-snapshot-index-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.opencode.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let sessionId = "opencode-post-snapshot-running"
+        let hookUpdatedAt = Date().timeIntervalSince1970 + 1_000
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspace.id.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "agentLifecycle": "running",
+                    "updatedAt": hookUpdatedAt,
+                    "launchCommand": [
+                        "launcher": "opencode",
+                        "executablePath": "/usr/local/bin/opencode",
+                        "arguments": ["/usr/local/bin/opencode"],
+                        "workingDirectory": "/tmp/repo",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        let record = AgentHibernationRecord(
+            key: AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: SessionRestorableAgentSnapshot(
+                kind: .opencode,
+                sessionId: sessionId,
+                workingDirectory: "/tmp/repo",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "opencode",
+                    executablePath: "/usr/local/bin/opencode",
+                    arguments: ["/usr/local/bin/opencode"],
+                    workingDirectory: "/tmp/repo",
+                    environment: nil,
+                    capturedAt: nil,
+                    source: nil
+                )
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 100,
+            isProtected: false,
+            hasLiveProcess: false,
+            processIDs: []
+        )
+
+        #expect(controller.postSnapshotLifecycle(for: record, index: index) == .running)
+        #expect(controller.postSnapshotEffectiveLastActivityAt(for: record, index: index) == hookUpdatedAt)
+    }
+
+    @MainActor
     private func resetSharedHibernationState(_ controller: AgentHibernationController) {
         controller.activityByPanel.removeAll(keepingCapacity: false)
         controller.terminalInputByPanel.removeAll(keepingCapacity: false)

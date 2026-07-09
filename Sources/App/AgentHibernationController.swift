@@ -88,11 +88,7 @@ struct AgentHibernationRecord {
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
 
-    private struct Confirmation {
-        let fingerprint: String
-        let sampledAt: TimeInterval
-        let dueAt: TimeInterval
-    }
+    private struct Confirmation { let fingerprint: String; let sampledAt: TimeInterval; let dueAt: TimeInterval }
 
     private struct TailFingerprintSample { let fingerprint: String; let stableSince: TimeInterval }
 
@@ -294,14 +290,16 @@ final class AgentHibernationController {
         let currentKeys = Set(records.map(\.key))
         pruneTrackingState(currentKeys: currentKeys, selectedKeys: selectedKeys)
 
-        for record in records where selectedKeys.contains(record.key) {
-            evaluateConfirmation(
+        let confirmedTeardowns = records.compactMap { record -> ConfirmedTeardownRequest? in
+            guard selectedKeys.contains(record.key) else { return nil }
+            return evaluateConfirmation(
                 record: record,
                 effectiveLastActivityAt: effectiveActivityByKey[record.key] ?? record.lastActivityAt,
                 settings: settings,
                 now: nowTime
             )
         }
+        if !confirmedTeardowns.isEmpty { beginConfirmedTeardowns(confirmedTeardowns) }
     }
 
     private func evaluateConfirmation(
@@ -309,7 +307,7 @@ final class AgentHibernationController {
         effectiveLastActivityAt: TimeInterval,
         settings: AgentHibernationSettings.Values,
         now: TimeInterval
-    ) {
+    ) -> ConfirmedTeardownRequest? {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
@@ -318,34 +316,35 @@ final class AgentHibernationController {
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
             unableToProtectByPanel.removeValue(forKey: record.key)
-            return
+            return nil
         }
-        if teardownInFlightByPanel[record.key] != nil { confirmations.removeValue(forKey: record.key); return }
+        if teardownInFlightByPanel[record.key] != nil { confirmations.removeValue(forKey: record.key); return nil }
 
         if let confirmation = confirmations[record.key] {
-            guard now >= confirmation.dueAt else { return }
+            guard now >= confirmation.dueAt else { return nil }
             guard effectiveLastActivityAt <= confirmation.sampledAt else {
                 confirmations.removeValue(forKey: record.key)
-                return
+                return nil
             }
             guard let fingerprint = hibernationFingerprint(for: record),
                   fingerprint == confirmation.fingerprint else {
                 confirmations.removeValue(forKey: record.key)
-                return
+                return nil
             }
             let requestID = UUID()
             teardownInFlightByPanel[record.key] = InFlightTeardown(requestID: requestID)
             confirmations.removeValue(forKey: record.key)
-            beginConfirmedTeardown(
+            return ConfirmedTeardownRequest(
                 record: record,
                 confirmationFingerprint: confirmation.fingerprint,
                 effectiveLastActivityAt: effectiveLastActivityAt,
-                requestID: requestID
+                requestID: requestID,
+                epoch: teardownValidationEpochByPanel[record.key] ?? 0,
+                generation: teardownValidationGeneration
             )
-            return
         }
 
-        guard let fingerprint = hibernationFingerprint(for: record) else { return }
+        guard let fingerprint = hibernationFingerprint(for: record) else { return nil }
         if let marker = unableToProtectByPanel[record.key],
            Self.unableToProtectMarkerStillApplies(
                marker,
@@ -353,7 +352,7 @@ final class AgentHibernationController {
                lastActivityAt: effectiveLastActivityAt,
                now: now
            ) {
-            return
+            return nil
         }
         unableToProtectByPanel.removeValue(forKey: record.key)
         confirmations[record.key] = Confirmation(
@@ -361,6 +360,7 @@ final class AgentHibernationController {
             sampledAt: now,
             dueAt: now + settings.confirmationSeconds
         )
+        return nil
     }
 
     private func updateTailFingerprintSample(
