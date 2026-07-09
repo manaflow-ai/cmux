@@ -360,6 +360,33 @@ describe("subrouter accounts route", () => {
     expect(fakeDb.rows).toHaveLength(0);
   });
 
+  test("fails closed when deleting a race-created upstream account fails", async () => {
+    upstream.deleteAccountFailureStatus = 503;
+    upstream.afterCreateAccount = () => {
+      fakeDb.deletionRows.push({
+        userIdHash: accountDeletionUserHash("user-1"),
+        status: "pending",
+      });
+    };
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(502);
+    expect(JSON.parse(body)).toEqual({ error: "upstream_request_failed" });
+    expect(upstream.deletedAccountIds).toEqual(["acct-created"]);
+    expect(upstream.revokedTenantIds).toEqual([]);
+    expect(fakeDb.rows).toHaveLength(1);
+  });
+
   test("keeps first tenant mapping when account creation fails", async () => {
     upstream.createAccountFailureStatus = 502;
 
@@ -561,6 +588,7 @@ function createMockSubrouter() {
     accountCreatesInsideTransaction: 0,
     afterCreateAccount: null as (() => void | Promise<void>) | null,
     createAccountFailureStatus: null as number | null,
+    deleteAccountFailureStatus: null as number | null,
     fetch: undefined as unknown as ReturnType<typeof mock>,
   };
 
@@ -619,6 +647,9 @@ function createMockSubrouter() {
     if (url.pathname.startsWith("/tenant/accounts/") && method === "DELETE") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
       state.deletedAccountIds.push(decodeURIComponent(url.pathname.slice("/tenant/accounts/".length)));
+      if (state.deleteAccountFailureStatus) {
+        return jsonResponse({ error: "delete failed" }, state.deleteAccountFailureStatus);
+      }
       return jsonResponse({ ok: true });
     }
 

@@ -101,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
     try {
       await assertSubrouterAccountUploadAllowed(db, context.userId);
     } catch (err) {
-      await deleteSubrouterAccountBestEffort(context.client, tenant.tenantKey, account.id);
+      await deleteSubrouterAccountForDeletionRace(context.client, tenant.tenantKey, account.id);
       if (createdTenantId) {
         await revokeCreatedSubrouterTenantBestEffort(db, context.client, context.team.teamId, createdTenantId);
       }
@@ -120,16 +120,12 @@ async function assertSubrouterAccountUploadAllowed(
   await withAccountDeletionUserMutationLock(db, userId, async () => undefined);
 }
 
-async function deleteSubrouterAccountBestEffort(
+async function deleteSubrouterAccountForDeletionRace(
   client: SubrouterClient,
   tenantKey: string,
   accountId: string,
 ): Promise<void> {
-  try {
-    await client.deleteAccount(tenantKey, accountId);
-  } catch (error) {
-    console.warn("[subrouter] failed to delete account created during account deletion race", { accountId, error });
-  }
+  await client.deleteAccount(tenantKey, accountId);
 }
 
 async function revokeCreatedSubrouterTenantBestEffort(
