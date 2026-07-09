@@ -40,8 +40,6 @@ extension NSAppearance {
 /// effectiveAppearance is the ground truth for this observer.
 @MainActor
 final class SystemAppearanceObserver {
-    static let shared = SystemAppearanceObserver()
-
     private let environment: Environment
     private var observation: EffectiveAppearanceObservation?
     private var lastResolvedPrefersDark: Bool?
@@ -58,9 +56,7 @@ final class SystemAppearanceObserver {
         }
     }
 
-    // No deinit: `shared` never deallocates, and `NSKeyValueObservation` (the
-    // concrete `EffectiveAppearanceObservation` returned by
-    // `startEffectiveAppearanceObservation`) self-invalidates at dealloc anyway.
+    // The concrete `NSKeyValueObservation` self-invalidates at deallocation.
     func stopObserving() {
         observation?.invalidate()
         observation = nil

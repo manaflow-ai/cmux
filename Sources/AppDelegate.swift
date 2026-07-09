@@ -512,8 +512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
-
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
@@ -1283,7 +1283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
-        SystemAppearanceObserver.shared.startObserving()
+        systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
