@@ -11,6 +11,7 @@ mod overlay;
 mod pane;
 mod scrollbar;
 mod sidebar;
+pub(crate) mod terminal_grid;
 
 use mux_core::Rect;
 use ratatui::Frame;

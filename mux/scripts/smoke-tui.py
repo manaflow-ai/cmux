@@ -1,4 +1,4 @@
-import os, pty, select, socket, json, time, sys, signal, subprocess, re
+import os, pty, select, socket, json, time, sys, signal, subprocess, re, tempfile
 
 BIN = os.environ.get("CMUX_MUX_BIN", "target/debug/cmux-mux")
 SESSION = f"smoke-{os.getpid()}"
@@ -108,6 +108,26 @@ def send_prefix_t_until_tab_count(count):
 
 SOCK = discover_socket_path()
 
+tmpdir = tempfile.TemporaryDirectory(prefix="cmux-mux-smoke-")
+config_path = os.path.join(tmpdir.name, "mux.json")
+with open(config_path, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "sidebar": {
+                "width": 22,
+                "plugin": {
+                    "command": [
+                        "/bin/sh",
+                        "-c",
+                        "printf 'SIDEBAR-MARKER\\n'; cat",
+                    ]
+                },
+            }
+        },
+        f,
+    )
+os.environ["CMUX_MUX_CONFIG"] = config_path
+
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
@@ -175,6 +195,16 @@ def wait_screen_contains(surface_id, needle, seconds=15):
         if needle in last:
             return last
     raise AssertionError(last[-500:])
+
+def wait_render_contains(needle, seconds=15):
+    deadline = time.time() + seconds
+    last = ""
+    while time.time() < deadline:
+        drain(0.2)
+        last = render_text_snapshot(output)
+        if needle in last:
+            return last
+    raise AssertionError(last[-1200:])
 
 def render_style_snapshot(data, rows=30, cols=100):
     grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
@@ -318,7 +348,7 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
-assert ident["data"]["protocol"] == 6, ident
+assert ident["data"]["protocol"] == 7, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
@@ -343,6 +373,22 @@ text = output.decode("utf-8", "replace")
 assert " 1 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
+
+wait_render_contains("SIDEBAR-MARKER")
+print("sidebar plugin marker rendered ok")
+os.write(fd, b"\x02S")
+drain(0.5)
+os.write(fd, b"plugin-echo-ok\r")
+wait_render_contains("plugin-echo-ok")
+print("sidebar plugin focus and key echo ok")
+os.write(fd, b"\x02S")
+drain(0.5)
+with open(config_path, "w", encoding="utf-8") as f:
+    json.dump({"sidebar": {"width": 22}}, f)
+assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
+drain(1.0)
+assert "workspaces" in render_text_snapshot(output), output[-1200:]
+print("sidebar plugin config reload falls back to built-in sidebar ok")
 
 # Prefix-B creates a browser tab immediately and focuses its in-pane
 # omnibar. The dead CDP endpoint keeps this Chrome-free and fast.

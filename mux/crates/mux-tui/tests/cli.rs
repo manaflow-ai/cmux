@@ -69,7 +69,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(6));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(7));
 
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);

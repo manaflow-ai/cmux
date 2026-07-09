@@ -34,11 +34,11 @@ use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SplitDir, SurfaceId,
-    SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
+    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -84,6 +84,12 @@ enum Command {
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    SidebarPlugin {
+        cols: u16,
+        rows: u16,
+        #[serde(default)]
+        relaunch: bool,
     },
     WaitFor {
         surface: SurfaceId,
@@ -711,6 +717,15 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn sidebar_plugin_status_json(status: SidebarPluginStatus) -> Value {
+    let retry_after_ms = status.retry_after.map(|duration| duration.as_millis() as u64);
+    json!({
+        "surface": status.surface,
+        "error": status.error,
+        "retry_after_ms": retry_after_ms,
+    })
+}
+
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
     if surface.kind() == SurfaceKind::Pty {
         Ok(())
@@ -920,6 +935,9 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::SidebarPlugin { cols, rows, relaunch } => {
+            Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
             let surface = get_surface(mux, surface)?;

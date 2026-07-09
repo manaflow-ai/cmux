@@ -26,7 +26,11 @@
 //!   },
 //!   "sidebar": {
 //!     "width": 22,
-//!     "max_width": 0
+//!     "max_width": 0,
+//!     "plugin": {
+//!       "command": ["/path/to/plugin-binary"],
+//!       "cwd": "/optional"
+//!     }
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -68,8 +72,8 @@
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-left`,
-//! `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
+//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-sidebar`,
+//! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
@@ -87,6 +91,7 @@
 use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use mux_core::SidebarPluginOptions;
 use mux_core::SurfaceOptions;
 use mux_core::platform;
 use ratatui::style::Color;
@@ -159,6 +164,14 @@ struct RawTabs {
 struct RawSidebar {
     width: Option<u16>,
     max_width: Option<u16>,
+    plugin: Option<RawSidebarPlugin>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarPlugin {
+    command: Option<Vec<String>>,
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -281,15 +294,16 @@ impl Default for Tabs {
 }
 
 /// Sidebar behavior.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Sidebar {
     pub width: u16,
     pub max_width: u16,
+    pub plugin: Option<SidebarPluginOptions>,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { width: 22, max_width: 0 }
+        Sidebar { width: 22, max_width: 0, plugin: None }
     }
 }
 
@@ -344,6 +358,7 @@ pub enum Action {
     NextWorkspace,
     NewWorkspace,
     ToggleSidebar,
+    FocusSidebar,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -387,6 +402,7 @@ impl Action {
             Action::NextWorkspace => "next-workspace".to_string(),
             Action::NewWorkspace => "new-workspace".to_string(),
             Action::ToggleSidebar => "toggle-sidebar".to_string(),
+            Action::FocusSidebar => "focus-sidebar".to_string(),
             Action::FocusLeft => "focus-left".to_string(),
             Action::FocusRight => "focus-right".to_string(),
             Action::FocusUp => "focus-up".to_string(),
@@ -490,6 +506,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
@@ -645,6 +662,7 @@ fn all_actions() -> &'static [Action] {
         Action::NextWorkspace,
         Action::NewWorkspace,
         Action::ToggleSidebar,
+        Action::FocusSidebar,
         Action::FocusLeft,
         Action::FocusRight,
         Action::FocusUp,
@@ -791,6 +809,22 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
+    }
+    if let Some(plugin) = raw.sidebar.plugin {
+        let command = plugin
+            .command
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|arg| !arg.is_empty())
+            .collect::<Vec<_>>();
+        if command.is_empty() {
+            eprintln!("cmux-mux: ignoring sidebar.plugin with empty command");
+        } else {
+            config.sidebar.plugin = Some(SidebarPluginOptions {
+                command,
+                cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+            });
+        }
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
@@ -976,7 +1010,14 @@ mod tests {
                     "tab_bg": 44
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
-                "sidebar": {"width": 30, "max_width": 38},
+                "sidebar": {
+                    "width": 30,
+                    "max_width": 38,
+                    "plugin": {
+                        "command": ["/tmp/sidebar-plugin", "--mode", "test"],
+                        "cwd": "/tmp"
+                    }
+                },
                 "scrollbar": {"position": "border"},
                 "keys": {
                     "alt_shortcuts": false,
@@ -1002,6 +1043,9 @@ mod tests {
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.sidebar.max_width, 38);
+        let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
+        assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
+        assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
@@ -1011,6 +1055,10 @@ mod tests {
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
             Some(Action::BrowserEditUrl)
+        );
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)),
+            Some(Action::FocusSidebar)
         );
         assert_eq!(
             config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)),

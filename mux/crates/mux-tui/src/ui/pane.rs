@@ -6,7 +6,6 @@
 //! pane's border is highlighted — this is also where flashing
 //! notifications will hook in later.
 
-use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
 use mux_core::{BrowserStatus, Rect, SurfaceKind};
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -303,52 +302,10 @@ fn draw_content(
     }
     rs.set_clean();
 
-    let screen = frame.area();
-    let buf = frame.buffer_mut();
-    let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
-    let max_rows = rect.height.min(screen.height.saturating_sub(rect.y)) as usize;
-    let colors = PaletteResolver::from_render_state(rs);
-
-    rs.walk_rows(|row, _dirty, cells| {
-        if row >= max_rows {
-            return;
-        }
-        let y = rect.y + row as u16;
-        for (col, cell) in cells.iter().enumerate() {
-            if col >= max_cols {
-                break;
-            }
-            let x = rect.x + col as u16;
-            let selected = selection
-                .is_some_and(|s| s.contains_viewport(col as u16, row as u16, selection_offset));
-            apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(&theme));
-        }
-        // Pane narrower than the rect (during resize races): blank the rest.
-        for col in cells.len()..max_cols {
-            let x = rect.x + col as u16;
-            buf[(x, y)].set_symbol(" ").set_style(Style::default());
-        }
-    })
-    .ok()?;
-
-    // Rows beyond what the snapshot provided.
-    let (_, snap_rows) = rs.size();
-    for row in (snap_rows as usize)..max_rows {
-        let y = rect.y + row as u16;
-        for col in 0..max_cols {
-            let x = rect.x + col as u16;
-            buf[(x, y)].set_symbol(" ").set_style(Style::default());
-        }
-    }
-
-    if focused
-        && let Some(cursor) = rs.cursor()
-        && (cursor.x as usize) < max_cols
-        && (cursor.y as usize) < max_rows
-    {
-        return Some((rect.x + cursor.x, rect.y + cursor.y));
-    }
-    None
+    let cursor = super::terminal_grid::draw_render_state(frame, rect, rs, &theme, |col, row| {
+        selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset))
+    });
+    focused.then_some(cursor).flatten()
 }
 
 fn draw_browser_content(
@@ -506,156 +463,4 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
         ));
     }
     app.hits.extend(hits);
-}
-
-#[derive(Clone, Copy)]
-struct PaletteResolver {
-    colors: [Rgb; 256],
-    overridden: [bool; 256],
-}
-
-impl PaletteResolver {
-    fn from_render_state(rs: &RenderState) -> Self {
-        Self {
-            colors: std::array::from_fn(|idx| rs.palette_color(idx as u8)),
-            overridden: std::array::from_fn(|idx| rs.palette_overridden(idx as u8)),
-        }
-    }
-
-    fn resolve(&self, spec: ColorSpec) -> Color {
-        match spec {
-            ColorSpec::Default => Color::Reset,
-            ColorSpec::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
-            ColorSpec::Palette(idx) => {
-                resolve_palette_color(idx, self.overridden[idx as usize], self.colors[idx as usize])
-            }
-        }
-    }
-}
-
-fn resolve_palette_color(idx: u8, overridden: bool, rgb: Rgb) -> Color {
-    if overridden {
-        return Color::Rgb(rgb.r, rgb.g, rgb.b);
-    }
-    if idx < 16 {
-        return BASIC_PALETTE_COLORS[idx as usize];
-    }
-    Color::Indexed(idx)
-}
-
-// ANSI palette slots 0-15 as host-terminal colors. Ratatui maps these to crossterm's
-// dark/bright variants; crossterm 0.28 serializes them as the indexed equivalent of
-// SGR 30-37 and 90-97 (foreground) or 40-47 and 100-107 (background).
-const BASIC_PALETTE_COLORS: [Color; 16] = [
-    Color::Black,        // 0: 30/40
-    Color::Red,          // 1: 31/41
-    Color::Green,        // 2: 32/42
-    Color::Yellow,       // 3: 33/43
-    Color::Blue,         // 4: 34/44
-    Color::Magenta,      // 5: 35/45
-    Color::Cyan,         // 6: 36/46
-    Color::Gray,         // 7: 37/47
-    Color::DarkGray,     // 8: 90/100
-    Color::LightRed,     // 9: 91/101
-    Color::LightGreen,   // 10: 92/102
-    Color::LightYellow,  // 11: 93/103
-    Color::LightBlue,    // 12: 94/104
-    Color::LightMagenta, // 13: 95/105
-    Color::LightCyan,    // 14: 96/106
-    Color::White,        // 15: 97/107
-];
-
-fn apply_cell(
-    target: &mut ratatui::buffer::Cell,
-    cell: &VtCell,
-    colors: &PaletteResolver,
-    selected: Option<&Theme>,
-) {
-    if cell.text.is_empty() {
-        target.set_symbol(" ");
-    } else {
-        target.set_symbol(&cell.text);
-    }
-
-    let mut style = Style::default();
-    style = style.fg(colors.resolve(cell.fg));
-    style = style.bg(colors.resolve(cell.bg));
-    let mut modifier = Modifier::empty();
-    if cell.bold {
-        modifier |= Modifier::BOLD;
-    }
-    if cell.faint {
-        modifier |= Modifier::DIM;
-    }
-    if cell.italic {
-        modifier |= Modifier::ITALIC;
-    }
-    if cell.underline {
-        modifier |= Modifier::UNDERLINED;
-    }
-    if cell.strikethrough {
-        modifier |= Modifier::CROSSED_OUT;
-    }
-    if cell.inverse {
-        modifier |= Modifier::REVERSED;
-    }
-    if cell.blink {
-        modifier |= Modifier::SLOW_BLINK;
-    }
-    if cell.invisible {
-        modifier |= Modifier::HIDDEN;
-    }
-    style = style.add_modifier(modifier);
-    // Selection paints the themed background over the cell (the color
-    // comes from mux.json, else the user's Ghostty selection-background,
-    // else a dark grey default).
-    if let Some(theme) = selected {
-        style = style.bg(theme.selection_bg);
-        if let Some(fg) = theme.selection_fg {
-            style = style.fg(fg);
-        }
-        style = style.remove_modifier(Modifier::REVERSED);
-    }
-    target.set_style(style);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn palette_color_mapping_preserves_host_palette_when_not_overridden() {
-        let rgb = Rgb { r: 1, g: 2, b: 3 };
-        let expected = [
-            Color::Black,
-            Color::Red,
-            Color::Green,
-            Color::Yellow,
-            Color::Blue,
-            Color::Magenta,
-            Color::Cyan,
-            Color::Gray,
-            Color::DarkGray,
-            Color::LightRed,
-            Color::LightGreen,
-            Color::LightYellow,
-            Color::LightBlue,
-            Color::LightMagenta,
-            Color::LightCyan,
-            Color::White,
-        ];
-
-        for (idx, color) in expected.into_iter().enumerate() {
-            assert_eq!(resolve_palette_color(idx as u8, false, rgb), color);
-        }
-        assert_eq!(resolve_palette_color(16, false, rgb), Color::Indexed(16));
-        assert_eq!(resolve_palette_color(196, false, rgb), Color::Indexed(196));
-    }
-
-    #[test]
-    fn palette_color_mapping_renders_overrides_as_rgb() {
-        let rgb = Rgb { r: 1, g: 2, b: 3 };
-        assert_eq!(resolve_palette_color(1, true, rgb), Color::Rgb(1, 2, 3));
-        assert_eq!(resolve_palette_color(196, true, rgb), Color::Rgb(1, 2, 3));
-    }
 }

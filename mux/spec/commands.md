@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v6 in `mux/crates/mux-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v7 in `mux/crates/mux-core/src/server.rs`.
 
 ## Notation
 
@@ -27,7 +27,7 @@ The canonical request and response envelope is defined in `transports.md`. Comma
 
 Malformed JSON, unknown command names, missing required fields, and wrong JSON types fail during request decoding with the transport-level `bad request: ...` envelope.
 
-The v5 server does not explicitly deny unknown JSON fields. Clients must not depend on unknown fields being rejected.
+The server does not explicitly deny unknown JSON fields. Clients must not depend on unknown fields being rejected.
 
 Common CLI exit codes for every mapping are `0` success, `1` command error, `2` CLI usage error, and `3` connection error.
 
@@ -89,7 +89,7 @@ object{
 }
 ```
 
-The `dead` pane variant is serialized by the v5 server only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
+The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
 ## Implemented Commands
 
@@ -131,7 +131,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
 ```
 
 ### ping
@@ -160,7 +160,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":6}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7}}
 ```
 
 ### reload-config
@@ -450,6 +450,41 @@ Example:
 ```json
 {"id":4,"cmd":"read-screen","surface":1}
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
+```
+
+### sidebar-plugin
+
+| Field | Value |
+| --- | --- |
+| name | `sidebar-plugin` |
+| status | implemented |
+| since | protocol 7 |
+
+Ensures the configured server-owned sidebar plugin PTY exists at the requested size and returns the surface id to render through `attach-surface`. This command does not install, build, or discover plugins; it only hosts the command already configured in server-side `mux.json`.
+
+Params:
+
+```text
+object{cmd:"sidebar-plugin",cols:uint16,rows:uint16,relaunch?:boolean}
+```
+
+Result:
+
+```text
+object{surface:Id|null,error:string|null,retry_after_ms:uint64|null}
+```
+
+Compatibility notes:
+
+- Attached clients use this command to obtain the server-owned plugin surface, then render it through `attach-surface` and send input through `send`.
+- If no sidebar plugin is configured, `surface`, `error`, and `retry_after_ms` are all `null`.
+- If the plugin exited or failed to start, `error` is populated. The server may also return `retry_after_ms` to indicate restart backoff. A client should pass `relaunch:true` only when the user focuses the sidebar or explicitly retries.
+
+Example:
+
+```json
+{"id":104,"cmd":"sidebar-plugin","cols":21,"rows":30,"relaunch":true}
+{"id":104,"ok":true,"data":{"surface":42,"error":null,"retry_after_ms":null}}
 ```
 
 ### vt-state
@@ -916,7 +951,7 @@ CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `p
 | status | implemented |
 | since | protocol 5 |
 
-Updates the session default foreground and/or background colors used by PTY surfaces. Missing fields preserve their previous values. Existing PTY surfaces receive the merged defaults. The v5 server emits `surface-output` for every existing surface, including browser surfaces; browser color application is a no-op, but the event is still emitted. Future PTY surfaces start with the merged defaults.
+Updates the session default foreground and/or background colors used by PTY surfaces. Missing fields preserve their previous values. Existing PTY surfaces receive the merged defaults. The server emits `surface-output` for every existing surface, including browser surfaces; browser color application is a no-op, but the event is still emitted. Future PTY surfaces start with the merged defaults.
 
 Params:
 

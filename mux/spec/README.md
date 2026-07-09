@@ -1,8 +1,8 @@
 # cmux-mux Programmability Contract
 
-This directory is the source of truth for the cmux-mux control protocol, the generated `cmux-mux` command surface, and future generated language bindings. The implemented protocol described here is protocol version 5, as defined by `mux-core/src/server.rs`.
+This directory is the source of truth for the cmux-mux control protocol, the generated `cmux-mux` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 7, as defined by `mux-core/src/server.rs`.
 
-The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of protocol v5.
+The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
 ## Versioning
 
@@ -14,9 +14,9 @@ The spec version tracks the mux protocol version.
 | Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version |
 | Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
 
-Protocol v5 is the implemented baseline. Proposed additions in this directory target protocol v6 unless a later spec says otherwise.
+Protocol v7 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
 
-Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to a v5 server unless the caller explicitly opts into probing.
+Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
 ## Generation Model
 
@@ -35,9 +35,8 @@ The generator must preserve the wire command names, parameter names, result shap
 | `transports.md` | Implemented Unix socket transport and proposed HTTP, SSE, and WebSocket transports |
 | `cli.md` | Generated `cmux-mux <verb>` conventions, exit codes, stdin rules, verb table, and examples |
 | `bindings.md` | Language binding style sheets and conformance suite contract |
+| `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
 
 ## Implemented Inventory
 
-Protocol v5 implements 30 socket commands and 10 event names in the consumer-side contract. The command inventory is listed in `commands.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
-
-The current branch's `server.rs` predates the landed `move-tab`, `move-workspace`, and protocol v6 attach resize replay behavior. Those entries are marked with verification notes where field names or runtime behavior could not be checked against this branch.
+Protocol v7 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.

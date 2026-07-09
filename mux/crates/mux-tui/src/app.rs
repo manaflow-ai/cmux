@@ -388,8 +388,12 @@ pub struct App {
     pub prefix_armed: bool,
     pub session_label: String,
     pub sidebar_visible: bool,
+    pub sidebar_focused: bool,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
+    pub sidebar_plugin_surface: Option<SurfaceId>,
+    pub sidebar_plugin_error: Option<String>,
+    pub sidebar_plugin_retry_after_ms: Option<u64>,
     sidebar_width_override: Option<u16>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
@@ -639,7 +643,11 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         prefix_armed: false,
         session_label,
         sidebar_visible: true,
+        sidebar_focused: false,
         sidebar_width: 0,
+        sidebar_plugin_surface: None,
+        sidebar_plugin_error: None,
+        sidebar_plugin_retry_after_ms: None,
         sidebar_width_override: None,
         content_area: Rect::default(),
         hits: Vec::new(),
@@ -868,6 +876,7 @@ impl App {
             height: height.saturating_sub(1), // status bar
         };
         self.content_area = area;
+        self.sync_sidebar_plugin(false);
         self.tree = self.session.tree();
         let layout = self
             .tree
@@ -915,6 +924,36 @@ impl App {
         }
     }
 
+    pub fn sidebar_plugin_rect(&self) -> Rect {
+        Rect {
+            x: 0,
+            y: 0,
+            width: self.sidebar_width.saturating_sub(1),
+            height: self.content_area.height.saturating_add(1),
+        }
+    }
+
+    fn sync_sidebar_plugin(&mut self, relaunch: bool) {
+        if self.config.sidebar.plugin.is_none() || self.sidebar_width < 3 || !self.sidebar_visible {
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = None;
+            self.sidebar_plugin_retry_after_ms = None;
+            self.sidebar_focused = false;
+            return;
+        }
+        let rect = self.sidebar_plugin_rect();
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+        let status = self.session.sidebar_plugin((rect.width, rect.height), relaunch);
+        self.sidebar_plugin_surface = status.surface_id;
+        self.sidebar_plugin_error = status.error;
+        self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
+        if self.sidebar_focused && self.sidebar_plugin_surface.is_none() {
+            self.sidebar_focused = false;
+        }
+    }
+
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         match event {
             AppEvent::Mux(MuxEvent::Empty) => {
@@ -924,6 +963,11 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.render_states.remove(&id);
                 self.session.forget_surface(id);
+                if self.sidebar_plugin_surface == Some(id) {
+                    self.sidebar_plugin_surface = None;
+                    self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
+                    self.sidebar_focused = false;
+                }
                 if self.selection.is_some_and(|s| s.surface == id) {
                     self.selection = None;
                 }
@@ -948,6 +992,9 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
+                if self.sidebar_plugin_surface == Some(id) {
+                    return Ok(RenderAction::Draw);
+                }
                 if self.frame_only_browser_update(id) {
                     Ok(RenderAction::Graphics)
                 } else {
@@ -974,6 +1021,9 @@ impl App {
                     clear_omnibar_selection(state);
                     state.input.insert_str(&text);
                     Ok(RenderAction::Draw)
+                } else if self.sidebar_focused {
+                    self.paste_sidebar(&text);
+                    Ok(RenderAction::None)
                 } else {
                     self.paste(&text);
                     Ok(RenderAction::None)
@@ -986,6 +1036,7 @@ impl App {
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
+                self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(_) => Ok(RenderAction::None),
@@ -1014,6 +1065,16 @@ impl App {
     }
 
     fn reassert_visible_surface_sizes(&self) {
+        if self.config.sidebar.plugin.is_some()
+            && self.sidebar_visible
+            && self.sidebar_width >= 3
+            && let Some(surface) = self.sidebar_surface_handle()
+        {
+            let rect = self.sidebar_plugin_rect();
+            if rect.width > 0 && rect.height > 0 {
+                surface.reassert_size(rect.width, rect.height);
+            }
+        }
         for area in &self.pane_areas {
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
@@ -1123,9 +1184,6 @@ impl App {
         if self.omnibar.is_some() {
             return self.handle_omnibar_key(key);
         }
-        if let Some(action) = self.config.keys.modeless_action_for(&key) {
-            return self.run_action(action);
-        }
         if self.prefix_armed {
             self.prefix_armed = false;
             return self.handle_prefixed(key);
@@ -1133,6 +1191,13 @@ impl App {
         if self.config.keys.prefix.matches(&key) {
             self.prefix_armed = true;
             return Ok(RenderAction::Draw);
+        }
+        if self.sidebar_focused {
+            self.forward_sidebar_key(&key);
+            return Ok(RenderAction::None);
+        }
+        if let Some(action) = self.config.keys.modeless_action_for(&key) {
+            return self.run_action(action);
         }
         // Typing replaces any selection highlight.
         self.selection = None;
@@ -1278,12 +1343,26 @@ impl App {
     fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         // Prefix twice forwards the prefix chord literally.
         if self.config.keys.prefix.matches(&key) {
-            self.forward_key(&key);
+            if self.sidebar_focused {
+                self.forward_sidebar_key(&key);
+            } else {
+                self.forward_key(&key);
+            }
             return Ok(RenderAction::Draw);
         }
         let Some(action) = self.config.keys.action_for(&key) else {
+            if self.sidebar_focused {
+                self.sidebar_focused = false;
+            }
             return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
+        let was_sidebar_focused = self.sidebar_focused;
+        if self.sidebar_focused {
+            self.sidebar_focused = false;
+        }
+        if was_sidebar_focused && action == Action::FocusSidebar {
+            return Ok(RenderAction::Draw);
+        }
         if browser_only_action(action)
             && !self
                 .active_surface_handle()
@@ -1353,7 +1432,13 @@ impl App {
             Action::NewScreen => self.new_screen()?,
             Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
             Action::NewWorkspace => self.new_workspace()?,
-            Action::ToggleSidebar => self.sidebar_visible = !self.sidebar_visible,
+            Action::ToggleSidebar => {
+                self.sidebar_visible = !self.sidebar_visible;
+                if !self.sidebar_visible {
+                    self.sidebar_focused = false;
+                }
+            }
+            Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::FocusLeft => self.move_focus(-1, 0),
             Action::FocusRight => self.move_focus(1, 0),
             Action::FocusUp => self.move_focus(0, -1),
@@ -1673,6 +1758,29 @@ impl App {
         }
     }
 
+    fn toggle_sidebar_focus(&mut self) {
+        if self.sidebar_focused {
+            self.sidebar_focused = false;
+            return;
+        }
+        if self.config.sidebar.plugin.is_none() {
+            return;
+        }
+        self.sidebar_visible = true;
+        self.sync_sidebar_plugin(true);
+        if self.sidebar_plugin_surface.is_some() {
+            self.sidebar_focused = true;
+            self.menu = None;
+            self.prompt = None;
+            self.omnibar = None;
+            self.selection = None;
+        }
+    }
+
+    fn sidebar_surface_handle(&self) -> Option<SurfaceHandle> {
+        self.sidebar_plugin_surface.and_then(|surface| self.session.surface(surface))
+    }
+
     fn forward_key(&mut self, key: &KeyEvent) {
         if self
             .active_surface_handle()
@@ -1683,6 +1791,22 @@ impl App {
         }
         let Some(input) = keys::key_input_from(key) else { return };
         let Some(surface) = self.active_surface_handle() else { return };
+        self.encode_buf.clear();
+        let _ = surface.scroll_to_bottom();
+        let Some(encoded) = surface.with_terminal(|term| {
+            self.encoder.sync_from_terminal(term);
+            self.encoder.encode(&input, &mut self.encode_buf)
+        }) else {
+            return;
+        };
+        if encoded.is_ok() && !self.encode_buf.is_empty() {
+            surface.write_bytes(&self.encode_buf);
+        }
+    }
+
+    fn forward_sidebar_key(&mut self, key: &KeyEvent) {
+        let Some(input) = keys::key_input_from(key) else { return };
+        let Some(surface) = self.sidebar_surface_handle() else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
@@ -1753,6 +1877,22 @@ impl App {
             });
             return;
         }
+        let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
+            return;
+        };
+        if bracketed {
+            let mut bytes = Vec::with_capacity(text.len() + 12);
+            bytes.extend_from_slice(b"\x1b[200~");
+            bytes.extend_from_slice(text.as_bytes());
+            bytes.extend_from_slice(b"\x1b[201~");
+            surface.write_bytes(&bytes);
+        } else {
+            surface.write_bytes(text.as_bytes());
+        }
+    }
+
+    fn paste_sidebar(&mut self, text: &str) {
+        let Some(surface) = self.sidebar_surface_handle() else { return };
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
             return;
         };
@@ -2087,6 +2227,15 @@ impl App {
             if !editing_rect.is_some_and(|rect| rect.contains(x, y)) {
                 self.omnibar = None;
             }
+        }
+
+        if self.config.sidebar.plugin.is_some()
+            && self.sidebar_plugin_rect().contains(x, y)
+            && self.sidebar_visible
+        {
+            self.sync_sidebar_plugin(true);
+            self.sidebar_focused = self.sidebar_plugin_surface.is_some();
+            return Ok(RenderAction::Draw);
         }
 
         if let Some(hit) = self.hit_at(x, y) {
@@ -2835,7 +2984,11 @@ mod tests {
             prefix_armed: false,
             session_label: "test".to_string(),
             sidebar_visible: true,
+            sidebar_focused: false,
             sidebar_width: 0,
+            sidebar_plugin_surface: None,
+            sidebar_plugin_error: None,
+            sidebar_plugin_retry_after_ms: None,
             sidebar_width_override: None,
             content_area: Rect::default(),
             hits: Vec::new(),

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::layout::{Rect, layout_screen};
@@ -195,6 +195,28 @@ pub struct ZoomState {
     pub zoomed_pane: Option<PaneId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarPluginOptions {
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SidebarPluginStatus {
+    pub surface: Option<SurfaceId>,
+    pub error: Option<String>,
+    pub retry_after: Option<Duration>,
+}
+
+#[derive(Debug, Default)]
+struct SidebarPluginRuntime {
+    options: Option<SidebarPluginOptions>,
+    surface: Option<SurfaceId>,
+    last_error: Option<String>,
+    failures: u32,
+    retry_at: Option<Instant>,
+}
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<State>,
@@ -206,6 +228,7 @@ pub struct Mux {
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
+    sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     #[cfg(test)]
@@ -241,6 +264,7 @@ impl Mux {
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
+            sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             #[cfg(test)]
@@ -328,6 +352,33 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.spawn_surface_with_command(cwd, size, None)
+    }
+
+    fn spawn_sidebar_plugin_surface(
+        self: &Arc<Self>,
+        options: &SidebarPluginOptions,
+        size: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        if options.command.is_empty() {
+            anyhow::bail!("sidebar plugin command is empty");
+        }
+        let id = self.next_id();
+        let mut opts = self.surface_options.lock().unwrap().clone();
+        opts.command = Some(options.command.clone());
+        opts.cwd = options.cwd.clone();
+        opts.cols = size.0.max(1);
+        opts.rows = size.1.max(1);
+        opts.extra_env.push(("CMUX_SIDEBAR".to_string(), "1".to_string()));
+        #[cfg(test)]
+        let surface = if self.test_surface_runtime {
+            Surface::spawn_for_test(id, opts, Arc::downgrade(self))?
+        } else {
+            Surface::spawn(id, opts, Arc::downgrade(self))?
+        };
+        #[cfg(not(test))]
+        let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
+        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        Ok(surface)
     }
 
     fn spawn_browser_surface(
@@ -536,6 +587,93 @@ impl Mux {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
         options.browser_session_name = self.session.clone();
+    }
+
+    pub fn configure_sidebar_plugin(&self, options: Option<SidebarPluginOptions>) {
+        let old_surface = {
+            let mut runtime = self.sidebar_plugin.lock().unwrap();
+            if runtime.options == options {
+                return;
+            }
+            runtime.options = options;
+            runtime.last_error = None;
+            runtime.failures = 0;
+            runtime.retry_at = None;
+            runtime.surface.take()
+        };
+        if let Some(surface) =
+            old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
+        {
+            surface.kill();
+            self.emit(MuxEvent::SurfaceExited(surface.id));
+        }
+    }
+
+    pub fn ensure_sidebar_plugin(
+        self: &Arc<Self>,
+        cols: u16,
+        rows: u16,
+        relaunch: bool,
+    ) -> SidebarPluginStatus {
+        let now = Instant::now();
+        let size = (cols.max(1), rows.max(1));
+        let spawn_options = {
+            let mut runtime = self.sidebar_plugin.lock().unwrap();
+            let Some(options) = runtime.options.clone() else {
+                return SidebarPluginStatus { surface: None, error: None, retry_after: None };
+            };
+            if let Some(surface_id) = runtime.surface {
+                if let Some(surface) = self.surface(surface_id).filter(|surface| !surface.is_dead())
+                {
+                    drop(runtime);
+                    let _ = self.resize_surface(surface_id, size.0, size.1);
+                    drop(surface);
+                    return SidebarPluginStatus {
+                        surface: Some(surface_id),
+                        error: None,
+                        retry_after: None,
+                    };
+                }
+                runtime.surface = None;
+            }
+            if let Some(error) = runtime.last_error.clone() {
+                let retry_after = runtime.retry_at.and_then(|retry_at| {
+                    (retry_at > now).then_some(retry_at.saturating_duration_since(now))
+                });
+                if !relaunch || retry_after.is_some() {
+                    return SidebarPluginStatus { surface: None, error: Some(error), retry_after };
+                }
+            }
+            options
+        };
+        match self.spawn_sidebar_plugin_surface(&spawn_options, size) {
+            Ok(surface) => {
+                let surface_id = surface.id;
+                {
+                    let mut runtime = self.sidebar_plugin.lock().unwrap();
+                    runtime.surface = Some(surface_id);
+                    runtime.last_error = None;
+                    runtime.failures = 0;
+                    runtime.retry_at = None;
+                }
+                self.reap_if_dead(&surface);
+                SidebarPluginStatus { surface: Some(surface_id), error: None, retry_after: None }
+            }
+            Err(err) => {
+                let mut runtime = self.sidebar_plugin.lock().unwrap();
+                runtime.surface = None;
+                runtime.failures = runtime.failures.saturating_add(1);
+                let delay = sidebar_retry_delay(runtime.failures);
+                let message = format!("sidebar plugin failed to start: {err}");
+                runtime.last_error = Some(message.clone());
+                runtime.retry_at = Some(now + delay);
+                SidebarPluginStatus {
+                    surface: None,
+                    error: Some(message),
+                    retry_after: Some(delay),
+                }
+            }
+        }
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
@@ -1207,8 +1345,27 @@ impl Mux {
     /// reaps the surface out of the tree itself, so frontends only need to
     /// drop their render state.
     pub fn surface_exited(&self, id: SurfaceId) {
+        if self.sidebar_surface_exited(id) {
+            self.emit(MuxEvent::SurfaceExited(id));
+            return;
+        }
         self.close_surface(id);
         self.emit(MuxEvent::SurfaceExited(id));
+    }
+
+    fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
+        let mut runtime = self.sidebar_plugin.lock().unwrap();
+        if runtime.surface != Some(id) {
+            return false;
+        }
+        runtime.surface = None;
+        runtime.failures = runtime.failures.saturating_add(1);
+        let delay = sidebar_retry_delay(runtime.failures);
+        runtime.last_error = Some("sidebar plugin exited".to_string());
+        runtime.retry_at = Some(Instant::now() + delay);
+        drop(runtime);
+        self.state.lock().unwrap().surfaces.remove(&id);
+        true
     }
 
     /// Make `pane` the active pane of its screen (and that screen and
@@ -1583,6 +1740,11 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn sidebar_retry_delay(failures: u32) -> Duration {
+    let shift = failures.saturating_sub(1).min(5);
+    Duration::from_secs(1u64 << shift)
 }
 
 impl Drop for Mux {
