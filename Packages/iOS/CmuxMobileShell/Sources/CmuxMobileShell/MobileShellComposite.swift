@@ -1023,24 +1023,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            presenceTask?.cancel()
-            networkPathObservationTask?.cancel()
-            terminalEventListenerTask?.cancel()
-            terminalSubscriptionStartTask?.cancel()
-            renderGridLivenessTimer?.cancel()
-            renderGridLivenessProbeTask?.cancel()
-            terminalSubscriptionRefreshTask?.cancel()
-            createWorkspaceTask?.cancel()
-            createTerminalTask?.cancel()
-            workspaceListRefreshTask?.cancel()
-            pullToRefreshTask?.cancel()
-            cancelAllTerminalReplayTasks()
-            teardownSecondaryMacSubscriptions()
-            if let remoteClient {
-                Task { await remoteClient.disconnect() }
-            }
+    #if compiler(>=6.2)
+    isolated deinit { cleanupForDeinit() }
+    #else
+    deinit { cleanupForDeinit() }
+    #endif
+
+    private func cleanupForDeinit() {
+        presenceTask?.cancel()
+        networkPathObservationTask?.cancel()
+        terminalEventListenerTask?.cancel()
+        terminalSubscriptionStartTask?.cancel()
+        renderGridLivenessTimer?.cancel()
+        renderGridLivenessProbeTask?.cancel()
+        terminalSubscriptionRefreshTask?.cancel()
+        createWorkspaceTask?.cancel()
+        createTerminalTask?.cancel()
+        workspaceListRefreshTask?.cancel()
+        pullToRefreshTask?.cancel()
+        cancelAllTerminalReplayTasks()
+        teardownSecondaryMacSubscriptions()
+        if let remoteClient {
+            Task { await remoteClient.disconnect() }
         }
     }
 
