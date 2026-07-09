@@ -419,6 +419,7 @@ describe("account deletion route", () => {
     expect(updateStackUser).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
+    expect(getUser).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(routeEvents).toEqual([
       "metadata-update",
@@ -829,14 +830,14 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("rejects a Stack user mismatch before deleting data", async () => {
+  test("uses a single native Stack session lookup for deletion auth", async () => {
     stackUserIds = ["account-user-1", "other-user"];
 
     const response = await DELETE(accountDeletionRequest());
 
-    expect(response.status).toBe(401);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(transaction).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 });
 

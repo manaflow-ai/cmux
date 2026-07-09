@@ -4149,6 +4149,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountUnauthorizedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your session is no longer valid. You will be signed out on this device. Sign in again if the account still exists."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが無効になりました。このデバイスではサインアウトされます。アカウントがまだ存在する場合は、もう一度サインインしてください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountUnknownMessage": {
       "extractionState": "manual",
       "localizations": {

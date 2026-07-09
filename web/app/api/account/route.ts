@@ -37,7 +37,7 @@ import {
   SubrouterClientError,
 } from "../../../services/subrouter/client";
 import { deleteObject } from "../../../services/vault/storage";
-import { unauthorized, verifyRequest } from "../../../services/vms/auth";
+import { unauthorized } from "../../../services/vms/auth";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
   destroyVm,
@@ -58,12 +58,10 @@ type DeletableStackUser = {
 } & ProMetadataCustomer;
 
 export async function DELETE(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false, allowDeletingAccount: true });
-  if (!user) return unauthorized();
-
   const stackUser = await currentDeletableStackUser(request);
-  if (!stackUser || stackUser.id !== user.id) return unauthorized();
+  if (!stackUser) return unauthorized();
 
+  const userId = stackUser.id;
   const originalStackMetadata = stackUser.clientReadOnlyMetadata;
   let stackMetadataMarked = false;
   let cmuxOwnedRowsDeleted = false;
@@ -73,14 +71,14 @@ export async function DELETE(request: Request): Promise<Response> {
   try {
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
-    await resolveUserBillingForAccountDeletion(user.id, {
+    await resolveUserBillingForAccountDeletion(userId, {
       beforeExternalMutation: () => {
         restoreBillingEntitlementsOnFailure = false;
         destructiveCleanupStarted = true;
       },
     });
     try {
-      destroyedVms = await destroyPersonalCloudVms(user.id);
+      destroyedVms = await destroyPersonalCloudVms(userId);
       if (destroyedVms > 0) destructiveCleanupStarted = true;
     } catch (error) {
       if (error instanceof AccountDeletionDestructiveCleanupError) {
@@ -90,16 +88,16 @@ export async function DELETE(request: Request): Promise<Response> {
       throw error;
     }
     destructiveCleanupStarted = true;
-    await deleteVaultRowsAndObjectsForAccount(user.id);
+    await deleteVaultRowsAndObjectsForAccount(userId);
     destructiveCleanupStarted = true;
-    await deletePersonalSubrouterTenant(user.id);
+    await deletePersonalSubrouterTenant(userId);
     destructiveCleanupStarted = true;
-    await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(user.id));
+    await runVmWorkflow(revokeUserIdentityLeasesForAccountDeletion(userId));
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
     // final Stack deletion when the distinct response below is returned.
-    await deleteCmuxOwnedAccountRows(user.id);
+    await deleteCmuxOwnedAccountRows(userId);
     cmuxOwnedRowsDeleted = true;
     try {
       await stackUser.delete();
@@ -112,7 +110,7 @@ export async function DELETE(request: Request): Promise<Response> {
       }, 500);
     }
     try {
-      await finishPostStackAccountCleanup(user.id);
+      await finishPostStackAccountCleanup(userId);
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
       return jsonResponse({

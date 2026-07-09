@@ -108,19 +108,7 @@ struct MobileSettingsAccountSection: View {
                     showingDeleteAccountFailure = true
                 }
             } catch {
-                if case AccountDeletionRequestError.stackDeleteIncomplete = error {
-                    deleteAccountFailureKind = .stackDeleteIncomplete
-                } else if case AccountDeletionRequestError.timedOut = error {
-                    deleteAccountFailureKind = .unknown
-                } else if case AccountDeletionRequestError.completionUnknown = error {
-                    deleteAccountFailureKind = .unknown
-                } else if case AccountDeletionRequestError.localTransportFailure = error {
-                    deleteAccountFailureKind = .connection
-                } else if case AuthError.timedOut = error {
-                    deleteAccountFailureKind = .timedOut
-                } else {
-                    deleteAccountFailureKind = .generic
-                }
+                deleteAccountFailureKind = DeleteAccountFailureKind(error: error)
                 signOutAfterDeleteAccountFailureAcknowledgement = deleteAccountFailureKind.signsOutAfterAcknowledgement
                 showingDeleteAccountFailure = true
             }

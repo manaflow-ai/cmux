@@ -1,16 +1,38 @@
 #if os(iOS)
+import CmuxAuthRuntime
 import CmuxMobileSupport
 
-enum DeleteAccountFailureKind {
+enum DeleteAccountFailureKind: Equatable {
     case generic
     case connection
+    case unauthorized
     case stackDeleteIncomplete
     case serverCleanupIncomplete
     case timedOut
     case unknown
 
+    init(error: any Error) {
+        if case AccountDeletionRequestError.unauthorized = error {
+            self = .unauthorized
+        } else if case AuthError.unauthorized = error {
+            self = .unauthorized
+        } else if case AccountDeletionRequestError.stackDeleteIncomplete = error {
+            self = .stackDeleteIncomplete
+        } else if case AccountDeletionRequestError.timedOut = error {
+            self = .unknown
+        } else if case AccountDeletionRequestError.completionUnknown = error {
+            self = .unknown
+        } else if case AccountDeletionRequestError.localTransportFailure = error {
+            self = .connection
+        } else if case AuthError.timedOut = error {
+            self = .timedOut
+        } else {
+            self = .generic
+        }
+    }
+
     var signsOutAfterAcknowledgement: Bool {
-        self == .serverCleanupIncomplete
+        self == .serverCleanupIncomplete || self == .unauthorized
     }
 
     var localizedMessage: String {
@@ -24,6 +46,11 @@ enum DeleteAccountFailureKind {
             return L10n.string(
                 "mobile.settings.deleteAccountConnectionFailedMessage",
                 defaultValue: "Could not reach the server. Check your internet connection and try again."
+            )
+        case .unauthorized:
+            return L10n.string(
+                "mobile.settings.deleteAccountUnauthorizedMessage",
+                defaultValue: "Your session is no longer valid. You will be signed out on this device. Sign in again if the account still exists."
             )
         case .stackDeleteIncomplete:
             return L10n.string(
