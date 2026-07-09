@@ -6767,6 +6767,23 @@
         }
       }
     },
+    "mobile.taskComposer.template.seed.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.template.seed.shell": {
       "extractionState": "manual",
       "localizations": {

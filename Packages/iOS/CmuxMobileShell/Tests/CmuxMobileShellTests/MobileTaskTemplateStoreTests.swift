@@ -9,12 +9,23 @@ import CmuxMobileShellModel
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
 
-        #expect(store.listTemplates().map(\.name) == ["Claude", "Codex", "Shell"])
+        #expect(store.listTemplates().map(\.name) == ["Claude", "Codex", "OpenCode", "Shell"])
 
         store.deleteTemplate(id: store.listTemplates()[0].id)
         let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
 
-        #expect(reloaded.listTemplates().map(\.name) == ["Codex", "Shell"])
+        #expect(reloaded.listTemplates().map(\.name) == ["Codex", "OpenCode", "Shell"])
+    }
+
+    @Test func seedingClearsAbandonedV1Keys() {
+        let defaults = Self.defaults()
+        defaults.set(Data("stale".utf8), forKey: "cmux.mobile.taskTemplates.v1")
+        defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v1")
+
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        #expect(store.listTemplates().count == 4)
+        #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.v1") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.seeded.v1") == nil)
     }
 
     @Test func crudPersistsAcrossStoreInstances() {

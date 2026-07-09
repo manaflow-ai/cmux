@@ -34,21 +34,40 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
         self.defaultDirectory = defaultDirectory
     }
 
+    /// Prefix marking an icon value as a bundled agent brand image rather
+    /// than an SF Symbol or emoji (e.g. `agent:claude`).
+    public static let agentIconPrefix = "agent:"
+
+    /// Returns the bundled `AgentIcons/` asset name for an `agent:` icon
+    /// value, or nil when the value is a symbol/emoji icon.
+    public static func agentIconAssetName(for icon: String) -> String? {
+        guard icon.hasPrefix(agentIconPrefix) else { return nil }
+        switch icon.dropFirst(agentIconPrefix.count) {
+        case "claude": return "AgentIcons/Claude"
+        case "codex": return "AgentIcons/Codex"
+        case "opencode": return "AgentIcons/OpenCode"
+        default: return nil
+        }
+    }
+
     /// Default templates written once into the device-local template store.
     /// Display names are passed in: they are user-facing, and localization
     /// lives at the store/UI boundary, not in this model package.
     /// - Parameters:
     ///   - claudeName: Localized name for the Claude template.
     ///   - codexName: Localized name for the Codex template.
+    ///   - openCodeName: Localized name for the OpenCode template.
     ///   - shellName: Localized name for the plain-shell template.
     public static func seedDefaults(
         claudeName: String,
         codexName: String,
+        openCodeName: String,
         shellName: String
     ) -> [MobileTaskTemplate] {
         [
-            MobileTaskTemplate(name: claudeName, icon: "brain.head.profile", command: "claude"),
-            MobileTaskTemplate(name: codexName, icon: "sparkles", command: "codex"),
+            MobileTaskTemplate(name: claudeName, icon: "agent:claude", command: "claude"),
+            MobileTaskTemplate(name: codexName, icon: "agent:codex", command: "codex"),
+            MobileTaskTemplate(name: openCodeName, icon: "agent:opencode", command: "opencode"),
             MobileTaskTemplate(name: shellName, icon: "terminal", command: ""),
         ]
     }

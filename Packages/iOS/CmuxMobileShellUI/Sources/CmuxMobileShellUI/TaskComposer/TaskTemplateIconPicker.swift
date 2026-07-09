@@ -11,12 +11,17 @@ struct TaskTemplateIconPicker: View {
         // Show an existing custom-emoji icon in the emoji field so reopening
         // the editor reflects the current selection.
         let current = selection.wrappedValue
-        self._emojiInput = State(initialValue: Self.symbols.contains(current) ? "" : current)
+        self._emojiInput = State(initialValue: Self.gridValues.contains(current) ? "" : current)
     }
 
+    /// Brand icons first (proper nouns, not localized), then SF Symbols.
+    private static let agentValues = [
+        "agent:claude",
+        "agent:codex",
+        "agent:opencode",
+    ]
+
     private static let symbols = [
-        "brain.head.profile",
-        "sparkles",
         "terminal",
         "hammer",
         "wrench.and.screwdriver",
@@ -29,10 +34,12 @@ struct TaskTemplateIconPicker: View {
         "shippingbox",
     ]
 
+    private static let gridValues = agentValues + symbols
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
-                ForEach(Self.symbols, id: \.self) { symbol in
+                ForEach(Self.gridValues, id: \.self) { symbol in
                     iconButton(value: symbol)
                 }
             }
@@ -65,7 +72,16 @@ struct TaskTemplateIconPicker: View {
                 .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(value)
+        .accessibilityLabel(Self.accessibilityName(for: value))
+    }
+
+    private static func accessibilityName(for value: String) -> String {
+        switch value {
+        case "agent:claude": return "Claude"
+        case "agent:codex": return "Codex"
+        case "agent:opencode": return "OpenCode"
+        default: return value
+        }
     }
 }
 #endif

@@ -12,8 +12,14 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    private static let templatesKey = "cmux.mobile.taskTemplates.v1"
-    private static let seededKey = "cmux.mobile.taskTemplates.seeded.v1"
+    // v2: seeds gained OpenCode and brand icons. The feature has never
+    // shipped, so v1 data (dogfood-only) is dropped rather than migrated.
+    private static let templatesKey = "cmux.mobile.taskTemplates.v2"
+    private static let seededKey = "cmux.mobile.taskTemplates.seeded.v2"
+    private static let legacyKeys = [
+        "cmux.mobile.taskTemplates.v1",
+        "cmux.mobile.taskTemplates.seeded.v1",
+    ]
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
@@ -88,9 +94,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
 
     private func seedIfNeeded() {
         guard !defaults.bool(forKey: Self.seededKey) else { return }
+        for key in Self.legacyKeys {
+            defaults.removeObject(forKey: key)
+        }
         saveTemplates(MobileTaskTemplate.seedDefaults(
             claudeName: L10n.string("mobile.taskComposer.template.seed.claude", defaultValue: "Claude"),
             codexName: L10n.string("mobile.taskComposer.template.seed.codex", defaultValue: "Codex"),
+            openCodeName: L10n.string("mobile.taskComposer.template.seed.opencode", defaultValue: "OpenCode"),
             shellName: L10n.string("mobile.taskComposer.template.seed.shell", defaultValue: "Shell")
         ))
         defaults.set(true, forKey: Self.seededKey)

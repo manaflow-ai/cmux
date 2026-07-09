@@ -286,7 +286,7 @@ struct WorkspaceShellView: View {
             isTaskComposerPresented = true
         }
         .padding(.trailing, 20)
-        .padding(.bottom, 20)
+        .padding(.bottom, 6)
     }
     #endif
 

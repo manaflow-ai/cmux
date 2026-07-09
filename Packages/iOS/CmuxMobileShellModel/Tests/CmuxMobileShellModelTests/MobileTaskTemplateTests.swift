@@ -7,13 +7,23 @@ import Testing
         let seeds = MobileTaskTemplate.seedDefaults(
             claudeName: "Claude",
             codexName: "Codex",
+            openCodeName: "OpenCode",
             shellName: "Shell"
         )
 
-        #expect(seeds.map(\.name) == ["Claude", "Codex", "Shell"])
-        #expect(seeds.map(\.icon) == ["brain.head.profile", "sparkles", "terminal"])
-        #expect(seeds.map(\.command) == ["claude", "codex", ""])
+        #expect(seeds.map(\.name) == ["Claude", "Codex", "OpenCode", "Shell"])
+        #expect(seeds.map(\.icon) == ["agent:claude", "agent:codex", "agent:opencode", "terminal"])
+        #expect(seeds.map(\.command) == ["claude", "codex", "opencode", ""])
         #expect(seeds.allSatisfy { $0.defaultDirectory == nil })
+    }
+
+    @Test func agentIconAssetNamesResolveOnlyKnownAgents() {
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:claude") == "AgentIcons/Claude")
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:codex") == "AgentIcons/Codex")
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:opencode") == "AgentIcons/OpenCode")
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "agent:unknown") == nil)
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "terminal") == nil)
+        #expect(MobileTaskTemplate.agentIconAssetName(for: "🚀") == nil)
     }
 
     @Test func templateCodableRoundTripsEditableFields() throws {
