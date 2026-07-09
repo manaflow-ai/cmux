@@ -48,6 +48,7 @@ import {
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
 import { isVmAccountDeletionIdentityRevocationError } from "../../../services/vms/errors";
+import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
   destroyVm,
@@ -311,10 +312,12 @@ async function destroyPersonalCloudVms(userId: string, accountTeamIds: readonly 
         billingTeamId?: string | null;
         teamIds: readonly string[];
         providerVmId: string;
+        provider: ProviderId;
       } = {
         userId,
         teamIds: accountTeamIds,
         providerVmId: vm.providerVmId,
+        provider: vm.provider,
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);
@@ -339,20 +342,34 @@ async function destroyPersonalCloudVms(userId: string, accountTeamIds: readonly 
 async function listAccountDeletionCloudVms(
   userId: string,
   accountTeamIds: readonly string[],
-): Promise<Array<{ readonly providerVmId: string; readonly billingTeamId?: string | null }>> {
-  const vms = new Map<string, { readonly providerVmId: string; readonly billingTeamId?: string | null }>();
+): Promise<Array<{ readonly providerVmId: string; readonly provider: ProviderId; readonly billingTeamId?: string | null }>> {
+  const vms = new Map<
+    string,
+    { readonly providerVmId: string; readonly provider: ProviderId; readonly billingTeamId?: string | null }
+  >();
   const legacyScopedVms = await runVmWorkflow(listUserVms(userId));
   for (const vm of legacyScopedVms) {
-    vms.set(vm.providerVmId, { providerVmId: vm.providerVmId });
+    vms.set(accountDeletionVmKey(vm), {
+      providerVmId: vm.providerVmId,
+      provider: vm.provider,
+    });
   }
   for (const teamId of accountTeamIds) {
     if (teamId === userId) continue;
     const teamScopedVms = await runVmWorkflow(listUserVms(userId, teamId));
     for (const vm of teamScopedVms) {
-      vms.set(vm.providerVmId, { providerVmId: vm.providerVmId, billingTeamId: teamId });
+      vms.set(accountDeletionVmKey(vm), {
+        providerVmId: vm.providerVmId,
+        provider: vm.provider,
+        billingTeamId: teamId,
+      });
     }
   }
   return [...vms.values()];
+}
+
+function accountDeletionVmKey(vm: { readonly provider: ProviderId; readonly providerVmId: string }): string {
+  return `${vm.provider}:${vm.providerVmId}`;
 }
 
 async function deleteVaultRowsAndObjectsForAccount(

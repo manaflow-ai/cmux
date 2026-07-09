@@ -169,6 +169,7 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
+    readonly provider?: ProviderId;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly recordLease: (input: {
@@ -1193,16 +1194,16 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   findUserVm: (input) =>
     dbEffect("findUserVm", async () => {
       const db = cloudDb();
+      const conditions = [
+        accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        ne(cloudVms.status, "destroyed"),
+      ];
+      if (input.provider) conditions.push(eq(cloudVms.provider, input.provider));
       const [vm] = await db
         .select()
         .from(cloudVms)
-        .where(
-          and(
-            accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
-            eq(cloudVms.providerVmId, input.providerVmId),
-            ne(cloudVms.status, "destroyed"),
-          ),
-        )
+        .where(and(...conditions))
         .limit(1);
       return vm ?? null;
     }),

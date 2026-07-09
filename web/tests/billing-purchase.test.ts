@@ -659,6 +659,43 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("skips Team subscription webhooks for deleted-account owner rows", async () => {
+    const getTeam = mock(async () => {
+      throw new Error("should not load Stack team for deleted account owner");
+    });
+    selectResults = [[{ stackUserId: "deleted-account" }]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "canceled",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getTeam,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getTeam).not.toHaveBeenCalled();
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("removes a user from TestFlight when a user Pro subscription lapses", async () => {
     const update = mock(async () => undefined);
     const removeTester = mock(async () => undefined);

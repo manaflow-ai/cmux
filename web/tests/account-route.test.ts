@@ -16,6 +16,7 @@ import {
   vaultUploadGrants,
   vaultUploadTombstones,
 } from "../db/schema";
+import type { ProviderId } from "../services/vms/drivers";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -50,6 +51,10 @@ const realDestroyVm = workflowsModule.destroyVm;
 const realListUserVms = workflowsModule.listUserVms;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
+type ListedAccountVm = string | {
+  readonly providerVmId: string;
+  readonly provider?: ProviderId;
+};
 
 const deleteStackUser = mock(async () => {
   routeEvents.push("stack-delete");
@@ -138,7 +143,11 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
     const providerVmIds = program.billingTeamId
       ? listedPersonalVmIdsByBillingTeam[program.billingTeamId] ?? []
       : listedPersonalVmIds;
-    return providerVmIds.map((providerVmId) => ({ providerVmId }));
+    return providerVmIds.map((vm) =>
+      typeof vm === "string"
+        ? { providerVmId: vm, provider: "freestyle" as ProviderId }
+        : { provider: "freestyle" as ProviderId, ...vm }
+    );
   }
   if (program.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     routeEvents.push("revoke-identities");
@@ -221,8 +230,8 @@ let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let removeTesterError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
-let listedPersonalVmIds: string[] = [];
-let listedPersonalVmIdsByBillingTeam: Record<string, string[]> = {};
+let listedPersonalVmIds: ListedAccountVm[] = [];
+let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
 let subrouterClientCreateError: unknown = null;
 let subrouterRevokeError: unknown = null;
@@ -241,6 +250,7 @@ type WorkflowProgram =
         readonly userId: string;
         readonly billingTeamId?: string | null;
         readonly providerVmId: string;
+        readonly provider?: ProviderId;
       };
     };
 
@@ -505,11 +515,13 @@ describe("account deletion route", () => {
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
+      provider: "freestyle",
     });
     expect(destroyVm).toHaveBeenCalledWith({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-2",
+      provider: "freestyle",
     });
     expect(transaction).toHaveBeenCalledTimes(3);
     expect(deletedTableCount).toBeGreaterThan(10);
@@ -586,6 +598,31 @@ describe("account deletion route", () => {
     ]);
   });
 
+  test("destroys personal VMs with the same provider id on different providers", async () => {
+    listedPersonalVmIds = [
+      { providerVmId: "shared-provider-id", provider: "freestyle" },
+      { providerVmId: "shared-provider-id", provider: "e2b" },
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(destroyVm).toHaveBeenCalledTimes(2);
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "shared-provider-id",
+      provider: "freestyle",
+    });
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "account-user-1",
+      teamIds: ["account-user-1"],
+      providerVmId: "shared-provider-id",
+      provider: "e2b",
+    });
+  });
+
   test("destroys personal-team scoped VMs before deleting account rows", async () => {
     listedPersonalVmIds = [];
     listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
@@ -611,6 +648,7 @@ describe("account deletion route", () => {
       billingTeamId: "team-personal",
       teamIds: ["account-user-1", "team-personal"],
       providerVmId: "personal-team-vm",
+      provider: "freestyle",
     });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active", "sub_team_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user", "cus_team"]);
@@ -677,6 +715,7 @@ describe("account deletion route", () => {
       billingTeamId: "team-shared",
       teamIds: ["account-user-1", "team-shared"],
       providerVmId: "shared-team-vm",
+      provider: "freestyle",
     });
     expect(transactionExecute).toHaveBeenCalledTimes(3);
   });
@@ -1169,11 +1208,13 @@ describe("account deletion route", () => {
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
+      provider: "freestyle",
     });
     expect(destroyVm).toHaveBeenCalledWith({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-2",
+      provider: "freestyle",
     });
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();
@@ -1207,11 +1248,13 @@ describe("account deletion route", () => {
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-1",
+      provider: "freestyle",
     });
     expect(destroyVm).toHaveBeenCalledWith({
       userId: "account-user-1",
       teamIds: ["account-user-1"],
       providerVmId: "personal-vm-2",
+      provider: "freestyle",
     });
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).not.toHaveBeenCalled();

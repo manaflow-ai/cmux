@@ -81,6 +81,7 @@ type ExistingVmAccessInput = {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly provider?: ProviderId;
 };
 
 export type VmProviderStatusReconcileResult = {
@@ -1248,6 +1249,7 @@ export function destroyVm(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly provider?: ProviderId;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1569,6 +1571,7 @@ function requireUserVm(input: ExistingVmAccessInput) {
       userId: input.userId,
       billingTeamId: input.billingTeamId,
       providerVmId: input.providerVmId,
+      provider: input.provider,
     });
     if (!vm || !vm.providerVmId) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));

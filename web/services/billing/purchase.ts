@@ -263,11 +263,19 @@ export async function applySubscriptionUpdate(
 
   const teamScope = teamScopeFromSubscription(subscription);
   if (teamScope) {
-    const stackUserId =
-      (await stackUserIdForTeamStripeCustomer(db, {
-        stackTeamId: teamScope.stackTeamId,
-        customerId,
-      })) ?? teamScope.stackTeamId;
+    const metadataStackUserId = nonEmptyString(subscription.metadata?.stackUserId);
+    const mappedStackUserId = await stackUserIdForTeamStripeCustomer(db, {
+      stackTeamId: teamScope.stackTeamId,
+      customerId,
+    });
+    if (mappedStackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
+    if (
+      metadataStackUserId &&
+      mappedStackUserId &&
+      metadataStackUserId !== mappedStackUserId
+    ) return { skipped: true };
+    const stackUserId = mappedStackUserId ?? metadataStackUserId ?? teamScope.stackTeamId;
+    if (stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
     await upsertTeamStripeCustomer(db, {
       customerId,
       stackUserId,
