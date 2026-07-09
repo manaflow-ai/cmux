@@ -556,7 +556,7 @@
         "summary": "Kod tabanınızın gerçekten ihtiyaç duyduğu worktree iş akışını oluşturmak için Claude Code, Codex, komut dosyalarını ve cmux temel öğelerini kullanın.",
         "date": "3 Temmuz 2026",
         "p1": "Yerleşik worktree yöneticilerinin sınırlı olması garanti edilir. Genellikle bir repo, Git, bereketli bir dal akışı ve bir ürün ekibinin kurulumun ne anlama gelmesi gerektiğine dair fikrini varsayarlar. Gerçek kod tabanları bu satırların içinde kalmaz.",
-      "p2": "cmux'in <zen>Zen'i</zen>, geliştiricilerin kendi araçlarını oluşturmaları ve kodla çalışma yollarının arama alanını keşfetmeleri gerektiğidir. Çalışma ağaçları kullanışlı bir ilkeldir, ancak aynı şekilde çoklu ödemeler, farklı klasörlerdeki backend/frontend depoları, uzak makineler, no-git projeler, yerel komut dosyaları ve bazen de sadece ana kodlama çünkü bu görev için en hızlı şeydir.",
+        "p2": "cmux'in <zen>Zen'i</zen>, geliştiricilerin kendi araçlarını oluşturmaları ve kodla çalışma yollarının arama alanını keşfetmeleri gerektiğidir. Çalışma ağaçları kullanışlı bir ilkeldir, ancak aynı şekilde çoklu ödemeler, farklı klasörlerdeki backend/frontend depoları, uzak makineler, no-git projeler, yerel komut dosyaları ve bazen de sadece ana kodlama çünkü bu görev için en hızlı şeydir.",
         "superRepoTitle": "Süper repo modeli",
         "superRepoP1": "Süper depo, tüm gerçek depoların nerede yaşadığını, worktrees'nin nasıl oluşturulduğunu, ilgili depoların nasıl eşleştirildiğini, her çalışma alanını hangi komut dosyalarının hazırladığını ve PRs'nın nasıl incelenip birleştirildiğini bilen bir kontrol ödemesidir. cmuxterm-hq bir süper depodur: birincil cmux ödemesini, görev başına cmux worktrees, Zed kontrollerini, hq komut dosyalarını, yeniden kullanılabilir becerileri ve aracıların birbirlerine basmamak için takip ettiği kuralları içerir.",
         "superRepoP2": "Mesele herkesin bu dizin ağacını tam olarak kopyalaması değil. Mesele şu ki, bir yerel kontrol deposu tüm mühendislik işletim sisteminizi tanımlayabilir. Arka uç repo ve ön uç repo birlikte açılabilir. Bir mobil uygulama ve web API birlikte yeniden yüklenebilir. Bir repoda bir şube, diğerinde eşleşen bir şube oluşturulabilir. Bu şekil ekibinize aittir, genel bir worktree düğmesine değil.",
@@ -1564,6 +1564,31 @@
       "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
       "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
       "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
+    },
+    "extensionsMarketplace": {
+      "metaTitle": "Uzantı pazarı",
+      "metaDescription": "Küratörlü cmux marketplace’in gönderimleri inceleyip desteklenen uzantıları listeleme ve kullanıcıları kopyalanabilir yükleme komutlarına yönlendirme biçimi.",
+      "title": "Uzantı pazarı",
+      "intro": "Marketplace, desteklenen TUI uzantılarının registry’sidir; yalnızca cmux ekibinin onayladığı repository’ler görünür.",
+      "discoveryTitle": "Keşif",
+      "discoveryIntro": "Site istek sırasında manaflow-ai/awesome-cmux extensions.json dosyasını okur ve gömülü seed’i yalnızca fallback olarak kullanır. Repository ancak maintainer girdiyi orada merge ettikten sonra görünür:",
+      "submitTitle": "Uzantı gönder",
+      "submitIntro": "cmux içinden CLI submit çalıştırarak repository’yi doğrulayın ve GitHub issue açın:",
+      "submitIssue": "Formu doğrudan açıp doğrulama çıktısını yapıştırabilirsiniz.",
+      "maintainersTitle": "Maintainer’lar için",
+      "maintainersIntro": "Onay, girdiyi manaflow-ai/awesome-cmux extensions.json dosyasına ekleyen PR’ın merge edilmesidir; takedown bunun ters PR’ıdır.",
+      "maintainersReviewQueueAction": "Review kuyruğu",
+      "approvalTitle": "Onay",
+      "approvalIntro": "Onay, cmux’un uzantıyı incelediği ve listelemeyi desteklediği anlamına gelir:",
+      "approvalInstall": "Preview akışıyla kurar ve commit’i pinleriz.",
+      "approvalReview": "Manifest, komutlar, lisans ve ilgili kodu inceleriz.",
+      "approvalDogfood": "Panes’i deneyerek davranışı doğrularız.",
+      "approvalMerge": "Maintainer repository’yi manaflow-ai/awesome-cmux extensions.json dosyasına ekleyen PR’ı merge eder.",
+      "installTitle": "Yükleme komutu",
+      "installIntro": "Galeri her uzantı için kopyalanabilir bir terminal komutu gösterir:",
+      "installConsent": "Komutu herhangi bir terminale yapıştırın. cmux CLI depoyu getirir, manifestoyu doğrular, yüklemeyi bir commit’e sabitler ve herhangi bir şey çalıştırmadan önce onay ister.",
+      "takedownsTitle": "Kaldırmalar",
+      "takedownsIntro": "Kaldırma veya takedown, manaflow-ai/awesome-cmux extensions.json için ters PR’dır. Repository girdisini silmek, cache yenilendikten sonra onu herkese açık galeriden çıkarır."
     }
   },
   "legal": {
@@ -1681,6 +1706,18 @@
     "downloadLight": "Açık simgeyi indir",
     "downloadDark": "Koyu simgeyi indir",
     "brandPage": "Marka varlıkları"
+  },
+  "extensions": {
+    "metaDescription": "cmux ekibi tarafından incelenen ve desteklenen cmux TUI uzantılarına göz atın.",
+    "intro": "Topluluk TUI uzantılarından oluşan küratörlü galeri; hepsi cmux tarafından desteklenir.",
+    "trustNote": "Her uzantı incelenmiş ve desteklenmiştir. Kurulumdan önce <link>güven notlarını</link> okuyun.",
+    "supportedLabel": "Destekleniyor",
+    "submitTitle": "İnceleme için uzantı gönder",
+    "submitBody": "submit komutuyla repository’yi doğrulayıp önceden doldurulmuş GitHub issue açın; onay, awesome-cmux registry PR’ı merge edilince gerçekleşir.",
+    "emptyRegistryTitle": "Henüz uzantı yok",
+    "emptyRegistryDescription": "Seçilmiş galeriyi başlatmak için aşağıdan bir uzantı gönderin.",
+    "submitIssueAction": "Gönderim issue’sunu aç",
+    "templateAction": "Uzantı şablonu"
   },
   "afterSignIn": {
     "title": "cmux oturumu açıldı",

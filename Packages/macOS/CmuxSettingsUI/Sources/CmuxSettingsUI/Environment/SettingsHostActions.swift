@@ -168,6 +168,12 @@ public protocol SettingsHostActions: AnyObject {
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
 
+    /// The host-owned view state for the **Extensions** section (TUI
+    /// extensions installed from GitHub), or `nil` when the host has no
+    /// extensions runtime (previews/tests). The host returns the same
+    /// instance every call and keeps its `rows` current.
+    func dockExtensionsSettingsState() -> ExtensionsSettingsState?
+
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
@@ -176,6 +182,9 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default: no extensions runtime, for previews and package-only hosts.
+    func dockExtensionsSettingsState() -> ExtensionsSettingsState? { nil }
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}

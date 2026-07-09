@@ -86,6 +86,10 @@ final class HostSettingsActions: SettingsHostActions {
         SleepyModeController.shared.store
     }
 
+    func dockExtensionsSettingsState() -> ExtensionsSettingsState? {
+        DockExtensionsRuntime.shared.dockExtensionsSettingsState()
+    }
+
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()

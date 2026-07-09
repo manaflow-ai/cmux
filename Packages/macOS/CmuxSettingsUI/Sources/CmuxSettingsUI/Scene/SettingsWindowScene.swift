@@ -471,6 +471,9 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .customSidebars))
 
+        ExtensionsSection(hostActions: hostActions)
+            .id(anchorID(for: .extensions))
+
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))
 

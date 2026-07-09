@@ -1564,6 +1564,31 @@
       "dataNot": "جلسة الطرفية التفاعلية الخاصة بك، ومحتواها وضغطات المفاتيح فيها، تتدفق مباشرة بين هاتفك وجهاز Mac الخاص بك عبر شبكتك الخاصة، ولا تُنقَل عبر خوادم cmux ولا تُخزَّن عليها. الاستثناء الوحيد هو نص الإشعار المُعاد توجيهه، الذي يمر عبر cmux وخدمة الدفع من Apple ليصل إلى هاتفك، ما لم تفعّل Hide content (راجع الإشعارات أعلاه).",
       "enterpriseTitle": "للمؤسسات والاستضافة الذاتية",
       "enterpriseDesc": "للنشر المُستضاف ذاتياً أو المعزول عن الشبكة، تواصل مع <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaTitle": "سوق الملحقات",
+      "metaDescription": "كيف يراجع سوق إضافات cmux المنسّق الإرسالات ويعرض الإضافات المدعومة ويوجه المستخدمين إلى أوامر تثبيت قابلة للنسخ.",
+      "title": "سوق الملحقات",
+      "intro": "سوق الإضافات سجل منسّق لإضافات TUI المدعومة، ولا تظهر إلا المستودعات المعتمدة من فريق cmux.",
+      "discoveryTitle": "الاكتشاف",
+      "discoveryIntro": "يقرأ الموقع manaflow-ai/awesome-cmux extensions.json عند كل طلب، ويستخدم seed المضمنة كخيار احتياطي فقط. لا يظهر المستودع إلا بعد أن يدمج المشرف إدخاله هناك:",
+      "submitTitle": "إرسال إضافة",
+      "submitIntro": "شغّل أمر CLI submit من أي تثبيت cmux للتحقق وفتح تذكرة GitHub معبأة مسبقًا:",
+      "submitIssue": "يمكنك أيضًا فتح نموذج الإرسال مباشرة ولصق مخرجات التحقق بنفسك.",
+      "maintainersTitle": "للمشرفين",
+      "maintainersIntro": "الموافقة تعني دمج PR يضيف الإدخال إلى manaflow-ai/awesome-cmux extensions.json؛ والسحب هو PR عكسي.",
+      "maintainersReviewQueueAction": "قائمة المراجعة",
+      "approvalTitle": "الموافقة",
+      "approvalIntro": "تعني الموافقة أن فريق cmux راجع الإضافة والتزم بدعم إدراجها:",
+      "approvalInstall": "نثبّت الإضافة عبر تدفق المعاينة ونثبت الالتزام الذي تم حله.",
+      "approvalReview": "نراجع المانيفست والأوامر والترخيص والكود ذي الصلة.",
+      "approvalDogfood": "نجرّب اللوحات للتأكد من عمل الإضافة كما هو موصوف.",
+      "approvalMerge": "يدمج مشرف PR يضيف المستودع إلى manaflow-ai/awesome-cmux extensions.json.",
+      "installTitle": "أمر التثبيت",
+      "installIntro": "يعرض المعرض أمرًا طرفيًا قابلًا للنسخ لكل إضافة:",
+      "installConsent": "الصق الأمر في أي طرفية. يجلب cmux CLI المستودع، ويتحقق من البيان، ويثبّت التثبيت على التزام محدد، ويطلب الموافقة قبل تشغيل أي شيء.",
+      "takedownsTitle": "عمليات الإزالة",
+      "takedownsIntro": "الإزالة أو السحب هو PR عكسي على manaflow-ai/awesome-cmux extensions.json. حذف إدخال المستودع يزيله من المعرض العام بعد تحديث الذاكرة المؤقتة."
     }
   },
   "legal": {
@@ -1681,6 +1706,18 @@
     "downloadLight": "تنزيل أيقونة الوضع الفاتح",
     "downloadDark": "تنزيل أيقونة الوضع الداكن",
     "brandPage": "أصول العلامة"
+  },
+  "extensions": {
+    "metaDescription": "تصفح إضافات cmux TUI التي راجعها ويدعمها فريق cmux.",
+    "intro": "معرض منسّق لإضافات TUI المجتمعية، وكل إضافة هنا مدعومة من فريق cmux.",
+    "trustNote": "تمت مراجعة كل إضافة ودعمها من فريق cmux. اقرأ <link>ملاحظات الثقة</link> قبل الموافقة على أي تثبيت.",
+    "supportedLabel": "مدعومة",
+    "submitTitle": "إرسال إضافة للمراجعة",
+    "submitBody": "شغّل أمر الإرسال للتحقق من مستودعك وفتح تذكرة GitHub معبأة مسبقًا؛ تتم الموافقة عندما يدمج مشرف PR لسجل awesome-cmux.",
+    "emptyRegistryTitle": "لا توجد إضافات بعد",
+    "emptyRegistryDescription": "أرسل إضافة من القسم أدناه لبدء المعرض المنسق.",
+    "submitIssueAction": "فتح تذكرة إرسال",
+    "templateAction": "قالب الإضافة"
   },
   "afterSignIn": {
     "title": "تم تسجيل الدخول إلى cmux",

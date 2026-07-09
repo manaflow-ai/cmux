@@ -6476,8 +6476,9 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions()
+            + Self.commandPaletteRightSidebarToolPaneCommandContributions())
+        contributions.append(contentsOf: extensionsCommandPaletteContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleMatchTerminalBackground",
@@ -7662,9 +7663,8 @@ struct ContentView: View {
                 handleCommandPaletteRightSidebarToolPane(descriptor.mode)
             }
         }
-        registry.register(commandId: "palette.toggleMatchTerminalBackground") {
-            sidebarMatchTerminalBackground.toggle()
-        }
+        registerExtensionsCommandPaletteHandlers(&registry)
+        registry.register(commandId: "palette.toggleMatchTerminalBackground") { sidebarMatchTerminalBackground.toggle() }
         registry.register(commandId: "palette.enableMinimalMode") {
             UserDefaults.standard.set(
                 WorkspacePresentationModeSettings.Mode.minimal.rawValue,

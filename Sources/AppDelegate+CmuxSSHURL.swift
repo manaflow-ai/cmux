@@ -435,25 +435,18 @@ extension AppDelegate {
             return true
         }
 
-        if handleCmuxSSHURLs(from: urls) {
-            return true
-        }
-        if handleCmuxNavigationURLs(from: urls) {
-            return true
-        }
-        if handleCmuxTextURLs(from: urls) {
-            return true
-        }
+        if handleCmuxSSHURLs(from: urls) { return true }
+        if handleCmuxNavigationURLs(from: urls) { return true }
+        if handleCmuxTextURLs(from: urls) { return true }
+        if handleCmuxExtensionInstallURLs(from: urls) { return true }
         return false
     }
 
     private struct CmuxExternalURLIntentCounts {
-        var ssh = 0
-        var navigation = 0
-        var text = 0
+        var ssh = 0, navigation = 0, text = 0, extensionInstall = 0
 
         var total: Int {
-            ssh + navigation + text
+            ssh + navigation + text + extensionInstall
         }
     }
 
@@ -475,6 +468,12 @@ extension AppDelegate {
             switch CmuxTextURLRequest.parse(url) {
             case .success(.some), .failure:
                 nextCounts.text += 1
+            case .success(nil):
+                break
+            }
+            switch CmuxExtensionInstallURLRequest.parse(url) {
+            case .success(.some), .failure:
+                nextCounts.extensionInstall += 1
             case .success(nil):
                 break
             }

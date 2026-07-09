@@ -502,7 +502,7 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    private func makeTerminalPanel(
+    func makeTerminalPanel(
         command: String?,
         useLoginShellWrapper: Bool,
         workingDirectory: String,
@@ -543,17 +543,17 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     @discardableResult
-    private func attachPanelAsTab(
+    func attachPanelAsTab(
         _ panel: any Panel,
         kind: DockSurfaceKind,
-        title: String,
+        title: String, icon: String? = nil,
         inPane paneId: PaneID?,
         tracksTerminalTitle: Bool
     ) -> TabID? {
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
             title: title,
-            icon: panel.displayIcon,
+            icon: icon ?? panel.displayIcon,
             kind: tabKindRaw(kind),
             isDirty: panel.isDirty,
             isPinned: false,

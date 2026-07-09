@@ -1,0 +1,55 @@
+name: Extension submission
+description: Submit a cmux extension for review and supported listing.
+title: "Extension submission: "
+labels:
+  - extension-submission
+body:
+  - type: input
+    id: repo
+    attributes:
+      label: Repository
+      description: GitHub owner/repo, or owner/repo/subdirectory when the manifest is not at the root.
+      placeholder: owner/repo
+    validations:
+      required: true
+  - type: input
+    id: subdirectory
+    attributes:
+      label: Subdirectory
+      description: Optional path containing cmux-extension.json.
+      placeholder: packages/my-extension
+    validations:
+      required: false
+  - type: input
+    id: pinned-sha
+    attributes:
+      label: Pinned SHA
+      description: Resolved commit SHA from cmux extension submit.
+      placeholder: abc123...
+    validations:
+      required: false
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What does this extension add to cmux?
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Paste the output of `cmux extension submit`.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: The manifest is present at the repo root or the submitted subdirectory.
+          required: true
+        - label: The repo is public and has a license.
+          required: true
+        - label: The author will maintain it.
+          required: true

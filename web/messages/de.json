@@ -1564,6 +1564,31 @@
       "dataNot": "Deine interaktive Terminal-Sitzung, ihre Inhalte und Tastatureingaben fließen direkt zwischen deinem Telefon und deinem Mac über dein eigenes Netzwerk und werden nicht über cmux-Server weitergeleitet oder dort gespeichert. Die einzige Ausnahme ist der weitergeleitete Benachrichtigungstext, der über cmux und Apple's push service zu deinem Telefon gelangt, sofern du nicht Hide content aktivierst (siehe Benachrichtigungen oben).",
       "enterpriseTitle": "Enterprise und Self-Hosting",
       "enterpriseDesc": "Für ein selbst gehostetes oder air-gapped Deployment wende dich an <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaTitle": "Erweiterungs-Marktplatz",
+      "metaDescription": "Wie der kuratierte cmux-Marktplatz Einreichungen prüft, unterstützte Erweiterungen listet und Nutzer zu kopierbaren Installationsbefehlen führt.",
+      "title": "Erweiterungs-Marktplatz",
+      "intro": "Der Marktplatz ist eine kuratierte Registry unterstützter TUI-Erweiterungen; nur vom cmux-Team genehmigte Repositories erscheinen.",
+      "discoveryTitle": "Entdeckung",
+      "discoveryIntro": "Die Website liest manaflow-ai/awesome-cmux extensions.json zur Request-Zeit und nutzt den gebündelten Seed nur als Fallback. Ein Repository erscheint erst, nachdem ein Maintainer dort einen Eintrag merged:",
+      "submitTitle": "Erweiterung einreichen",
+      "submitIntro": "Führe CLI submit aus einer cmux-Installation aus, um das Repository zu validieren und ein GitHub-Issue zu öffnen:",
+      "submitIssue": "Du kannst das Formular auch direkt öffnen und die Validierungsausgabe einfügen.",
+      "maintainersTitle": "Für Maintainer",
+      "maintainersIntro": "Genehmigung bedeutet, einen PR zu mergen, der den Eintrag zu manaflow-ai/awesome-cmux extensions.json hinzufügt; Takedown ist der umgekehrte PR.",
+      "maintainersReviewQueueAction": "Review-Warteschlange",
+      "approvalTitle": "Genehmigung",
+      "approvalIntro": "Genehmigung bedeutet, dass das cmux-Team die Erweiterung geprüft hat und die Listung unterstützt:",
+      "approvalInstall": "Wir installieren über den Preview-Flow und pinnen den Commit.",
+      "approvalReview": "Wir prüfen Manifest, Befehle, Lizenz und relevanten Code.",
+      "approvalDogfood": "Wir testen die Panes ausreichend, um das Verhalten zu bestätigen.",
+      "approvalMerge": "Ein Maintainer merged einen PR, der das Repository zu manaflow-ai/awesome-cmux extensions.json hinzufügt.",
+      "installTitle": "Installationsbefehl",
+      "installIntro": "Die Galerie zeigt für jede Erweiterung einen kopierbaren Terminalbefehl:",
+      "installConsent": "Fügen Sie den Befehl in ein beliebiges Terminal ein. Die cmux-CLI ruft das Repository ab, validiert das Manifest, pinnt die Installation auf einen Commit und fragt vor dem Ausführen um Zustimmung.",
+      "takedownsTitle": "Entfernungen",
+      "takedownsIntro": "Entfernung oder Takedown ist der umgekehrte PR gegen manaflow-ai/awesome-cmux extensions.json. Das Löschen des Repository-Eintrags entfernt ihn nach der Cache-Aktualisierung aus der öffentlichen Galerie."
     }
   },
   "legal": {
@@ -1681,6 +1706,18 @@
     "downloadLight": "Helles Icon herunterladen",
     "downloadDark": "Dunkles Icon herunterladen",
     "brandPage": "Brand-Assets"
+  },
+  "extensions": {
+    "metaDescription": "Durchsuche cmux TUI-Erweiterungen, die vom cmux-Team geprüft und unterstützt werden.",
+    "intro": "Eine kuratierte Galerie von Community-TUI-Erweiterungen; jede hier wird vom cmux-Team unterstützt.",
+    "trustNote": "Jede gelistete Erweiterung wurde geprüft und unterstützt. Lies die <link>Vertrauenshinweise</link> vor der Installation.",
+    "supportedLabel": "Unterstützt",
+    "submitTitle": "Erweiterung zur Prüfung einreichen",
+    "submitBody": "Führe submit aus, um dein Repository zu validieren und ein vorausgefülltes GitHub-Issue zu öffnen; genehmigt wird es, wenn ein Maintainer einen awesome-cmux-Registry-PR merged.",
+    "emptyRegistryTitle": "Noch keine Erweiterungen",
+    "emptyRegistryDescription": "Reiche unten eine Erweiterung ein, um die kuratierte Galerie zu starten.",
+    "submitIssueAction": "Einreichungs-Issue öffnen",
+    "templateAction": "Erweiterungsvorlage"
   },
   "afterSignIn": {
     "title": "Bei cmux angemeldet",

@@ -147,6 +147,7 @@ Environment:
 | `jump-to-unread` | Focus the latest unread notification. |
 | `clear-notifications` | Clear queued notifications. |
 | `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
+| `extension` | Namespace for Dock TUI extension verbs: `list`, `install`, `update`, `uninstall`, `link`, `unlink`, `open`, `config-dir`, `paths` (see [Command Families](#command-families)). Installs are consent-gated: preview the pinned commit and commands, then confirm. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
@@ -371,6 +372,20 @@ Custom sidebar commands:
 | `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
 | `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
 | `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
+
+Dock TUI extension commands (all support `--json`; extensions are unreviewed community code pinned to a commit — nothing runs before the interactive preview is confirmed):
+
+| Command | Contract |
+| --- | --- |
+| `extension list` | List installed extensions with source, pinned commit, enabled/status, and launchable panes. |
+| `extension install <owner/repo[/subdir]> [--ref <ref>] [--yes]` | Resolve + stage the source (v2 `extension.preview`), print the pinned commit, warnings, build steps, and pane commands, then prompt `Proceed? [y/N]` before confirming with `extension.install`. `--ref` pins a branch/tag/SHA; `--yes` skips the prompt; a non-TTY stdin without `--yes` aborts and discards the staged preview. |
+| `extension update <id> [--yes]` | Re-resolve the installed source and run the same preview → confirm flow against the new commit. |
+| `extension uninstall <id>` | Remove the record and managed checkout; the extension's config and state directories are kept. |
+| `extension link <path>` | Register a local directory for development: manifest validated, no pin, build steps never run. |
+| `extension unlink <id>` | Remove the record without touching any files. |
+| `extension open <id \| id.pane>` | Open an extension pane in the Dock (bare `<id>` works when the extension has exactly one launchable pane). Focus-intent: reveals and focuses the Dock. |
+| `extension config-dir <id>` | Print the extension's config directory (`~/.config/cmux/extensions/<id>`). |
+| `extension paths <id>` | Print the root (checkout), config, state, and logs directories. |
 
 Docs topics:
 

@@ -5219,19 +5219,13 @@ struct CMUXCLI {
             print(response)
 
         case "right-sidebar":
-            try forwardRightSidebarCommand(
-                commandArgs: commandArgs,
-                client: client,
-                windowOverride: windowId
-            )
+            try forwardRightSidebarCommand(commandArgs: commandArgs, client: client, windowOverride: windowId)
+
+        case "extension":
+            try runExtensionCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "sidebar":
-            try runSidebarCommand(
-                commandArgs: commandArgs,
-                client: client,
-                jsonOutput: jsonOutput,
-                windowOverride: windowId
-            )
+            try runSidebarCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, windowOverride: windowId)
 
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
@@ -16875,6 +16869,8 @@ struct CMUXCLI {
               cmux right-sidebar set find
               cmux right-sidebar mode
             """)
+        case "extension":
+            return Self.extensionUsageText
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -35277,6 +35273,7 @@ export default CMUXSessionRestore;
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          extension <list|install|submit|update|uninstall|link|unlink|open|config-dir|paths>
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-extension.schema.json",
+  "manifestVersion": 1,
+  "id": "hello-tui",
+  "name": "Hello TUI",
+  "version": "0.1.0",
+  "description": "Minimal Dock extension demo: prints its cmux context and ticks a clock.",
+  "icon": "sparkles",
+  "panes": [
+    {
+      "id": "main",
+      "title": "Hello TUI",
+      "command": ["./hello.sh"],
+      "env": { "HELLO_GREETING": "hi from the manifest env" }
+    }
+  ]
+}

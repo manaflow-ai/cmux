@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-extension.schema.json",
+  "title": "cmux-extension.json",
+  "description": "Manifest for a cmux Dock TUI extension. cmux validates the manifest before installing and starts each pane command as the signed-in user.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["manifestVersion", "id", "name", "version", "panes"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "default": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-extension.schema.json",
+      "description": "Optional schema URL for editor completion and validation."
+    },
+    "manifestVersion": {
+      "const": 1,
+      "description": "Manifest format version. Version 1 is the current extension manifest format."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "description": "Stable extension identifier used for config, state, and consent records."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable extension name shown in cmux."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Extension version string shown during review and install."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional short summary of what the extension does."
+    },
+    "minCmuxVersion": {
+      "type": "string",
+      "description": "Optional minimum cmux version required by this extension."
+    },
+    "platforms": {
+      "$ref": "#/$defs/platforms"
+    },
+    "icon": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional icon name or asset identifier shown beside the extension."
+    },
+    "build": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/buildStep"
+      },
+      "maxItems": 16,
+      "description": "Commands cmux can run before launching extension panes."
+    },
+    "panes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/pane"
+      },
+      "description": "Dock panes provided by this extension."
+    }
+  },
+  "$defs": {
+    "platform": {
+      "type": "string",
+      "enum": ["macos", "linux", "windows"]
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/platform"
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "description": "Optional platform filter for the extension or command."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Environment variables passed only to this pane."
+    },
+    "pane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "command"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_:-]+$",
+          "description": "Stable pane identifier within the extension."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pane title shown in the Dock."
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Command argv to run for this pane."
+        },
+        "env": {
+          "$ref": "#/$defs/env"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory relative to the extension root."
+        },
+        "platforms": {
+          "$ref": "#/$defs/platforms"
+        },
+        "placement": {
+          "type": "string",
+          "description": "Optional placement hint for where cmux should show the pane."
+        }
+      }
+    },
+    "buildStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Build command argv to run."
+        },
+        "platforms": {
+          "$ref": "#/$defs/platforms"
+        }
+      }
+    }
+  }
+}

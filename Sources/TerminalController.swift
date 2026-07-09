@@ -275,7 +275,7 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump", "extension.open"
     ]
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
@@ -1348,18 +1348,16 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "extension.list", "extension.preview", "extension.install", "extension.discard",
+             "extension.uninstall", "extension.link", "extension.unlink":
+            return v2ExtensionWorkerResponse(id: request.id, method: request.method, params: request.params)
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
-        case "system.ping":
-            return v2Ok(id: request.id, result: ["pong": true])
-        case "system.capabilities":
-            return v2Ok(id: request.id, result: v2Capabilities())
-        case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
-        case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
-        case "surface.read_text":
-            return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "system.ping": return v2Ok(id: request.id, result: ["pong": true])
+        case "system.capabilities": return v2Ok(id: request.id, result: v2Capabilities())
+        case "system.top": return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "system.memory": return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "surface.read_text": return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
@@ -2189,10 +2187,11 @@ class TerminalController {
     /// thread.
     private func v2LegacyMainActorResponse(id: Any?, method: String, params: [String: Any]) -> String {
             switch method {
-        case "system.ping":
-            return v2Ok(id: id, result: ["pong": true])
-        case "system.capabilities":
-            return v2Ok(id: id, result: v2Capabilities())
+        case "system.ping": return v2Ok(id: id, result: ["pong": true])
+        case "system.capabilities": return v2Ok(id: id, result: v2Capabilities())
+
+        case "extension.open", "extension.paths":
+            return v2ExtensionMainActorResponse(id: id, method: method, params: params)
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -2575,7 +2574,7 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
-        ]
+        ] + Self.extensionV2Methods
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
@@ -3486,7 +3485,7 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
             return v2Ok(id: id, result: payload)

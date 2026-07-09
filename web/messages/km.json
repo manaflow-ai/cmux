@@ -1564,6 +1564,31 @@
       "dataNot": "សម័យស្ថានីយអន្តរកម្មរបស់អ្នក ខ្លឹមសារ និងការវាយបញ្ចូលគ្រាប់ចុចរបស់វា ហូរដោយផ្ទាល់រវាងទូរស័ព្ទ និង Mac របស់អ្នកតាមរយៈបណ្តាញផ្ទាល់ខ្លួនរបស់អ្នក ហើយមិនត្រូវបានបញ្ជូនបន្តតាម ឬរក្សាទុកនៅលើម៉ាស៊ីនមេ cmux នោះទេ។ ករណីលើកលែងតែមួយគត់គឺអត្ថបទនៃការជូនដំណឹងដែលបានបញ្ជូនបន្ត ដែលឆ្លងកាត់ cmux និងសេវាpush របស់ Apple ដើម្បីទៅដល់ទូរស័ព្ទរបស់អ្នក លុះត្រាតែអ្នកបើក Hide content (សូមមើល ការជូនដំណឹង ខាងលើ)។",
       "enterpriseTitle": "សហគ្រាស និងការដំឡើងផ្ទាល់ខ្លួន",
       "enterpriseDesc": "សម្រាប់ការដាក់ពង្រាយផ្ទាល់ខ្លួន ឬដែលផ្តាច់ចេញពីបណ្តាញ សូមទាក់ទង <link>founders@manaflow.com</link>។"
+    },
+    "extensionsMarketplace": {
+      "metaTitle": "ទីផ្សារផ្នែកបន្ថែម",
+      "metaDescription": "របៀប marketplace cmux ពិនិត្យការផ្ញើ បង្ហាញផ្នែកបន្ថែមដែលគាំទ្រ និងណែនាំទៅកាន់ពាក្យបញ្ជាដំឡើងដែលអាចចម្លងបាន។",
+      "title": "ទីផ្សារផ្នែកបន្ថែម",
+      "intro": "marketplace គឺជា registry ដែលបានជ្រើសរើសសម្រាប់ TUI extensions ដែលគាំទ្រ; បង្ហាញតែ repository ដែលក្រុម cmux អនុម័ត។",
+      "discoveryTitle": "ការរកឃើញ",
+      "discoveryIntro": "គេហទំព័រអាន manaflow-ai/awesome-cmux extensions.json ពេលមាន request ហើយប្រើ seed ដែលភ្ជាប់មកជា fallback ប៉ុណ្ណោះ។ repository បង្ហាញបន្ទាប់ពី maintainer merge ធាតុនៅទីនោះ:",
+      "submitTitle": "ផ្ញើផ្នែកបន្ថែម",
+      "submitIntro": "រត់ CLI submit ពី cmux ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue:",
+      "submitIssue": "អ្នកអាចបើក form ដោយផ្ទាល់ ហើយបិទភ្ជាប់លទ្ធផលផ្ទៀងផ្ទាត់។",
+      "maintainersTitle": "សម្រាប់ maintainer",
+      "maintainersIntro": "ការអនុម័តមានន័យថា merge PR ដែលបន្ថែមធាតុទៅ manaflow-ai/awesome-cmux extensions.json; takedown គឺ PR បញ្ច្រាស។",
+      "maintainersReviewQueueAction": "ជួរត្រួតពិនិត្យ",
+      "approvalTitle": "ការអនុម័ត",
+      "approvalIntro": "ការអនុម័តមានន័យថា cmux បានពិនិត្យ និងគាំទ្រការរាយបញ្ជី:",
+      "approvalInstall": "យើងដំឡើងតាម preview flow ហើយ pin commit។",
+      "approvalReview": "យើងពិនិត្យ manifest, commands, license និង code ពាក់ព័ន្ធ។",
+      "approvalDogfood": "យើងសាកល្បង panes ដើម្បីបញ្ជាក់អាកប្បកិរិយា។",
+      "approvalMerge": "maintainer merge PR ដែលបន្ថែម repository ទៅ manaflow-ai/awesome-cmux extensions.json។",
+      "installTitle": "ពាក្យបញ្ជាដំឡើង",
+      "installIntro": "វិចិត្រសាលបង្ហាញពាក្យបញ្ជា terminal ដែលអាចចម្លងបានសម្រាប់ extension នីមួយៗ៖",
+      "installConsent": "បិទភ្ជាប់ពាក្យបញ្ជានៅក្នុង terminal ណាមួយ។ cmux CLI ទាញយក repository ផ្ទៀងផ្ទាត់ manifest ភ្ជាប់ការដំឡើងទៅ commit មួយ ហើយស្នើសុំការយល់ព្រមមុនពេលដំណើរការអ្វីមួយ។",
+      "takedownsTitle": "ការដកចេញ",
+      "takedownsIntro": "ការដកចេញ ឬ takedown គឺ PR បញ្ច្រាសលើ manaflow-ai/awesome-cmux extensions.json។ ការលុបធាតុ repository នឹងយកវាចេញពីវិចិត្រសាលសាធារណៈបន្ទាប់ពី cache refresh។"
     }
   },
   "legal": {
@@ -1681,6 +1706,18 @@
     "downloadLight": "ទាញយករូបតំណាងភ្លឺ",
     "downloadDark": "ទាញយករូបតំណាងងងឹត",
     "brandPage": "ធនធានម៉ាក"
+  },
+  "extensions": {
+    "metaDescription": "រកមើលផ្នែកបន្ថែម cmux TUI ដែលក្រុម cmux ពិនិត្យ និងគាំទ្រ។",
+    "intro": "វិចិត្រសាលផ្នែកបន្ថែម TUI របស់សហគមន៍ដែលបានជ្រើសរើស ហើយគាំទ្រដោយ cmux។",
+    "trustNote": "ផ្នែកបន្ថែមទាំងអស់ត្រូវបានពិនិត្យ និងគាំទ្រ។ អាន <link>កំណត់សម្គាល់ទំនុកចិត្ត</link> មុនដំឡើង។",
+    "supportedLabel": "បានគាំទ្រ",
+    "submitTitle": "ផ្ញើផ្នែកបន្ថែមសម្រាប់ពិនិត្យ",
+    "submitBody": "រត់ submit ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue ដែលបំពេញរួច; អនុម័តពេល maintainer merge awesome-cmux registry PR។",
+    "emptyRegistryTitle": "មិនទាន់មាន extension ទេ",
+    "emptyRegistryDescription": "ដាក់ស្នើ extension ខាងក្រោម ដើម្បីចាប់ផ្តើមវិចិត្រសាលដែលបានជ្រើសរើស។",
+    "submitIssueAction": "បើក issue ផ្ញើ",
+    "templateAction": "គំរូផ្នែកបន្ថែម"
   },
   "afterSignIn": {
     "title": "បានចូល cmux ហើយ",

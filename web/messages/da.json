@@ -1564,6 +1564,31 @@
       "dataNot": "Din interaktive terminalsession, dens indhold og tastetryk går direkte mellem din telefon og din Mac over dit eget netværk og videresendes ikke gennem eller gemmes på cmux-serverne. Den eneste undtagelse er videresendt notifikationstekst, som passerer gennem cmux og Apple's push service for at nå din telefon, medmindre du aktiverer Hide content (se Notifikationer ovenfor).",
       "enterpriseTitle": "Enterprise og selvhostet",
       "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaTitle": "Udvidelsesmarkedsplads",
+      "metaDescription": "Hvordan den kuraterede cmux marketplace gennemgår indsendelser, viser understøttede udvidelser og sender brugere til kopierbare installationskommandoer.",
+      "title": "Udvidelsesmarkedsplads",
+      "intro": "Marketplace er et kurateret registry over understøttede TUI-udvidelser; kun repositories godkendt af cmux-teamet vises.",
+      "discoveryTitle": "Opdagelse",
+      "discoveryIntro": "Webstedet læser manaflow-ai/awesome-cmux extensions.json ved request-tid og bruger kun den indbyggede seed som fallback. Et repository vises først, når en maintainer merger en post der:",
+      "submitTitle": "Indsend en udvidelse",
+      "submitIntro": "Kør CLI submit fra en cmux-installation for at validere repositoryet og åbne en GitHub-issue:",
+      "submitIssue": "Du kan også åbne formularen direkte og indsætte valideringsoutputtet.",
+      "maintainersTitle": "For maintainere",
+      "maintainersIntro": "Godkendelse betyder at merge en PR, der tilføjer posten til manaflow-ai/awesome-cmux extensions.json; fjernelse er den omvendte PR.",
+      "maintainersReviewQueueAction": "Review-kø",
+      "approvalTitle": "Godkendelse",
+      "approvalIntro": "Godkendelse betyder, at cmux-teamet har gennemgået udvidelsen og understøtter listen:",
+      "approvalInstall": "Vi installerer udvidelsen via preview-flowet og pinner committen.",
+      "approvalReview": "Vi gennemgår manifest, kommandoer, licens og relevant kode.",
+      "approvalDogfood": "Vi tester panes nok til at bekræfte adfærden.",
+      "approvalMerge": "En maintainer merger en PR, der føjer repositoryet til manaflow-ai/awesome-cmux extensions.json.",
+      "installTitle": "Installationskommando",
+      "installIntro": "Galleriet viser en kopierbar terminalkommando for hver udvidelse:",
+      "installConsent": "Indsæt kommandoen i en hvilken som helst terminal. cmux CLI henter repositoryet, validerer manifestet, fastgør installationen til en commit og beder om samtykke, før noget køres.",
+      "takedownsTitle": "Fjernelser",
+      "takedownsIntro": "Fjernelse er den omvendte PR mod manaflow-ai/awesome-cmux extensions.json. Sletning af repositoryposten fjerner den fra det offentlige galleri efter cacheopdatering."
     }
   },
   "legal": {
@@ -1681,6 +1706,18 @@
     "downloadLight": "Download lyst ikon",
     "downloadDark": "Download mørkt ikon",
     "brandPage": "Brandassets"
+  },
+  "extensions": {
+    "metaDescription": "Gennemse cmux TUI-udvidelser, som cmux-teamet har gennemgået og understøtter.",
+    "intro": "Et kurateret galleri med TUI-udvidelser fra fællesskabet; alle her understøttes af cmux-teamet.",
+    "trustNote": "Alle viste udvidelser er gennemgået og understøttet af cmux-teamet. Læs <link>tillidsnoterne</link> før installation.",
+    "supportedLabel": "Understøttet",
+    "submitTitle": "Indsend en udvidelse til gennemgang",
+    "submitBody": "Kør submit-kommandoen for at validere dit repository og åbne en forudfyldt GitHub-issue; godkendelse sker, når en maintainer merger en awesome-cmux registry-PR.",
+    "emptyRegistryTitle": "Ingen udvidelser endnu",
+    "emptyRegistryDescription": "Indsend en udvidelse nedenfor for at starte det kuraterede galleri.",
+    "submitIssueAction": "Åbn indsendelsesissue",
+    "templateAction": "Udvidelsesskabelon"
   },
   "afterSignIn": {
     "title": "Logget ind på cmux",
