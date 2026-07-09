@@ -2,13 +2,12 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileShell
-import CmuxMobileSupport
 import SwiftUI
-import UIKit
 
-struct TerminalArtifactContext: Identifiable, Equatable {
+struct TerminalArtifactContext: Identifiable {
     let workspaceID: String
     let surfaceID: String
+    let anchor: UnitPoint
 
     var id: String { "\(workspaceID)#\(surfaceID)" }
 }
@@ -27,23 +26,25 @@ struct TerminalArtifactFilesSheet: View {
     let source: MobileChatEventSource?
     let loader: ChatArtifactLoader
 
-    @Environment(\.dismiss) private var dismiss
     @State private var state: LoadState = .loading
+    @State private var viewMode: ViewMode = .list
     @State private var selection: TerminalArtifactPathSelection?
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            header
+            Divider()
             content
-                .navigationTitle(L10n.string("mobile.terminal.artifacts.files.title", defaultValue: "Files"))
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
-                            dismiss()
-                        }
-                    }
-                }
         }
-        .environment(\.chatArtifactLoader, loader)
+        .frame(
+            minWidth: 340,
+            idealWidth: 380,
+            maxWidth: 420,
+            minHeight: 420,
+            idealHeight: 500,
+            maxHeight: 600
+        )
+        .background(Color(uiColor: .systemBackground))
         .task(id: "\(workspaceID)#\(surfaceID)") {
             await load()
         }
@@ -53,45 +54,155 @@ struct TerminalArtifactFilesSheet: View {
         }
     }
 
+    private var header: some View {
+        HStack(spacing: 16) {
+            Text(String(
+                localized: "terminal.artifact.gallery.title",
+                defaultValue: "Files",
+                bundle: .module
+            ))
+            .font(.headline)
+
+            Spacer(minLength: 0)
+
+            Picker(
+                String(
+                    localized: "terminal.artifact.gallery.view_mode",
+                    defaultValue: "View",
+                    bundle: .module
+                ),
+                selection: $viewMode
+            ) {
+                Label(
+                    String(
+                        localized: "terminal.artifact.gallery.view_mode.list",
+                        defaultValue: "List",
+                        bundle: .module
+                    ),
+                    systemImage: "list.bullet"
+                )
+                .labelStyle(.iconOnly)
+                .tag(ViewMode.list)
+
+                Label(
+                    String(
+                        localized: "terminal.artifact.gallery.view_mode.grid",
+                        defaultValue: "Icons",
+                        bundle: .module
+                    ),
+                    systemImage: "square.grid.2x2"
+                )
+                .labelStyle(.iconOnly)
+                .tag(ViewMode.grid)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 112)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
     @ViewBuilder
     private var content: some View {
         switch state {
         case .loading:
-            ProgressView()
+            ProgressView(String(
+                localized: "terminal.artifact.gallery.loading",
+                defaultValue: "Loading files...",
+                bundle: .module
+            ))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let artifacts):
             if artifacts.isEmpty {
                 ContentUnavailableView(
-                    L10n.string("mobile.terminal.artifacts.empty.title", defaultValue: "No files detected on screen"),
+                    String(
+                        localized: "terminal.artifact.gallery.empty",
+                        defaultValue: "No files in view",
+                        bundle: .module
+                    ),
                     systemImage: "doc.text.magnifyingglass"
                 )
             } else {
-                List(artifacts) { artifact in
-                    TerminalArtifactFileRow(artifact: artifact) {
-                        selection = TerminalArtifactPathSelection(path: artifact.path)
-                    }
-                }
+                loadedContent(artifacts)
             }
         case .failed:
             ContentUnavailableView {
                 Label(
-                    L10n.string("mobile.terminal.artifacts.unreachable.title", defaultValue: "Mac unreachable"),
+                    String(
+                        localized: "terminal.artifact.gallery.unreachable.title",
+                        defaultValue: "Mac unreachable",
+                        bundle: .module
+                    ),
                     systemImage: "wifi.exclamationmark"
                 )
             } description: {
-                Text(L10n.string(
-                    "mobile.terminal.artifacts.unreachable.message",
-                    defaultValue: "Check the connection to your Mac and try again."
+                Text(String(
+                    localized: "terminal.artifact.gallery.unreachable.message",
+                    defaultValue: "Check the connection to your Mac and try again.",
+                    bundle: .module
                 ))
             } actions: {
                 Button {
                     Task { await load() }
                 } label: {
-                    Label(L10n.string("mobile.terminal.artifacts.retry", defaultValue: "Retry"), systemImage: "arrow.clockwise")
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.retry",
+                            defaultValue: "Retry",
+                            bundle: .module
+                        ),
+                        systemImage: "arrow.clockwise"
+                    )
                 }
                 .buttonStyle(.borderedProminent)
             }
         }
+    }
+
+    @ViewBuilder
+    private func loadedContent(_ artifacts: [TerminalArtifactReference]) -> some View {
+        switch viewMode {
+        case .list:
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(artifacts) { artifact in
+                        TerminalArtifactGalleryItemView(
+                            artifact: artifact,
+                            layout: .list,
+                            loader: loader,
+                            open: { open(artifact) }
+                        )
+                        Divider()
+                            .padding(.leading, 72)
+                    }
+                }
+            }
+        case .grid:
+            ScrollView {
+                LazyVGrid(columns: gridColumns, spacing: 16) {
+                    ForEach(artifacts) { artifact in
+                        TerminalArtifactGalleryItemView(
+                            artifact: artifact,
+                            layout: .grid,
+                            loader: loader,
+                            open: { open(artifact) }
+                        )
+                    }
+                }
+                .padding(16)
+            }
+        }
+    }
+
+    private var gridColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 80, maximum: 120), spacing: 12),
+            count: 3
+        )
+    }
+
+    private func open(_ artifact: TerminalArtifactReference) {
+        selection = TerminalArtifactPathSelection(path: artifact.path)
     }
 
     private func load() async {
@@ -101,8 +212,18 @@ struct TerminalArtifactFilesSheet: View {
             return
         }
         do {
-            let response = try await source.terminalArtifactScan(workspaceID: workspaceID, surfaceID: surfaceID)
-            await MainActor.run { state = .loaded(response.artifacts) }
+            let response = try await source.terminalArtifactScan(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                visibleOnly: true
+            )
+            guard !Task.isCancelled else { return }
+            // Gallery v1 intentionally excludes folders. Folder navigation and a
+            // smarter high-count strategy are deferred to a later iteration.
+            let files = response.artifacts.filter { $0.kind != .directory }
+            await MainActor.run { state = .loaded(files) }
+        } catch is CancellationError {
+            return
         } catch {
             await MainActor.run { state = .failed }
         }
@@ -113,71 +234,15 @@ struct TerminalArtifactFilesSheet: View {
         case loaded([TerminalArtifactReference])
         case failed
     }
-}
 
-private struct TerminalArtifactPathSelection: Identifiable {
-    let path: String
-    var id: String { path }
-}
-
-private struct TerminalArtifactFileRow: View {
-    let artifact: TerminalArtifactReference
-    let open: () -> Void
-
-    @Environment(\.chatArtifactLoader) private var loader
-    @State private var thumbnail: ChatArtifactThumbnail?
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 12) {
-                leading
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(artifact.displayName)
-                        .lineLimit(1)
-                    Text(artifact.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .task(id: artifact.path) {
-            guard artifact.kind == .image else { return }
-            thumbnail = try? await loader.thumbnail(path: artifact.path, maxDimension: 96)
-        }
+    private enum ViewMode: Hashable {
+        case list
+        case grid
     }
 
-    @ViewBuilder
-    private var leading: some View {
-        if let thumbnail,
-           let image = UIImage(data: thumbnail.data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 34, height: 34)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        } else {
-            Image(systemName: symbolName)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(width: 34, height: 34)
-        }
-    }
-
-    private var symbolName: String {
-        switch artifact.kind {
-        case .image:
-            return "photo"
-        case .text:
-            return "doc.text"
-        case .binary:
-            return "doc"
-        case .directory:
-            return "folder"
-        }
+    private struct TerminalArtifactPathSelection: Identifiable {
+        let path: String
+        var id: String { path }
     }
 }
 #endif

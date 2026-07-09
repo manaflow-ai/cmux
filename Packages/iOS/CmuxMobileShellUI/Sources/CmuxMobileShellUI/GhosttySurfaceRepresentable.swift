@@ -44,7 +44,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
-    var onArtifactFilesRequested: @MainActor () -> Void = {}
+    var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
@@ -149,7 +149,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
-        var onArtifactFilesRequested: @MainActor () -> Void
+        var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
@@ -180,7 +180,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
-            onArtifactFilesRequested: @escaping @MainActor () -> Void,
+            onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void
         ) {
             self.surfaceID = surfaceID
@@ -481,10 +481,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        func ghosttySurfaceViewDidRequestArtifactFiles(_ surfaceView: GhosttySurfaceView) {
-            Task { @MainActor [weak self] in
-                self?.onArtifactFilesRequested()
-            }
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didRequestArtifactFilesFrom sourceView: UIView
+        ) {
+            let anchorRect = sourceView.convert(sourceView.bounds, to: surfaceView)
+            let width = max(surfaceView.bounds.width, 1)
+            let height = max(surfaceView.bounds.height, 1)
+            onArtifactFilesRequested(UnitPoint(
+                x: min(max(anchorRect.midX / width, 0), 1),
+                y: min(max(anchorRect.midY / height, 0), 1)
+            ))
         }
 
         func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {

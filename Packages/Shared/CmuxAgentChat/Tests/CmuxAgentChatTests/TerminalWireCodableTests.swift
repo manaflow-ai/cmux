@@ -87,4 +87,39 @@ struct TerminalWireCodableTests {
         let legacy = try JSONSerialization.data(withJSONObject: object)
         #expect(try decoder.decode(ChatSessionDescriptor.self, from: legacy).kind == .agent)
     }
+
+    @Test("Terminal artifact scan metadata round-trips with unix modified time")
+    func terminalArtifactScanMetadataRoundTrip() throws {
+        let modifiedAt = Date(timeIntervalSince1970: 1_649_116_800.25)
+        let response = TerminalArtifactScanResponse(artifacts: [
+            TerminalArtifactReference(
+                path: "/tmp/report.txt",
+                kind: .text,
+                displayName: "report.txt",
+                size: 3_072,
+                modifiedAt: modifiedAt
+            ),
+        ])
+        let coding = ChatWireCoding()
+        let data = try coding.encode(response)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let artifacts = try #require(object["artifacts"] as? [[String: Any]])
+        let artifact = try #require(artifacts.first)
+
+        #expect((artifact["size"] as? NSNumber)?.int64Value == 3_072)
+        #expect((artifact["modified_at"] as? NSNumber)?.doubleValue == modifiedAt.timeIntervalSince1970)
+        #expect(try coding.decode(TerminalArtifactScanResponse.self, from: data) == response)
+    }
+
+    @Test("Terminal artifact scan decodes legacy references without metadata")
+    func terminalArtifactScanLegacyMetadata() throws {
+        let data = #"{"artifacts":[{"path":"/tmp/report.txt","kind":"text","display_name":"report.txt"}]}"#
+            .data(using: .utf8)!
+        let reference = try #require(
+            ChatWireCoding().decode(TerminalArtifactScanResponse.self, from: data).artifacts.first
+        )
+
+        #expect(reference.size == nil)
+        #expect(reference.modifiedAt == nil)
+    }
 }

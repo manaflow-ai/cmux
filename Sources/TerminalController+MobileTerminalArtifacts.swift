@@ -18,7 +18,12 @@ extension TerminalController {
     }
 
     func v2MobileTerminalArtifactScan(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobileTerminalArtifactContext(params: params, requiresPath: false)
+        let visibleOnly = v2Bool(params, "visible_only") ?? false
+        let resolution = mobileTerminalArtifactContext(
+            params: params,
+            requiresPath: false,
+            includeScrollback: !visibleOnly
+        )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }
@@ -102,7 +107,8 @@ extension TerminalController {
 
     private func mobileTerminalArtifactContext(
         params: [String: Any],
-        requiresPath: Bool
+        requiresPath: Bool,
+        includeScrollback: Bool = true
     ) -> TerminalArtifactContextResolution {
         guard let workspaceID = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceID = v2RawString(params, "surface_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -130,9 +136,9 @@ extension TerminalController {
             ) ?? resolved.workspace.currentDirectory
             let terminalText = readTerminalTextForSnapshot(
                 terminalPanel: terminalPanel,
-                includeScrollback: true,
+                includeScrollback: includeScrollback,
                 lineLimit: nil,
-                allowVTExport: true
+                allowVTExport: includeScrollback
             ) ?? ""
             return .success(TerminalArtifactReadContext(
                 terminalText: terminalText,
@@ -236,11 +242,15 @@ private struct TerminalArtifactReadContext: Sendable {
         )
         let artifacts = scope.artifactPaths(limit: 200).compactMap { path -> TerminalArtifactReference? in
             guard let stat = try? reader.stat(path: path) else { return nil }
+            // Terminal gallery v1 is file-only. Tap-to-path bypasses scan, so
+            // folder navigation and a smarter high-count strategy can be deferred.
             guard !stat.isDirectory else { return nil }
             return TerminalArtifactReference(
                 path: path,
                 kind: stat.kind,
-                displayName: URL(fileURLWithPath: path).lastPathComponent
+                displayName: URL(fileURLWithPath: path).lastPathComponent,
+                size: stat.size,
+                modifiedAt: stat.modifiedAt
             )
         }
         return TerminalArtifactScanResponse(artifacts: artifacts)

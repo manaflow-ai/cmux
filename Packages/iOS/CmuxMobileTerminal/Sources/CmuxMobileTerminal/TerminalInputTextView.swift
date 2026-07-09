@@ -49,7 +49,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// the toolbar shortcuts editor.
     var onOpenToolbarSettings: (() -> Void)?
     /// Fired by the Files accessory button when terminal artifacts are supported.
-    var onOpenArtifactFiles: (() -> Void)?
+    /// The source view lets the host anchor an inline popover to the tapped control.
+    var onOpenArtifactFiles: ((UIView) -> Void)?
     /// Invoked when the composer accessory button is tapped. The host toggles
     /// the iMessage-style composer above the terminal.
     var onToggleComposer: (() -> Void)?
@@ -855,7 +856,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         guard let button = sender as? AccessoryActionButton else { return }
         switch button.item {
         case let .builtin(action):
-            handleAccessoryAction(action)
+            handleAccessoryAction(action, sourceView: button)
         case let .custom(custom):
             handleCustomAction(custom)
         }
@@ -1071,7 +1072,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return config
     }
 
-    private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+    private func handleAccessoryAction(
+        _ action: TerminalInputAccessoryAction,
+        sourceView: UIView? = nil
+    ) {
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1095,7 +1099,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if action == .files {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
-            onOpenArtifactFiles?()
+            onOpenArtifactFiles?(sourceView ?? self)
             return
         }
 

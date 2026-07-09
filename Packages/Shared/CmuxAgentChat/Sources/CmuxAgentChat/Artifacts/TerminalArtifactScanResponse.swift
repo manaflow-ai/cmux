@@ -1,3 +1,5 @@
+import Foundation
+
 /// One file-like path detected in terminal output.
 public struct TerminalArtifactReference: Sendable, Equatable, Codable, Identifiable {
     /// Absolute path to request from the Mac.
@@ -6,21 +8,65 @@ public struct TerminalArtifactReference: Sendable, Equatable, Codable, Identifia
     public let kind: ChatArtifactKind
     /// Basename shown in terminal artifact lists.
     public let displayName: String
+    /// Raw byte size when supplied by the scanning host.
+    public let size: Int64?
+    /// Last modification time when supplied by the scanning host.
+    public let modifiedAt: Date?
 
     /// Stable identity for SwiftUI lists.
     public var id: String { path }
 
     /// Creates a terminal artifact reference.
-    public init(path: String, kind: ChatArtifactKind, displayName: String) {
+    /// - Parameters:
+    ///   - path: Absolute path to request from the Mac.
+    ///   - kind: Artifact preview category.
+    ///   - displayName: Basename shown in artifact lists.
+    ///   - size: Raw byte size, when available.
+    ///   - modifiedAt: Last modification time, when available.
+    public init(
+        path: String,
+        kind: ChatArtifactKind,
+        displayName: String,
+        size: Int64? = nil,
+        modifiedAt: Date? = nil
+    ) {
         self.path = path
         self.kind = kind
         self.displayName = displayName
+        self.size = size
+        self.modifiedAt = modifiedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case path
         case kind
         case displayName = "display_name"
+        case size
+        case modifiedAt = "modified_at"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        kind = try container.decode(ChatArtifactKind.self, forKey: .kind)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        size = try? container.decode(Int64.self, forKey: .size)
+        if let seconds = try? container.decode(Double.self, forKey: .modifiedAt) {
+            modifiedAt = Date(timeIntervalSince1970: seconds)
+        } else {
+            modifiedAt = try? container.decode(Date.self, forKey: .modifiedAt)
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(path, forKey: .path)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encodeIfPresent(size, forKey: .size)
+        if let modifiedAt {
+            try container.encode(modifiedAt.timeIntervalSince1970, forKey: .modifiedAt)
+        }
     }
 }
 

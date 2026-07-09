@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import Foundation
+import UIKit
 
 /// Host-side sink for everything a ``GhosttySurfaceView`` produces: input
 /// bytes for the PTY, natural-grid viewport reports, forwarded gestures, and
@@ -32,7 +33,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
     /// The user tapped the terminal Files button. Optional.
-    func ghosttySurfaceViewDidRequestArtifactFiles(_ surfaceView: GhosttySurfaceView)
+    /// - Parameter sourceView: The tapped control to use as the popover anchor.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didRequestArtifactFilesFrom sourceView: UIView)
     /// Forward an image the user pasted from the system clipboard. The host
     /// uploads `data` to the Mac, which materializes a temp file and injects its
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
@@ -67,7 +69,7 @@ public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without a toolbar editor can ignore the request.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal artifacts can ignore the request.
-    func ghosttySurfaceViewDidRequestArtifactFiles(_ surfaceView: GhosttySurfaceView) {}
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didRequestArtifactFilesFrom sourceView: UIView) {}
     /// Default no-op so hosts without image upload can ignore pasted images.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.

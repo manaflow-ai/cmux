@@ -227,10 +227,11 @@ struct WorkspaceDetailView: View {
                     // scrollback survives a theme change.
                     themeGeneration: store.terminalThemeGeneration,
                     artifactFilesEnabled: store.supportsTerminalArtifacts,
-                    onArtifactFilesRequested: {
+                    onArtifactFilesRequested: { anchor in
                         terminalArtifactFilesContext = TerminalArtifactContext(
                             workspaceID: workspace.id.rawValue,
-                            surfaceID: terminalID
+                            surfaceID: terminalID,
+                            anchor: anchor
                         )
                     },
                     onArtifactPathTapped: { path in
@@ -241,6 +242,22 @@ struct WorkspaceDetailView: View {
                         )
                     }
                 )
+                .popover(
+                    item: $terminalArtifactFilesContext,
+                    attachmentAnchor: .point(terminalArtifactFilesContext?.anchor ?? .bottom),
+                    arrowEdge: .bottom
+                ) { context in
+                    TerminalArtifactFilesSheet(
+                        workspaceID: context.workspaceID,
+                        surfaceID: context.surfaceID,
+                        source: store.makeChatEventSource(),
+                        loader: terminalArtifactLoader(
+                            workspaceID: context.workspaceID,
+                            surfaceID: context.surfaceID
+                        )
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
                 // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
@@ -316,17 +333,6 @@ struct WorkspaceDetailView: View {
             // Fill under translucent chrome with the terminal's own color.
             TerminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
-        }
-        .sheet(item: $terminalArtifactFilesContext) { context in
-            TerminalArtifactFilesSheet(
-                workspaceID: context.workspaceID,
-                surfaceID: context.surfaceID,
-                source: store.makeChatEventSource(),
-                loader: terminalArtifactLoader(
-                    workspaceID: context.workspaceID,
-                    surfaceID: context.surfaceID
-                )
-            )
         }
         .sheet(item: $selectedTerminalArtifact) { selection in
             ChatArtifactViewerSheet(path: selection.path)

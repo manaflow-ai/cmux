@@ -535,9 +535,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
-        inputProxy.onOpenArtifactFiles = { [weak self] in
+        inputProxy.onOpenArtifactFiles = { [weak self] sourceView in
             guard let self else { return }
-            self.delegate?.ghosttySurfaceViewDidRequestArtifactFiles(self)
+            self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
