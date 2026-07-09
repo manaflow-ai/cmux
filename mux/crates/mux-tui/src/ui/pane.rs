@@ -6,6 +6,7 @@
 //! pane's border is highlighted — this is also where flashing
 //! notifications will hook in later.
 
+use ghostty_vt::RenderState;
 use mux_core::{BrowserStatus, Rect, SurfaceKind};
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};

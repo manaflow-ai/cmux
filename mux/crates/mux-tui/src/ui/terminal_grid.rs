@@ -8,7 +8,7 @@ use crate::config::Theme;
 pub fn draw_render_state(
     frame: &mut Frame,
     rect: Rect,
-    rs: &RenderState,
+    rs: &mut RenderState,
     theme: &Theme,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
