@@ -62,6 +62,7 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
+let authTombstoneRows: Array<{ userIdHash: string; status: string; updatedAt: Date | null }> = [];
 
 function callMock(fn: unknown, args: unknown[]) {
   return (fn as (...args: unknown[]) => unknown)(...args);
@@ -120,6 +121,17 @@ mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
+    if (authTombstoneRows.length > 0) {
+      return {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: async () => authTombstoneRows,
+            }),
+          }),
+        }),
+      };
+    }
     if (!useStubDb) return realCloudDb();
     throw new Error("DATABASE_URL is required for Cloud VM database access");
   },
@@ -145,6 +157,7 @@ const {
 } = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 
 beforeAll(() => {
   useWorkflowStubs = true;
@@ -160,6 +173,7 @@ beforeEach(() => {
   restoreVmEnv();
   getUser.mockClear();
   getUser.mockResolvedValue(null);
+  authTombstoneRows = [];
   runVmWorkflow.mockClear();
   createVm.mockClear();
   openBaseVm.mockClear();
@@ -203,6 +217,7 @@ describe("VM REST auth", () => {
   });
 
   test("rejects account-deleting users before reaching workflows", async () => {
+    authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date())];
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
@@ -226,6 +241,29 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("allows stale account-deleting metadata after tombstone lease expires", async () => {
+    authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date(0))];
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+
+    const user = await verifyRequest(
+      new Request("https://cmux.test/api/vm", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(user?.id).toBe("user-1");
   });
 
   test("rejects unauthenticated VM mutations before reaching workflows", async () => {
@@ -1458,6 +1496,14 @@ function freePlanStackUser() {
       id: "team-1",
       clientReadOnlyMetadata: { cmuxVmPlan: "free" },
     }],
+  };
+}
+
+function accountDeletionAuthTombstone(userId: string, status: string, updatedAt: Date | null) {
+  return {
+    userIdHash: accountDeletionUserHash(userId),
+    status,
+    updatedAt,
   };
 }
 

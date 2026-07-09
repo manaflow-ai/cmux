@@ -1,4 +1,11 @@
+import { eq } from "drizzle-orm";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
+import { cloudDb } from "../../db/client";
+import { accountDeletionTombstones } from "../../db/schema";
+import {
+  accountDeletionUserHash,
+  isBlockingAccountDeletionTombstone,
+} from "../account/deletionLock";
 import {
   billingPlanIdFromMetadata,
   billingTeamFromUnknown,
@@ -77,7 +84,7 @@ async function authedUserFromStackUser(
   user: StackUserLike,
   options: { readonly requestedTeamId?: string | null; readonly allowDeletingAccount?: boolean },
 ): Promise<AuthedUser | null> {
-  if (!options.allowDeletingAccount && isAccountDeletionInProgress(user.clientReadOnlyMetadata)) {
+  if (!options.allowDeletingAccount && await isAccountDeletionAuthBlocked(user)) {
     return null;
   }
 
@@ -119,7 +126,23 @@ async function authedUserFromStackUser(
   };
 }
 
-function isAccountDeletionInProgress(metadata: unknown): boolean {
+async function isAccountDeletionAuthBlocked(user: StackUserLike): Promise<boolean> {
+  if (!hasAccountDeletionMetadataFlag(user.clientReadOnlyMetadata)) return false;
+  const userIdHash = accountDeletionUserHash(user.id);
+  const [deletion] = await cloudDb()
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  return deletion?.userIdHash === userIdHash &&
+    isBlockingAccountDeletionTombstone(deletion);
+}
+
+function hasAccountDeletionMetadataFlag(metadata: unknown): boolean {
   return !!metadata &&
     typeof metadata === "object" &&
     !Array.isArray(metadata) &&
