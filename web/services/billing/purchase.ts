@@ -209,6 +209,9 @@ export async function applySubscriptionUpdate(
     mappedStackUserId !== stackUserId &&
     metadataStackUserId !== stackUserId
   ) return { skipped: true };
+  const isMetadataOnlyUserSubscription = !hasUserSubscription &&
+    !mappedStackUserId &&
+    metadataStackUserId === stackUserId;
 
   if (hasUserSubscription) {
     await updateExistingUserStripeSubscription(db, {
@@ -219,6 +222,7 @@ export async function applySubscriptionUpdate(
   }
 
   const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  if (!user && isMetadataOnlyUserSubscription) return { skipped: true };
   if (!user) throw new Error(`Stack user not found for Stripe subscription update: ${stackUserId}`);
   if (isAccountDeletionInProgress(user)) return { skipped: true };
 

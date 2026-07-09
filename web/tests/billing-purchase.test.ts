@@ -676,6 +676,24 @@ describe("recordCheckoutCompletion", () => {
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
   });
 
+  test("skips metadata-only user subscription webhooks after local account rows are gone", async () => {
+    const getUser = mock(async () => null);
+    selectResults = [[], []];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).toHaveBeenCalledWith("user_123");
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("skips user subscription webhooks for anonymized local customer rows", async () => {
     const getUser = mock(async () => {
       throw new Error("should not load Stack user for anonymized local customer");
