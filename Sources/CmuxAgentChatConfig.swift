@@ -275,7 +275,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
     }
 
     func removeStateFile(launchId: String? = nil) async {
-        let stateFileURL = launchId.map { stateFileURL(launchId: $0) }
+        let stateFileURL = launchId.map { self.stateFileURL(launchId: $0) }
         let directoryURL = directoryURL
         let fileSystem = fileSystem
         await Task.detached(priority: .utility) {
@@ -297,7 +297,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
         launchId: String,
         launchDate: Date
     ) async -> AgentChatOwnedServerSession? {
-        let stateFileURL = stateFileURL
+        let stateFileURL = stateFileURL(launchId: launchId)
         let fileSystem = fileSystem
         return await Task.detached(priority: .utility) { () -> AgentChatOwnedServerSession? in
             let fileManager = fileSystem.fileManager
