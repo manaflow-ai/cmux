@@ -79,9 +79,10 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     }
 
     func requestObjects() throws -> [[String: Any]] {
-        try receivedLinesSnapshot().compactMap { line in
+        receivedLinesSnapshot().compactMap { line in
             guard let data = line.data(using: .utf8),
-                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                  let value = try? JSONSerialization.jsonObject(with: data),
+                  let object = value as? [String: Any] else {
                 return nil
             }
             return object
