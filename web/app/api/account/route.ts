@@ -19,6 +19,7 @@ import {
   notificationSendEvents,
   stripeCustomers,
   stripeSubscriptions,
+  subrouterTenants,
   vaultCliAuthRequests,
   vaultSessions,
   vaultSnapshots,
@@ -31,6 +32,10 @@ import {
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
+import {
+  createSubrouterClientFromEnv,
+  SubrouterClientError,
+} from "../../../services/subrouter/client";
 import { deleteObject } from "../../../services/vault/storage";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -63,6 +68,7 @@ export async function DELETE(request: Request): Promise<Response> {
     stackMetadataMarked = true;
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultRowsAndObjectsForAccount(user.id);
+    await deletePersonalSubrouterTenant(user.id);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -372,10 +378,27 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
       .set({ createdByUserId: DELETED_ACCOUNT_ACTOR_ID, updatedAt: now })
       .where(eq(cloudVmBaseGenerations.createdByUserId, userId));
 
-    await tx.delete(devices).where(eq(devices.userId, userId));
+    await tx.delete(devices).where(eq(devices.teamId, userId));
 
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, userId));
   });
+}
+
+async function deletePersonalSubrouterTenant(userId: string): Promise<void> {
+  const db = cloudDb();
+  const [tenant] = await db
+    .select({ tenantId: subrouterTenants.tenantId })
+    .from(subrouterTenants)
+    .where(eq(subrouterTenants.teamId, userId))
+    .limit(1);
+  if (!tenant) return;
+
+  try {
+    await createSubrouterClientFromEnv().revokeTenant(tenant.tenantId);
+  } catch (error) {
+    if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
+  }
+  await db.delete(subrouterTenants).where(eq(subrouterTenants.teamId, userId));
 }
 
 function personalVmScope(userId: string) {

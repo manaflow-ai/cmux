@@ -182,6 +182,18 @@ describe("syncProPlanMetadata", () => {
     expect(user.updates).toEqual([{ theme: "dark" }]);
   });
 
+  test("does not write pro metadata while account deletion is in progress", async () => {
+    const user = metadataUser({ cmuxAccountDeleting: true });
+    await syncProPlanMetadata(user, true);
+    expect(user.updates).toEqual([]);
+  });
+
+  test("does not clear pro metadata while account deletion is in progress", async () => {
+    const user = metadataUser({ cmuxAccountDeleting: true, cmuxPlan: PRO_PLAN_ID });
+    await syncProPlanMetadata(user, false);
+    expect(user.updates).toEqual([]);
+  });
+
   test("leaves cmuxVmPlan override untouched", async () => {
     const user = metadataUser({ cmuxVmPlan: "enterprise" });
     await syncProPlanMetadata(user, true);

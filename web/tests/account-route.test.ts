@@ -5,8 +5,10 @@ import {
   cloudVmBases,
   cloudVmBillingGrants,
   cloudVms,
+  devices,
   stripeCustomers,
   stripeSubscriptions,
+  subrouterTenants,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -32,6 +34,8 @@ const realIsStripeBillingConfigured = stripeModule.isStripeBillingConfigured;
 const realStripe = stripeModule.stripe;
 const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
+const subrouterClientModule = await import("../services/subrouter/client");
+const realCreateSubrouterClientFromEnv = subrouterClientModule.createSubrouterClientFromEnv;
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
 const realListUserVms = workflowsModule.listUserVms;
@@ -54,7 +58,9 @@ const deleteRows = mock((table: unknown) => {
   deletedTables.push(table);
   deletedTableCount += 1;
   return {
-    where: async () => {},
+    where: async (condition: unknown) => {
+      deletedWhere.push({ table, condition });
+    },
   };
 });
 const updateRows = mock((table: unknown) => ({
@@ -112,9 +118,15 @@ const deleteCustomer = mock(async (...args: unknown[]) => {
   deletedStripeCustomers.push(customerId);
   if (stripeDeleteCustomerError) throw stripeDeleteCustomerError;
 });
+const revokeTenant = mock(async (...args: unknown[]) => {
+  const [tenantId] = args as [string];
+  routeEvents.push(`subrouter-revoke:${tenantId}`);
+  if (subrouterRevokeError) throw subrouterRevokeError;
+});
 
 let deletedTableCount = 0;
 let deletedTables: unknown[] = [];
+let deletedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
@@ -129,6 +141,7 @@ let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
+let subrouterRevokeError: unknown = null;
 let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
@@ -216,6 +229,15 @@ mock.module("../services/billing/stripe", () => ({
     : realStripe(),
 }));
 
+mock.module("../services/subrouter/client", () => ({
+  ...subrouterClientModule,
+  createSubrouterClientFromEnv: () => useAccountRouteStubs
+    ? {
+        revokeTenant,
+      }
+    : realCreateSubrouterClientFromEnv(),
+}));
+
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
   destroyVm: ((...args: Parameters<typeof realDestroyVm>) => {
@@ -261,8 +283,10 @@ beforeEach(() => {
   deleteObject.mockClear();
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
+  revokeTenant.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
+  deletedWhere = [];
   updatedRows = [];
   routeEvents = [];
   stackDeleteError = null;
@@ -277,6 +301,7 @@ beforeEach(() => {
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
   destroyVmFailureProviderIds = new Set();
+  subrouterRevokeError = null;
 });
 
 afterEach(() => {
@@ -313,6 +338,7 @@ describe("account deletion route", () => {
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
+    expect(deletedTables).toContain(devices);
     expect(updatedRows.map(({ table, values }) => ({
       table,
       values: stripUpdatedAt(values),
@@ -364,6 +390,37 @@ describe("account deletion route", () => {
       "stack-delete",
       "transaction",
     ]);
+  });
+
+  test("revokes the personal Subrouter tenant before deleting local rows", async () => {
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ tenantId: "tenant-personal" }],
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
+    expect(deletedTables).toContain(subrouterTenants);
+    expect(routeEvents.indexOf("subrouter-revoke:tenant-personal")).toBeLessThan(
+      routeEvents.indexOf("transaction"),
+    );
+  });
+
+  test("does not delete shared team devices registered by the deleted user", async () => {
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deletedTables).toContain(devices);
+    const deviceDelete = deletedWhere.find((entry) => entry.table === devices);
+    expect(conditionColumnNames(deviceDelete?.condition)).toContain("team_id");
+    expect(conditionColumnNames(deviceDelete?.condition)).not.toContain("user_id");
   });
 
   test("deletes vault rows in bounded batches after their objects are removed", async () => {
@@ -521,6 +578,7 @@ describe("account deletion route", () => {
       [],
       [],
       [],
+      [],
       [{ id: "post-stack-session", latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
     ];
 
@@ -595,6 +653,26 @@ function stripUpdatedAt(values: unknown): Record<string, unknown> {
   const copy = { ...(values as Record<string, unknown>) };
   delete copy.updatedAt;
   return copy;
+}
+
+function conditionColumnNames(condition: unknown): string[] {
+  const names: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const candidate = value as {
+      readonly name?: unknown;
+      readonly table?: unknown;
+      readonly queryChunks?: readonly unknown[];
+    };
+    if (typeof candidate.name === "string" && candidate.table) {
+      names.push(candidate.name);
+    }
+    if (Array.isArray(candidate.queryChunks)) {
+      for (const chunk of candidate.queryChunks) visit(chunk);
+    }
+  };
+  visit(condition);
+  return names;
 }
 
 function isAccountDeletionVaultObject(objectKey: string): boolean {

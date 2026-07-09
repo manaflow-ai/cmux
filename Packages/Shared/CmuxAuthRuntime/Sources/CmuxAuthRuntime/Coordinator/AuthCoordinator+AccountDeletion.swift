@@ -8,6 +8,10 @@ public enum AccountDeletionRequestError: Error, Equatable {
     /// definitive response. The backend may still complete account deletion, so
     /// callers must treat the local session as no longer trustworthy.
     case timedOut
+    /// The DELETE request reached the network/server boundary but did not return
+    /// a definitive account-deletion result. The backend may still complete
+    /// deletion after this client gives up.
+    case completionUnknown
     case rejected(statusCode: Int)
     case invalidResponse
 }
@@ -53,6 +57,8 @@ struct AccountDeletionClient: Sendable {
             (data, response) = try await load(request)
         } catch let error as URLError where error.code == .timedOut {
             throw AccountDeletionRequestError.timedOut
+        } catch is URLError {
+            throw AccountDeletionRequestError.completionUnknown
         }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AccountDeletionRequestError.invalidResponse
@@ -66,6 +72,9 @@ struct AccountDeletionClient: Sendable {
             if Self.isRetryablePartialDeletionError(Self.errorCode(in: data)) {
                 throw AccountDeletionRequestError.stackDeleteIncomplete
             }
+            if Self.isAmbiguousHTTPStatus(httpResponse.statusCode) {
+                throw AccountDeletionRequestError.completionUnknown
+            }
             throw AccountDeletionRequestError.rejected(statusCode: httpResponse.statusCode)
         }
     }
@@ -77,6 +86,10 @@ struct AccountDeletionClient: Sendable {
     private static func isRetryablePartialDeletionError(_ code: String?) -> Bool {
         code == "account_delete_retryable" ||
             code == "account_stack_delete_failed_after_data_delete"
+    }
+
+    private static func isAmbiguousHTTPStatus(_ statusCode: Int) -> Bool {
+        statusCode == 408 || statusCode >= 500
     }
 }
 
@@ -91,9 +104,19 @@ extension AuthCoordinator {
         let tokens = try await runTokenTouchingPhase(.accountDeletion, timeout: timeout) {
             try await self.currentTokens()
         }
-        try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
+        try await AccountDeletionClient(
+            apiBaseURL: apiBaseURL,
+            requestTimeout: timeout.urlRequestTimeoutInterval
+        ).deleteAccount(
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken
         )
+    }
+}
+
+private extension Duration {
+    var urlRequestTimeoutInterval: TimeInterval {
+        let value = components
+        return TimeInterval(value.seconds) + TimeInterval(value.attoseconds) / 1_000_000_000_000_000_000
     }
 }

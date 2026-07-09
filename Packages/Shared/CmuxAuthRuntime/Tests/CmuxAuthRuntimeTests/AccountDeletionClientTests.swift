@@ -91,6 +91,34 @@ struct AccountDeletionClientTests {
             try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
         }
     }
+
+    @Test func deleteAccountMapsAmbiguousTransportFailure() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { _ in
+            throw URLError(.networkConnectionLost)
+        }
+
+        await #expect(throws: AccountDeletionRequestError.completionUnknown) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
+
+    @Test func deleteAccountMapsAmbiguousServerFailure() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { request in
+            (
+                Data(),
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 504,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+            )
+        }
+
+        await #expect(throws: AccountDeletionRequestError.completionUnknown) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
 }
 
 actor RecordedAccountDeletionRequest {
