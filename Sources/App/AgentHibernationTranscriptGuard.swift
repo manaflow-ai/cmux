@@ -211,14 +211,17 @@ enum AgentHibernationTranscriptGuard {
                 withIntermediateDirectories: true
             )
             try? fileManager.removeItem(at: tempURL)
-            // Restore streams via APFS clone plus chunked append so large
-            // transcripts never need to fit in memory.
             try fileManager.copyItem(atPath: snapshot.snapshotPath, toPath: tempURL.path)
             try appendLiveStubIfPresent(
                 from: transcriptURL,
                 toRestoreFile: tempURL,
                 fileManager: fileManager
             )
+            guard !fileManager.fileExists(atPath: transcriptURL.path) ||
+                transcriptContainsOnlyNonProtectiveMetadata(atPath: transcriptURL.path, fileManager: fileManager) else {
+                try? fileManager.removeItem(at: tempURL)
+                return false
+            }
             if fileManager.fileExists(atPath: transcriptURL.path) {
                 _ = try fileManager.replaceItemAt(transcriptURL, withItemAt: tempURL)
             } else {
@@ -388,7 +391,7 @@ enum AgentHibernationTranscriptGuard {
                       lineDataIsNonProtectiveMetadata(buffered, sawMetadata: &sawMetadata) else {
                     return false
                 }
-                return sawMetadata
+                return true
             }
 
             buffered.append(chunk)
