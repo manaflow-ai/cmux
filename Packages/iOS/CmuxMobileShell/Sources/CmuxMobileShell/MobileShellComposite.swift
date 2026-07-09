@@ -2577,15 +2577,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         dropStalePreviousForeground(previousForegroundKey)
         connectionState = .connected
         markMacConnectionHealthy()
-        // Tear down the OLD foreground's terminal event listener before starting a
-        // fresh one. `cancelRemoteOperationTasks()` above does NOT clear
-        // `terminalEventListenerTask`/`terminalEventListenerID`, and
-        // `startTerminalRefreshPolling()` no-ops while a listener task is still
-        // installed — so without this the promoted client would never get its
-        // terminal/workspace/notification push stream and output would stall until
-        // some other path restarted it. The stop+start mirrors `restartEventStream`;
-        // the old listener's `== listenerID` defer guard keeps its async teardown
-        // from clobbering the new listener/watchdog.
+        // Restart the event stream for the promoted foreground client.
         stopTerminalRefreshPolling()
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
@@ -2606,8 +2598,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let switchAttemptID = beginMacSwitchAttempt()
         var shouldFinishSwitchAttempt = true
         defer { if shouldFinishSwitchAttempt { finishMacSwitchAttempt(switchAttemptID) } }
-        // FAST PATH: if a live read-only connection to this Mac already exists,
-        // promote it to the foreground (reuse the client) instead of re-dialing.
         if await promoteSecondaryToForeground(macDeviceID, switchAttemptID: switchAttemptID) {
             macSwitchRestoreBaseline = nil
             return true
@@ -2616,13 +2606,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
             return false
         }
-        // Refresh routes from the per-user backup so a Mac that relaunched on a
-        // new port is reachable — the same freshness guarantee auto-connect and
-        // aggregation use — then resolve the target from the STORE (authoritative).
-        // The multi-Mac aggregation reads Macs straight from the store and can
-        // surface a Mac (a freshly restored secondary) that the in-memory
-        // `pairedMacs` cache has not loaded yet; gating on that cache would no-op
-        // the open and strand the user on a workspace whose Mac never connected.
+        // Refresh routes and resolve the target from the store before dialing.
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: identityProvider?.currentUserID)
             guard isCurrentMacSwitchAttempt(switchAttemptID) else {
@@ -2651,21 +2635,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return false
         }
-        // Already foreground on this exact Mac: skip the re-dial. Gate on the LIVE
-        // foreground identity, not the persisted `isActive` flag — `isActive` is
-        // stored preference state that can lag the real connection (e.g.
-        // `promoteSecondaryToForeground` writes it via an unawaited Task, and it is
-        // stale during reconnect/switch races). Trusting it could make `openWorkspace`
-        // proceed without switching and route input/mutations to the wrong Mac.
         if foregroundMacDeviceID == macDeviceID,
            connectionState == .connected,
            remoteClient != nil {
             macSwitchRestoreBaseline = nil
             return true
         }
-        // The LIVE foreground Mac to fall back to if the destructive switch fails.
-        // Persisted `isActive` can lag the connection, so use the foreground id
-        // captured before `connectManualHost` clears/replaces the live context.
         let previousForegroundMacDeviceID = foregroundMacDeviceID
         let previousForegroundMac = previousForegroundMacForSwitchRestore(
             previousForegroundMacDeviceID: previousForegroundMacDeviceID,
@@ -2724,11 +2699,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 break
             }
         }
-        // The switch succeeded only if the live foreground identity is THIS Mac.
-        // `connect(..., pairedMacDeviceID:)` stamps the foreground state with the
-        // target id after a successful connection, while a superseding switch leaves
-        // a different foreground id. Trust that identity instead of exact host/port
-        // text equality, which can differ across normalized routes.
         let switched = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID == macDeviceID
@@ -2746,9 +2716,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
-            // The switch did not connect and the destructive connect path dropped
-            // the previous session; reconnect to the still-active previous Mac so
-            // the user is not left stranded on a failed switch.
             let restoreTarget = macSwitchRestoreBaseline ?? previousForegroundMac
             if await restorePreviousMacIfNeeded(restoreTarget, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
