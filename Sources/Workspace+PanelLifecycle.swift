@@ -134,7 +134,7 @@ extension Workspace {
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
-        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId); AgentHibernationController.shared.cancelPostTeardownRestoreTask(workspaceId: id, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)

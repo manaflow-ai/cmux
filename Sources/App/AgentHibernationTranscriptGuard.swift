@@ -205,11 +205,12 @@ enum AgentHibernationTranscriptGuard {
             ".\(transcriptURL.lastPathComponent).restore-\(UUID().uuidString).tmp",
             isDirectory: false
         )
+        let protectedAttributes = try? fileManager.attributesOfItem(atPath: transcriptURL.path)
+        let protectedFile = (protectedAttributes?[.systemFileNumber] as? NSNumber)?.uint64Value
+        let protectedSize = (protectedAttributes?[.size] as? NSNumber)?.uint64Value
+        let protectedModificationDate = protectedAttributes?[.modificationDate] as? Date
         do {
-            try fileManager.createDirectory(
-                at: directoryURL,
-                withIntermediateDirectories: true
-            )
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             try? fileManager.removeItem(at: tempURL)
             try fileManager.copyItem(atPath: snapshot.snapshotPath, toPath: tempURL.path)
             try appendLiveStubIfPresent(
@@ -217,8 +218,10 @@ enum AgentHibernationTranscriptGuard {
                 toRestoreFile: tempURL,
                 fileManager: fileManager
             )
-            guard !fileManager.fileExists(atPath: transcriptURL.path) ||
-                transcriptContainsOnlyNonProtectiveMetadata(atPath: transcriptURL.path, fileManager: fileManager) else {
+            let currentAttributes = try? fileManager.attributesOfItem(atPath: transcriptURL.path)
+            guard (currentAttributes?[.systemFileNumber] as? NSNumber)?.uint64Value == protectedFile,
+                  (currentAttributes?[.size] as? NSNumber)?.uint64Value == protectedSize,
+                  (currentAttributes?[.modificationDate] as? Date) == protectedModificationDate else {
                 try? fileManager.removeItem(at: tempURL)
                 return false
             }
