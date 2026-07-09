@@ -1853,6 +1853,22 @@ enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
+enum BrowserInsecureHTTPNavigationResolution {
+    case openedExternally
+    case proceededInCurrentTab
+    case proceededInNewTab
+    case cancelled
+
+    var isTerminalPolicyCancellation: Bool {
+        switch self {
+        case .openedExternally, .proceededInNewTab, .cancelled:
+            true
+        case .proceededInCurrentTab:
+            false
+        }
+    }
+}
+
 nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
     case deferredURL = "deferred_url"
@@ -3806,8 +3822,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 switch cancellationKind {
                 case .terminal:
-                    self.hasCommittedDocumentSinceWebViewReplacement = true
-                    self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_policy_cancelled")
+                    self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled()
                 }
             }
         }
@@ -3846,6 +3861,11 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate?.clearAttemptedRequest()
         refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+    }
+
+    private func noteDiscardedWebViewRestoreNavigationTerminallyCancelled() {
+        hasCommittedDocumentSinceWebViewReplacement = true
+        noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_policy_cancelled")
     }
 
     private func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
@@ -4007,7 +4027,15 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] in self?.shouldBlockInsecureHTTPNavigation(to: $0) ?? false }
         navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
-            self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
+            self?.presentInsecureHTTPAlert(
+                for: request,
+                intent: intent,
+                recordTypedNavigation: false,
+                onResolution: { [weak self] resolution in
+                    guard resolution.isTerminalPolicyCancellation else { return }
+                    self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled()
+                }
+            )
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
@@ -5859,7 +5887,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private func presentInsecureHTTPAlert(
         for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool
+        recordTypedNavigation: Bool,
+        onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in }
     ) {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
@@ -5882,7 +5911,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 request: request,
                 url: url,
                 intent: intent,
-                recordTypedNavigation: recordTypedNavigation
+                recordTypedNavigation: recordTypedNavigation,
+                onResolution: onResolution
             )
         }
 
@@ -5906,7 +5936,8 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool
+        recordTypedNavigation: Bool,
+        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
@@ -5916,16 +5947,20 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch response {
         case .alertFirstButtonReturn:
+            onResolution(.openedExternally)
             NSWorkspace.shared.open(url)
         case .alertSecondButtonReturn:
             switch intent {
             case .currentTab:
+                onResolution(.proceededInCurrentTab)
                 insecureHTTPBypassHostOnce = host
                 navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
             case .newTab:
+                onResolution(.proceededInNewTab)
                 openLinkInNewTab(request: request, bypassInsecureHTTPHostOnce: host)
             }
         default:
+            onResolution(.cancelled)
             return
         }
     }
