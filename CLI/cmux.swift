@@ -35691,6 +35691,7 @@ export default CMUXSessionRestore;
           claude-teams [claude-args...]
           codex-teams [codex-args...]
           omo [opencode-args...]
+          omo-slim [opencode-args...]        (alias: omos)
           omx [omx-args...]
           omc [omc-args...]
           hooks setup|uninstall [--agent <name>]

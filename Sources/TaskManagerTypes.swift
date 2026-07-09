@@ -577,7 +577,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             assetName: "AgentIcons/OpenCode",
             launchKinds: ["opencode", "omo", "omo-slim", "omos"],
             directBasenames: ["opencode", "opencode-ai", "open-code", "omo", "omo-slim", "omos"],
-            argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent", "oh-my-opencode-slim", "omos"]
+            argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent", "oh-my-opencode-slim", "omo-slim", "omos"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "omp",
