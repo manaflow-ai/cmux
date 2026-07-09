@@ -445,7 +445,6 @@ export async function assertAccountDeletionCanStart(
 ): Promise<void> {
   const scope = accountDeletionScope(input);
   const { customerRows, subscriptionRows } = await accountDeletionStripeBillingRows(scope, runtime);
-  assertRetainedTeamBillingOwners(scope, customerRows, subscriptionRows);
   const hasStripeBillingRows = customerRows.length > 0 || subscriptionRows.length > 0;
   const isBillingConfigured = runtime.isStripeBillingConfigured ?? isStripeBillingConfigured;
   if (hasStripeBillingRows && !isBillingConfigured()) {
@@ -580,6 +579,10 @@ export async function deleteCmuxAccountData(
         ),
         and(
           inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
+          eq(stripeSubscriptions.scope, "team"),
+        ),
+        and(
+          eq(stripeSubscriptions.stackUserId, input.userId),
           eq(stripeSubscriptions.scope, "team"),
         ),
       ));
@@ -993,7 +996,6 @@ async function cancelStripeAccountBilling(
   const { customerRows, subscriptionRows } = await accountDeletionStripeBillingRows(scope, runtime);
 
   if (customerRows.length === 0 && subscriptionRows.length === 0) return;
-  assertRetainedTeamBillingOwners(scope, customerRows, subscriptionRows);
   const isBillingConfigured = runtime.isStripeBillingConfigured ?? isStripeBillingConfigured;
   if (!isBillingConfigured()) {
     throw new Error("Stripe account deletion is not configured");
@@ -1002,37 +1004,46 @@ async function cancelStripeAccountBilling(
   const stripeClient = (runtime.stripeClient ?? stripe)();
   for (const customer of customerRows) {
     const retainedOwnerId = retainedTeamBillingOwnerFor(scope, customer.stackTeamId, scope.userId);
+    const clearStackTeamId = isOwnedBillingTeamId(scope, customer.stackTeamId) ||
+      shouldCancelRetainedTeamBilling(scope, customer.stackTeamId, scope.userId, retainedOwnerId);
     await updateStripeCustomerForAccountDeletion(
       stripeClient,
       customer.id,
       anonymizedUserId,
-      isOwnedBillingTeamId(scope, customer.stackTeamId),
+      clearStackTeamId,
       retainedOwnerId,
     );
   }
   for (const subscription of subscriptionRows) {
+    const retainedOwnerId = retainedTeamBillingOwnerFor(
+      scope,
+      subscription.stackTeamId,
+      subscription.stackUserId,
+    );
+    const clearStackTeamId = isOwnedBillingTeamId(scope, subscription.stackTeamId) ||
+      shouldCancelRetainedTeamBilling(
+        scope,
+        subscription.stackTeamId,
+        subscription.stackUserId,
+        retainedOwnerId,
+      );
     if (shouldCancelStripeSubscriptionForAccountDeletion(scope, subscription)) {
       await cancelStripeSubscriptionForAccountDeletion(
         stripeClient,
         subscription.id,
         anonymizedUserId,
-        isOwnedBillingTeamId(scope, subscription.stackTeamId),
+        clearStackTeamId,
         null,
         subscription,
       );
       continue;
     }
 
-    const retainedOwnerId = retainedTeamBillingOwnerFor(
-      scope,
-      subscription.stackTeamId,
-      subscription.stackUserId,
-    );
     await updateStripeSubscriptionForAccountDeletion(
       stripeClient,
       subscription.id,
       anonymizedUserId,
-      isOwnedBillingTeamId(scope, subscription.stackTeamId),
+      clearStackTeamId,
       retainedOwnerId,
       subscription,
     );
@@ -1165,7 +1176,24 @@ function shouldCancelStripeSubscriptionForAccountDeletion(
   ) {
     return true;
   }
-  return isOwnedBillingTeamId(scope, subscription.stackTeamId) &&
+  if (
+    isOwnedBillingTeamId(scope, subscription.stackTeamId) &&
+    subscription.scope === "team" &&
+    subscription.plan === TEAM_PLAN_ID
+  ) {
+    return true;
+  }
+  const retainedOwnerId = retainedTeamBillingOwnerFor(
+    scope,
+    subscription.stackTeamId,
+    subscription.stackUserId,
+  );
+  return shouldCancelRetainedTeamBilling(
+    scope,
+    subscription.stackTeamId,
+    subscription.stackUserId,
+    retainedOwnerId,
+  ) &&
     subscription.scope === "team" &&
     subscription.plan === TEAM_PLAN_ID;
 }
@@ -1215,35 +1243,6 @@ function deletedAccountEmail(anonymizedUserId: string): string {
   return `deleted+${suffix}@cmux.com`;
 }
 
-function assertRetainedTeamBillingOwners(
-  scope: AccountDeletionScope,
-  customerRows: readonly { readonly stackTeamId: string | null }[],
-  subscriptionRows: readonly {
-    readonly scope: string;
-    readonly stackTeamId: string | null;
-    readonly stackUserId: string | null;
-  }[],
-): void {
-  const retainedTeamIds = new Set<string>();
-  for (const customer of customerRows) {
-    if (retainedTeamBillingOwnerFor(scope, customer.stackTeamId, scope.userId)) continue;
-    if (needsRetainedTeamBillingOwner(scope, customer.stackTeamId, scope.userId)) {
-      retainedTeamIds.add(customer.stackTeamId);
-    }
-  }
-  for (const subscription of subscriptionRows) {
-    if (subscription.scope !== "team") continue;
-    if (retainedTeamBillingOwnerFor(scope, subscription.stackTeamId, subscription.stackUserId)) continue;
-    if (needsRetainedTeamBillingOwner(scope, subscription.stackTeamId, subscription.stackUserId)) {
-      retainedTeamIds.add(subscription.stackTeamId);
-    }
-  }
-  if (retainedTeamIds.size === 0) return;
-  throw new Error(
-    `Account deletion retained team billing owner missing for ${Array.from(retainedTeamIds).sort().join(", ")}`,
-  );
-}
-
 function isOwnedBillingTeamId(scope: AccountDeletionScope, stackTeamId: string | null): boolean {
   return !!stackTeamId && scope.ownedBillingTeamIds.includes(stackTeamId);
 }
@@ -1265,6 +1264,15 @@ function needsRetainedTeamBillingOwner(
   return !!stackTeamId &&
     stackUserId === scope.userId &&
     !isOwnedBillingTeamId(scope, stackTeamId);
+}
+
+function shouldCancelRetainedTeamBilling(
+  scope: AccountDeletionScope,
+  stackTeamId: string | null,
+  stackUserId: string | null,
+  retainedOwnerId: string | null,
+): boolean {
+  return !retainedOwnerId && needsRetainedTeamBillingOwner(scope, stackTeamId, stackUserId);
 }
 
 async function retrieveStripeSubscriptionForAccountDeletion(

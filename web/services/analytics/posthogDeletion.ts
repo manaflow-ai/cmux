@@ -38,7 +38,7 @@ export async function deletePostHogPersonData(
       signal: controller.signal,
     });
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (controller.signal.aborted || isAbortError(error)) {
       throw new Error("PostHog account deletion timed out", { cause: error });
     }
     throw error;
@@ -69,6 +69,10 @@ function postHogDeletionTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_POSTHOG_DELETION_TIMEOUT_MS;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function normalizedDistinctIds(values: readonly string[]): string[] {

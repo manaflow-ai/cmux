@@ -108,6 +108,24 @@ describe("PostHog account deletion", () => {
       .rejects.toThrow("PostHog account deletion failed: 1 deletion error(s)");
   });
 
+  test("times out stalled PostHog deletion requests", async () => {
+    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
+    delete process.env.POSTHOG_PROJECT_ID;
+    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
+    process.env.POSTHOG_DELETION_TIMEOUT_MS = "1";
+    globalThis.fetch = mock(async (...args: unknown[]) => {
+      const [, init] = args as [string | URL | Request, RequestInit | undefined];
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        }, { once: true });
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
+      .rejects.toThrow("PostHog account deletion timed out");
+  });
+
   test("fails closed when PostHog deletion is not configured", async () => {
     delete process.env.POSTHOG_ENVIRONMENT_ID;
     delete process.env.POSTHOG_PROJECT_ID;
@@ -119,23 +137,6 @@ describe("PostHog account deletion", () => {
       .rejects.toThrow("PostHog account deletion is not configured");
 
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("fails closed when PostHog deletion times out", async () => {
-    process.env.POSTHOG_ENVIRONMENT_ID = "env-123";
-    delete process.env.POSTHOG_PROJECT_ID;
-    process.env.POSTHOG_PERSONAL_API_KEY = "phx_personal";
-    process.env.POSTHOG_DELETION_TIMEOUT_MS = "1";
-    globalThis.fetch = mock(async (...args: unknown[]) => {
-      const [, init] = args as [string | URL | Request, RequestInit | undefined];
-      await new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-      });
-      return new Response(null, { status: 200 });
-    }) as unknown as typeof fetch;
-
-    await expect(deletePostHogPersonData("stack-user-1", ["anon-1"]))
-      .rejects.toThrow("PostHog account deletion timed out");
   });
 });
 
