@@ -102,43 +102,6 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
-        sendMessage message: Any,
-        toApplicationWithIdentifier applicationIdentifier: String?,
-        for extensionContext: WKWebExtensionContext,
-        replyHandler: @escaping (Any?, Error?) -> Void
-    ) {
-        // Native messaging (e.g. Bitwarden's desktop-app biometrics IPC) is not
-        // bridged. Never resolve the reply: an error reply sends Bitwarden into
-        // an unthrottled reconnect loop (observed ~175k messages/sec), while an
-        // unresolved promise parks the caller harmlessly.
-        nativeMessageDropCount += 1
-        if nativeMessageDropCount <= 5 {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.webext.nativeMessage dropped app=\(applicationIdentifier ?? "nil") " +
-                "count=\(nativeMessageDropCount)"
-            )
-#endif
-        }
-        _ = replyHandler
-    }
-
-    func webExtensionController(
-        _ controller: WKWebExtensionController,
-        connectUsing port: WKWebExtension.MessagePort,
-        for extensionContext: WKWebExtensionContext,
-        completionHandler: @escaping (Error?) -> Void
-    ) {
-        // See sendMessage above: leave the native port unresolved rather than
-        // erroring, so extensions do not retry-loop.
-#if DEBUG
-        cmuxDebugLog("browser.webext.nativeConnect dropped app=\(port.applicationIdentifier ?? "nil")")
-#endif
-        _ = completionHandler
-    }
-
-    func webExtensionController(
-        _ controller: WKWebExtensionController,
         promptForPermissions permissions: Set<WKWebExtension.Permission>,
         in tab: (any WKWebExtensionTab)?,
         for extensionContext: WKWebExtensionContext,
