@@ -31,6 +31,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
     // Internal so cross-container transfers can move live panels without tearing them down.
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -77,13 +78,15 @@ final class DockSplitStore: BonsplitDelegate {
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.browserWebExtensionHost = browserWebExtensionHost
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self

@@ -275,9 +275,16 @@
 		A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */; };
 		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
+		B1CFE00A0000000000000001 /* BrowserWebExtensionActionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */; };
 		B1CFE0060000000000000001 /* BrowserWebExtensionDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */; };
+		B1CFE0080000000000000001 /* BrowserWebExtensionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */; };
+		B1CFE00B0000000000000001 /* BrowserWebExtensionLoadedRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */; };
 		B1CFE0050000000000000001 /* BrowserWebExtensionPopoutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */; };
+		B1CFE00C0000000000000001 /* BrowserWebExtensionReconciliationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00C0000000000000002 /* BrowserWebExtensionReconciliationPlanner.swift */; };
+		B1CFE0070000000000000001 /* BrowserWebExtensionSupport+Loading.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */; };
+		B1CFE0090000000000000001 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0090000000000000002 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift */; };
 		B1CFE0010000000000000001 /* BrowserWebExtensionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0010000000000000002 /* BrowserWebExtensionSupport.swift */; };
+		B1CFE0200000000000000001 /* BrowserWebExtensionSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */; };
 		B1CFE0020000000000000001 /* BrowserWebExtensionTabAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0020000000000000002 /* BrowserWebExtensionTabAdapter.swift */; };
 		B1CFE0040000000000000001 /* BrowserWebExtensionToolbarButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0040000000000000002 /* BrowserWebExtensionToolbarButtons.swift */; };
 		B1CFE0030000000000000001 /* BrowserWebExtensionWindowAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0030000000000000002 /* BrowserWebExtensionWindowAdapter.swift */; };
@@ -1922,9 +1929,16 @@
 		A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransportSummary.swift; sourceTree = "<group>"; };
 		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
+		B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionActionSnapshot.swift; sourceTree = "<group>"; };
 		B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionDiscoveryService.swift; sourceTree = "<group>"; };
+		B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionHosting.swift; sourceTree = "<group>"; };
+		B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionLoadedRecord.swift; sourceTree = "<group>"; };
 		B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutWindowController.swift; sourceTree = "<group>"; };
+		B1CFE00C0000000000000002 /* BrowserWebExtensionReconciliationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationPlanner.swift; sourceTree = "<group>"; };
+		B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+Loading.swift"; sourceTree = "<group>"; };
+		B1CFE0090000000000000002 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift"; sourceTree = "<group>"; };
 		B1CFE0010000000000000002 /* BrowserWebExtensionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionSupport.swift; sourceTree = "<group>"; };
+		B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionSupportTests.swift; sourceTree = "<group>"; };
 		B1CFE0020000000000000002 /* BrowserWebExtensionTabAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionTabAdapter.swift; sourceTree = "<group>"; };
 		B1CFE0040000000000000002 /* BrowserWebExtensionToolbarButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionToolbarButtons.swift; sourceTree = "<group>"; };
 		B1CFE0030000000000000002 /* BrowserWebExtensionWindowAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionWindowAdapter.swift; sourceTree = "<group>"; };
@@ -4013,8 +4027,14 @@
 				B1CFE0030000000000000002 /* BrowserWebExtensionWindowAdapter.swift */,
 				B1CFE0020000000000000002 /* BrowserWebExtensionTabAdapter.swift */,
 				B1CFE0010000000000000002 /* BrowserWebExtensionSupport.swift */,
+				B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */,
+				B1CFE0090000000000000002 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift */,
 				B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */,
 				B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */,
+				B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */,
+				B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */,
+				B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */,
+				B1CFE00C0000000000000002 /* BrowserWebExtensionReconciliationPlanner.swift */,
 				C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */,
@@ -4599,6 +4619,7 @@
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
 				B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */,
 				B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */,
+				B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */,
 				B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */,
 				B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */,
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
@@ -5478,8 +5499,14 @@
 				A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */,
 				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
 				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
+				B1CFE00A0000000000000001 /* BrowserWebExtensionActionSnapshot.swift in Sources */,
 				B1CFE0060000000000000001 /* BrowserWebExtensionDiscoveryService.swift in Sources */,
+				B1CFE0080000000000000001 /* BrowserWebExtensionHosting.swift in Sources */,
+				B1CFE00B0000000000000001 /* BrowserWebExtensionLoadedRecord.swift in Sources */,
 				B1CFE0050000000000000001 /* BrowserWebExtensionPopoutWindowController.swift in Sources */,
+				B1CFE00C0000000000000001 /* BrowserWebExtensionReconciliationPlanner.swift in Sources */,
+				B1CFE0070000000000000001 /* BrowserWebExtensionSupport+Loading.swift in Sources */,
+				B1CFE0090000000000000001 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift in Sources */,
 				B1CFE0010000000000000001 /* BrowserWebExtensionSupport.swift in Sources */,
 				B1CFE0020000000000000001 /* BrowserWebExtensionTabAdapter.swift in Sources */,
 				B1CFE0040000000000000001 /* BrowserWebExtensionToolbarButtons.swift in Sources */,
@@ -6470,6 +6497,7 @@
 				C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */,
 				C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */,
 				C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */,
+				B1CFE0200000000000000001 /* BrowserWebExtensionSupportTests.swift in Sources */,
 				C0DE62600000000000000001 /* BrowserWindowPortalRegistryNotificationTests.swift in Sources */,
 				C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,

@@ -1213,7 +1213,8 @@ enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
     // fallback/old UIs or trigger bot checks.
-    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
+    static let safariApplicationNameForUserAgent = "Version/26.2 Safari/605.1.15"
+    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \(safariApplicationNameForUserAgent)"
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -2745,6 +2746,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3321,7 +3323,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -3536,12 +3539,14 @@ final class BrowserPanel: Panel, ObservableObject {
     // identical configuration, making adoption a drop-in swap.
     static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            browserWebExtensionHost: browserWebExtensionHost
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -3560,15 +3565,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
-        if #available(macOS 15.4, *) {
-            BrowserWebExtensionSupport.shared.attach(to: configuration)
-        }
+        browserWebExtensionHost?.attach(to: configuration)
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 CmuxDiffViewerURLSchemeHandler.shared,
@@ -3948,7 +3952,8 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3970,9 +3975,10 @@ final class BrowserPanel: Panel, ObservableObject {
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
+        self.browserWebExtensionHost = browserWebExtensionHost
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
+        if browserWebExtensionHost == nil, let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -3985,7 +3991,8 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
-                websiteDataStore: websiteDataStore
+                websiteDataStore: websiteDataStore,
+                browserWebExtensionHost: browserWebExtensionHost
             )
         }
         self.webView = webView
@@ -3993,9 +4000,7 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
-        if #available(macOS 15.4, *) {
-            BrowserWebExtensionSupport.shared.register(panel: self)
-        }
+        browserWebExtensionHost?.register(panel: self)
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -4628,7 +4633,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5137,7 +5143,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5300,10 +5307,21 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    func noteWebExtensionActivated() {
+        browserWebExtensionHost?.noteActivated(panelID: id)
+    }
+
+    func performWebExtensionCommand(for event: NSEvent) -> Bool {
+        browserWebExtensionHost?.performCommand(for: event) ?? false
+    }
+
+    @available(macOS 15.4, *)
+    var browserWebExtensionSupport: BrowserWebExtensionSupport? {
+        browserWebExtensionHost as? BrowserWebExtensionSupport
+    }
+
     func close() {
-        if #available(macOS 15.4, *) {
-            BrowserWebExtensionSupport.shared.unregister(panelID: id)
-        }
+        browserWebExtensionHost?.unregister(panelID: id)
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         refreshWebViewLifecycleState()
@@ -6151,7 +6169,8 @@ extension BrowserPanel {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false

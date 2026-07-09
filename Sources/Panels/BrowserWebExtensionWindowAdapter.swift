@@ -45,6 +45,19 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     }
 
     func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        guard let hostWindow else {
+            completionHandler(NSError(
+                domain: "cmux.webExtension",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: String(
+                    localized: "browser.webExtension.error.noBrowserWindow",
+                    defaultValue: "No browser window is available."
+                )]
+            ))
+            return
+        }
+        NSApp.activate(ignoringOtherApps: false)
+        hostWindow.makeKeyAndOrderFront(nil)
         completionHandler(nil)
     }
 

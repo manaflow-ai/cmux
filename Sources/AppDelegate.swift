@@ -16607,7 +16607,7 @@ private extension NSApplication {
             // web-extension commands like Bitwarden autofill while a browser web
             // view has focus; otherwise the suppression below would eat it.
             if #available(macOS 15.4, *), cmuxRespondersContainBrowserWebView(responder),
-               BrowserWebExtensionSupport.shared.performCommand(for: event) {
+               shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
 #if DEBUG
                 cmuxDebugLog("app.sendEvent routed web-extension command before stale cmux menu shortcut")
 #endif

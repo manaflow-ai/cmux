@@ -1350,9 +1350,9 @@ struct BrowserPanelView: View {
                 )
             }
 
-            if #available(macOS 15.4, *) {
+            if #available(macOS 15.4, *), let support = panel.browserWebExtensionSupport {
                 BrowserWebExtensionToolbarButtons(
-                    support: BrowserWebExtensionSupport.shared,
+                    support: support,
                     panel: panel,
                     iconPointSize: chromeMetrics.navigationIconFontSize,
                     hitSize: addressBarButtonHitSize
