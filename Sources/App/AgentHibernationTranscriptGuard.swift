@@ -34,7 +34,7 @@ enum AgentHibernationTranscriptGuard {
         func markSnapshotDeletableIfSafe() {
             let restored = restoreIfClobbered(snapshot, fileManager: fileManager)
             let safe = transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager)
-            canDeleteSnapshot = canDeleteSnapshot || restored || safe
+            canDeleteSnapshot = restored || safe
         }
         if !processIDs.isEmpty {
             let deadline = ContinuousClock.now.advanced(by: .seconds(30))
