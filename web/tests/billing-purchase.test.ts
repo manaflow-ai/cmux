@@ -63,6 +63,27 @@ function emptySelectableResult() {
   };
 }
 
+function mockCall(mockFn: unknown, index = 0): unknown[] {
+  return (mockFn as { mock: { calls: unknown[][] } }).mock.calls[index] ?? [];
+}
+
+function metadataFromStripeUpdate(params: unknown): Record<string, string> {
+  return (params as { metadata: Record<string, string> }).metadata;
+}
+
+function expectDeletedAccountMetadata(
+  metadata: Record<string, string>,
+  options: { stackTeamId?: boolean } = {},
+) {
+  expect(metadata.stackUserId).toBe("");
+  expect(/^deleted_[0-9a-f]{24}$/.test(metadata.deletedAccountId)).toBe(true);
+  if (options.stackTeamId) {
+    expect(metadata.stackTeamId).toBe("");
+  } else {
+    expect(metadata.stackTeamId).toBeUndefined();
+  }
+}
+
 function checkoutInput(customerId = "cus_123") {
   return {
     session: {
@@ -157,6 +178,8 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks user checkout completion while account deletion is in progress", async () => {
     const update = mock(async () => undefined);
+    const updateCustomer = mock(async () => undefined);
+    const updateSubscription = mock(async () => undefined);
     const cancelSubscription = mock(async () => undefined);
     const user = {
       id: "user_123",
@@ -170,7 +193,8 @@ describe("recordCheckoutCompletion", () => {
         db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,
         stripeClient: () => ({
-          subscriptions: { cancel: cancelSubscription },
+          customers: { update: updateCustomer },
+          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
         }) as never,
       }),
     ).resolves.toEqual({
@@ -179,6 +203,13 @@ describe("recordCheckoutCompletion", () => {
       subscriptionId: "sub_123",
     });
 
+    const customerUpdate = mockCall(updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_123");
+    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]));
+    const subscriptionUpdate = mockCall(updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_123");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]));
     expect(cancelSubscription).toHaveBeenCalledWith("sub_123");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
@@ -459,6 +490,8 @@ describe("recordCheckoutCompletion", () => {
 
   test("blocks Team checkout completion while owner account deletion is in progress", async () => {
     const updateTeam = mock(async () => undefined);
+    const updateCustomer = mock(async () => undefined);
+    const updateSubscription = mock(async () => undefined);
     const cancelSubscription = mock(async () => undefined);
     const owner = {
       id: "owner_123",
@@ -480,7 +513,8 @@ describe("recordCheckoutCompletion", () => {
           }),
         } as never,
         stripeClient: () => ({
-          subscriptions: { cancel: cancelSubscription },
+          customers: { update: updateCustomer },
+          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
         }) as never,
       }),
     ).resolves.toEqual({
@@ -489,6 +523,13 @@ describe("recordCheckoutCompletion", () => {
       subscriptionId: "sub_team",
     });
 
+    const customerUpdate = mockCall(updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_team");
+    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
+    const subscriptionUpdate = mockCall(updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_team");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
     expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
@@ -496,6 +537,8 @@ describe("recordCheckoutCompletion", () => {
   });
 
   test("blocks Team checkout completion when the singleton team owner is deleting", async () => {
+    const updateCustomer = mock(async () => undefined);
+    const updateSubscription = mock(async () => undefined);
     const cancelSubscription = mock(async () => undefined);
     const input = teamCheckoutInput() as unknown as {
       session: { metadata: Record<string, string> };
@@ -525,7 +568,8 @@ describe("recordCheckoutCompletion", () => {
           getTeam: async () => team,
         } as never,
         stripeClient: () => ({
-          subscriptions: { cancel: cancelSubscription },
+          customers: { update: updateCustomer },
+          subscriptions: { update: updateSubscription, cancel: cancelSubscription },
         }) as never,
       }),
     ).resolves.toEqual({
@@ -535,6 +579,13 @@ describe("recordCheckoutCompletion", () => {
     });
 
     expect(team.listUsers).toHaveBeenCalledWith({ cursor: null, limit: 2 });
+    const customerUpdate = mockCall(updateCustomer);
+    expect(customerUpdate[0]).toBe("cus_team");
+    expect((customerUpdate[1] as { email: string }).email).toBe("");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(customerUpdate[1]), { stackTeamId: true });
+    const subscriptionUpdate = mockCall(updateSubscription);
+    expect(subscriptionUpdate[0]).toBe("sub_team");
+    expectDeletedAccountMetadata(metadataFromStripeUpdate(subscriptionUpdate[1]), { stackTeamId: true });
     expect(cancelSubscription).toHaveBeenCalledWith("sub_team");
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);

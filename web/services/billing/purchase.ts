@@ -9,6 +9,7 @@ import {
   stripeSubscriptions,
 } from "../../db/schema";
 import { isStackAccountDeletionBlocked } from "../account/deletion";
+import { accountDeletionUserHash } from "../account/deletionLock";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -28,7 +29,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 
 type BillingDb = ReturnType<typeof cloudDb>;
-type StripeBillingClient = Pick<ReturnType<typeof stripe>, "subscriptions">;
+type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "subscriptions">;
 
 type StackBillingUser = {
   readonly id: string;
@@ -125,7 +126,13 @@ export async function recordCheckoutCompletion(
   const db = dependencies.db ?? cloudDb();
   const user = await loadStackUser(stackUserId, dependencies.stackApp);
   if (await isStackAccountDeletionBlocked(user, { cloudDb: () => db })) {
-    await cancelCheckoutSubscriptionForAccountDeletion(subscription, dependencies);
+    await cleanupCheckoutStripeObjectsForAccountDeletion({
+      subscription,
+      customerId,
+      stackUserId,
+      clearStackTeamId: false,
+      dependencies,
+    });
     return {
       skipped: "account_deletion_in_progress",
       stackUserId,
@@ -247,32 +254,83 @@ export function isActiveStripeSubscriptionStatus(status: string): boolean {
   return ACTIVE_STRIPE_SUBSCRIPTION_STATUSES.has(status);
 }
 
-async function cancelCheckoutSubscriptionForAccountDeletion(
-  subscription: Stripe.Subscription,
-  dependencies: BillingPurchaseDependencies,
+async function cleanupCheckoutStripeObjectsForAccountDeletion(input: {
+  subscription: Stripe.Subscription;
+  customerId: string;
+  stackUserId: string;
+  clearStackTeamId: boolean;
+  dependencies: BillingPurchaseDependencies;
+}): Promise<void> {
+  const client = (input.dependencies.stripeClient ?? stripe)();
+  const metadata = accountDeletionStripeMetadata({
+    anonymizedUserId: deletedAccountId(input.stackUserId),
+    clearStackTeamId: input.clearStackTeamId,
+  });
+  await ignoreStripeDeletionCleanupError(
+    client.customers.update(input.customerId, {
+      email: "",
+      metadata,
+    }),
+  );
+  await ignoreStripeDeletionCleanupError(
+    client.subscriptions.update(input.subscription.id, { metadata }),
+  );
+  if (input.subscription.status === "canceled") return;
+  await ignoreStripeDeletionCleanupError(client.subscriptions.cancel(input.subscription.id));
+}
+
+async function ignoreStripeDeletionCleanupError<T>(
+  operation: Promise<T>,
 ): Promise<void> {
-  const client = (dependencies.stripeClient ?? stripe)();
   try {
-    await client.subscriptions.cancel(subscription.id);
+    await operation;
   } catch (error) {
-    if (isStripeSubscriptionAlreadyCanceledError(error)) return;
+    if (isStripeMissingResourceError(error) || isStripeSubscriptionAlreadyCanceledError(error)) return;
     throw error;
   }
 }
 
-function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
-  const statusCode =
-    error && typeof error === "object"
-      ? (error as { statusCode?: unknown; raw?: { statusCode?: unknown } }).statusCode ??
-        (error as { raw?: { statusCode?: unknown } }).raw?.statusCode
-      : undefined;
-  if (statusCode === 404) return true;
+function accountDeletionStripeMetadata(input: {
+  anonymizedUserId: string;
+  clearStackTeamId: boolean;
+}): Record<string, string> {
+  return {
+    stackUserId: "",
+    ...(input.clearStackTeamId ? { stackTeamId: "" } : {}),
+    deletedAccountId: input.anonymizedUserId,
+  };
+}
 
-  const message =
-    error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
-      ? (error as { message: string }).message
-      : String(error);
-  return /already been canceled/i.test(message);
+function deletedAccountId(userId: string): string {
+  return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
+}
+
+function isStripeMissingResourceError(error: unknown): boolean {
+  return stripeErrorCode(error) === "resource_missing" ||
+    stripeErrorStatusCode(error) === 404 ||
+    stripeErrorMessage(error).toLowerCase().includes("no such");
+}
+
+function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
+  if (isStripeMissingResourceError(error)) return true;
+  return /already (been )?canceled/i.test(stripeErrorMessage(error));
+}
+
+function stripeErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function stripeErrorStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const statusCode = (error as { statusCode?: unknown }).statusCode ??
+    (error as { raw?: { statusCode?: unknown } }).raw?.statusCode;
+  return typeof statusCode === "number" ? statusCode : null;
+}
+
+function stripeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isCmuxCheckoutSession(
@@ -351,7 +409,13 @@ async function recordTeamCheckoutCompletion(input: {
     missingOwnerMessage: `Stack user not found for Team Stripe purchase: ${input.stackTeamId}`,
   });
   if (guard.blocked) {
-    await cancelCheckoutSubscriptionForAccountDeletion(input.subscription, input.dependencies);
+    await cleanupCheckoutStripeObjectsForAccountDeletion({
+      subscription: input.subscription,
+      customerId: input.customerId,
+      stackUserId: guard.stackUserId,
+      clearStackTeamId: true,
+      dependencies: input.dependencies,
+    });
     return {
       skipped: "account_deletion_in_progress",
       stackUserId: guard.stackUserId,
