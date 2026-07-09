@@ -119,7 +119,7 @@ public final class CmuxResolvedIconImageView: NSView {
         private enum SourceKey: Equatable {
             case systemSymbol(name: String, accessibilityDescription: String?)
             case asset(name: String, bundle: ObjectIdentifier)
-            case image(ObjectIdentifier, width: CGFloat, height: CGFloat)
+            case image(ImageKey)
 
             init(_ source: CmuxResolvedIconSource) {
                 switch source {
@@ -128,8 +128,50 @@ public final class CmuxResolvedIconImageView: NSView {
                 case .asset(let name, let bundle):
                     self = .asset(name: name, bundle: ObjectIdentifier(bundle))
                 case .image(let image):
-                    self = .image(ObjectIdentifier(image), width: image.size.width, height: image.size.height)
+                    self = .image(ImageKey(image))
                 }
+            }
+        }
+
+        private struct ImageKey: Equatable {
+            private let identity: ObjectIdentifier
+            private let width: CGFloat
+            private let height: CGFloat
+            private let isTemplate: Bool
+            private let representations: [ImageRepresentationKey]
+
+            init(_ image: NSImage) {
+                self.identity = ObjectIdentifier(image)
+                self.width = image.size.width
+                self.height = image.size.height
+                self.isTemplate = image.isTemplate
+                self.representations = image.representations.map(ImageRepresentationKey.init)
+            }
+        }
+
+        private struct ImageRepresentationKey: Equatable {
+            private let identity: ObjectIdentifier
+            private let classIdentity: ObjectIdentifier
+            private let pixelsWide: Int
+            private let pixelsHigh: Int
+            private let width: CGFloat
+            private let height: CGFloat
+            private let bitsPerSample: Int
+            private let hasAlpha: Bool
+            private let isOpaque: Bool
+            private let colorSpaceName: NSColorSpaceName
+
+            init(_ representation: NSImageRep) {
+                self.identity = ObjectIdentifier(representation)
+                self.classIdentity = ObjectIdentifier(type(of: representation))
+                self.pixelsWide = representation.pixelsWide
+                self.pixelsHigh = representation.pixelsHigh
+                self.width = representation.size.width
+                self.height = representation.size.height
+                self.bitsPerSample = representation.bitsPerSample
+                self.hasAlpha = representation.hasAlpha
+                self.isOpaque = representation.isOpaque
+                self.colorSpaceName = representation.colorSpaceName
             }
         }
     }

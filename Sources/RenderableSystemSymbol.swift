@@ -61,11 +61,8 @@ enum RenderableSystemSymbol {
 
     @MainActor
     static func isRenderable(_ symbol: String) -> Bool {
-        if let cached = renderabilityCache[symbol] {
-            if cached || !shouldRetryNegativeRenderability(symbol) {
-                return cached
-            }
-            removeCachedRenderability(for: symbol)
+        if let cached = cachedRenderability(symbol) {
+            return cached
         }
         let resolved = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
         cacheRenderability(resolved, for: symbol)

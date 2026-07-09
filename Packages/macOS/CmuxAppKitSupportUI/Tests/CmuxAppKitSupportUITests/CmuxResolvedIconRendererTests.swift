@@ -79,6 +79,26 @@ import Testing
         #expect(view.renderedImage === firstImage)
     }
 
+    @Test func imageViewRerendersWhenImageRepresentationsChange() throws {
+        let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        view.appearance = NSAppearance(named: .aqua)
+        let sourceImage = NSImage(size: NSSize(width: 16, height: 16))
+        sourceImage.addRepresentation(solidBitmapRepresentation(color: .systemRed, pixels: 16))
+        let request = CmuxResolvedIconRequest(
+            source: .image(sourceImage),
+            size: NSSize(width: 16, height: 16)
+        )
+        view.apply(request)
+        let firstImage = try #require(view.renderedImage)
+
+        sourceImage.addRepresentation(solidBitmapRepresentation(color: .systemBlue, pixels: 32))
+        view.apply(request)
+        let updatedImage = try #require(view.renderedImage)
+
+        #expect(updatedImage !== firstImage)
+        #expect(visiblePixelCount(in: updatedImage) > 0)
+    }
+
     @Test func pngDataUsesRenderedNonTemplateImage() throws {
         let renderer = CmuxResolvedIconRenderer()
         let request = CmuxResolvedIconRequest(
@@ -94,6 +114,28 @@ import Testing
         let image = try #require(NSImage(data: data))
         #expect(image.isTemplate == false)
         #expect(visiblePixelCount(in: image) > 0)
+    }
+
+    private func solidBitmapRepresentation(color: NSColor, pixels: Int) -> NSBitmapImageRep {
+        let representation = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        representation.size = NSSize(width: pixels, height: pixels)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: representation)
+        color.setFill()
+        NSRect(x: 0, y: 0, width: pixels, height: pixels).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return representation
     }
 
     private func visiblePixelCount(in image: NSImage) -> Int {
