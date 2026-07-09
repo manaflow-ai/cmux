@@ -22,6 +22,8 @@ pub enum MouseButton {
     Middle,
     WheelUp,
     WheelDown,
+    WheelLeft,
+    WheelRight,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -142,6 +144,8 @@ impl MouseButton {
             MouseButton::Middle => sys::GHOSTTY_MOUSE_BUTTON_MIDDLE,
             MouseButton::WheelUp => sys::GHOSTTY_MOUSE_BUTTON_FOUR,
             MouseButton::WheelDown => sys::GHOSTTY_MOUSE_BUTTON_FIVE,
+            MouseButton::WheelLeft => sys::GHOSTTY_MOUSE_BUTTON_SIX,
+            MouseButton::WheelRight => sys::GHOSTTY_MOUSE_BUTTON_SEVEN,
         }
     }
 }
@@ -190,6 +194,10 @@ mod tests {
         out.clear();
         encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelUp)), &mut out).unwrap();
         assert_eq!(out, b"\x1b[<64;5;3M");
+
+        out.clear();
+        encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelLeft)), &mut out).unwrap();
+        assert_eq!(out, b"\x1b[<66;5;3M");
     }
 
     #[test]

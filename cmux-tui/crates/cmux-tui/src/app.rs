@@ -36,6 +36,7 @@ use ratatui::backend::CrosstermBackend;
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
+use crate::pty_input::{PtyMouseInputDispatcher, PtyMouseInputEvent};
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
@@ -425,6 +426,7 @@ pub struct App {
     /// Off-loop forwarder for browser input: CDP/socket round trips must
     /// never run on the event-loop thread (see `browser_input`).
     browser_input: BrowserInputDispatcher,
+    pty_mouse_input: PtyMouseInputDispatcher,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -596,6 +598,10 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
+        // Ask the host terminal to report Shift-modified mouse events so
+        // Shift remains cmux's selection/context-menu escape while the inner
+        // application owns ordinary mouse input.
+        write!(stdout, "\x1b[>1s")?;
         stdout.execute(EnableFocusChange)?;
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
@@ -671,6 +677,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         pointer_shape: false,
         last_browser_hover: None,
         browser_input: BrowserInputDispatcher::spawn()?,
+        pty_mouse_input: PtyMouseInputDispatcher::spawn()?,
         drag: None,
         encoder,
         mouse_encoder,
@@ -692,6 +699,8 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
+    // Restore the conventional host behavior where Shift bypasses capture.
+    let _ = write!(stdout, "\x1b[>0s");
     let _ = stdout.execute(DisableBracketedPaste);
     let _ = stdout.execute(DisableFocusChange);
     let _ = stdout.execute(DisableMouseCapture);
@@ -2003,29 +2012,27 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
+        // This TUI tracks one active pointer button. Ignore additional presses
+        // until its release so a second button cannot orphan the inner app's
+        // pressed state.
+        if matches!(mouse.kind, MouseEventKind::Down(_))
+            && matches!(self.drag, Some(Drag::PtyMouse { .. }))
+        {
+            return Ok(RenderAction::None);
+        }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.handle_left_down(mouse.column, mouse.row, mouse.modifiers)
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if self.forward_pty_mouse_drag(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Left,
-                    mouse.modifiers,
-                ) {
+                if self.forward_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_left_drag(mouse.column, mouse.row)
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                if self.finish_pty_mouse_drag(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Left,
-                    mouse.modifiers,
-                ) {
+                if self.finish_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_left_up(mouse.column, mouse.row)
@@ -2048,24 +2055,14 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
-                if self.forward_pty_mouse_drag(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Right,
-                    mouse.modifiers,
-                ) {
+                if self.forward_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_right_drag(mouse.column, mouse.row)
                 }
             }
             MouseEventKind::Up(MouseButton::Right) => {
-                if self.finish_pty_mouse_drag(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Right,
-                    mouse.modifiers,
-                ) {
+                if self.finish_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
                     Ok(RenderAction::Draw)
                 } else {
                     self.handle_right_up(mouse.column, mouse.row)
@@ -2083,36 +2080,32 @@ impl App {
                     RenderAction::None
                 },
             ),
-            MouseEventKind::Drag(MouseButton::Middle) => Ok(
-                if self.forward_pty_mouse_drag(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Middle,
-                    mouse.modifiers,
-                ) {
+            MouseEventKind::Drag(MouseButton::Middle) => {
+                Ok(if self.forward_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
-                },
-            ),
-            MouseEventKind::Up(MouseButton::Middle) => Ok(
-                if self.finish_pty_mouse_drag(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Middle,
-                    mouse.modifiers,
-                ) {
+                })
+            }
+            MouseEventKind::Up(MouseButton::Middle) => {
+                Ok(if self.finish_pty_mouse_drag(mouse.column, mouse.row, mouse.modifiers) {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
-                },
-            ),
+                })
+            }
             MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row, mouse.modifiers),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
                 self.handle_scroll(mouse.column, mouse.row, down, mouse.modifiers)
             }
-            _ => Ok(RenderAction::None),
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
+                .handle_horizontal_scroll(
+                    mouse.column,
+                    mouse.row,
+                    matches!(mouse.kind, MouseEventKind::ScrollRight),
+                    mouse.modifiers,
+                ),
         }
     }
 
@@ -2123,7 +2116,11 @@ impl App {
         button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
-        if modifiers.contains(KeyModifiers::SHIFT) || self.menu.is_some() || self.prompt.is_some() {
+        if modifiers.contains(KeyModifiers::SHIFT)
+            || self.menu.is_some()
+            || self.prompt.is_some()
+            || self.drag.is_some()
+        {
             return false;
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return false };
@@ -2150,45 +2147,29 @@ impl App {
         true
     }
 
-    fn forward_pty_mouse_drag(
-        &mut self,
-        x: u16,
-        y: u16,
-        button: MouseButton,
-        modifiers: KeyModifiers,
-    ) -> bool {
+    fn forward_pty_mouse_drag(&mut self, x: u16, y: u16, modifiers: KeyModifiers) -> bool {
         let Some(Drag::PtyMouse { surface, content, button: active_button }) = self.drag else {
             return false;
         };
-        if active_button != button {
-            return false;
-        }
+        let content = self.current_pty_content(surface).unwrap_or(content);
         self.forward_pty_mouse_to_surface(
             surface,
             content,
             x,
             y,
             MouseAction::Motion,
-            Some(Self::ghostty_mouse_button(button)),
+            Some(Self::ghostty_mouse_button(active_button)),
             modifiers,
             true,
         );
         true
     }
 
-    fn finish_pty_mouse_drag(
-        &mut self,
-        x: u16,
-        y: u16,
-        button: MouseButton,
-        modifiers: KeyModifiers,
-    ) -> bool {
+    fn finish_pty_mouse_drag(&mut self, x: u16, y: u16, modifiers: KeyModifiers) -> bool {
         let Some(Drag::PtyMouse { surface, content, button: active_button }) = self.drag else {
             return false;
         };
-        if active_button != button {
-            return false;
-        }
+        let content = self.current_pty_content(surface).unwrap_or(content);
         self.drag = None;
         self.forward_pty_mouse_to_surface(
             surface,
@@ -2196,7 +2177,7 @@ impl App {
             x,
             y,
             MouseAction::Release,
-            Some(Self::ghostty_mouse_button(button)),
+            Some(Self::ghostty_mouse_button(active_button)),
             modifiers,
             false,
         );
@@ -2212,7 +2193,7 @@ impl App {
         modifiers: KeyModifiers,
         any_button_pressed: bool,
     ) -> bool {
-        if modifiers.contains(KeyModifiers::SHIFT) {
+        if modifiers.contains(KeyModifiers::SHIFT) || self.menu.is_some() || self.prompt.is_some() {
             return false;
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return false };
@@ -2275,8 +2256,21 @@ impl App {
             return;
         };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            surface.write_bytes(&self.encode_buf);
+            if matches!(&surface, SurfaceHandle::Remote(_, _)) {
+                self.pty_mouse_input.enqueue(PtyMouseInputEvent {
+                    surface_id,
+                    surface,
+                    bytes: self.encode_buf.clone(),
+                    motion: action == MouseAction::Motion,
+                });
+            } else {
+                surface.write_bytes(&self.encode_buf);
+            }
         }
+    }
+
+    fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
+        self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
     }
 
     fn pty_mouse_tracking(&self, surface_id: SurfaceId) -> bool {
@@ -3017,6 +3011,9 @@ impl App {
         down: bool,
         modifiers: KeyModifiers,
     ) -> anyhow::Result<RenderAction> {
+        if self.menu.is_some() || self.prompt.is_some() {
+            return Ok(RenderAction::None);
+        }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.active_pane() != Some(area.pane) {
             self.session.focus_pane(area.pane);
@@ -3052,7 +3049,7 @@ impl App {
                     GhosttyMouseButton::WheelUp
                 }),
                 modifiers,
-                true,
+                false,
             )
         {
             return Ok(RenderAction::Draw);
@@ -3072,6 +3069,41 @@ impl App {
             let _ = surface.scroll_delta(if down { 3 } else { -3 });
         }
         Ok(RenderAction::Draw)
+    }
+
+    fn handle_horizontal_scroll(
+        &mut self,
+        x: u16,
+        y: u16,
+        right: bool,
+        modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        if self.menu.is_some() || self.prompt.is_some() {
+            return Ok(RenderAction::None);
+        }
+        let Some(area) = self.pane_area_at(x, y).copied() else {
+            return Ok(RenderAction::None);
+        };
+        if self.active_pane() != Some(area.pane) {
+            self.session.focus_pane(area.pane);
+        }
+        if area.content.contains(x, y)
+            && self.forward_pty_mouse_at(
+                x,
+                y,
+                MouseAction::Press,
+                Some(if right {
+                    GhosttyMouseButton::WheelRight
+                } else {
+                    GhosttyMouseButton::WheelLeft
+                }),
+                modifiers,
+                false,
+            )
+        {
+            return Ok(RenderAction::Draw);
+        }
+        Ok(RenderAction::None)
     }
 
     fn surface_kind(&self, surface: SurfaceId) -> SurfaceKind {
@@ -3205,6 +3237,7 @@ mod tests {
 
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{Config, ScrollbarPosition};
+    use crate::pty_input::PtyMouseInputDispatcher;
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
 
@@ -3259,7 +3292,7 @@ mod tests {
             },
         );
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.tree = app.session.tree();
@@ -3294,6 +3327,43 @@ mod tests {
 
         app.handle_mouse(event(MouseEventKind::ScrollDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<65;5;3M");
+
+        app.handle_mouse(event(MouseEventKind::ScrollLeft, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<66;5;3M");
+
+        app.encode_buf.clear();
+        app.open_context_menu(content.x + 4, content.y + 2);
+        app.handle_mouse(event(MouseEventKind::ScrollDown, KeyModifiers::NONE)).unwrap();
+        assert!(app.encode_buf.is_empty());
+        app.menu = None;
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
+            .unwrap();
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
+            .unwrap();
+        app.pane_areas[0].content.x += 3;
+        let moved_content = app.pane_areas[0].content;
+        let moved_event = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: moved_content.x + 4,
+            row: moved_content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(moved_event).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<32;5;3M");
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..moved_event })
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
+        app.pane_areas[0].content = content;
 
         app.encode_buf.clear();
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT))
@@ -3393,6 +3463,7 @@ mod tests {
             pointer_shape: false,
             last_browser_hover: None,
             browser_input: BrowserInputDispatcher::spawn().unwrap(),
+            pty_mouse_input: PtyMouseInputDispatcher::spawn().unwrap(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),
