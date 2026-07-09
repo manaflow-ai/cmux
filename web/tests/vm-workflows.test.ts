@@ -478,6 +478,40 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  test("marks empty account-deletion SSH identity handles revoked without a provider call", async () => {
+    const revokedLeaseIds: string[] = [];
+    const repo = testWorkflowRepo({
+      vm: testCloudVmRow(),
+      accountDeletionIdentityLeases: () =>
+        Effect.succeed([
+          testIdentityLease("lease-account-delete-empty", ""),
+          testIdentityLease("lease-account-delete-real", "identity-account-delete-real"),
+        ]),
+      revokedLeaseIds,
+    });
+    const revokedIdentities: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) =>
+        Effect.sync(() => {
+          revokedIdentities.push(identityHandle);
+        }),
+    };
+
+    const revokedCount = await Effect.runPromise(
+      revokeUserIdentityLeasesForAccountDeletion("user-workflow-account-delete").pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revokedCount).toBe(2);
+    expect(revokedIdentities).toEqual(["identity-account-delete-real"]);
+    expect(revokedLeaseIds).toEqual([
+      "lease-account-delete-empty",
+      "lease-account-delete-real",
+    ]);
+  });
+
   test("revokes account-deletion SSH identities in bounded batches", async () => {
     const requestedLimits: number[] = [];
     const refreshedAfterBatch: number[] = [];

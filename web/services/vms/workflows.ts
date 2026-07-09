@@ -1337,7 +1337,10 @@ export function revokeUserIdentityLeasesForAccountDeletion(
       const revokedIds: string[] = [];
       for (const lease of leases) {
         const identityHandle = lease.providerIdentityHandle;
-        if (!identityHandle) continue;
+        if (!identityHandle) {
+          revokedIds.push(lease.id);
+          continue;
+        }
         const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
           Effect.as(true),
           Effect.catchAll((err) => {

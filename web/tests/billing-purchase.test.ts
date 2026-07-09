@@ -847,6 +847,59 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("syncs legacy Team subscription webhooks whose customer owner is the team id", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for legacy Team-owned billing rows");
+    });
+    const updateTeam = mock(async () => undefined);
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
+      update: updateTeam,
+    };
+    selectResults = [[{ stackUserId: "team_123" }], [{ stackUserId: "team_123" }]];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "canceled",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser,
+          getTeam: async () => team,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: false });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.scope === "team" &&
+          insert.values.stackUserId === "team_123",
+      ),
+    ).toBe(true);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    });
+  });
+
   test("skips Team subscription webhooks for deleted-account owner rows", async () => {
     const getTeam = mock(async () => {
       throw new Error("should not load Stack team for deleted account owner");

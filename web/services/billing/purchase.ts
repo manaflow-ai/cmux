@@ -301,11 +301,15 @@ export async function applySubscriptionUpdate(
     if (!stackUserId || stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
     const isActive = isActiveStripeSubscriptionStatus(subscription.status);
     const ownerStackUserId = teamSubscriptionOwnerStackUserId(stackUserId, teamScope.stackTeamId);
-    if (!ownerStackUserId) return { skipped: true };
-    const lockedResult = await withAccountDeletionUserLock(
-      db,
-      ownerStackUserId,
-      async (tx): Promise<
+    const legacyTeamScopedOwner = stackUserId === teamScope.stackTeamId;
+    if (!ownerStackUserId && !legacyTeamScopedOwner) return { skipped: true };
+
+    const applyTeamUpdate = async (
+      tx: BillingDbClient,
+      expectedOwner:
+        | { kind: "user"; stackUserId: string }
+        | { kind: "legacy-team" },
+    ): Promise<
         | { skipped: true }
         | { scope: "team"; stackTeamId: string; isActive: boolean }
       > => {
@@ -326,11 +330,13 @@ export async function applySubscriptionUpdate(
           transactionStackUserId,
           teamScope.stackTeamId,
         );
-        if (transactionOwnerStackUserId !== ownerStackUserId) return { skipped: true };
-        if (transactionOwnerStackUserId) {
-          if (await hasCheckoutBlockingAccountDeletionTombstone(transactionOwnerStackUserId, tx)) return { skipped: true };
-          const owner = await loadOptionalStackUser(transactionOwnerStackUserId, dependencies.stackApp);
+        if (expectedOwner.kind === "user") {
+          if (transactionOwnerStackUserId !== expectedOwner.stackUserId) return { skipped: true };
+          if (await hasCheckoutBlockingAccountDeletionTombstone(expectedOwner.stackUserId, tx)) return { skipped: true };
+          const owner = await loadOptionalStackUser(expectedOwner.stackUserId, dependencies.stackApp);
           if (!owner || isAccountDeletionInProgress(owner)) return { skipped: true };
+        } else if (transactionStackUserId !== teamScope.stackTeamId) {
+          return { skipped: true };
         }
 
         await upsertTeamStripeCustomer(tx, {
@@ -347,8 +353,15 @@ export async function applySubscriptionUpdate(
         });
 
         return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
-      },
-    );
+      };
+
+    const lockedResult = ownerStackUserId
+      ? await withAccountDeletionUserLock(
+        db,
+        ownerStackUserId,
+        (tx) => applyTeamUpdate(tx, { kind: "user", stackUserId: ownerStackUserId }),
+      )
+      : await db.transaction((tx) => applyTeamUpdate(tx, { kind: "legacy-team" }));
     if ("skipped" in lockedResult) return { skipped: true };
     const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
     await syncTeamPlanMetadata(team, isActive);
