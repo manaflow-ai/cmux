@@ -171,8 +171,7 @@ async function deleteCheckoutStripeResourcesForAccountDeletion(
   try {
     await client.subscriptions.cancel(subscription.id);
   } catch (error) {
-    if (isStripeSubscriptionAlreadyCanceledError(error)) return;
-    throw error;
+    if (!isStripeSubscriptionAlreadyCanceledError(error)) throw error;
   }
   try {
     await client.customers.del(customerId);

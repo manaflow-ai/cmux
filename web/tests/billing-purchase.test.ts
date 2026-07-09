@@ -185,7 +185,9 @@ describe("recordCheckoutCompletion", () => {
   });
 
   test("does not recreate checkout billing rows after the Stack user is gone", async () => {
-    const cancelSubscription = mock(async () => undefined);
+    const cancelSubscription = mock(async () => {
+      throw { statusCode: 404, message: "No such subscription" };
+    });
     const deleteCustomer = mock(async () => undefined);
 
     await expect(
