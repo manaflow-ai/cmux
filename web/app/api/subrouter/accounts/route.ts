@@ -18,13 +18,16 @@ import {
   type SubrouterAccountInput,
 } from "../../../../services/subrouter/client";
 import {
+  withAccountDeletionUserMutationLock,
+} from "../../../../services/account/deletion";
+import {
   resolveTeam,
   serviceUnavailableResponse,
   subrouterErrorResponse,
 } from "../../../../services/subrouter/routeHelpers";
 import {
   getTenantForTeam,
-  getOrCreateTenantForTeam,
+  getOrCreateTenantForTeamInTransaction,
 } from "../../../../services/subrouter/tenants";
 
 export const runtime = "nodejs";
@@ -68,16 +71,21 @@ export async function POST(request: Request): Promise<Response> {
   const validate = requestUrl(request)?.searchParams.get("validate") === "1";
 
   try {
-    const tenant = await getOrCreateTenantForTeam(
-      cloudDb(),
-      context.team.teamId,
-      context.team.teamName,
-      {
-        client: context.client,
-        tenantKeySecret: context.config.tenantKeySecret,
+    const db = cloudDb();
+    const account = await withAccountDeletionUserMutationLock(
+      db,
+      context.userId,
+      async (tx) => {
+        const tenant = await getOrCreateTenantForTeamInTransaction(
+          tx,
+          context.team.teamId,
+          context.team.teamName,
+          context.client,
+          context.config.tenantKeySecret,
+        );
+        return await context.client.createAccount(tenant.tenantKey, input.value, { validate });
       },
     );
-    const account = await context.client.createAccount(tenant.tenantKey, input.value, { validate });
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);
@@ -87,6 +95,7 @@ export async function POST(request: Request): Promise<Response> {
 async function resolveRequestContext(request: Request): Promise<
   | {
     ok: true;
+    userId: string;
     team: { teamId: string; teamName: string };
     config: NonNullable<ReturnType<typeof subrouterRuntimeConfig>>;
     client: ReturnType<typeof createSubrouterClient>;
@@ -120,6 +129,7 @@ async function resolveRequestContext(request: Request): Promise<
 
   return {
     ok: true,
+    userId: user.id,
     team,
     config,
     client: createSubrouterClient({

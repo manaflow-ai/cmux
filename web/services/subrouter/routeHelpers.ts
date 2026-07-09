@@ -8,6 +8,9 @@ import {
   SubrouterTenantKeyDecryptionError,
   SubrouterTenantKeySecretError,
 } from "./crypto";
+import {
+  AccountDeletionMutationBlockedError,
+} from "../account/deletion";
 
 export type TeamResolution =
   | { ok: true; teamId: string; teamName: string }
@@ -55,6 +58,9 @@ export function serviceUnavailableResponse(): Response {
 }
 
 export function subrouterErrorResponse(err: unknown): Response {
+  if (err instanceof AccountDeletionMutationBlockedError) {
+    return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+  }
   if (
     err instanceof SubrouterNotConfiguredError ||
     err instanceof SubrouterTenantKeySecretError ||
