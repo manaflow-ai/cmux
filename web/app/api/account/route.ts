@@ -476,7 +476,6 @@ async function deleteVaultRowsAndObjectsForAccountLocked(
     if (snapshots.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
   }
 
-  let grantOffset = 0;
   for (;;) {
     const grants = await db
       .select({
@@ -487,20 +486,18 @@ async function deleteVaultRowsAndObjectsForAccountLocked(
       .from(vaultUploadGrants)
       .where(eq(vaultUploadGrants.userId, userId))
       .orderBy(asc(vaultUploadGrants.id))
-      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
-      .offset(grantOffset);
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
     if (grants.length === 0) break;
     options.beforeObjectDeletion?.();
     await Promise.all(grants.flatMap((grant) => [
       deleteObject(grant.objectKey),
       deleteObject(grant.uploadObjectKey),
     ]));
+    await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, grants.map((grant) => grant.id)));
     await options.afterObjectDeletion?.();
     if (grants.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
-    grantOffset += grants.length;
   }
 
-  let tombstoneOffset = 0;
   for (;;) {
     const tombstones = await db
       .select({
@@ -511,17 +508,18 @@ async function deleteVaultRowsAndObjectsForAccountLocked(
       .from(vaultUploadTombstones)
       .where(eq(vaultUploadTombstones.userId, userId))
       .orderBy(asc(vaultUploadTombstones.id))
-      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE)
-      .offset(tombstoneOffset);
+      .limit(VAULT_OBJECT_DELETE_BATCH_SIZE);
     if (tombstones.length === 0) break;
     options.beforeObjectDeletion?.();
     await Promise.all(tombstones.flatMap((tombstone) => [
       deleteObject(tombstone.objectKey),
       deleteObject(tombstone.uploadObjectKey),
     ]));
+    await db
+      .delete(vaultUploadTombstones)
+      .where(inArray(vaultUploadTombstones.id, tombstones.map((tombstone) => tombstone.id)));
     await options.afterObjectDeletion?.();
     if (tombstones.length < VAULT_OBJECT_DELETE_BATCH_SIZE) break;
-    tombstoneOffset += tombstones.length;
   }
 
   for (;;) {

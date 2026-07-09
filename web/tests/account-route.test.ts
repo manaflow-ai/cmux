@@ -1151,8 +1151,8 @@ describe("account deletion route", () => {
       "vault/u/account-user-1/latest.jsonl.zst",
     ]);
     expect(deletedTables).toContain(vaultSnapshots);
-    expect(deletedTables).not.toContain(vaultUploadGrants);
-    expect(deletedTables).not.toContain(vaultUploadTombstones);
+    expect(deletedTables).toContain(vaultUploadGrants);
+    expect(deletedTables).toContain(vaultUploadTombstones);
     expect(deletedTables).toContain(vaultSessions);
     expect(vaultLockUsers).toContain("account-user-1");
   });
