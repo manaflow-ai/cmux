@@ -6,23 +6,7 @@ import {
 
 describe("iOS analytics identities", () => {
   test("caps per-request identity writes without evicting deletion aliases", async () => {
-    const inserted: Array<{ readonly anonymousId: string }> = [];
-    const runtime = {
-      cloudDb: () => ({
-        transaction: async (fn: (tx: unknown) => Promise<void>) => {
-          await fn({
-            insert: () => ({
-              values: (values: Array<{ readonly anonymousId: string }>) => {
-                inserted.push(...values);
-                return {
-                  onConflictDoUpdate: async () => {},
-                };
-              },
-            }),
-          });
-        },
-      }),
-    } as unknown as IOSAnalyticsIdentityRuntime;
+    const { identities, runtime } = identityRuntime();
 
     await recordIOSAnalyticsIdentities({
       userId: "stack-user-1",
@@ -32,8 +16,99 @@ describe("iOS analytics identities", () => {
       ],
     }, runtime);
 
-    expect(inserted.map((row) => row.anonymousId)).toEqual(
+    expect(identities.map((row) => row.anonymousId)).toEqual(
       Array.from({ length: 16 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
     );
   });
+
+  test("evicts older aliases after the per-user identity cap", async () => {
+    const userId = "stack-user-1";
+    const { identities, runtime } = identityRuntime(
+      Array.from({ length: 64 }, (_, index) => ({
+        userId,
+        anonymousId: analyticsId(index),
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      })),
+    );
+    const newAnonymousIds = Array.from({ length: 16 }, (_, index) => analyticsId(index + 100));
+
+    await recordIOSAnalyticsIdentities({ userId, anonymousIds: newAnonymousIds }, runtime);
+
+    const userAnonymousIds = identities
+      .filter((row) => row.userId === userId)
+      .map((row) => row.anonymousId);
+    expect(userAnonymousIds).toHaveLength(64);
+    expect(newAnonymousIds.every((anonymousId) => userAnonymousIds.includes(anonymousId))).toBe(true);
+  });
 });
+
+type StoredIdentity = {
+  readonly userId: string;
+  readonly anonymousId: string;
+  readonly createdAt: Date;
+  updatedAt: Date;
+};
+
+function identityRuntime(initialIdentities: StoredIdentity[] = []) {
+  const identities = [...initialIdentities];
+  let currentUserId = "";
+  let retainedAnonymousIds = new Set<string>();
+  const runtime = {
+    cloudDb: () => ({
+      transaction: async (fn: (tx: unknown) => Promise<void>) => {
+        await fn({
+          insert: () => ({
+            values: (values: StoredIdentity[]) => ({
+              onConflictDoUpdate: async () => {
+                currentUserId = values[0]?.userId ?? "";
+                for (const value of values) {
+                  const existing = identities.find((row) =>
+                    row.userId === value.userId && row.anonymousId === value.anonymousId
+                  );
+                  if (existing) existing.updatedAt = value.updatedAt;
+                  else identities.push({ ...value });
+                }
+              },
+            }),
+          }),
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: async (limit: number) => {
+                    const retained = [...identities]
+                      .filter((row) => row.userId === currentUserId)
+                      .sort((lhs, rhs) =>
+                        rhs.updatedAt.getTime() - lhs.updatedAt.getTime()
+                        || rhs.createdAt.getTime() - lhs.createdAt.getTime()
+                      )
+                      .slice(0, limit)
+                      .map((row) => ({ anonymousId: row.anonymousId }));
+                    retainedAnonymousIds = new Set(retained.slice(0, limit - 1).map((row) => row.anonymousId));
+                    return retained;
+                  },
+                }),
+              }),
+            }),
+          }),
+          delete: () => ({
+            where: async () => {
+              for (let index = identities.length - 1; index >= 0; index -= 1) {
+                const row = identities[index];
+                if (row.userId === currentUserId && !retainedAnonymousIds.has(row.anonymousId)) {
+                  identities.splice(index, 1);
+                }
+              }
+            },
+          }),
+        });
+      },
+    }),
+  } as unknown as IOSAnalyticsIdentityRuntime;
+  return { identities, runtime };
+}
+
+function analyticsId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}

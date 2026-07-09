@@ -82,6 +82,37 @@ describe("account deletion processor", () => {
     expect(calls).not.toContain("cleanup:user-1:team-shared");
   });
 
+  test("pages through Stack teams before selecting owned-team cleanup scope", async () => {
+    const firstPageTeam = stackTeam("team-shared", ["user-1", "user-2"]);
+    const secondPageTeam = stackTeam("team-personal-page-2", ["user-1"]);
+    const requestedCursors: Array<string | undefined> = [];
+
+    const result = await processAccountDeletionForUser({ userId: "user-1" }, dependencies({
+      loadStackUser: async (userId) => {
+        calls.push(`load-stack:${userId}`);
+        return {
+          id: userId,
+          clientReadOnlyMetadata: {},
+          listTeams: async (options) => {
+            requestedCursors.push(options?.cursor);
+            return options?.cursor === "page-2"
+              ? stackTeamPage([secondPageTeam], null)
+              : stackTeamPage([firstPageTeam], "page-2");
+          },
+          update: async () => {},
+          delete: async () => {
+            calls.push(`stack-delete:${userId}`);
+          },
+        };
+      },
+    }));
+
+    expect(result).toBe("processed");
+    expect(requestedCursors).toEqual([undefined, "page-2"]);
+    expect(calls).toContain("cleanup:user-1:team-personal-page-2");
+    expect(calls).not.toContain("cleanup:user-1:team-shared");
+  });
+
   test("keeps cleanup-started failures blocking so the durable job can retry", async () => {
     cleanupError = new Error("cleanup failed");
 
@@ -274,4 +305,8 @@ function stackTeam(id: string, userIds: readonly string[]) {
     displayName: id,
     listUsers: async () => userIds.map((userId) => ({ id: userId })),
   };
+}
+
+function stackTeamPage(teams: readonly ReturnType<typeof stackTeam>[], nextCursor: string | null) {
+  return Object.assign([...teams], { nextCursor });
 }

@@ -20,13 +20,19 @@ import {
 type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
   readonly id: string;
   readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
+  readonly listTeams?: (
+    options?: { readonly cursor?: string; readonly limit?: number },
+  ) => Promise<StackAccountDeletionTeamPage>;
   delete(): Promise<void>;
 };
 
 type StackAccountDeletionTeam = {
   readonly id: string;
   readonly listUsers?: () => Promise<readonly unknown[]>;
+};
+
+type StackAccountDeletionTeamPage = readonly unknown[] & {
+  readonly nextCursor?: string | null;
 };
 
 export type AccountDeletionProcessorDependencies = {
@@ -130,9 +136,7 @@ export async function processPendingAccountDeletions(
 }
 
 async function accountDeletionOwnedTeamIds(user: StackAccountDeletionUser): Promise<readonly string[]> {
-  const listedTeams = typeof user.listTeams === "function"
-    ? await user.listTeams()
-    : [];
+  const listedTeams = await listAllAccountDeletionStackTeams(user);
   const teams = uniqueStackTeams([
     stackTeamFromUnknown(user.selectedTeam),
     ...listedTeams.map(stackTeamFromUnknown),
@@ -144,6 +148,23 @@ async function accountDeletionOwnedTeamIds(user: StackAccountDeletionUser): Prom
   return ownedTeamIds;
 }
 
+async function listAllAccountDeletionStackTeams(user: StackAccountDeletionUser): Promise<readonly unknown[]> {
+  if (typeof user.listTeams !== "function") return [];
+
+  const teams: unknown[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await user.listTeams({ cursor, limit: 100 });
+    teams.push(...Array.from(page));
+    const nextCursor = normalizedStackCursor(page.nextCursor);
+    if (!nextCursor || seenCursors.has(nextCursor)) break;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (true);
+  return teams;
+}
+
 async function isOnlyTeamMember(team: StackAccountDeletionTeam, userId: string): Promise<boolean> {
   if (typeof team.listUsers !== "function") return false;
   const members = await team.listUsers();
@@ -153,6 +174,11 @@ async function isOnlyTeamMember(team: StackAccountDeletionTeam, userId: string):
     return typeof id === "string" && id.trim() ? [id.trim()] : [];
   });
   return memberIds.length === 1 && memberIds[0] === userId;
+}
+
+function normalizedStackCursor(value: string | null | undefined): string | undefined {
+  const cursor = value?.trim();
+  return cursor ? cursor : undefined;
 }
 
 function stackTeamFromUnknown(value: unknown): StackAccountDeletionTeam | null {
