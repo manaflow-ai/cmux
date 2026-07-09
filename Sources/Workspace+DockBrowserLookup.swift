@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import WebKit
 
 extension Workspace {
     func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {
@@ -97,7 +98,8 @@ extension DockSplitStore {
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
@@ -110,7 +112,8 @@ extension DockSplitStore {
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
-            browserWebExtensionHost: browserWebExtensionHost
+            browserWebExtensionHost: browserWebExtensionHost,
+            webViewConfiguration: webViewConfiguration
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         panel.webViewDidRequestClose = { [weak self, weak panel] in

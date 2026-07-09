@@ -89,12 +89,7 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
 
     private func focusOwningCmuxTab() -> Bool {
         guard let panel else { return false }
-        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: panelID,
-            preferredWorkspaceId: panel.workspaceId
-        )?.workspace else { return false }
-        workspace.focusPanel(panelID)
-        return true
+        return support?.focusOwningCmuxTab(panelID: panelID, workspaceId: panel.workspaceId) ?? false
     }
 
     private func webExtensionTabError(code: Int) -> NSError {
