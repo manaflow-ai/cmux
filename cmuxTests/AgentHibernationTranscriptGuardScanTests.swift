@@ -394,6 +394,8 @@ struct AgentHibernationTranscriptGuardScanTests {
             containerSessionId: "workflow-container",
             sessionId: sessionId
         )
+        try writeFile(metadataStub, to: workflowTranscriptURL(home: home, cwd: cwd, containerSessionId: "workflow-a", sessionId: sessionId))
+        try writeFile(metadataStub, to: workflowTranscriptURL(home: home, cwd: cwd, containerSessionId: "workflow-b", sessionId: sessionId))
         try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: workflowTranscript)
 
         #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(

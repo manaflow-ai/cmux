@@ -122,13 +122,17 @@ extension AgentHibernationTranscriptGuard {
             .appendingPathComponent(targetName)
         let standardPaths = Set([directPath, nestedPath].map { ($0 as NSString).standardizingPath })
         var matches: [String] = []
+        var hasMetadataOnlyMatch = false
+        var protectiveMatchCount = 0
         collectWorkflowTranscriptCandidates(
             inDirectory: projectRoot,
             targetName: targetName,
             excludedPaths: standardPaths,
             remainingDirectoryDepth: 4,
             fileManager: fileManager,
-            matches: &matches
+            matches: &matches,
+            hasMetadataOnlyMatch: &hasMetadataOnlyMatch,
+            protectiveMatchCount: &protectiveMatchCount
         )
         return matches
     }
@@ -139,14 +143,16 @@ extension AgentHibernationTranscriptGuard {
         excludedPaths: Set<String>,
         remainingDirectoryDepth: Int,
         fileManager: FileManager,
-        matches: inout [String]
+        matches: inout [String],
+        hasMetadataOnlyMatch: inout Bool,
+        protectiveMatchCount: inout Int
     ) {
-        guard matches.count < 2,
+        guard protectiveMatchCount < 2,
               let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
             return
         }
         for child in children.sorted() {
-            guard matches.count < 2 else { return }
+            guard protectiveMatchCount < 2 else { return }
             let childPath = (directory as NSString).appendingPathComponent(child)
             if child == targetName {
                 let standardized = (childPath as NSString).standardizingPath
@@ -154,7 +160,15 @@ extension AgentHibernationTranscriptGuard {
                       workflowRegularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
                     continue
                 }
+                if transcriptContainsOnlyNonProtectiveMetadata(atPath: childPath, fileManager: fileManager) {
+                    if !hasMetadataOnlyMatch {
+                        matches.append(childPath)
+                        hasMetadataOnlyMatch = true
+                    }
+                    continue
+                }
                 matches.append(childPath)
+                protectiveMatchCount += 1
             } else if remainingDirectoryDepth > 0,
                       workflowDirectoryExists(atPath: childPath, fileManager: fileManager) {
                 collectWorkflowTranscriptCandidates(
@@ -163,7 +177,9 @@ extension AgentHibernationTranscriptGuard {
                     excludedPaths: excludedPaths,
                     remainingDirectoryDepth: remainingDirectoryDepth - 1,
                     fileManager: fileManager,
-                    matches: &matches
+                    matches: &matches,
+                    hasMetadataOnlyMatch: &hasMetadataOnlyMatch,
+                    protectiveMatchCount: &protectiveMatchCount
                 )
             }
         }
