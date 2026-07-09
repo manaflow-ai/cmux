@@ -342,4 +342,35 @@ mod tests {
         assert!(dispatcher.enqueue(event(1, 1, PtyInputKind::Ordered)));
         assert!(dispatcher.shutdown(Duration::from_secs(1)));
     }
+
+    #[test]
+    fn shutdown_timeout_discards_pending_input() {
+        let queue = Arc::new(SharedQueue::default());
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.events.push_back(event(1, 1, PtyInputKind::Press));
+            state.events.push_back(event(1, 2, PtyInputKind::Release));
+            state.queued_bytes = 2;
+            state.release_reservations = 1;
+            state.in_flight = true;
+        }
+        let mut dispatcher = PtyInputDispatcher { queue: queue.clone(), worker: None };
+
+        assert!(!dispatcher.shutdown(Duration::ZERO));
+
+        let state = queue.state.lock().unwrap();
+        assert!(state.closed);
+        assert!(state.events.is_empty());
+        assert_eq!(state.queued_bytes, 0);
+        assert_eq!(state.release_reservations, 0);
+    }
+
+    #[test]
+    fn oversized_input_is_distinguished_from_queue_saturation() {
+        let dispatcher = PtyInputDispatcher::spawn().unwrap();
+        let mut oversized = event(1, 1, PtyInputKind::Ordered);
+        oversized.bytes = vec![1; MAX_QUEUED_BYTES + 1];
+
+        assert_eq!(dispatcher.enqueue(oversized), PtyInputEnqueueResult::Oversized);
+    }
 }

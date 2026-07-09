@@ -3525,6 +3525,9 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<65;5;3M");
 
         app.handle_mouse(event(MouseEventKind::ScrollLeft, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<67;5;3M");
+
+        app.handle_mouse(event(MouseEventKind::ScrollRight, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<66;5;3M");
 
         app.encode_buf.clear();

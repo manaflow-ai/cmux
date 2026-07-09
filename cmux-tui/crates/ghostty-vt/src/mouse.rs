@@ -197,6 +197,10 @@ mod tests {
 
         out.clear();
         encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelLeft)), &mut out).unwrap();
+        assert_eq!(out, b"\x1b[<67;5;3M");
+
+        out.clear();
+        encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelRight)), &mut out).unwrap();
         assert_eq!(out, b"\x1b[<66;5;3M");
     }
 
