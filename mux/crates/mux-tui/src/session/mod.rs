@@ -10,9 +10,9 @@
 mod remote;
 pub(crate) mod tree;
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
 
 use ghostty_vt::{RenderState, Terminal};
 use mux_core::{
@@ -44,11 +44,7 @@ pub(crate) fn resize_action(
     server: (u16, u16),
     user_interaction: bool,
 ) -> bool {
-    if user_interaction {
-        desired != server
-    } else {
-        asserted != Some(desired)
-    }
+    if user_interaction { desired != server } else { asserted != Some(desired) }
 }
 
 #[derive(Clone)]

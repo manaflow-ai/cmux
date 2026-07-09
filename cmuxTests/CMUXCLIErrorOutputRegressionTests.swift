@@ -1277,8 +1277,8 @@ import Testing
     /// spawned CLI via `CFFIXED_USER_HOME`, so they never touch (or bind over) the
     /// developer's real `~/.local/state/cmux` (issue #5146).
     private func makeTemporaryHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        let home = URL(fileURLWithPath: "/tmp/cmxh-\(shortID)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
     }

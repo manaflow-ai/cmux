@@ -20,8 +20,8 @@ pub mod server;
 
 pub use browser::normalize_url;
 pub use layout::{
-    directional_neighbor, layout_screen, split_for_pane_edge, split_sides, LayoutResult, Rect,
-    SplitEdge, SplitResize,
+    LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
+    split_for_pane_edge, split_sides,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{

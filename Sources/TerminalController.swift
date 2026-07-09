@@ -1382,8 +1382,12 @@ class TerminalController {
             return v2RemoteTmuxState(id: request.id, params: request.params)
         case "remote.tmux.mirror":
             return v2RemoteTmuxMirror(id: request.id, params: request.params)
-        case "remote.tmux.window":
-            return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
+#if DEBUG
+        case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
+        case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+#endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
         case "sidebar.custom.reload":
@@ -2417,13 +2421,9 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_close",
-            "workspace.remote.pty_detach",
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_resize",
-            "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window",
+            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
+            "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -13898,7 +13898,7 @@ class TerminalController {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
-        guard let tab = resolveSidebarMutationTab(target),
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key), let tab = resolveSidebarMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }

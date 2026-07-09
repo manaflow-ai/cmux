@@ -2,9 +2,9 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -28,11 +28,11 @@ impl Chrome {
     /// Launch Chrome in headless mode and wait for the browser CDP
     /// endpoint printed on stderr.
     pub fn launch(binary: PathBuf) -> anyhow::Result<Self> {
-        Chrome::launch_with(ChromeLaunchOptions { binary, user_data_dir: None, ephemeral: true })
+        Chrome::launch_with(&ChromeLaunchOptions { binary, user_data_dir: None, ephemeral: true })
     }
 
-    pub fn launch_with(options: ChromeLaunchOptions) -> anyhow::Result<Self> {
-        let (profile_dir, profile_ephemeral) = profile_dir_for(&options)?;
+    pub fn launch_with(options: &ChromeLaunchOptions) -> anyhow::Result<Self> {
+        let (profile_dir, profile_ephemeral) = profile_dir_for(options)?;
         std::fs::create_dir_all(&profile_dir)?;
         let mut child = Command::new(&options.binary)
             .arg("--headless=new")
@@ -66,11 +66,9 @@ impl Chrome {
                 match reader.read_line(&mut line) {
                     Ok(0) | Err(_) => break,
                     Ok(_) => {
-                        if !sent {
-                            if let Some(url) = parse_devtools_url(&line) {
-                                let _ = tx.send(url);
-                                sent = true;
-                            }
+                        if !sent && let Some(url) = parse_devtools_url(&line) {
+                            let _ = tx.send(url);
+                            sent = true;
                         }
                     }
                 }
