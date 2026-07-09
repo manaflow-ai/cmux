@@ -80,7 +80,8 @@ struct RemotePTYIntentionalCleanupTests {
             lifecycleID: "wrapper-generation"
         )
 
-        #expect(provider.tunnel.ptySessionLifecycle(
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
             sessionID: "UPPERCASE-SESSION",
             lifecycleID: "wrapper-generation"
         ) == .intentionallyClosed)

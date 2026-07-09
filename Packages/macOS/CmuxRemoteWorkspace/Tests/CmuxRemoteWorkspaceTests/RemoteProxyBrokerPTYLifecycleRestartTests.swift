@@ -43,6 +43,11 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         let fatalError = try #require(provider.fatalErrorCallback(at: 0))
         fatalError("transport died")
         #expect(clock.waitForSleeps(1))
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
         clock.fireOldestSleep()
         #expect(clock.waitForSleeps(2))
         clock.fireOldestSleep()
@@ -92,6 +97,11 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             sessionID: "UPPERCASE-SESSION",
             lifecycleID: "generation"
         )
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
         clock.fireOldestSleep()
         let deadline = Date().addingTimeInterval(5.0)
         while provider.tunnels.count < 2 && Date() < deadline { usleep(10_000) }

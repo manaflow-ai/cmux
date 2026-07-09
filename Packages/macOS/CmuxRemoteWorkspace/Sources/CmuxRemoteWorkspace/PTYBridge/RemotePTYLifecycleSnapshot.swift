@@ -18,4 +18,8 @@ public struct RemotePTYLifecycleSnapshot: Sendable {
     mutating func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
         registry.acknowledgeIfKnown(RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
     }
+
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
+        registry.lifecycle(for: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID))
+    }
 }

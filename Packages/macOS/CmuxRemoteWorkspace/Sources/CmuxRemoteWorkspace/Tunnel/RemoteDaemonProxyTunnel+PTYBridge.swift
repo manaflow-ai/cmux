@@ -79,10 +79,24 @@ extension RemoteDaemonProxyTunnel {
                 try ptyRPCClient.closePTY(sessionID: sessionID)
                 ptyLifecycleRegistry.completeIntentionalClose(previous)
             } catch {
-                ptyLifecycleRegistry.rollbackIntentionalClose(previous)
+                if Self.ptyCloseWasDefinitivelyRejected(error) {
+                    ptyLifecycleRegistry.rollbackIntentionalClose(previous)
+                } else {
+                    ptyLifecycleRegistry.completeIntentionalClose(previous)
+                }
                 throw error
             }
         }
+    }
+
+    private static func ptyCloseWasDefinitivelyRejected(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "cmux.remote.daemon.rpc" &&
+            nsError.code == 14 &&
+            nsError.localizedDescription.range(
+                of: "pty.close failed (invalid_params)",
+                options: [.caseInsensitive]
+            ) != nil
     }
 
     /// Returns the shared tunnel decision for one logical attach generation.

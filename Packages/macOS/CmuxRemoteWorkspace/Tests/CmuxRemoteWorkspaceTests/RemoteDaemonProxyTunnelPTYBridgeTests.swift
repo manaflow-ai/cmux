@@ -69,10 +69,14 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         }
     }
 
-    @Test("daemon close failure restores active reconnect eligibility")
-    func failedCleanupRollsBack() throws {
+    @Test("definitive daemon rejection restores active reconnect eligibility")
+    func definitivelyRejectedCleanupRollsBack() throws {
         let rpc = TestPTYLifecycleRPCClient()
-        rpc.failClose(with: NSError(domain: "test.close", code: 1))
+        rpc.failClose(with: NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [NSLocalizedDescriptionKey: "pty.close failed (invalid_params): rejected"]
+        ))
         let tunnel = makeTunnel(rpc: rpc)
         let key = RemotePTYLifecycleKey(sessionID: "target", lifecycleID: "logical-attach")
         try recordReconnectGap(key: key, in: tunnel)
@@ -90,6 +94,35 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
             command: nil,
             requireExisting: true
         )
+    }
+
+    @Test("ambiguous daemon close failure keeps reconnects closed")
+    func ambiguousCleanupFailureStaysClosed() throws {
+        let rpc = TestPTYLifecycleRPCClient()
+        rpc.failClose(with: NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 11,
+            userInfo: [NSLocalizedDescriptionKey: "daemon RPC timeout waiting for pty.close response"]
+        ))
+        let tunnel = makeTunnel(rpc: rpc)
+        let key = RemotePTYLifecycleKey(sessionID: "target", lifecycleID: "logical-attach")
+        try recordReconnectGap(key: key, in: tunnel)
+        defer { tunnel.stop() }
+
+        #expect(throws: (any Error).self) { try tunnel.closePTY(sessionID: key.sessionID) }
+        #expect(tunnel.ptySessionLifecycle(
+            sessionID: key.sessionID,
+            lifecycleID: key.lifecycleID
+        ) == .intentionallyClosed)
+        #expect(throws: RemotePTYLifecycleError.self) {
+            try tunnel.startPTYBridge(
+                sessionID: key.sessionID,
+                lifecycleID: key.lifecycleID,
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: false
+            )
+        }
     }
 
     @Test("unused and closed-unused endpoints retire without live generation leaks")

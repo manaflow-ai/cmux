@@ -9,8 +9,9 @@ internal import Foundation
 /// constructed at the app's composition layer and injected into every remote
 /// session controller (the legacy `static let shared` singleton is gone).
 ///
-/// All methods are synchronous by contract: callers are serial-queue-confined
-/// session controllers that need blocking results mid-flow.
+/// RPC methods are synchronous by contract. Wrapper-end retirement is the
+/// exception: it durably enqueues work on the process-wide broker so callers
+/// never block the main actor behind a tunnel RPC.
 public protocol RemoteProxyBrokering: AnyObject, Sendable {
     /// Subscribes to the shared tunnel for `configuration`, starting it when
     /// no tunnel exists yet (or restarting it when `remotePath` changed).
@@ -46,8 +47,8 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         lifecycleID: String
     ) throws
 
-    /// Synchronously retires a wrapper-owned generation in whichever shared
-    /// tunnel or replacement snapshot currently owns it.
+    /// Enqueues retirement of a wrapper-owned generation in its indexed shared
+    /// tunnel or replacement snapshot.
     func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String)
 
     /// Resizes a PTY attachment through the ready tunnel.

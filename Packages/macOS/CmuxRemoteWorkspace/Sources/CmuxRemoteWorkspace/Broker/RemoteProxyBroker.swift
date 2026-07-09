@@ -51,6 +51,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
+    private var ptyLifecycleOwners: [RemotePTYLifecycleKey: String] = [:]
 
     /// Creates a broker.
     ///
@@ -128,8 +129,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         sessionID: String,
         lifecycleID: String
     ) throws -> RemotePTYSessionLifecycle {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            tunnel.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+        try queue.sync {
+            let key = Self.transportKey(for: configuration)
+            guard let entry = entries[key] else { throw Self.ptyTunnelNotReadyError() }
+            if let tunnel = entry.tunnel {
+                return tunnel.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+            }
+            guard let snapshot = entry.ptyLifecycleSnapshot else { throw Self.ptyTunnelNotReadyError() }
+            return snapshot.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
         }
     }
 
@@ -153,31 +160,33 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 snapshot.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
                 entry.ptyLifecycleSnapshot = snapshot
             } else {
-                throw NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
+                throw Self.ptyTunnelNotReadyError()
             }
+            ptyLifecycleOwners.removeValue(
+                forKey: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
         }
     }
 
-    /// Retires a wrapper-owned generation across transport ownership changes.
-    /// Unknown generations are ignored instead of creating tombstones in
-    /// unrelated shared tunnels.
+    /// Enqueues retirement against the exact transport that accepted this
+    /// lifecycle, surviving coordinator shutdown without blocking its caller.
     public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {
-        queue.sync {
-            for entry in entries.values {
-                if let tunnel = entry.tunnel {
-                    _ = tunnel.acknowledgePTYLifecycleIfKnown(
-                        sessionID: sessionID,
-                        lifecycleID: lifecycleID
-                    )
-                } else if var snapshot = entry.ptyLifecycleSnapshot,
-                          snapshot.acknowledgePTYLifecycleIfKnown(
-                            sessionID: sessionID,
-                            lifecycleID: lifecycleID
-                          ) {
-                    entry.ptyLifecycleSnapshot = snapshot
-                }
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        queue.async { [weak self] in
+            guard let self,
+                  let ownerKey = self.ptyLifecycleOwners.removeValue(forKey: lifecycleKey),
+                  let entry = self.entries[ownerKey] else { return }
+            if let tunnel = entry.tunnel {
+                _ = tunnel.acknowledgePTYLifecycleIfKnown(
+                    sessionID: lifecycleKey.sessionID,
+                    lifecycleID: lifecycleKey.lifecycleID
+                )
+            } else if var snapshot = entry.ptyLifecycleSnapshot,
+                      snapshot.acknowledgePTYLifecycleIfKnown(
+                        sessionID: lifecycleKey.sessionID,
+                        lifecycleID: lifecycleKey.lifecycleID
+                      ) {
+                entry.ptyLifecycleSnapshot = snapshot
             }
         }
     }
@@ -227,14 +236,20 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.startPTYBridge(
+        try queue.sync {
+            let ownerKey = Self.transportKey(for: configuration)
+            guard let tunnel = entries[ownerKey]?.tunnel else { throw Self.ptyTunnelNotReadyError() }
+            let endpoint = try tunnel.startPTYBridge(
                 sessionID: sessionID,
                 lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting
             )
+            ptyLifecycleOwners[
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            ] = ownerKey
+            return endpoint
         }
     }
 
@@ -245,9 +260,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         try queue.sync {
             let key = Self.transportKey(for: configuration)
             guard let entry = entries[key], let tunnel = entry.tunnel else {
-                throw NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
+                throw Self.ptyTunnelNotReadyError()
             }
             return try body(tunnel)
         }
@@ -371,6 +384,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         cancelRestartLocked(entry)
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: false)
         entries.removeValue(forKey: key)
+        ptyLifecycleOwners = ptyLifecycleOwners.filter { $0.value != key }
     }
 
     private func stopEntryRuntimeLocked(_ entry: Entry, preservePTYLifecycle: Bool) {
@@ -394,6 +408,12 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private static func transportKey(for configuration: WorkspaceRemoteConfiguration) -> String {
         configuration.proxyBrokerTransportKey
+    }
+
+    private static func ptyTunnelNotReadyError() -> NSError {
+        NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
+            NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+        ])
     }
 
     /// Binds an ephemeral loopback TCP socket to discover a free port (pure
