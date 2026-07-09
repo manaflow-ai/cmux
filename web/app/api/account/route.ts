@@ -118,7 +118,6 @@ export async function DELETE(request: Request): Promise<Response> {
   let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
   try {
-    const accountScope = await accountDeletionScopeForUser(stackUser);
     const tombstoneStart = await markAccountDeletionTombstonePending(userId);
     accountDeletionTombstoneStarted = tombstoneStart.kind === "started";
     if (tombstoneStart.kind === "pending") {
@@ -130,6 +129,7 @@ export async function DELETE(request: Request): Promise<Response> {
     if (tombstoneStart.kind === "cleanupIncomplete") {
       return jsonResponse({ ok: true, cleanupIncomplete: true, destroyedVms: 0 }, 202);
     }
+    const accountScope = await accountDeletionScopeForUser(stackUser);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(

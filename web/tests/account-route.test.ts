@@ -875,14 +875,19 @@ describe("account deletion route", () => {
   test("pages through Stack teams before selecting account-owned data", async () => {
     listedPersonalVmIds = [];
     listedPersonalVmIdsByBillingTeam = { "team-personal-page-2": ["personal-team-vm"] };
-    stackUserTeams = ({ cursor } = {}) => cursor === "page-2"
-      ? stackPage([stackTeam("team-personal-page-2", ["account-user-1"])])
-      : stackPage([stackTeam("team-shared-page-1", ["account-user-1", "other-user"])], "page-2");
+    let listedTeamsAfterTombstone = false;
+    stackUserTeams = ({ cursor } = {}) => {
+      listedTeamsAfterTombstone = listedTeamsAfterTombstone || routeEvents.includes("tombstone-upsert");
+      return cursor === "page-2"
+        ? stackPage([stackTeam("team-personal-page-2", ["account-user-1"])])
+        : stackPage([stackTeam("team-shared-page-1", ["account-user-1", "other-user"])], "page-2");
+    };
 
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 1 });
+    expect(listedTeamsAfterTombstone).toBe(true);
     expect(listUserVms).toHaveBeenCalledWith("account-user-1");
     expect(listUserVms).toHaveBeenCalledWith("account-user-1", "team-personal-page-2");
     expect(destroyVm).toHaveBeenCalledWith({
@@ -975,7 +980,11 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "account_delete_failed" });
-    expect(transaction).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(routeEvents).toContain("tombstone-upsert");
+    expect(tombstoneUpdates.some((values) =>
+      Boolean(values && typeof values === "object" && (values as { readonly status?: unknown }).status === "failed")
+    )).toBe(true);
     expect(updateStackUser).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
