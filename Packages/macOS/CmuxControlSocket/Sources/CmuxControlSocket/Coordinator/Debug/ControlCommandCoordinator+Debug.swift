@@ -42,6 +42,8 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.workspace_todo.checklist_add_field":
+            return debugWorkspaceTodoChecklistAddField()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -300,6 +302,15 @@ extension ControlCommandCoordinator {
         return resp == "OK"
             ? .ok(.object([:]))
             : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    /// `debug.workspace_todo.checklist_add_field` — request the selected workspace's checklist add field.
+    func debugWorkspaceTodoChecklistAddField() -> ControlCallResult {
+        guard let debugContext else { return .err(code: "unavailable", message: "Control debug context unavailable", data: nil) }
+        guard let workspaceID = debugContext.controlDebugRequestWorkspaceTodoChecklistAddField() else {
+            return .err(code: "not_found", message: "No selected workspace", data: nil)
+        }
+        return .ok(.object(["workspace_id": .string(workspaceID.uuidString), "workspace_ref": ref(.workspace, workspaceID), "requested": .bool(true)]))
     }
 
     // MARK: - debug.command_palette.* (event posts)

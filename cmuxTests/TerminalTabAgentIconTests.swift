@@ -331,18 +331,46 @@ struct TerminalTabAgentIconTests {
         notificationStore.replaceNotificationsForTesting([staleNotification, siblingNotification])
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == staleAsset)
-        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == staleAsset)
+        let stalePayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == stalePayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == stalePayload.assetName)
         #expect(workspace.listeningPorts.contains(staleAgentPort))
         #expect(notificationStore.notifications.contains { $0.id == staleNotification.id })
 
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
-        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == expectedAsset)
+        let expectedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == expectedPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == expectedPayload.assetName)
         #expect(workspace.agentPIDs[stalePIDKey] == nil)
         #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
         #expect(workspace.agentListeningPorts.isEmpty)
         #expect(!workspace.listeningPorts.contains(staleAgentPort))
         #expect(!notificationStore.notifications.contains { $0.id == staleNotification.id })
         #expect(notificationStore.notifications.contains { $0.id == siblingNotification.id })
+    }
+
+    @Test func payloadUsesRenderedImageDataWhenAvailable() {
+        let rendered = Data([0x63, 0x6d, 0x75, 0x78])
+        let payload = TerminalTabAgentIconResolver().payload(assetName: "AgentIcons/Codex") { assetName in
+            assetName == "AgentIcons/Codex" ? rendered : nil
+        }
+
+        #expect(payload.imageData == rendered)
+        #expect(payload.assetName == nil)
+    }
+
+    @Test func payloadFallsBackToAssetNameWhenRenderingMisses() {
+        let payload = TerminalTabAgentIconResolver().payload(assetName: "AgentIcons/Claude") { _ in nil }
+
+        #expect(payload.imageData == nil)
+        #expect(payload.assetName == "AgentIcons/Claude")
+    }
+
+    @Test func payloadClearsBothIconFieldsWhenNoAssetIsResolved() {
+        let payload = TerminalTabAgentIconResolver().payload(assetName: nil) { _ in Data([1]) }
+
+        #expect(payload.imageData == nil)
+        #expect(payload.assetName == nil)
     }
 }
