@@ -699,6 +699,13 @@ final class CmuxWebView: WKWebView {
             return finish(super.performKeyEquivalent(with: event))
         }
 
+        // Web-extension commands (e.g. Bitwarden's ⌘⇧L autofill) match only
+        // shortcuts the extension manifest declares; everything else falls through.
+        if #available(macOS 15.4, *),
+           BrowserWebExtensionSupport.shared.performCommand(for: event) {
+            return finish(true)
+        }
+
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
             if event.timestamp > 0 {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp

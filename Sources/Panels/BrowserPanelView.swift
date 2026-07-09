@@ -1348,6 +1348,15 @@ struct BrowserPanelView: View {
                     onClear: { panel.clearRecentDownloads() }
                 )
             }
+
+            if #available(macOS 15.4, *) {
+                BrowserWebExtensionToolbarButtons(
+                    support: BrowserWebExtensionSupport.shared,
+                    panel: panel,
+                    iconPointSize: chromeMetrics.navigationIconFontSize,
+                    hitSize: addressBarButtonHitSize
+                )
+            }
         }
     }
 
