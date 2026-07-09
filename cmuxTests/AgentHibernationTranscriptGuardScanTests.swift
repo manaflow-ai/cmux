@@ -186,9 +186,11 @@ struct AgentHibernationTranscriptGuardScanTests {
         }
 
         try await waitUntilRestored(live: live, snapshotContent: snapshotContent)
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
         task.cancel()
         await task.value
 
+        #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
         #expect(FileManager.default.fileExists(atPath: snapshot.path))
     }
 
@@ -302,6 +304,27 @@ struct AgentHibernationTranscriptGuardScanTests {
         ) == driftedTranscript.path)
     }
 
+    @Test
+    func resolveTranscriptPathFindsWorkflowResolvedClaudeTranscript() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/workflow"
+        let sessionId = "workflow-resolved-session"
+        let workflowTranscript = workflowTranscriptURL(
+            home: home,
+            cwd: cwd,
+            containerSessionId: "workflow-container",
+            sessionId: sessionId
+        )
+        try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: workflowTranscript)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == workflowTranscript.path)
+    }
+
     private var metadataStub: String {
         [
             #"{"type":"last-prompt","prompt":"continue"}"#,
@@ -336,6 +359,19 @@ struct AgentHibernationTranscriptGuardScanTests {
         transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
             .deletingLastPathComponent()
             .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("messages", isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+    }
+
+    private func workflowTranscriptURL(
+        home: URL,
+        cwd: String,
+        containerSessionId: String,
+        sessionId: String
+    ) -> URL {
+        transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+            .deletingLastPathComponent()
+            .appendingPathComponent(containerSessionId, isDirectory: true)
             .appendingPathComponent("messages", isDirectory: true)
             .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
     }
