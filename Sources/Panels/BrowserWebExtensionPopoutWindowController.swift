@@ -15,7 +15,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     let webView: WKWebView
     private(set) lazy var tab = Tab(controller: self)
     private weak var support: BrowserWebExtensionSupport?
-    private weak var extensionContext: WKWebExtensionContext?
+    private(set) weak var extensionContext: WKWebExtensionContext?
 
     init(
         configuration: WKWebExtension.WindowConfiguration,
