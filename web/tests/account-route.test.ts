@@ -596,17 +596,16 @@ describe("account deletion route", () => {
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedTables).toContain(devices);
-    expect(updatedRows.map(({ table, values }) => ({
+    const nonStripeUpdates = updatedRows.filter(({ table }) =>
+      table !== stripeSubscriptions && table !== stripeCustomers
+    );
+    expect(nonStripeUpdates.map(({ table, values }) => ({
       table,
       values: stripUpdatedAt(values),
     }))).toEqual([
-      { table: stripeSubscriptions, values: { stackUserId: "deleted-account" } },
-      { table: stripeCustomers, values: { stackUserId: "deleted-account" } },
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
-      { table: stripeSubscriptions, values: { stackUserId: "deleted-account" } },
-      { table: stripeCustomers, values: { stackUserId: "deleted-account" } },
       { table: cloudVmBases, values: { createdByUserId: "deleted-account" } },
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
@@ -704,8 +703,11 @@ describe("account deletion route", () => {
     listedPersonalVmIdsByBillingTeam = { "team-personal": ["personal-team-vm"] };
     stackUserTeams = [stackTeam("team-personal", ["account-user-1"])];
     selectResults = [
-      [{ id: "sub_user_active" }, { id: "sub_team_active" }],
-      [{ id: "cus_user" }, { id: "cus_team" }],
+      [
+        { id: "sub_user_active" },
+        { id: "sub_team_active", stackTeamId: "team-personal", scope: "team", status: "active" },
+      ],
+      [{ id: "cus_user" }, { id: "cus_team", stackTeamId: "team-personal" }],
       [],
       [],
       [],
@@ -732,6 +734,10 @@ describe("account deletion route", () => {
     expect(conditionColumnNames(subscriptionSelect?.condition)).toContain("stack_team_id");
     const customerSelect = selectedWhere.find((entry) => entry.table === stripeCustomers);
     expect(conditionColumnNames(customerSelect?.condition)).toContain("stack_team_id");
+    const subscriptionDelete = deletedWhere.find((entry) => entry.table === stripeSubscriptions);
+    expect(conditionColumnNames(subscriptionDelete?.condition)).toContain("stack_team_id");
+    const customerDelete = deletedWhere.find((entry) => entry.table === stripeCustomers);
+    expect(conditionColumnNames(customerDelete?.condition)).toContain("stack_team_id");
     expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
     expect(transactionExecute).toHaveBeenCalledTimes(5);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);

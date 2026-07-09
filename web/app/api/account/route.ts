@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, not, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -867,14 +867,23 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(billingEmailClaims.stackUserId, userId),
       eq(billingEmailClaims.claimedByUserId, userId),
     ));
-    await tx.delete(stripeSubscriptions).where(and(
-      eq(stripeSubscriptions.stackUserId, userId),
-      eq(stripeSubscriptions.scope, "user"),
-      isNull(stripeSubscriptions.stackTeamId),
+    await tx.delete(stripeSubscriptions).where(or(
+      and(
+        eq(stripeSubscriptions.stackUserId, userId),
+        eq(stripeSubscriptions.scope, "user"),
+        isNull(stripeSubscriptions.stackTeamId),
+      ),
+      and(
+        eq(stripeSubscriptions.scope, "team"),
+        inArray(stripeSubscriptions.stackTeamId, deletionTeamIds),
+      ),
     ));
-    await tx.delete(stripeCustomers).where(and(
-      eq(stripeCustomers.stackUserId, userId),
-      isNull(stripeCustomers.stackTeamId),
+    await tx.delete(stripeCustomers).where(or(
+      and(
+        eq(stripeCustomers.stackUserId, userId),
+        isNull(stripeCustomers.stackTeamId),
+      ),
+      inArray(stripeCustomers.stackTeamId, deletionTeamIds),
     ));
     await tx
       .update(stripeSubscriptions)
@@ -883,6 +892,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         eq(stripeSubscriptions.stackUserId, userId),
         eq(stripeSubscriptions.scope, "team"),
         isNotNull(stripeSubscriptions.stackTeamId),
+        not(inArray(stripeSubscriptions.stackTeamId, deletionTeamIds)),
       ));
     await tx
       .update(stripeCustomers)
@@ -890,6 +900,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       .where(and(
         eq(stripeCustomers.stackUserId, userId),
         isNotNull(stripeCustomers.stackTeamId),
+        not(inArray(stripeCustomers.stackTeamId, deletionTeamIds)),
       ));
 
     await tx.delete(cloudVmBillingGrants).where(or(
