@@ -198,6 +198,10 @@ enum AgentHibernationTranscriptGuard {
               !transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager) else {
             return false
         }
+        guard !fileManager.fileExists(atPath: snapshot.transcriptPath) ||
+            transcriptContainsOnlyNonProtectiveMetadata(atPath: snapshot.transcriptPath, fileManager: fileManager) else {
+            return false
+        }
 
         let transcriptURL = URL(fileURLWithPath: snapshot.transcriptPath)
         let directoryURL = transcriptURL.deletingLastPathComponent()

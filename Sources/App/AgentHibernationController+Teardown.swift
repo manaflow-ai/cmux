@@ -20,6 +20,7 @@ extension AgentHibernationController {
     ) {
         let agent = record.agent
         let epoch = teardownValidationEpochByPanel[record.key] ?? 0
+        let generation = teardownValidationGeneration
         Task { @MainActor in
             let snapshotOutcome = await Task.detached(priority: .utility) {
                 AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
@@ -44,6 +45,7 @@ extension AgentHibernationController {
                   ).allowsHibernation,
                   (self.terminalInputByPanel[record.key] ?? 0) <=
                       (self.lifecycleChangeByPanel[record.key] ?? 0),
+                  self.teardownValidationGeneration == generation,
                   (self.teardownValidationEpochByPanel[record.key] ?? 0) == epoch,
                   let currentFingerprint = self.hibernationFingerprint(for: record),
                   currentFingerprint == confirmationFingerprint,

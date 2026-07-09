@@ -106,6 +106,7 @@ final class AgentHibernationController {
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var teardownValidationEpochByPanel: [AgentHibernationPanelKey: UInt64] = [:]
+    var teardownValidationGeneration: UInt64 = 0
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
 
@@ -416,6 +417,7 @@ final class AgentHibernationController {
     }
 
     private func clearTrackingState() {
+        teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
