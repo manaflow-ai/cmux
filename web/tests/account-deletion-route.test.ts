@@ -12,6 +12,7 @@ let markStackError: Error | null = null;
 let getUserError: Error | null = null;
 let getUserMissing = false;
 let preflightError: Error | null = null;
+let accountDeletionCanStartError: Error | null = null;
 type NativeTokenStore = { accessToken: string; refreshToken: string };
 const markStackUserDeletionInProgress = mock(async (user) => {
   calls.push("mark-deleting");
@@ -33,6 +34,13 @@ const processAccountDeletionForUser = mock(async (_input?: unknown) => {
 const preflightDeletionDependencies = mock(() => {
   calls.push("preflight");
   if (preflightError) throw preflightError;
+});
+const accountDeletionTeamScopeForUser = mock(async () => ({
+  ownedTeamIds: [],
+  retainedTeamBillingOwners: [],
+}));
+const assertAccountDeletionCanStart = mock(async () => {
+  if (accountDeletionCanStartError) throw accountDeletionCanStartError;
 });
 const deleteUser = mock(async () => {});
 const getUser = mock(async (_options?: unknown) => {
@@ -69,6 +77,8 @@ function deleteAccount(request: Request): Promise<Response> {
       await enqueueAccountDeletion(input) as Awaited<ReturnType<typeof accountDeletionModule.enqueueAccountDeletion>>,
     processAccountDeletionForUser: async (input) =>
       await processAccountDeletionForUser(input) as "processed" | "skipped",
+    accountDeletionTeamScopeForUser,
+    assertAccountDeletionCanStart,
     preflightDeletionDependencies,
     scheduleAfterResponse: (callback) => {
       calls.push("schedule");
@@ -87,9 +97,12 @@ beforeEach(() => {
   getUserError = null;
   getUserMissing = false;
   preflightError = null;
+  accountDeletionCanStartError = null;
   markStackUserDeletionInProgress.mockClear();
   enqueueAccountDeletion.mockClear();
   processAccountDeletionForUser.mockClear();
+  accountDeletionTeamScopeForUser.mockClear();
+  assertAccountDeletionCanStart.mockClear();
   preflightDeletionDependencies.mockClear();
   deleteUser.mockClear();
   getUser.mockClear();
@@ -270,6 +283,46 @@ describe("account deletion route", () => {
       expect(consoleError).toHaveBeenCalledWith(
         "[account-deletion] dependency preflight failed",
         { error: preflightError },
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
+  });
+
+  test("does not enqueue deletion when local account data cannot be safely deleted", async () => {
+    accountDeletionCanStartError = new Error(
+      "Account deletion retained team billing owner missing for team-shared",
+    );
+    const originalConsoleError = console.error;
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+
+    try {
+      const response = await deleteAccount(
+        new Request("https://cmux.test/api/account/deletion", {
+          method: "DELETE",
+          headers: {
+            authorization: "Bearer access-1",
+            "x-stack-refresh-token": "refresh-1",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "deletion_unavailable" });
+      expect(assertAccountDeletionCanStart).toHaveBeenCalledWith({
+        userId: "user-1",
+        ownedTeamIds: [],
+        retainedTeamBillingOwners: [],
+      });
+      expect(consoleError).toHaveBeenCalledWith(
+        "[account-deletion] dependency preflight failed",
+        { error: accountDeletionCanStartError },
       );
     } finally {
       console.error = originalConsoleError;

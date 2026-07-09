@@ -733,45 +733,56 @@ describe("recordCheckoutCompletion", () => {
     expect(updateTeam).not.toHaveBeenCalled();
   });
 
-  test("fails Team subscription updates without an owner mapping", async () => {
-    selectResults = [[], []];
+  test("processes legacy Team subscription rows that stored the team id as owner", async () => {
+    const updateTeam = mock(async () => undefined);
+    selectResults = [[{ stackUserId: "team_123" }], []];
 
-    await expect(
-      applySubscriptionUpdate(
-        {
-          id: "sub_team",
-          customer: "cus_team",
-          status: "active",
-          metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
-          cancel_at_period_end: false,
-          items: {
-            data: [
-              {
-                quantity: 7,
-                current_period_end: 1_800_000_000,
-                price: { id: "price_team" },
-              },
-            ],
-          },
-        } as never,
-        {
-          db: fakeDb() as never,
-          stackApp: {
-            getUser: async () => {
-              throw new Error("should not load Stack user without owner mapping");
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
             },
-            getTeam: async () => ({
-              id: "team_123",
-              clientReadOnlyMetadata: {},
-              update: mock(async () => undefined),
-            }),
-          } as never,
+          ],
         },
-      ),
-    ).rejects.toThrow("Stack user not found for Team Stripe subscription update: team_123");
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load Stack user for legacy team-owner rows");
+          },
+          getTeam: async () => ({
+            id: "team_123",
+            clientReadOnlyMetadata: {},
+            update: updateTeam,
+          }),
+        } as never,
+      },
+    );
 
-    expect(inserts).toHaveLength(0);
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: true });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeCustomers &&
+          insert.values.id === "cus_team" &&
+          insert.values.stackUserId === "team_123" &&
+          insert.values.stackTeamId === "team_123",
+      ),
+    ).toBe(true);
     expect(updates).toHaveLength(0);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
+    });
   });
 
   test("removes a user from TestFlight when a user Pro subscription lapses", async () => {

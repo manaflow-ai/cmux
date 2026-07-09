@@ -205,7 +205,6 @@ export async function applySubscriptionUpdate(
       stackUserId: teamScope.stackUserId,
       customerId,
       stackApp: dependencies.stackApp,
-      missingOwnerMessage: `Stack user not found for Team Stripe subscription update: ${teamScope.stackTeamId}`,
     });
     if (guard.blocked) return { skipped: true };
     const stackUserId = guard.stackUserId;
@@ -463,7 +462,6 @@ async function recordTeamCheckoutCompletion(input: {
     stackUserId: input.stackUserId,
     customerId: input.customerId,
     stackApp: input.dependencies.stackApp,
-    missingOwnerMessage: `Stack user not found for Team Stripe purchase: ${input.stackTeamId}`,
   });
   if (guard.blocked) {
     await cleanupCheckoutStripeObjectsForAccountDeletion({
@@ -508,14 +506,16 @@ async function teamBillingDeletionGuard(input: {
   stackUserId?: string | null;
   customerId: string;
   stackApp: StackBillingApp | null | undefined;
-  missingOwnerMessage: string;
 }): Promise<{ blocked: boolean; stackUserId: string }> {
-  let stackUserId = input.stackUserId ?? null;
+  let stackUserId = legacyTeamOwnerUserId(input.stackUserId, input.stackTeamId);
   if (!stackUserId) {
-    stackUserId = await stackUserIdForTeamStripeCustomer(input.db, {
-      stackTeamId: input.stackTeamId,
-      customerId: input.customerId,
-    });
+    stackUserId = legacyTeamOwnerUserId(
+      await stackUserIdForTeamStripeCustomer(input.db, {
+        stackTeamId: input.stackTeamId,
+        customerId: input.customerId,
+      }),
+      input.stackTeamId,
+    );
   }
 
   if (!stackUserId) {
@@ -523,11 +523,23 @@ async function teamBillingDeletionGuard(input: {
     stackUserId = await singletonStackTeamUserId(team);
   }
 
-  if (!stackUserId) throw new Error(input.missingOwnerMessage);
+  if (!stackUserId) {
+    return {
+      blocked: false,
+      stackUserId: input.stackTeamId,
+    };
+  }
   return {
     blocked: await isBillingStackUserDeletionBlocked(stackUserId, input),
     stackUserId,
   };
+}
+
+function legacyTeamOwnerUserId(
+  stackUserId: string | null | undefined,
+  stackTeamId: string,
+): string | null {
+  return stackUserId && stackUserId !== stackTeamId ? stackUserId : null;
 }
 
 async function isBillingStackUserDeletionBlocked(

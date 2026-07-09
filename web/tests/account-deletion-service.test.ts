@@ -16,6 +16,7 @@ import {
 } from "../db/schema";
 import type { ProviderId } from "../services/vms/drivers";
 import {
+  assertAccountDeletionCanStart,
   claimAccountDeletionProcessing,
   deleteCmuxAccountData,
   hasAccountDeletionTombstone,
@@ -704,6 +705,31 @@ describe("account deletion cleanup", () => {
       userId: "user-1",
     }, fakeRuntime())).rejects.toThrow("retained team billing owner missing for team-shared");
 
+    expect(stripeCustomerUpdates).toHaveLength(0);
+    expect(stripeSubscriptionUpdates).toHaveLength(0);
+    expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);
+  });
+
+  test("preflights retained shared-team billing before account deletion starts", async () => {
+    stripeCustomerRows = [
+      { id: "cus_shared", stackUserId: "user-1", stackTeamId: "team-shared" },
+    ];
+    stripeSubscriptionRows = [
+      {
+        id: "sub_shared",
+        stackUserId: "user-1",
+        stackTeamId: "team-shared",
+        status: "active",
+        scope: "team",
+        plan: TEAM_PLAN_ID,
+      },
+    ];
+
+    await expect(assertAccountDeletionCanStart({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("retained team billing owner missing for team-shared");
+
+    expect(calls).toEqual([]);
     expect(stripeCustomerUpdates).toHaveLength(0);
     expect(stripeSubscriptionUpdates).toHaveLength(0);
     expect(updateSets.filter((entry) => entry.label.includes("stripe"))).toHaveLength(0);

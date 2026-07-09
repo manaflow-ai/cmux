@@ -146,6 +146,20 @@ export type StackAccountDeletionBlockUser = {
   readonly clientReadOnlyMetadata?: unknown;
 };
 
+type AccountDeletionStripeCustomerRow = {
+  readonly id: string;
+  readonly stackTeamId: string | null;
+};
+
+type AccountDeletionStripeSubscriptionRow = {
+  readonly id: string;
+  readonly plan: string | null;
+  readonly scope: string;
+  readonly stackTeamId: string | null;
+  readonly stackUserId: string | null;
+  readonly status: string;
+};
+
 export function isStackAccountDeletionInProgress(metadata: unknown): boolean {
   return !!metadata &&
     typeof metadata === "object" &&
@@ -425,10 +439,20 @@ export async function markAccountDeletionRetryPending(
   });
 }
 
+export async function assertAccountDeletionCanStart(
+  input: AccountDeletionInput,
+  runtime: Pick<AccountDeletionRuntime, "cloudDb"> = defaultAccountDeletionRuntime,
+): Promise<void> {
+  const scope = accountDeletionScope(input);
+  const { customerRows, subscriptionRows } = await accountDeletionStripeBillingRows(scope, runtime);
+  assertRetainedTeamBillingOwners(scope, customerRows, subscriptionRows);
+}
+
 export async function deleteCmuxAccountData(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
 ): Promise<void> {
+  await assertAccountDeletionCanStart(input, runtime);
   const scope = accountDeletionScope(input);
   const anonymizedUserId = deletedAccountId(input.userId);
   await claimProviderlessAccountVms(scope, runtime);
@@ -961,31 +985,7 @@ async function cancelStripeAccountBilling(
   anonymizedUserId: string,
   runtime: AccountDeletionRuntime,
 ): Promise<void> {
-  const db = runtime.cloudDb();
-  const customerRows = await db
-    .select({
-      id: stripeCustomers.id,
-      stackTeamId: stripeCustomers.stackTeamId,
-    })
-    .from(stripeCustomers)
-    .where(or(
-      eq(stripeCustomers.stackUserId, scope.userId),
-      inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
-    ));
-  const subscriptionRows = await db
-    .select({
-      id: stripeSubscriptions.id,
-      plan: stripeSubscriptions.plan,
-      scope: stripeSubscriptions.scope,
-      stackTeamId: stripeSubscriptions.stackTeamId,
-      stackUserId: stripeSubscriptions.stackUserId,
-      status: stripeSubscriptions.status,
-    })
-    .from(stripeSubscriptions)
-    .where(or(
-      eq(stripeSubscriptions.stackUserId, scope.userId),
-      inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
-    ));
+  const { customerRows, subscriptionRows } = await accountDeletionStripeBillingRows(scope, runtime);
 
   if (customerRows.length === 0 && subscriptionRows.length === 0) return;
   assertRetainedTeamBillingOwners(scope, customerRows, subscriptionRows);
@@ -1032,6 +1032,41 @@ async function cancelStripeAccountBilling(
       subscription,
     );
   }
+}
+
+async function accountDeletionStripeBillingRows(
+  scope: AccountDeletionScope,
+  runtime: Pick<AccountDeletionRuntime, "cloudDb">,
+): Promise<{
+  readonly customerRows: readonly AccountDeletionStripeCustomerRow[];
+  readonly subscriptionRows: readonly AccountDeletionStripeSubscriptionRow[];
+}> {
+  const db = runtime.cloudDb();
+  const customerRows = await db
+    .select({
+      id: stripeCustomers.id,
+      stackTeamId: stripeCustomers.stackTeamId,
+    })
+    .from(stripeCustomers)
+    .where(or(
+      eq(stripeCustomers.stackUserId, scope.userId),
+      inArray(stripeCustomers.stackTeamId, scope.ownedBillingTeamIds),
+    ));
+  const subscriptionRows = await db
+    .select({
+      id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
+      scope: stripeSubscriptions.scope,
+      stackTeamId: stripeSubscriptions.stackTeamId,
+      stackUserId: stripeSubscriptions.stackUserId,
+      status: stripeSubscriptions.status,
+    })
+    .from(stripeSubscriptions)
+    .where(or(
+      eq(stripeSubscriptions.stackUserId, scope.userId),
+      inArray(stripeSubscriptions.stackTeamId, scope.ownedBillingTeamIds),
+    ));
+  return { customerRows, subscriptionRows };
 }
 
 async function updateStripeCustomerForAccountDeletion(

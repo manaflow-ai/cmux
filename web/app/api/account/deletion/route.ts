@@ -3,11 +3,15 @@ import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized } from "../../../../services/vms/auth";
 import {
+  assertAccountDeletionCanStart,
   enqueueAccountDeletion,
   markStackUserDeletionInProgress,
   type StackAccountDeletionMetadataUser,
 } from "../../../../services/account/deletion";
-import { processAccountDeletionForUser } from "../../../../services/account/deletionProcessor";
+import {
+  accountDeletionTeamScopeForUser,
+  processAccountDeletionForUser,
+} from "../../../../services/account/deletionProcessor";
 import { assertPostHogDeletionConfigured } from "../../../../services/analytics/posthogDeletion";
 
 export const runtime = "nodejs";
@@ -29,7 +33,9 @@ export type AccountDeletionRouteDependencies = {
   readonly markStackUserDeletionInProgress: typeof markStackUserDeletionInProgress;
   readonly enqueueAccountDeletion: typeof enqueueAccountDeletion;
   readonly processAccountDeletionForUser: typeof processAccountDeletionForUser;
-  readonly preflightDeletionDependencies: () => void;
+  readonly accountDeletionTeamScopeForUser: typeof accountDeletionTeamScopeForUser;
+  readonly assertAccountDeletionCanStart: typeof assertAccountDeletionCanStart;
+  readonly preflightDeletionDependencies: () => void | Promise<void>;
   readonly scheduleAfterResponse: (callback: () => Promise<void>) => void;
 };
 
@@ -39,6 +45,8 @@ const accountDeletionRouteDependencies: AccountDeletionRouteDependencies = {
   markStackUserDeletionInProgress,
   enqueueAccountDeletion,
   processAccountDeletionForUser,
+  accountDeletionTeamScopeForUser,
+  assertAccountDeletionCanStart,
   preflightDeletionDependencies: assertPostHogDeletionConfigured,
   scheduleAfterResponse: after,
 };
@@ -62,7 +70,13 @@ export async function deleteAccountWithDependencies(
   if (!user) return unauthorized();
 
   try {
-    dependencies.preflightDeletionDependencies();
+    await dependencies.preflightDeletionDependencies();
+    const teamScope = await dependencies.accountDeletionTeamScopeForUser(user);
+    await dependencies.assertAccountDeletionCanStart({
+      userId: user.id,
+      ownedTeamIds: teamScope.ownedTeamIds,
+      retainedTeamBillingOwners: teamScope.retainedTeamBillingOwners,
+    });
   } catch (error) {
     console.error("[account-deletion] dependency preflight failed", { error });
     return jsonResponse({ error: "deletion_unavailable" }, 503);

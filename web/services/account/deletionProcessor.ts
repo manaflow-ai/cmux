@@ -18,7 +18,7 @@ import {
   type StackAccountDeletionMetadataUser,
 } from "./deletion";
 
-type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
+export type StackAccountDeletionUser = StackAccountDeletionMetadataUser & {
   readonly id: string;
   readonly selectedTeam?: unknown;
   readonly listTeams?: (
@@ -97,7 +97,7 @@ export async function processAccountDeletionForUser(
     const user = await dependencies.loadStackUser(input.userId);
     if (!stackDeletePending) {
       const teamScope = user
-        ? await accountDeletionTeamScope(user)
+        ? await accountDeletionTeamScopeForUser(user)
         : { ownedTeamIds: [], retainedTeamBillingOwners: [] };
       await dependencies.deleteCmuxAccountData({
         userId: input.userId,
@@ -148,7 +148,7 @@ export async function processPendingAccountDeletions(
   return { scanned: jobs.length, processed, skipped, failed };
 }
 
-async function accountDeletionTeamScope(user: StackAccountDeletionUser): Promise<{
+export async function accountDeletionTeamScopeForUser(user: StackAccountDeletionUser): Promise<{
   readonly ownedTeamIds: readonly string[];
   readonly retainedTeamBillingOwners: readonly RetainedTeamBillingOwner[];
 }> {
