@@ -80,9 +80,11 @@ enum TerminalForegroundCommandCapture {
     /// and every token including the executable is shell-quoted so nothing
     /// replays as shell syntax.
     static func commandLine(fromArgv argv: [String]) -> String? {
+        let cmuxHookInjectionDetector = AgentCmuxHookInjectionDetector()
         let runtimeUnwrapper = JavaScriptRuntimeAgentLaunchUnwrapper(
             isKnownAgentExecutableName: { knownAgentKind(forExecutableName: $0) != nil },
-            stripsCmuxHookArguments: true
+            stripsCmuxHookArguments: true,
+            cmuxHookInjectionDetector: cmuxHookInjectionDetector
         )
         let argv = runtimeUnwrapper.unwrappedArgv(argv) ?? argv
         guard let executable = argv.first, !executable.isEmpty else { return nil }
@@ -90,6 +92,10 @@ enum TerminalForegroundCommandCapture {
         guard !executableName.isEmpty, !isShellProcessName(executableName) else { return nil }
         var sanitizedArgv = argv
         if let agentKind = knownAgentKind(forExecutableName: executableName) {
+            let routesThroughWrapper = cmuxHookInjectionDetector.contains(
+                kind: agentKind,
+                args: Array(argv.dropFirst())
+            )
             if let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
                 argv,
                 launcher: "",
@@ -109,6 +115,9 @@ enum TerminalForegroundCommandCapture {
             if !sanitizedArgv.isEmpty,
                runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(argv) {
                 sanitizedArgv[0] = executableName
+            }
+            if !sanitizedArgv.isEmpty, routesThroughWrapper {
+                sanitizedArgv[0] = agentKind
             }
         }
         return sanitizedArgv.map(shellQuoted).joined(separator: " ")
