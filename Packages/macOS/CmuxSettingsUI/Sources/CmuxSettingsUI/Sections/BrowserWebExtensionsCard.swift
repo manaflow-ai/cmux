@@ -15,13 +15,11 @@ struct BrowserWebExtensionsCard: View {
     let model: JSONValueModel<[BrowserWebExtensionEntry]>
     let hostActions: SettingsHostActions
 
-    @State private var discovered: [SettingsDiscoveredBrowserExtension] = []
+    @State private var cardState = BrowserWebExtensionsCardState()
     @State private var loadErrorsByEntryID: [String: String] = [:]
-    @State private var pendingEntries: [BrowserWebExtensionEntry]?
-    @State private var pendingWriteID: UInt64?
 
     var body: some View {
-        let entries = effectiveEntries
+        let entries = cardState.effectiveEntries(observed: model.current)
         let enabledByID = effectiveEnabledByID(for: entries)
         SettingsCard {
             headerRow
@@ -38,7 +36,9 @@ struct BrowserWebExtensionsCard: View {
         }
         .task {
             model.startObserving()
-            discovered = await hostActions.discoverBrowserWebExtensions()
+            let discovered = await hostActions.discoverBrowserWebExtensions()
+            guard !Task.isCancelled else { return }
+            cardState.completeDiscovery(discovered)
         }
         .task {
             for await loadErrors in hostActions.browserWebExtensionLoadErrorUpdates() {
@@ -46,15 +46,13 @@ struct BrowserWebExtensionsCard: View {
             }
         }
         .onChange(of: model.current) { _, current in
-            guard let expectedEntries = pendingEntries, current == expectedEntries else { return }
-            pendingEntries = nil
-            pendingWriteID = nil
+            cardState.reconcileObservedEntries(current)
         }
         .onChange(of: model.writeResultRevision) { _, _ in
-            guard model.lastCompletedWriteID == pendingWriteID,
-                  model.lastWriteError != nil else { return }
-            pendingEntries = nil
-            pendingWriteID = nil
+            cardState.reconcileWriteResult(
+                completedWriteID: model.lastCompletedWriteID,
+                failed: model.lastWriteError != nil
+            )
         }
     }
 
@@ -63,16 +61,19 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private var effectiveEntries: [BrowserWebExtensionEntry] {
-        pendingEntries ?? model.current
+        cardState.effectiveEntries(observed: model.current)
     }
 
     /// Discovered Safari extensions not yet added, offered by the Import menu.
     private var importableExtensions: [SettingsDiscoveredBrowserExtension] {
-        guard model.hasObservedValue else { return [] }
+        guard cardState.canUseImportMenu(
+            supported: supported,
+            hasObservedValue: model.hasObservedValue
+        ) else { return [] }
         let entries = effectiveEntries
         let addedIDs = Set(entries.map(\.id))
         let addedResourcePaths = Set(entries.map { standardizedResourcePath(for: $0) })
-        return discovered.filter { candidate in
+        return cardState.discovered.filter { candidate in
             !addedIDs.contains(candidate.id)
                 && !addedResourcePaths.contains(standardizedSafariAppExtensionResourcePath(candidate.path))
         }
@@ -128,7 +129,10 @@ struct BrowserWebExtensionsCard: View {
         }
         .controlSize(.small)
         .fixedSize()
-        .disabled(!supported || !model.hasObservedValue)
+        .disabled(!cardState.canUseImportMenu(
+            supported: supported,
+            hasObservedValue: model.hasObservedValue
+        ))
         .accessibilityIdentifier("BrowserWebExtensionsImportMenu")
     }
 
@@ -231,8 +235,7 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func commitEntries(_ entries: [BrowserWebExtensionEntry]) {
-        pendingEntries = entries
-        pendingWriteID = model.set(entries)
+        cardState.beginWrite(entries: entries, writeID: model.set(entries))
     }
 
     private func importSafariExtension(_ candidate: SettingsDiscoveredBrowserExtension) {
