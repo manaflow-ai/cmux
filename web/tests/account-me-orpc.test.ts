@@ -16,9 +16,9 @@ const CHECKED_IN_SPECS = [
 ] as const;
 
 // Drives the real resolveProPlanStatus (no module mocks, so it can't leak into
-// other test files). The fake user carries no `id`, so the Stripe-subscription
-// lookup short-circuits to false and no database is touched; the Stack product
-// list alone decides Pro vs Free.
+// other test files). With no DATABASE_URL the Stripe-subscription lookup catches
+// the missing-config error and returns false, so the fake user's Stack product
+// list is what determines Pro vs Free.
 type FakeProduct = {
   id: string;
   subscription: { currentPeriodEnd: Date | null } | null;
@@ -31,8 +31,9 @@ function productsPage(items: FakeProduct[]) {
   return page;
 }
 
-function fakeUser(opts: { email: string | null; pro: boolean }) {
+function fakeUser(opts: { id: string; email: string | null; pro: boolean }) {
   return {
+    id: opts.id,
     primaryEmail: opts.email,
     clientReadOnlyMetadata: {},
     listProducts: async () =>
@@ -50,10 +51,10 @@ function context(user: unknown) {
 describe("account.me", () => {
   test("returns the Pro plan (external billing) for a Stack-Pro user", async () => {
     const result = await call(accountMeProcedure, undefined, {
-      context: context(fakeUser({ email: "a@example.com", pro: true })),
+      context: context(fakeUser({ id: "user_pro", email: "a@example.com", pro: true })),
     });
     expect(result).toEqual({
-      userId: "",
+      userId: "user_pro",
       email: "a@example.com",
       planId: "pro",
       isPro: true,
@@ -63,8 +64,9 @@ describe("account.me", () => {
 
   test("returns the Free plan and an empty email for an email-less non-subscriber", async () => {
     const result = await call(accountMeProcedure, undefined, {
-      context: context(fakeUser({ email: null, pro: false })),
+      context: context(fakeUser({ id: "user_free", email: null, pro: false })),
     });
+    expect(result.userId).toBe("user_free");
     expect(result.planId).toBe("free");
     expect(result.isPro).toBe(false);
     expect(result.email).toBe("");

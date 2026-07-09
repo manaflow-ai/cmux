@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { resolveProPlanStatus } from "../../../services/billing/pro";
 import { os, requireAuth } from "../base";
 
 export const accountMeOutputSchema = z.object({
@@ -28,15 +29,13 @@ export const accountMeProcedure = os
   .output(accountMeOutputSchema)
   .use(requireAuth)
   .handler(async ({ context }): Promise<AccountMe> => {
-    const { resolveProPlanStatus } = await import("../../../services/billing/pro");
-    const user = context.user;
+    // requireAuth guarantees context.user is non-null here.
+    const { user } = context;
     // resolveProPlanStatus reconciles the cmuxPlan metadata against the real
     // Stripe/Stack subscription state and returns the authoritative plan.
-    const status = await resolveProPlanStatus(
-      user as unknown as Parameters<typeof resolveProPlanStatus>[0],
-    );
+    const status = await resolveProPlanStatus(user);
     return {
-      userId: user.id ?? "",
+      userId: user.id,
       email: user.primaryEmail ?? "",
       planId: status.planId,
       isPro: status.isPro,
