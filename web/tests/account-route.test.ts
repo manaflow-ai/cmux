@@ -102,10 +102,7 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   const [program] = args as [WorkflowProgram];
   if (program.kind === "listUserVms") {
     routeEvents.push("list-vms");
-    return [
-      { providerVmId: "personal-vm-1" },
-      { providerVmId: "personal-vm-2" },
-    ];
+    return listedPersonalVmIds.map((providerVmId) => ({ providerVmId }));
   }
   if (program.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     routeEvents.push("revoke-identities");
@@ -163,6 +160,7 @@ let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let destroyVmFailureProviderIds = new Set<string>();
+let listedPersonalVmIds: string[] = [];
 let revokeIdentityLeasesError: unknown = null;
 let subrouterRevokeError: unknown = null;
 let useAccountRouteStubs = false;
@@ -345,6 +343,7 @@ beforeEach(() => {
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
   destroyVmFailureProviderIds = new Set();
+  listedPersonalVmIds = ["personal-vm-1", "personal-vm-2"];
   revokeIdentityLeasesError = null;
   subrouterRevokeError = null;
 });
@@ -470,6 +469,29 @@ describe("account deletion route", () => {
     expect(routeEvents.indexOf("revoke-identities")).toBeGreaterThan(-1);
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("transaction"));
     expect(deletedTables).toContain(cloudVmLeases);
+  });
+
+  test("restores Stack metadata when pre-destructive cleanup fails", async () => {
+    listedPersonalVmIds = [];
+    revokeIdentityLeasesError = new Error("identity lookup failed");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(deletedVaultObjects).toEqual([]);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.failed",
+      "Error: identity lookup failed",
+    );
   });
 
   test("keeps deletion retryable when account SSH identity revocation fails", async () => {
