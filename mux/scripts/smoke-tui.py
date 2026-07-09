@@ -359,7 +359,9 @@ text = output.decode("utf-8", "replace")
 assert "example.com" in text, text[-800:]
 os.write(fd, b"\x1b")
 drain(0.5)
-os.write(fd, b"\x02x")
+# Close the browser TAB. prefix-X since the tmux-alignment flip: x kills the
+# pane (which here is the only pane and would end the session), X the tab.
+os.write(fd, b"\x02X")
 drain(0.8)
 screen0 = active_screen(tree()[0])
 assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
