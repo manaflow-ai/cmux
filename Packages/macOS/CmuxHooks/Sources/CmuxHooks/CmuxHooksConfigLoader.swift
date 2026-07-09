@@ -16,7 +16,16 @@ public struct CmuxHooksConfigLoader: Sendable {
     /// - Parameter fileURL: The global cmux config file URL.
     /// - Returns: The decoded hook state, including fail-closed `.broken` when hooks are present but invalid.
     public func load(fileURL: URL) -> CmuxHooksConfigState {
-        guard let data = try? Data(contentsOf: fileURL) else { return .absent }
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
+            return .absent
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            return .broken(reason: "failed to read hooks configuration: \(error)")
+        }
         do {
             let sanitized = try sanitizer.sanitize(data)
             let root = try decoder.decode(HooksRoot.self, from: sanitized)

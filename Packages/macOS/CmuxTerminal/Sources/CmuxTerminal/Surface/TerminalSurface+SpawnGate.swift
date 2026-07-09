@@ -71,6 +71,9 @@ extension TerminalSurface {
         case .stop:
             return
         }
+        if let deniedSpawn {
+            gateSpawnDenied(reason: deniedSpawn.reason, request: deniedSpawn.request)
+        }
 
         let runtimeSurfaceCreation = createNativeRuntimeSurface(
             app: app,
@@ -148,7 +151,6 @@ extension TerminalSurface {
 
         flushPendingRemoteOutput(to: createdSurface)
         if let deniedSpawn {
-            gateSpawnDenied(reason: deniedSpawn.reason, request: deniedSpawn.request)
             processRemoteOutput(Data((deniedSpawn.message + "\r\n").utf8))
         }
 
@@ -212,6 +214,7 @@ extension TerminalSurface {
             Task { @MainActor [weak self, weak view] in
                 let resolution = await gate.resolveSpawn(request)
                 guard let self else { return }
+                guard case .pending = spawnGateState else { return }
                 spawnGateState = .resolved(resolution)
                 resumeSurfaceCreationAfterSpawnGateResolved(view: view, source: source)
             }

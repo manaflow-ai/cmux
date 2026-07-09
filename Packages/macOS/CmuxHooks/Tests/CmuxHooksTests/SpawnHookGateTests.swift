@@ -142,6 +142,27 @@ struct SpawnHookGateTests {
         }
     }
 
+    @Test
+    func realRunnerTimeoutCoversBlockedStdinWrite() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hooks-stdin-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("ignore-stdin.sh")
+        try "#!/bin/sh\nsleep 5\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let result = try await completesWithin(seconds: 3) {
+            await HookProcessRunner().run(
+                command: script.path,
+                arguments: [],
+                stdin: Data(repeating: 65, count: 2 * 1024 * 1024),
+                timeout: .milliseconds(300)
+            )
+        }
+        #expect(result.timedOut)
+    }
+
     private static func sampleRequest() -> SpawnHookRequest {
         SpawnHookRequest(
             command: "echo hi",

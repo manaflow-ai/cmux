@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -159,7 +160,10 @@ extension GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        spawnGate: CmuxHooksRuntime.shared.spawnGateBridge,
+        spawnGate: TerminalSurfaceSpawnGateBridge(
+            configState: CmuxHooksRuntime.shared.configState,
+            gate: CmuxHooksRuntime.shared.spawnHookGate
+        ),
         byteTee: TerminalMobileByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),

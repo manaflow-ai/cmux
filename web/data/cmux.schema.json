@@ -956,7 +956,7 @@
     },
     "hooks": {
       "title": "hooks",
-      "description": "Global-only user script hooks. preSpawn is a blocking, fail-closed gate before local terminal processes start. events maps exact cmux event-bus names to log-and-continue scripts.",
+      "descriptionKey": "schemaDescriptions.hooks.description",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -964,18 +964,18 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "Blocking hook evaluated before every local terminal process spawn. If configured and the hook fails, times out, exits non-zero, returns invalid JSON, or this hooks section is malformed, cmux denies the spawn.",
+          "descriptionKey": "schemaDescriptions.hooks.preSpawn.description",
           "properties": {
             "command": {
               "type": "string",
               "minLength": 1,
               "pattern": ".*\\S.*",
-              "description": "Absolute path or PATH-resolved command to run. The hook receives {\"hook\":\"preSpawn\",\"spawn\":{...}} JSON on stdin and returns a JSON decision on stdout."
+              "descriptionKey": "schemaDescriptions.hooks.preSpawn.command"
             },
             "args": {
               "type": "array",
               "default": [],
-              "description": "Arguments passed to the pre-spawn hook command.",
+              "descriptionKey": "schemaDescriptions.hooks.preSpawn.args",
               "items": {
                 "type": "string"
               }
@@ -985,19 +985,19 @@
               "minimum": 100,
               "maximum": 600000,
               "default": 5000,
-              "description": "Maximum time cmux waits for the pre-spawn hook before denying the spawn. Values are clamped to 100...600000 milliseconds."
+              "descriptionKey": "schemaDescriptions.hooks.preSpawn.timeoutMs"
             },
             "enabled": {
               "type": "boolean",
               "default": true,
-              "description": "Disable the pre-spawn hook without removing it."
+              "descriptionKey": "schemaDescriptions.hooks.preSpawn.enabled"
             }
           }
         },
         "events": {
           "type": "object",
           "default": {},
-          "description": "Exact cmux event-bus event names mapped to hook definitions. Event hooks receive the event envelope JSON on stdin, run serialized per event name, and failures are logged without blocking cmux.",
+          "descriptionKey": "schemaDescriptions.hooks.events.description",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -1009,12 +1009,12 @@
                   "type": "string",
                   "minLength": 1,
                   "pattern": ".*\\S.*",
-                  "description": "Absolute path or PATH-resolved command to run for this event."
+                  "descriptionKey": "schemaDescriptions.hooks.events.command"
                 },
                 "args": {
                   "type": "array",
                   "default": [],
-                  "description": "Arguments passed to the event hook. ${event.<dot.path>} tokens expand against the event envelope; missing or null values expand to an empty string.",
+                  "descriptionKey": "schemaDescriptions.hooks.events.args",
                   "items": {
                     "type": "string"
                   }
@@ -1024,12 +1024,12 @@
                   "minimum": 100,
                   "maximum": 600000,
                   "default": 20000,
-                  "description": "Maximum time cmux waits for this event hook before logging a failure and continuing. Values are clamped to 100...600000 milliseconds."
+                  "descriptionKey": "schemaDescriptions.hooks.events.timeoutMs"
                 },
                 "enabled": {
                   "type": "boolean",
                   "default": true,
-                  "description": "Disable this event hook without removing it."
+                  "descriptionKey": "schemaDescriptions.hooks.events.enabled"
                 }
               }
             }

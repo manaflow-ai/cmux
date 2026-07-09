@@ -9,14 +9,18 @@ import CMUXDebugLog
 final class CmuxHooksRuntime {
     static let shared = CmuxHooksRuntime()
 
-    let spawnGateBridge: TerminalSurfaceSpawnGateBridge
+    let configState: @Sendable () -> CmuxHooksConfigState
+    let spawnHookGate: SpawnHookGate
+
+    private let cache: CmuxHooksRuntimeConfigCache
     private let dispatcher: EventHookDispatcher
 
     private init() {
         let fileURL = CmuxConfigLocation().userConfigFile
         let loader = CmuxHooksConfigLoader()
+        let cache = CmuxHooksRuntimeConfigCache(fileURL: fileURL, loader: loader)
         let provider: @Sendable () -> CmuxHooksConfigState = {
-            loader.load(fileURL: fileURL)
+            cache.configState()
         }
         let runner = HookProcessRunner()
         let logger: @Sendable (String) -> Void = { message in
@@ -25,26 +29,24 @@ final class CmuxHooksRuntime {
 #endif
         }
         let gate = SpawnHookGate(configState: provider, runner: runner, log: logger)
+        self.cache = cache
+        self.configState = provider
+        self.spawnHookGate = gate
         self.dispatcher = EventHookDispatcher(configState: provider, runner: runner, log: logger)
-        self.spawnGateBridge = TerminalSurfaceSpawnGateBridge(
-            configState: provider,
-            gate: gate
-        )
     }
 
     func makeEventSink() -> (_ eventName: String, _ envelope: [String: Any]) -> Void {
-        { [dispatcher] eventName, envelope in
+        { [cache, dispatcher] eventName, envelope in
             guard !eventName.hasPrefix("hook.") else { return }
-            Task {
-                let names = await dispatcher.subscribedEventNames()
-                guard names.contains(eventName) else { return }
-                guard JSONSerialization.isValidJSONObject(envelope),
-                      let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys]) else {
+            guard cache.subscribedEventNames().contains(eventName) else { return }
+            guard JSONSerialization.isValidJSONObject(envelope),
+                  let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys]) else {
 #if DEBUG
-                    logDebugEvent("hooks event encode failed name=\(eventName)")
+                logDebugEvent("hooks event encode failed name=\(eventName)")
 #endif
-                    return
-                }
+                return
+            }
+            Task {
                 await dispatcher.dispatch(eventName: eventName, envelopeJSON: data)
             }
         }

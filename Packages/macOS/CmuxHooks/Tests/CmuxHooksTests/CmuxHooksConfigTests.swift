@@ -39,6 +39,13 @@ struct CmuxHooksConfigTests {
     }
 
     @Test
+    func explicitNullPreSpawnIsAbsent() throws {
+        let json = #"{"preSpawn":null,"events":{}}"#
+        let config = try JSONDecoder().decode(CmuxHooksConfig.self, from: Data(json.utf8))
+        #expect(config.preSpawn == nil)
+    }
+
+    @Test
     func loaderStates() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hooks-loader-\(UUID().uuidString)", isDirectory: true)
@@ -79,6 +86,22 @@ struct CmuxHooksConfigTests {
 
         try #"{ "app": "#.write(to: file, atomically: true, encoding: .utf8)
         #expect(loader.load(fileURL: file) == .absent)
+    }
+
+    @Test
+    func loaderTreatsUnreadableExistingFileAsBroken() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hooks-unreadable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        try #"{"app":{}}"#.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+
+        if case .broken = CmuxHooksConfigLoader().load(fileURL: file) {} else {
+            Issue.record("expected unreadable existing config to fail closed")
+        }
     }
 
     @Test

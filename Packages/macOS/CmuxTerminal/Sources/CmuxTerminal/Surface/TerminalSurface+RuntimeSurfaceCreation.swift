@@ -187,6 +187,7 @@ extension TerminalSurface {
             )
         }
 
+        var shellIntegrationBootstrapCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
@@ -210,6 +211,7 @@ extension TerminalSurface {
                 to: &env,
                 protectedKeys: &protectedStartupEnvironmentKeys
             ) {
+                shellIntegrationBootstrapCommand = command
                 if baseConfig.command?.isEmpty != false { baseConfig.command = command }
             }
         }
@@ -251,7 +253,7 @@ extension TerminalSurface {
         }()
         let resolvedCommand: String? = {
             if let spawnGrant {
-                return spawnGrant.command
+                return spawnGrant.command ?? shellIntegrationBootstrapCommand
             }
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand

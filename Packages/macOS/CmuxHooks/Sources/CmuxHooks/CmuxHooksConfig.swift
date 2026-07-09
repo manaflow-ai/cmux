@@ -53,6 +53,7 @@ extension KeyedDecodingContainer {
         defaultTimeoutMs: Int
     ) throws -> CmuxHookDefinition? {
         guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) { return nil }
         let decoder = try superDecoder(forKey: key)
         return try CmuxHookDefinition(from: decoder, defaultTimeoutMs: defaultTimeoutMs)
     }

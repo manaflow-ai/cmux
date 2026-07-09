@@ -48,6 +48,17 @@ public struct HookProcessRunner: HookProcessRunning {
 
         let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
         let errFD = stderrPipe.fileHandleForReading.fileDescriptor
+        let inFD = Darwin.dup(stdinPipe.fileHandleForWriting.fileDescriptor)
+        guard inFD >= 0 else {
+            return HookProcessResult(
+                exitStatus: nil,
+                stdout: Data(),
+                stderr: Data(),
+                timedOut: false,
+                launchFailure: "failed to duplicate hook stdin pipe: \(String(cString: strerror(errno)))"
+            )
+        }
+        _ = Darwin.fcntl(inFD, F_SETNOSIGPIPE, 1)
 
         return await withCheckedContinuation { continuation in
             // A one-shot continuation can be completed by process termination, timeout,
@@ -115,6 +126,7 @@ public struct HookProcessRunner: HookProcessRunning {
                 try process.run()
             } catch {
                 try? stdinPipe.fileHandleForWriting.close()
+                Darwin.close(inFD)
                 try? stdoutPipe.fileHandleForWriting.close()
                 try? stderrPipe.fileHandleForWriting.close()
                 _ = claimImmediate(HookProcessResult(
@@ -127,10 +139,9 @@ public struct HookProcessRunner: HookProcessRunning {
                 return
             }
 
-            stdinPipe.fileHandleForWriting.write(stdin)
-            try? stdinPipe.fileHandleForWriting.close()
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
+            try? stdinPipe.fileHandleForWriting.close()
 
             let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
             timer.schedule(deadline: .now() + timeout.timeInterval)
@@ -156,6 +167,10 @@ public struct HookProcessRunner: HookProcessRunning {
                 timer.cancel()
             } else {
                 timer.resume()
+            }
+            Task.detached {
+                Self.writeAll(stdin, to: inFD)
+                Darwin.close(inFD)
             }
         }
     }
@@ -224,6 +239,28 @@ public struct HookProcessRunner: HookProcessRunning {
             }
         }
         return data
+    }
+
+    private static func writeAll(_ data: Data, to fileDescriptor: Int32) {
+        guard !data.isEmpty else { return }
+        data.withUnsafeBytes { pointer in
+            guard let baseAddress = pointer.baseAddress else { return }
+            var offset = 0
+            while offset < data.count {
+                let written = Darwin.write(
+                    fileDescriptor,
+                    baseAddress.advanced(by: offset),
+                    data.count - offset
+                )
+                if written > 0 {
+                    offset += written
+                } else if written == -1, errno == EINTR {
+                    continue
+                } else {
+                    break
+                }
+            }
+        }
     }
 
     private static func capped(_ data: Data, limit: Int) -> Data {

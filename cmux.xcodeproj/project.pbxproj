@@ -439,6 +439,7 @@
 		394800000000000000000003 /* CmuxHooks in Frameworks */ = {isa = PBXBuildFile; productRef = 394800000000000000000002 /* CmuxHooks */; };
 		394800000000000000000005 /* CmuxHooks in Frameworks */ = {isa = PBXBuildFile; productRef = 394800000000000000000004 /* CmuxHooks */; };
 		394800000000000000000007 /* CmuxHooksRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394800000000000000000006 /* CmuxHooksRuntime.swift */; };
+		39480000000000000000000A /* CmuxHooksRuntimeConfigCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39480000000000000000000B /* CmuxHooksRuntimeConfigCache.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
@@ -1984,6 +1985,7 @@
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
 		394800000000000000000006 /* CmuxHooksRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxHooksRuntime.swift; sourceTree = "<group>"; };
+		39480000000000000000000B /* CmuxHooksRuntimeConfigCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxHooksRuntimeConfigCache.swift; sourceTree = "<group>"; };
 		C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXInstalledExtensionSidebarHostView.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
@@ -3618,11 +3620,12 @@
 				D0B752900000000000000003 /* PaneDropRoutingSession.swift */,
 				D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */,
 				A5001531 /* TerminalWindowPortal.swift */,
-				D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */,
-				D0C658660000000000000001 /* PortalSplitDividerRegion.swift */,
-				394800000000000000000006 /* CmuxHooksRuntime.swift */,
-				C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */,
-				394800000000000000000008 /* TerminalSurfaceSpawnGateBridge.swift */,
+					D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */,
+					D0C658660000000000000001 /* PortalSplitDividerRegion.swift */,
+					394800000000000000000006 /* CmuxHooksRuntime.swift */,
+					39480000000000000000000B /* CmuxHooksRuntimeConfigCache.swift */,
+					C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */,
+					394800000000000000000008 /* TerminalSurfaceSpawnGateBridge.swift */,
 				606600020000000000000002 /* WindowTerminalHostViewHitTesting.swift */,
 				D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */,
 				D0B1004FA1B2C3D4E5F60001 /* BrowserPaneDragTransfer.swift */,
@@ -5278,10 +5281,11 @@
 				E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 				C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */,
-				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
-				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
-				394800000000000000000007 /* CmuxHooksRuntime.swift in Sources */,
-				C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */,
+					C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
+					C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
+					394800000000000000000007 /* CmuxHooksRuntime.swift in Sources */,
+					39480000000000000000000A /* CmuxHooksRuntimeConfigCache.swift in Sources */,
+					C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */,
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
