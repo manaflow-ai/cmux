@@ -1033,17 +1033,17 @@ function resumeUntilRunning(
   });
 }
 
-function reservePausedResumeIfTeam(
+function reservePausedResume(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<boolean, VmWorkflowError> {
-  if (!vm.billingTeamId) return Effect.succeed(false);
   return Effect.gen(function* () {
     const reserved = yield* repo.reservePausedResume({
       id: vm.id,
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
+      provider: vm.provider,
       providerVmId,
       maxActiveVms: maxActiveVmsForPlan(vm.billingPlanId),
     });
@@ -1095,11 +1095,10 @@ function recordResumeUsageEvent(
 }
 
 // Active-limit note: the control-plane-owned paused-row resume path is
-// limit-gated for billing teams by reservePausedResume before the provider
-// resume starts. Freestyle can still resume a VM outside the control plane
-// (for example through its SSH gateway); those already-running observations
-// are reconciled durably here, and beginCreate re-counts provider-running VMs
-// before allocating another active slot.
+// limit-gated by account scope before the provider resume starts. Freestyle can
+// still resume a VM outside the control plane (for example through its SSH
+// gateway); those already-running observations are reconciled durably here, and
+// beginCreate re-counts provider-running VMs before allocating another slot.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -1177,7 +1176,7 @@ function preflightResumeIfSuspended(
     }
     if (status !== "paused") return false;
 
-    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+    const reserved = yield* reservePausedResume(repo, vm, providerVmId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -1228,7 +1227,7 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+        const reserved = yield* reservePausedResume(repo, vm, providerVmId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),

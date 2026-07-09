@@ -136,9 +136,10 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly userId: string;
     readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
     readonly providerVmId: string;
     readonly maxActiveVms: number;
-  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<CloudVmRow | null, VmCreateDisabledError | VmDatabaseError | VmLimitExceededError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
@@ -1137,6 +1138,11 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       try: async () => {
         const db = cloudDb();
         return await db.transaction(async (tx) => {
+          await assertAccountVmCreateAllowed(tx, {
+            userId: input.userId,
+            provider: input.provider,
+          });
+
           const lockKey = input.billingTeamId ?? `user:${input.userId}`;
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 
@@ -1185,7 +1191,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         });
       },
       catch: (cause) =>
-        isVmLimitExceededError(cause)
+        isVmCreateDisabledError(cause) || isVmLimitExceededError(cause)
           ? cause
           : new VmDatabaseError({ operation: "reservePausedResume", cause }),
     }),

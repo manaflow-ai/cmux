@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 import {
   FREE_INITIAL_CREATE_CREDITS_REASON,
   VmBillingGateway,
@@ -416,6 +417,57 @@ describe("VM Effect workflows", () => {
     );
 
     expect(error).toBeInstanceOf(VmCreateDisabledError);
+    expect(execCalls).toBe(0);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("exec fails before resuming a paused personal VM when account deletion blocks reservation", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000118",
+      userId: "user-workflow-exec-resume-deleting",
+      billingTeamId: null,
+      providerVmId: "provider-vm-exec-resume-deleting",
+      provider: "freestyle",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      usageEvents,
+      reservePausedResume: () =>
+        Effect.fail(new VmCreateDisabledError({
+          provider: "freestyle",
+          reason: "Account deletion is in progress.",
+        })),
+    });
+    let resumeCalls = 0;
+    let execCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("paused" as const),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-exec-resume-deleting" });
+        }),
+      exec: () =>
+        Effect.sync(() => {
+          execCalls += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-resume-deleting",
+        providerVmId: "provider-vm-exec-resume-deleting",
+        command: "touch should-not-run",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmCreateDisabledError);
+    expect(resumeCalls).toBe(0);
     expect(execCalls).toBe(0);
     expect(usageEvents).toEqual([]);
   });
@@ -2903,6 +2955,73 @@ describe("VM Effect workflows", () => {
     }
   });
 
+  dbTest("does not resume a paused personal VM during account deletion", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-workflow-resume-deleting";
+    await sql`truncate account_deletion_tombstones, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values (${userId}, null, 'free', 'freestyle', 'provider-vm-resume-deleting', 'snapshot-test', 'paused')
+    `;
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash(userId)}, ${userId}, 'in_progress')
+    `;
+
+    let resumeCalls = 0;
+    let openAttachCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-resume-deleting",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      openAttach: () =>
+        Effect.sync(() => {
+          openAttachCalls += 1;
+          return {
+            transport: "ssh" as const,
+            host: "vm-ssh.example.invalid",
+            port: 22,
+            username: "cmux",
+            publicKeyFingerprint: null,
+            credential: { kind: "password" as const, value: "token" },
+            identityHandle: "identity-unused",
+          };
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () => Effect.succeed("paused" as const),
+    };
+
+    const error = await Effect.runPromise(
+      openAttachEndpoint({
+        userId,
+        providerVmId: "provider-vm-resume-deleting",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(providerLayer(provider)),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmCreateDisabledError);
+    expect(resumeCalls).toBe(0);
+    expect(openAttachCalls).toBe(0);
+    const [vm] = await sql<{ status: string }[]>`
+      select status from cloud_vms where provider_vm_id = 'provider-vm-resume-deleting'
+    `;
+    expect(vm?.status).toBe("paused");
+  });
+
   dbTest("rolls back a paused resume reservation when provider resume fails", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -4670,6 +4789,7 @@ function testWorkflowRepo(input: {
   readonly recordUsageEventResult?: boolean;
   readonly recordLease?: VmRepositoryShape["recordLease"];
   readonly assertAccountMutationAllowed?: VmRepositoryShape["assertAccountMutationAllowed"];
+  readonly reservePausedResume?: VmRepositoryShape["reservePausedResume"];
   readonly upsertVmSession?: VmRepositoryShape["upsertVmSession"];
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
@@ -4686,11 +4806,13 @@ function testWorkflowRepo(input: {
     markBaseCreateRunning: () => unusedDatabaseEffect("markBaseCreateRunning"),
     markBaseCreateFailed: () => Effect.void,
     activeLimitCandidates: () => Effect.succeed([]),
-    reservePausedResume: () =>
-      Effect.succeed({
-        ...input.vm,
-        status: "running" as const,
-      }),
+    reservePausedResume: (resumeInput) =>
+      input.reservePausedResume
+        ? input.reservePausedResume(resumeInput)
+        : Effect.succeed({
+          ...input.vm,
+          status: "running" as const,
+        }),
     reconciliationCandidates: () => Effect.succeed([]),
     markProviderObservedStatus: (update) =>
       input.markProviderObservedStatus
