@@ -331,32 +331,34 @@ struct CmuxConfigActionSaverTests {
 
     @Test func commandLineStripsNodeCodexCmuxHooksAndResume() {
         let command = TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv())
-        #expect(command?.hasPrefix("codex ") == true)
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex ") == true)
         #expect(command?.contains("cmux-codex-hook") == false)
         #expect(command?.contains("019dad34-d218-7943-b81a-eddac5c87951") == false)
         #expect(command?.contains("--model gpt-5.5") == true)
     }
 
-    @Test func commandLineRoutesNodeClaudeCmuxHooksThroughWrapperAndKeepsUserSettingsOnly() {
+    @Test func commandLinePreservesNodeClaudeRuntimeAndUserSettingsOnly() {
         let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
         let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
             "node", "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
             "--settings", mergedHookSettings, "--model", "claude-fable-5",
         ])
-        #expect(command?.hasPrefix("claude --settings ") == true)
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js --settings ") == true)
         #expect(command?.contains("USER_FLAG") == true)
         #expect(command?.contains("hooks claude session-start") == false)
+        #expect(command?.hasPrefix("claude --settings") == false)
     }
 
-    @Test func commandLineStripsNativeCodexCmuxHooksAndRoutesThroughWrapper() {
+    @Test func commandLineStripsNativeCodexCmuxHooksWithoutRewritingExecutable() {
         let nativeCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
             "/usr/local/bin/codex", "--enable", "hooks", "--dangerously-bypass-hook-trust",
             "-c", "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
             "--model", "gpt-5.5",
         ])
-        #expect(nativeCommand?.hasPrefix("codex ") == true)
+        #expect(nativeCommand?.hasPrefix("/usr/local/bin/codex ") == true)
         #expect(nativeCommand?.contains("cmux-codex-hook-stop.sh") == false)
         #expect(nativeCommand?.contains("--model gpt-5.5") == true)
+        #expect(nativeCommand?.hasPrefix("codex ") == false)
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "/usr/local/bin/codex", "--model", "gpt-5.5",
@@ -372,8 +374,9 @@ struct CmuxConfigActionSaverTests {
             "--model",
             "gpt-5.5",
         ])
-        #expect(explicitPinnedCommand?.hasPrefix("codex ") == true)
+        #expect(explicitPinnedCommand?.hasPrefix("/opt/pinned/bin/codex ") == true)
         #expect(explicitPinnedCommand?.contains("cmux-codex-hook-stop.sh") == false)
+        #expect(explicitPinnedCommand?.hasPrefix("codex ") == false)
     }
 
     @Test func commandLineKeepsClaudeDirectBinaryBehavior() {
@@ -389,14 +392,15 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
-    @Test func commandLineStripsNativeClaudeCmuxHookSettingsAndRoutesThroughWrapper() {
+    @Test func commandLineStripsNativeClaudeCmuxHookSettingsWithoutRewritingExecutable() {
         let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
         let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
             "/opt/homebrew/bin/claude", "--settings", mergedHookSettings, "--model", "claude-fable-5",
         ])
-        #expect(command?.hasPrefix("claude --settings ") == true)
+        #expect(command?.hasPrefix("/opt/homebrew/bin/claude --settings ") == true)
         #expect(command?.contains("USER_FLAG") == true)
         #expect(command?.contains("hooks claude session-start") == false)
+        #expect(command?.hasPrefix("claude ") == false)
     }
 
     @Test func knownAgentKindCoversAliasesAndArchSuffixedBuilds() {

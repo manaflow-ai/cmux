@@ -4,23 +4,18 @@ import Foundation
 public struct JavaScriptRuntimeAgentLaunchUnwrapper {
     private let isKnownAgentExecutableName: (String) -> Bool
     private let stripsCmuxHookArguments: Bool
-    private let cmuxHookInjectionDetector: AgentCmuxHookInjectionDetector
 
     /// Creates an unwrapper that recognizes agent executable basenames through `isKnownAgentExecutableName`.
     ///
     /// - Parameter isKnownAgentExecutableName: Predicate that returns true for supported agent executable names.
     /// - Parameter stripsCmuxHookArguments: Whether cmux-owned hook injection should be removed
     ///   while sanitizing package-manager entrypoint tails.
-    /// - Parameter cmuxHookInjectionDetector: Detector used to decide when stripped hook payloads
-    ///   require replay through the bare wrapper name.
     public init(
         isKnownAgentExecutableName: @escaping (String) -> Bool,
-        stripsCmuxHookArguments: Bool = false,
-        cmuxHookInjectionDetector: AgentCmuxHookInjectionDetector = AgentCmuxHookInjectionDetector()
+        stripsCmuxHookArguments: Bool = false
     ) {
         self.isKnownAgentExecutableName = isKnownAgentExecutableName
         self.stripsCmuxHookArguments = stripsCmuxHookArguments
-        self.cmuxHookInjectionDetector = cmuxHookInjectionDetector
     }
 
     /// Rewrites or sanitizes node/bun-hosted known agent argv.
@@ -37,9 +32,9 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
     /// sanitized because replay still uses the captured runtime and script path.
     ///
     /// A future non-user-controllable wrapper marker may still rewrite to a bare
-    /// agent name. When `stripsCmuxHookArguments` is enabled, a package entrypoint
-    /// whose tail starts with cmux-owned hook injection also routes through the
-    /// bare wrapper name so replay re-injects fresh hooks.
+    /// agent name. User-controllable hook/config argv is not such a marker, so
+    /// it is preserved when replay keeps an absolute executable or runtime
+    /// script path.
     public func unwrappedArgv(_ argv: [String]) -> [String]? {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
@@ -60,23 +55,19 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
         }
         let packageAgentName = agentPackageName(forScriptPath: argv[scriptIndex])
         if let packageAgentName {
-            let routesThroughWrapper = stripsCmuxHookArguments && cmuxHookInjectionDetector.contains(
-                kind: packageAgentName,
-                args: scriptTail
-            )
             switch packageAgentName {
             case "codex":
                 let preservedTail = preservedCodexLaunchArguments(
                     args: scriptTail,
                     stripCmuxHooks: stripsCmuxHookArguments
                 ) ?? []
-                return (routesThroughWrapper ? [packageAgentName] : Array(argv.prefix(scriptIndex + 1))) + preservedTail
+                return Array(argv.prefix(scriptIndex + 1)) + preservedTail
             case "claude":
                 let preservedTail = ClaudeLaunchArgumentsPreserver().preservedArguments(
                     args: scriptTail,
                     stripCmuxHookSettings: stripsCmuxHookArguments
                 ) ?? []
-                return (routesThroughWrapper ? [packageAgentName] : Array(argv.prefix(scriptIndex + 1))) + preservedTail
+                return Array(argv.prefix(scriptIndex + 1)) + preservedTail
             default:
                 break
             }
