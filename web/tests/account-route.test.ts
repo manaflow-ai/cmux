@@ -576,6 +576,32 @@ describe("account deletion route", () => {
     );
   });
 
+  test("keeps deletion retryable when VM teardown may have reached the provider", async () => {
+    destroyVmFailureProviderIds = new Set(["personal-vm-1", "personal-vm-2"]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(destroyVm).toHaveBeenCalledTimes(2);
+    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
+    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    });
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "AccountDeletionDestructiveCleanupError: Failed to destroy 2 personal cloud VMs",
+    );
+  });
+
   test("does not delete rows or Stack user when active billing cleanup cannot run", async () => {
     selectResults = [
       [{ id: "sub_user_active" }],

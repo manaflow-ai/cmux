@@ -24,6 +24,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "trialing",
   "past_due",
 ]);
+const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 
 type BillingDb = ReturnType<typeof cloudDb>;
 
@@ -188,19 +189,25 @@ export async function applySubscriptionUpdate(
     return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
   }
 
+  const metadataStackUserId = subscription.metadata?.stackUserId;
   const mappedStackUserId = await stackUserIdForStripeCustomer(db, customerId);
-  const stackUserId = subscription.metadata?.stackUserId ?? mappedStackUserId;
-  if (!stackUserId) return { skipped: true };
+  if (mappedStackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
+  const stackUserId = metadataStackUserId ?? mappedStackUserId;
+  if (!stackUserId || stackUserId === DELETED_ACCOUNT_ACTOR_ID) return { skipped: true };
 
   const isActive = isActiveStripeSubscriptionStatus(subscription.status);
   const hasUserSubscription = await userStripeSubscriptionExists(db, {
     subscriptionId: subscription.id,
     stackUserId,
   });
-  if (!hasUserSubscription && mappedStackUserId !== stackUserId) return { skipped: true };
+  if (
+    !hasUserSubscription &&
+    mappedStackUserId !== stackUserId &&
+    metadataStackUserId !== stackUserId
+  ) return { skipped: true };
 
   const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
-  if (!user) return { skipped: true };
+  if (!user || isAccountDeletionInProgress(user)) return { skipped: true };
 
   if (hasUserSubscription) {
     await updateExistingUserStripeSubscription(db, {
@@ -222,6 +229,16 @@ export async function applySubscriptionUpdate(
     await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
   }
   return { scope: "user", stackUserId, isActive };
+}
+
+function isAccountDeletionInProgress(user: StackBillingUser): boolean {
+  const metadata = user.clientReadOnlyMetadata;
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      (metadata as Record<string, unknown>).cmuxAccountDeleting === true
+  );
 }
 
 export async function latestStripeSubscriptionForSession(

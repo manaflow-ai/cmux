@@ -80,7 +80,7 @@ export async function DELETE(request: Request): Promise<Response> {
     } catch (error) {
       if (error instanceof AccountDeletionDestructiveCleanupError) {
         destroyedVms = error.destroyedVms;
-        destructiveCleanupStarted = destroyedVms > 0;
+        destructiveCleanupStarted = error.destructiveCleanupStarted;
       }
       throw error;
     }
@@ -158,6 +158,7 @@ class AccountDeletionDestructiveCleanupError extends Error {
   constructor(
     message: string,
     readonly destroyedVms: number,
+    readonly destructiveCleanupStarted: boolean,
   ) {
     super(message);
     this.name = "AccountDeletionDestructiveCleanupError";
@@ -168,9 +169,12 @@ async function destroyPersonalCloudVms(userId: string): Promise<number> {
   const vms = await runVmWorkflow(listUserVms(userId));
   const failures: unknown[] = [];
   let destroyedVms = 0;
+  let destructiveCleanupStarted = false;
   for (const vm of vms) {
     try {
-      await runVmWorkflow(destroyVm({ userId, providerVmId: vm.providerVmId }));
+      const destroyProgram = destroyVm({ userId, providerVmId: vm.providerVmId });
+      destructiveCleanupStarted = true;
+      await runVmWorkflow(destroyProgram);
       destroyedVms += 1;
     } catch (error) {
       failures.push(error);
@@ -181,6 +185,7 @@ async function destroyPersonalCloudVms(userId: string): Promise<number> {
     throw new AccountDeletionDestructiveCleanupError(
       `Failed to destroy ${failures.length} personal cloud VM${failures.length === 1 ? "" : "s"}`,
       destroyedVms,
+      destructiveCleanupStarted,
     );
   }
   return destroyedVms;

@@ -562,11 +562,11 @@ describe("recordCheckoutCompletion", () => {
     expect(removeTester).not.toHaveBeenCalled();
   });
 
-  test("skips user subscription webhooks after local billing rows are gone", async () => {
+  test("skips user subscription webhooks while account deletion is in progress", async () => {
     const getUser = mock(async () => ({
       id: "user_123",
       primaryEmail: "buyer@example.com",
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true, cmuxPlan: "pro" },
       update: mock(async () => undefined),
     }));
     selectResults = [[], []];
@@ -580,9 +580,62 @@ describe("recordCheckoutCompletion", () => {
     );
 
     expect(result).toEqual({ skipped: true });
+    expect(getUser).toHaveBeenCalledWith("user_123");
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
+  test("skips user subscription webhooks for anonymized local customer rows", async () => {
+    const getUser = mock(async () => {
+      throw new Error("should not load Stack user for anonymized local customer");
+    });
+    selectResults = [[{ stackUserId: "deleted-account" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
     expect(getUser).not.toHaveBeenCalled();
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
+  test("creates a missing user subscription row from Stripe metadata", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    selectResults = [[], []];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.id === "sub_user" &&
+          insert.values.scope === "user" &&
+          insert.values.stackUserId === "user_123",
+      ),
+    ).toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
   });
 
   test("creates a missing user subscription row when the customer mapping already exists", async () => {
