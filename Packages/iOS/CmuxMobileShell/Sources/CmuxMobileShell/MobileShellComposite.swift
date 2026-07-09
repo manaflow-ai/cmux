@@ -1576,7 +1576,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async {
+    ) async -> MobilePairingURLConnectionResult {
         await connectManualHost(
             name: name,
             host: host,
@@ -1848,10 +1848,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
-            await connectStoredMacHost(
+            let result = await connectStoredMacHost(
                 name: mac.displayName ?? host, host: host, port: port,
                 pairedMacDeviceID: mac.macDeviceID)
-            if connectionState == .connected { break }
+            if result == .connected || result == .superseded { break }
         }
         restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
@@ -2781,7 +2781,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         guard await isScopeCurrent(restoreScope), isRestoreCurrent() else { return false }
-        await connectStoredMacHost(
+        _ = await connectStoredMacHost(
             name: previousActive.displayName ?? host,
             host: host,
             port: port,
@@ -5669,6 +5669,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
         connectionErrorGuidance = category.guidance
+    }
+
+    func applyAuthorizationFailure(
+        _ category: MobilePairingFailureCategory,
+        preservingActiveConnection: Bool
+    ) {
+        connectionError = category.message.isEmpty
+            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
+            : category.message
+        connectionErrorGuidance = category.guidance
+        if !preservingActiveConnection {
+            connectionRequiresReauth = true
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+        }
+        recordPairingFailed(reason: category.analyticsReason, phase: "auth")
     }
 
     /// How the preflight resolved: proceed, ``.offline`` applied, or superseded.

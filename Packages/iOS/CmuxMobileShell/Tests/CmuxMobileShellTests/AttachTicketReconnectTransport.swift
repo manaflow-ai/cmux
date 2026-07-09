@@ -3,7 +3,7 @@ import CmuxMobileRPC
 import Foundation
 
 actor AttachTicketReconnectTransport: CmxByteTransportFactory, CmxByteTransport {
-    private let ticketRoute: CmxAttachRoute
+    private nonisolated let ticketRoute: CmxAttachRoute
     private var pendingFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
 
@@ -12,7 +12,7 @@ actor AttachTicketReconnectTransport: CmxByteTransportFactory, CmxByteTransport 
     }
 
     nonisolated func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        self
+        AttachTicketReconnectTransport(ticketRoute: ticketRoute)
     }
 
     func connect() async throws {}

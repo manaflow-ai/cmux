@@ -1,6 +1,5 @@
 import CMUXMobileCore
 import CmuxMobileRPC
-import CmuxMobileSupport
 import Foundation
 
 @MainActor
@@ -14,29 +13,7 @@ extension MobileShellComposite {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: route ?? activeRoute)
-        // Not `applyPairingFailure`: this path can also set
-        // `connectionRequiresReauth`, uses fallback-if-empty, and gates analytics
-        // on `pairingAttemptMethod` so live-connection auth evictions never emit
-        // `ios_pairing_failed`.
-        connectionError = category.message.isEmpty
-            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
-            : category.message
-        connectionErrorGuidance = category.guidance
-        // Auth failures from a new pairing attempt should report that attempt's
-        // failure without evicting the already-connected Mac.
-        guard !preservingActiveConnection else {
-            recordPairingFailed(reason: category.analyticsReason, phase: "auth")
-            return true
-        }
-        connectionRequiresReauth = true
-        connectionState = .disconnected
-        macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
-        // Only emits while a pairing attempt is in flight: `recordPairingFailed`
-        // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
-        // `invalidatePairingAttempt`), so live-connection auth failures that
-        // also route through here never emit `ios_pairing_failed`.
-        recordPairingFailed(reason: category.analyticsReason, phase: "auth")
+        applyAuthorizationFailure(category, preservingActiveConnection: preservingActiveConnection)
         return true
     }
 

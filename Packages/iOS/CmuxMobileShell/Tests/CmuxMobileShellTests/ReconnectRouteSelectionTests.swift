@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShell
 
