@@ -64,9 +64,15 @@ extension CMUXCLI {
 
     func readSSHPTYBridgeReady(fd: Int32) throws -> String {
         let maxStatusBytes = 4096
+        // Bound only the pre-ready status wait: a bridge that accepts the TCP
+        // connection and then goes silent must not hang the attach (and its
+        // wrapper retry loop) forever. The post-ready interactive fd stays
+        // unbounded; idle sessions legitimately block on read.
+        let deadline = Date().addingTimeInterval(sshPTYBridgeReadyTimeoutSeconds())
         var line = Data()
         var byte = [UInt8](repeating: 0, count: 1)
         while line.count < maxStatusBytes {
+            try waitForSSHPTYBridgeReadable(fd: fd, deadline: deadline)
             let count = Darwin.read(fd, &byte, 1)
             if count > 0 {
                 if byte[0] == 0x0A {
@@ -113,6 +119,40 @@ extension CMUXCLI {
             }
         }
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
+    }
+
+    /// Ceiling for the bridge ready/error status wait. Defaults to 185s,
+    /// matching the `wait_for_ready` RPC response timeout in `runSSHPTYAttach`.
+    private func sshPTYBridgeReadyTimeoutSeconds() -> TimeInterval {
+        let defaultTimeout: TimeInterval = 185
+        guard let raw = ProcessInfo.processInfo.environment["CMUX_SSH_PTY_BRIDGE_READY_TIMEOUT_SECONDS"],
+              let value = TimeInterval(raw), value > 0 else {
+            return defaultTimeout
+        }
+        return value
+    }
+
+    private func waitForSSHPTYBridgeReadable(fd: Int32, deadline: Date) throws {
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(
+                    message: "ssh-pty-attach: timed out waiting for bridge status",
+                    exitCode: SSHPTYAttachExitCode.retryableTransient
+                )
+            }
+            var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let timeoutMs = Int32(min(remaining * 1000, 60_000).rounded(.up))
+            let result = poll(&pollFD, 1, timeoutMs)
+            if result > 0 { return }
+            if result < 0 && errno != EINTR {
+                throw CLIError(
+                    message: "ssh-pty-attach: bridge read failed",
+                    exitCode: SSHPTYAttachExitCode.retryableTransient
+                )
+            }
+            // result == 0 (poll interval elapsed) or EINTR: recheck the deadline.
+        }
     }
 
     func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
