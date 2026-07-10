@@ -1017,7 +1017,12 @@ final class TerminalOutputCollector {
     let unsupportedRoute = try CmxAttachRoute(
         id: "iroh",
         kind: .iroh,
-        endpoint: .peer(id: "iroh-peer", relayHint: nil, directAddrs: [], relayURL: nil)
+        endpoint: .peer(
+            id: String(repeating: "a", count: 64),
+            relayHint: nil,
+            directAddrs: [],
+            relayURL: nil
+        )
     )
     let unsupportedTicket = try CmxAttachTicket(
         workspaceID: "iroh-workspace",

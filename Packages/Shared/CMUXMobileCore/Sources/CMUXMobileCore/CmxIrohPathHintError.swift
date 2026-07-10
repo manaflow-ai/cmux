@@ -9,6 +9,20 @@ public enum CmxIrohPathHintError: Error, Equatable, Sendable {
     )
     /// A newly created private hint omitted its required expiry.
     case missingPrivateHintExpiry
+    /// A newly created non-public hint omitted the time it was observed.
+    case missingPrivateHintObservation
+    /// A non-public hint's expiry did not follow its observation time.
+    case invalidPrivateHintLifetime
+    /// A non-public hint exceeded the maximum one-hour lifetime.
+    case privateHintTTLExceedsMaximum
+    /// A non-public hint omitted its provider-qualified network profile.
+    case missingPrivateHintNetworkProfile
+    /// A hint used a profile owned by a different provider.
+    case networkProfileSourceMismatch
+    /// A public hint carried private-network profile metadata.
+    case unexpectedPublicNetworkProfile
+    /// Relay hints must come from Iroh-native public discovery.
+    case relayHintRequiresNativePublicSource
     /// A direct hint was not an IPv4-or-bracketed-IPv6 socket address.
     case invalidDirectAddress
     /// A direct hint targeted a non-peer address such as loopback or multicast.
@@ -19,6 +33,4 @@ public enum CmxIrohPathHintError: Error, Equatable, Sendable {
     case invalidRelayIdentifier
     /// A relay URL was not a root HTTPS URL without credentials or query data.
     case unsafeRelayURL
-    /// An optional network profile identifier was empty or malformed.
-    case invalidNetworkProfileID
 }

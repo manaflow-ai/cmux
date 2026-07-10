@@ -15,6 +15,7 @@ import Testing
 /// ticket.
 
 private let compactCoder = CmxAttachTicketCompactCoder()
+private let compactCanonicalEndpointID = String(repeating: "c", count: 64)
 
 private func wholeSecondFutureExpiry() -> Date {
     Date(timeIntervalSince1970: 4_000_000_000)
@@ -86,7 +87,7 @@ private func legacyDecoder() -> JSONDecoder {
             id: "iroh",
             kind: .iroh,
             endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: "peer-1"),
+                identity: try CmxIrohPeerIdentity(endpointID: compactCanonicalEndpointID),
                 pathHints: [
                     try CmxIrohPathHint(
                         kind: .relayIdentifier,
@@ -99,8 +100,12 @@ private func legacyDecoder() -> JSONDecoder {
                         value: "192.168.1.4:4242",
                         source: .lan,
                         privacyScope: .localNetwork,
+                        observedAt: wholeSecondFutureExpiry().addingTimeInterval(-60),
                         expiresAt: wholeSecondFutureExpiry(),
-                        networkProfileID: "lan:studio"
+                        networkProfile: CmxIrohNetworkProfileKey(
+                            source: .lan,
+                            profileID: "studio"
+                        )
                     ),
                     try CmxIrohPathHint(
                         kind: .relayURL,
@@ -133,9 +138,19 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let decoded = try compactCoder.decode(
-        compactCoder.encode(ticket)
-    )
+    let encoded = try compactCoder.encode(ticket)
+    let json = try #require(String(data: encoded, encoding: .utf8))
+    #expect(json.contains(compactCanonicalEndpointID))
+    #expect(!json.contains("\"ph\""))
+    #expect(!json.contains("\"rh\""))
+    #expect(!json.contains("\"ru\""))
+    #expect(!json.contains("\"da\""))
+    #expect(!json.contains("192.168.1.4"))
+    #expect(!json.contains("network_profile"))
+    #expect(!json.contains("relay.example"))
+    #expect(!json.contains("use1"))
+
+    let decoded = try compactCoder.decode(encoded)
 
     #expect(decoded.version == ticket.version)
     #expect(decoded.workspaceID == ticket.workspaceID)
@@ -146,9 +161,15 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.macPairingCompatibilityVersion == ticket.macPairingCompatibilityVersion)
     #expect(decoded.macAppVersion == ticket.macAppVersion)
     #expect(decoded.macAppBuild == ticket.macAppBuild)
-    // Routes round-trip losslessly even with custom ids ("ws" differs from
-    // the synthesized "websocket", so it is carried verbatim).
-    #expect(decoded.routes == ticket.routes)
+    #expect(decoded.routes.map(\.id) == ticket.routes.map(\.id))
+    guard case let .peer(decodedIdentity, decodedHints) = decoded.routes[1].endpoint else {
+        Issue.record("Expected compact Iroh peer route")
+        return
+    }
+    #expect(decodedIdentity.endpointID == compactCanonicalEndpointID)
+    #expect(decodedHints.isEmpty)
+    #expect(decoded.routes[0] == ticket.routes[0])
+    #expect(decoded.routes[2] == ticket.routes[2])
     // Dropped by design: the auth token never authorizes anything, the name
     // arrives via `mobile.host.status`, and a pairing QR never expires.
     #expect(decoded.authToken == nil)
@@ -261,6 +282,21 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.expiresAt == nil)
     #expect(!decoded.isExpired(at: .distantFuture))
     #expect(decoded.routes == [try hostPortRoute()])
+}
+
+@Test func compactDecodeKeepsFirstRevisionIrohHintFieldsReadable() throws {
+    let firstRevision = Data("""
+    {"d":"mac-1","r":[{"e":{"da":["8.8.8.8:4242"],"i":"\(compactCanonicalEndpointID)","rh":"use1","ru":"https://relay.example/","t":"peer"},"i":"iroh","k":"iroh"}],"v":1}
+    """.utf8)
+
+    let decoded = try compactCoder.decode(firstRevision)
+    guard case let .peer(identity, pathHints) = decoded.routes.first?.endpoint else {
+        Issue.record("Expected legacy compact Iroh peer route")
+        return
+    }
+    #expect(identity.endpointID == compactCanonicalEndpointID)
+    #expect(pathHints.map(\.kind) == [.relayIdentifier, .directAddress, .relayURL])
+    #expect(pathHints.first { $0.kind == .directAddress }?.isUsable(at: .distantPast) == false)
 }
 
 @Test func legacyDecoderRejectsCompactPayloadLoudly() throws {

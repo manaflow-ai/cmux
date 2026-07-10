@@ -31,7 +31,12 @@ import Testing
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
-            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            endpoint: .peer(
+                id: String(repeating: "f", count: 64),
+                relayHint: nil,
+                directAddrs: [],
+                relayURL: nil
+            ),
             priority: 0
         )
 
@@ -55,14 +60,21 @@ import Testing
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
             endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: "peer-1"),
+                identity: try CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "f", count: 64)
+                ),
                 pathHints: [
                     try CmxIrohPathHint(
                         kind: .directAddress,
                         value: "100.71.210.41:49152",
                         source: .tailscale,
                         privacyScope: .privateNetwork,
-                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+                        observedAt: Date(timeIntervalSince1970: 1_999_999_940),
+                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+                        networkProfile: CmxIrohNetworkProfileKey(
+                            source: .tailscale,
+                            profileID: "production"
+                        )
                     ),
                 ]
             ),

@@ -2,12 +2,36 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
+private let canonicalEndpointID = String(repeating: "a", count: 64)
+
+private func profile(
+    _ source: CmxIrohPathHintSource,
+    _ profileID: String = "default"
+) throws -> CmxIrohNetworkProfileKey {
+    try CmxIrohNetworkProfileKey(source: source, profileID: profileID)
+}
+
+@Test func irohEndpointIDRequiresCanonicalLowercaseHex() throws {
+    #expect((try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)).endpointID == canonicalEndpointID)
+    for invalid in [
+        "",
+        String(repeating: "a", count: 63),
+        String(repeating: "a", count: 65),
+        String(repeating: "A", count: 64),
+        String(repeating: "g", count: 64),
+    ] {
+        #expect(throws: CmxIrohPeerIdentityError.nonCanonicalEndpointID) {
+            _ = try CmxIrohPeerIdentity(endpointID: invalid)
+        }
+    }
+}
+
 @Test func attachTicketChoosesFirstSupportedRouteByPriority() throws {
     let iroh = try CmxAttachRoute(
         id: "iroh",
         kind: .iroh,
         endpoint: .peer(
-            id: "node-1",
+            id: canonicalEndpointID,
             relayHint: "relay-1",
             directAddrs: ["192.168.1.20:3478"],
             relayURL: "https://relay.example.test"
@@ -47,33 +71,51 @@ import Testing
         value: "192.168.1.20:49152",
         source: .lan,
         privacyScope: .localNetwork,
-        expiresAt: now.addingTimeInterval(-1)
+        observedAt: now.addingTimeInterval(-60),
+        expiresAt: now.addingTimeInterval(-1),
+        networkProfile: profile(.lan, "studio")
     )
     let tailscale = try CmxIrohPathHint(
         kind: .directAddress,
         value: "100.64.1.2:49152",
         source: .tailscale,
         privacyScope: .privateNetwork,
-        expiresAt: now.addingTimeInterval(60)
+        observedAt: now,
+        expiresAt: now.addingTimeInterval(60),
+        networkProfile: profile(.tailscale, "production")
     )
     let customVPN = try CmxIrohPathHint(
         kind: .directAddress,
         value: "10.10.0.8:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
-        expiresAt: now.addingTimeInterval(30)
+        observedAt: now,
+        expiresAt: now.addingTimeInterval(30),
+        networkProfile: profile(.customVPN, "corp")
     )
     let endpoint = CmxAttachEndpoint.peer(
-        identity: CmxIrohPeerIdentity(endpointID: "endpoint-1"),
+        identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
         pathHints: [tailscale, expiredLAN, relay, customVPN]
     )
 
-    #expect(endpoint.irohPeerIdentity == CmxIrohPeerIdentity(endpointID: "endpoint-1"))
+    #expect(endpoint.irohPeerIdentity == (try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)))
     #expect(tailscale.use == .fallbackOnly)
     #expect(expiredLAN.use == .fallbackOnly)
     #expect(customVPN.use == .fallbackOnly)
     #expect(relay.use == .primary)
-    #expect(endpoint.usableIrohPathHints(at: now) == [relay, tailscale, customVPN])
+    let firstPhaseOnly = try #require(endpoint.irohDialPlan(at: now))
+    #expect(firstPhaseOnly.publicPaths == [relay])
+    #expect(firstPhaseOnly.privateFallbackPaths.isEmpty)
+
+    let fullPlan = try #require(endpoint.irohDialPlan(
+        at: now,
+        activeNetworkProfiles: [
+            profile(.tailscale, "production"),
+            profile(.customVPN, "corp"),
+        ]
+    ))
+    #expect(fullPlan.publicPaths == [relay])
+    #expect(fullPlan.privateFallbackPaths == [tailscale, customVPN])
 }
 
 @Test func privateProviderHintsRequireMatchingScopeAndExpiry() throws {
@@ -91,7 +133,7 @@ import Testing
             expiresAt: expiry
         )
     }
-    #expect(throws: CmxIrohPathHintError.missingPrivateHintExpiry) {
+    #expect(throws: CmxIrohPathHintError.missingPrivateHintObservation) {
         _ = try CmxIrohPathHint(
             kind: .directAddress,
             value: "192.168.1.20:49152",
@@ -99,12 +141,54 @@ import Testing
             privacyScope: .localNetwork
         )
     }
-    #expect(throws: CmxIrohPathHintError.missingPrivateHintExpiry) {
+    #expect(throws: CmxIrohPathHintError.missingPrivateHintObservation) {
         _ = try CmxIrohPathHint(
             kind: .directAddress,
             value: "10.0.0.4:49152",
             source: .native,
             privacyScope: .privateNetwork
+        )
+    }
+    #expect(throws: CmxIrohPathHintError.missingPrivateHintExpiry) {
+        _ = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.4:49152",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: expiry.addingTimeInterval(-60),
+            networkProfile: profile(.customVPN)
+        )
+    }
+    #expect(throws: CmxIrohPathHintError.missingPrivateHintNetworkProfile) {
+        _ = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.4:49152",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: expiry.addingTimeInterval(-60),
+            expiresAt: expiry
+        )
+    }
+    #expect(throws: CmxIrohPathHintError.privateHintTTLExceedsMaximum) {
+        _ = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.4:49152",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: expiry.addingTimeInterval(-(CmxIrohPathHint.maximumPrivateHintTTL + 1)),
+            expiresAt: expiry,
+            networkProfile: profile(.customVPN)
+        )
+    }
+    #expect(throws: CmxIrohPathHintError.networkProfileSourceMismatch) {
+        _ = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.4:49152",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: expiry.addingTimeInterval(-60),
+            expiresAt: expiry,
+            networkProfile: profile(.tailscale)
         )
     }
 }
@@ -117,7 +201,7 @@ import Testing
         privacyScope: .publicInternet
     )
     let maximum = CmxAttachEndpoint.maximumIrohPathHintCount
-    let endpointID = CmxIrohPeerIdentity(endpointID: "endpoint-1")
+    let endpointID = try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)
 
     _ = try CmxAttachRoute(
         id: "iroh",
@@ -150,14 +234,18 @@ import Testing
         value: "10.0.0.4:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.customVPN)
     )
     let ipv6 = try CmxIrohPathHint(
         kind: .directAddress,
         value: "[fd7a:115c:a1e0::1]:49152",
         source: .tailscale,
         privacyScope: .privateNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.tailscale)
     )
     #expect(ipv4.value == "10.0.0.4:49152")
     #expect(ipv6.value == "[fd7a:115c:a1e0::1]:49152")
@@ -178,7 +266,9 @@ import Testing
                 value: malformed,
                 source: .customVPN,
                 privacyScope: .privateNetwork,
-                expiresAt: expiry
+                observedAt: expiry.addingTimeInterval(-60),
+                expiresAt: expiry,
+                networkProfile: profile(.customVPN)
             )
         }
     }
@@ -195,6 +285,7 @@ import Testing
         "[::]:49152",
         "[::1]:49152",
         "[ff02::1]:49152",
+        "[fe80::1]:49152",
         "[fd00:ec2::254]:49152",
     ] {
         #expect(throws: CmxIrohPathHintError.forbiddenDirectAddress) {
@@ -203,7 +294,9 @@ import Testing
                 value: forbidden,
                 source: .native,
                 privacyScope: .localNetwork,
-                expiresAt: expiry
+                observedAt: expiry.addingTimeInterval(-60),
+                expiresAt: expiry,
+                networkProfile: profile(.native)
             )
         }
     }
@@ -213,7 +306,9 @@ import Testing
         value: "169.254.42.7:49152",
         source: .lan,
         privacyScope: .localNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.lan)
     )
     #expect(legitimateLinkLocal.value == "169.254.42.7:49152")
 }
@@ -245,7 +340,6 @@ import Testing
         "198.51.100.4:49152",
         "203.0.113.4:49152",
         "[fd7a:115c:a1e0::1]:49152",
-        "[fe80::1]:49152",
         "[2001:db8::1]:49152",
         "[3fff::1]:49152",
     ] {
@@ -265,42 +359,45 @@ import Testing
         value: "10.0.0.4:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.customVPN)
     )
     _ = try CmxIrohPathHint(
         kind: .directAddress,
         value: "169.254.42.7:49152",
         source: .lan,
         privacyScope: .localNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.lan)
     )
     _ = try CmxIrohPathHint(
         kind: .directAddress,
         value: "[fd7a:115c:a1e0::1]:49152",
         source: .tailscale,
         privacyScope: .privateNetwork,
-        expiresAt: expiry
-    )
-    _ = try CmxIrohPathHint(
-        kind: .directAddress,
-        value: "[fe80::1]:49152",
-        source: .lan,
-        privacyScope: .localNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.tailscale)
     )
     _ = try CmxIrohPathHint(
         kind: .directAddress,
         value: "192.0.2.4:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.customVPN)
     )
     _ = try CmxIrohPathHint(
         kind: .directAddress,
         value: "[2001:db8::1]:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
-        expiresAt: expiry
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.customVPN)
     )
 }
 
@@ -344,6 +441,23 @@ import Testing
             )
         }
     }
+
+    #expect(throws: CmxIrohPathHintError.relayHintRequiresNativePublicSource) {
+        _ = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://relay.example.test/",
+            source: .native,
+            privacyScope: .privateNetwork
+        )
+    }
+    #expect(throws: CmxIrohPathHintError.relayHintRequiresNativePublicSource) {
+        _ = try CmxIrohPathHint(
+            kind: .relayIdentifier,
+            value: "use1",
+            source: .tailscale,
+            privacyScope: .privateNetwork
+        )
+    }
 }
 
 @Test func networkProfileIdentityDisambiguatesOverlappingPrivateNetworks() throws {
@@ -353,47 +467,64 @@ import Testing
         value: "10.0.0.4:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
+        observedAt: expiry.addingTimeInterval(-60),
         expiresAt: expiry,
-        networkProfileID: "corp-vpn:site-a"
+        networkProfile: profile(.customVPN, "site-a")
     )
     let siteB = try CmxIrohPathHint(
         kind: .directAddress,
         value: "10.0.0.4:49152",
         source: .customVPN,
         privacyScope: .privateNetwork,
+        observedAt: expiry.addingTimeInterval(-60),
         expiresAt: expiry,
-        networkProfileID: "corp-vpn:site-b"
+        networkProfile: profile(.customVPN, "site-b")
+    )
+    let sameNameFromTailscale = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "100.64.0.4:49152",
+        source: .tailscale,
+        privacyScope: .privateNetwork,
+        observedAt: expiry.addingTimeInterval(-60),
+        expiresAt: expiry,
+        networkProfile: profile(.tailscale, "site-a")
     )
 
     #expect(siteA != siteB)
-    #expect(siteA.networkProfileID == "corp-vpn:site-a")
-    #expect(siteB.networkProfileID == "corp-vpn:site-b")
+    #expect(siteA.networkProfile == (try profile(.customVPN, "site-a")))
+    #expect(siteB.networkProfile == (try profile(.customVPN, "site-b")))
+    #expect(siteA.networkProfile != sameNameFromTailscale.networkProfile)
 
     let endpoint = CmxAttachEndpoint.peer(
-        identity: CmxIrohPeerIdentity(endpointID: "endpoint-1"),
-        pathHints: [siteA, siteB]
+        identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
+        pathHints: [siteA, siteB, sameNameFromTailscale]
     )
-    #expect(endpoint.usableIrohPathHints(
+    let activePlan = try #require(endpoint.irohDialPlan(
         at: Date(timeIntervalSince1970: 1_999_999_999),
-        activeNetworkProfileIDs: ["corp-vpn:site-a"]
-    ) == [siteA])
-    #expect(endpoint.usableIrohPathHints(
+        activeNetworkProfiles: [profile(.customVPN, "site-a")]
+    ))
+    #expect(activePlan.privateFallbackPaths == [siteA])
+    let inactivePlan = try #require(endpoint.irohDialPlan(
         at: Date(timeIntervalSince1970: 1_999_999_999)
-    ).isEmpty)
+    ))
+    #expect(inactivePlan.privateFallbackPaths.isEmpty)
 }
 
 @Test func providerAttributedIrohEndpointRoundTripsIdentityAndHintPolicy() throws {
-    let expiry = Date(timeIntervalSince1970: 2_000_000_000)
+    let expiry = Date(
+        timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down) + 300
+    )
     let endpoint = CmxAttachEndpoint.peer(
-        identity: CmxIrohPeerIdentity(endpointID: "endpoint-1"),
+        identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
         pathHints: [
             try CmxIrohPathHint(
                 kind: .directAddress,
                 value: "100.64.1.2:49152",
                 source: .tailscale,
                 privacyScope: .privateNetwork,
+                observedAt: expiry.addingTimeInterval(-60),
                 expiresAt: expiry,
-                networkProfileID: "tailnet:production"
+                networkProfile: profile(.tailscale, "production")
             ),
             try CmxIrohPathHint(
                 kind: .relayURL,
@@ -414,6 +545,156 @@ import Testing
     )
 
     #expect(decoded == endpoint)
+}
+
+@Test func irohDisclosureAndPersistencePruneUnsafeHintScopes() throws {
+    let now = Date()
+    let publicRelay = try CmxIrohPathHint(
+        kind: .relayURL,
+        value: "https://relay.example.test/",
+        source: .native,
+        privacyScope: .publicInternet
+    )
+    let currentPrivate = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "100.64.1.2:49152",
+        source: .tailscale,
+        privacyScope: .privateNetwork,
+        observedAt: now,
+        expiresAt: now.addingTimeInterval(300),
+        networkProfile: profile(.tailscale, "production")
+    )
+    let expiredPrivate = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "10.0.0.4:49152",
+        source: .customVPN,
+        privacyScope: .privateNetwork,
+        observedAt: now.addingTimeInterval(-120),
+        expiresAt: now.addingTimeInterval(-60),
+        networkProfile: profile(.customVPN, "corp")
+    )
+    let route = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
+            pathHints: [expiredPrivate, currentPrivate, publicRelay]
+        )
+    )
+
+    let authenticated = try #require(route.disclosed(for: .authenticated, at: now))
+    guard case let .peer(_, authenticatedHints) = authenticated.endpoint else {
+        Issue.record("Expected authenticated Iroh peer route")
+        return
+    }
+    #expect(authenticatedHints == [currentPrivate, publicRelay])
+
+    let publicStatus = try #require(route.disclosed(for: .publicStatus, at: now))
+    guard case let .peer(_, publicHints) = publicStatus.endpoint else {
+        Issue.record("Expected public Iroh peer route")
+        return
+    }
+    #expect(publicHints == [publicRelay])
+
+    let pairing = try #require(route.disclosed(for: .pairingQRCode, at: now))
+    guard case let .peer(_, pairingHints) = pairing.endpoint else {
+        Issue.record("Expected pairing Iroh peer route")
+        return
+    }
+    #expect(pairingHints.isEmpty)
+
+    let persisted = try JSONDecoder().decode(
+        CmxAttachRoute.self,
+        from: JSONEncoder().encode(route)
+    )
+    guard case let .peer(_, persistedHints) = persisted.endpoint else {
+        Issue.record("Expected persisted Iroh peer route")
+        return
+    }
+    #expect(persistedHints == [currentPrivate, publicRelay])
+}
+
+@Test func materiallyFutureDatedPrivateHintsAreNeverAttemptedOrSerialized() throws {
+    let now = Date()
+    let networkProfile = try profile(.tailscale, "production")
+    let toleratedClockSkewHint = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "100.64.1.3:49152",
+        source: .tailscale,
+        privacyScope: .privateNetwork,
+        observedAt: now.addingTimeInterval(
+            CmxIrohPathHint.maximumObservationClockSkew / 2
+        ),
+        expiresAt: now.addingTimeInterval(300),
+        networkProfile: networkProfile
+    )
+    let futureHint = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "100.64.1.2:49152",
+        source: .tailscale,
+        privacyScope: .privateNetwork,
+        observedAt: now.addingTimeInterval(2 * 60 * 60),
+        expiresAt: now.addingTimeInterval(2 * 60 * 60 + 60),
+        networkProfile: networkProfile
+    )
+    let route = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
+            pathHints: [futureHint]
+        )
+    )
+
+    #expect(toleratedClockSkewHint.isUsable(at: now))
+    #expect(!futureHint.isUsable(at: now))
+    let dialPlan = try #require(route.endpoint.irohDialPlan(
+        at: now,
+        activeNetworkProfiles: [networkProfile]
+    ))
+    #expect(dialPlan.privateFallbackPaths.isEmpty)
+
+    let disclosed = try #require(route.disclosed(for: .authenticated, at: now))
+    guard case let .peer(_, disclosedHints) = disclosed.endpoint else {
+        Issue.record("Expected disclosed Iroh peer route")
+        return
+    }
+    #expect(disclosedHints.isEmpty)
+
+    let persisted = try JSONDecoder().decode(
+        CmxAttachRoute.self,
+        from: JSONEncoder().encode(route)
+    )
+    guard case let .peer(_, persistedHints) = persisted.endpoint else {
+        Issue.record("Expected persisted Iroh peer route")
+        return
+    }
+    #expect(persistedHints.isEmpty)
+}
+
+@Test func publicStatusOnlyDisclosesPrivacyClassifiedIrohRoutes() throws {
+    let routes = try [
+        CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.1.2", port: 49152)
+        ),
+        CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 49152)
+        ),
+        CmxAttachRoute(
+            id: "websocket",
+            kind: .websocket,
+            endpoint: .url("wss://private.example.test/connect?token=secret")
+        ),
+    ]
+
+    for route in routes {
+        #expect(route.disclosed(for: .authenticated, at: Date()) == route)
+        #expect(route.disclosed(for: .publicStatus, at: Date()) == nil)
+    }
 }
 
 @Test func attachTicketUsesDebugLoopbackBeforeTailscaleWhenBothAreSupported() throws {
@@ -443,6 +724,9 @@ import Testing
 }
 
 @Test func attachTicketRoundTripsAllEndpointKinds() throws {
+    let privateHintExpiry = Date(
+        timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down) + 300
+    )
     let routes = try [
         CmxAttachRoute(
             id: "tailscale",
@@ -453,15 +737,16 @@ import Testing
             id: "iroh",
             kind: .iroh,
             endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: "node-1"),
+                identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
                 pathHints: [
                     try CmxIrohPathHint(
                         kind: .directAddress,
                         value: "100.64.1.2:49152",
                         source: .tailscale,
                         privacyScope: .privateNetwork,
-                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
-                        networkProfileID: "tailnet:production"
+                        observedAt: privateHintExpiry.addingTimeInterval(-60),
+                        expiresAt: privateHintExpiry,
+                        networkProfile: profile(.tailscale, "production")
                     ),
                     try CmxIrohPathHint(
                         kind: .relayURL,
@@ -566,7 +851,7 @@ import Testing
       "kind": "iroh",
       "endpoint": {
         "type": "peer",
-        "id": "node-1",
+        "id": "\(canonicalEndpointID)",
         "direct_addrs": ["192.168.1.20:49152", "100.64.1.2:49152"],
         "relay_url": "https://relay.example.test"
       },
@@ -583,7 +868,7 @@ import Testing
         Issue.record("Expected an Iroh peer endpoint")
         return
     }
-    #expect(identity.endpointID == "node-1")
+    #expect(identity.endpointID == canonicalEndpointID)
     #expect(pathHints.filter { $0.kind == .relayIdentifier }.isEmpty)
     #expect(pathHints.filter { $0.kind == .directAddress }.map(\.value) == [
         "192.168.1.20:49152",
@@ -602,7 +887,7 @@ import Testing
       "kind": "iroh",
       "endpoint": {
         "type": "peer",
-        "id": "node-1",
+        "id": "\(canonicalEndpointID)",
         "relay_hint": "legacy-relay"
       },
       "priority": 20
@@ -615,7 +900,7 @@ import Testing
         Issue.record("Expected an Iroh peer endpoint")
         return
     }
-    #expect(identity.endpointID == "node-1")
+    #expect(identity.endpointID == canonicalEndpointID)
     #expect(pathHints.first { $0.kind == .relayIdentifier }?.value == "legacy-relay")
     #expect(pathHints.filter { $0.kind == .directAddress }.isEmpty)
     #expect(pathHints.filter { $0.kind == .relayURL }.isEmpty)
@@ -628,7 +913,7 @@ import Testing
       "kind": "iroh",
       "endpoint": {
         "type": "peer",
-        "id": "node-1",
+        "id": "\(canonicalEndpointID)",
         "direct_addrs": ["old-hostname.example:49152"]
       }
     }
@@ -649,7 +934,7 @@ import Testing
         Issue.record("Expected an Iroh peer endpoint")
         return
     }
-    #expect(redecodedIdentity.endpointID == "node-1")
+    #expect(redecodedIdentity.endpointID == canonicalEndpointID)
     // A current producer deliberately does not downgrade private fallbacks to
     // legacy `direct_addrs`, whose consumers cannot enforce expiry or scope.
     #expect(redecodedHints.isEmpty)
@@ -662,7 +947,7 @@ import Testing
       "kind": "iroh",
       "endpoint": {
         "type": "peer",
-        "id": "node-1",
+        "id": "\(canonicalEndpointID)",
         "relay_url": "https://user:secret@relay.example.test/"
       }
     }
@@ -878,7 +1163,7 @@ import Testing
     let irohRoute = try CmxAttachRoute(
         id: "iroh",
         kind: .iroh,
-        endpoint: .peer(id: "node-1", relayHint: nil, directAddrs: [], relayURL: nil)
+        endpoint: .peer(id: canonicalEndpointID, relayHint: nil, directAddrs: [], relayURL: nil)
     )
 
     let tailscaleTransport = try factory.makeTransport(for: tailscaleRoute)
@@ -914,7 +1199,7 @@ import Testing
     let route = try CmxAttachRoute(
         id: "iroh",
         kind: .iroh,
-        endpoint: .peer(id: "node-1", relayHint: nil, directAddrs: [], relayURL: nil)
+        endpoint: .peer(id: canonicalEndpointID, relayHint: nil, directAddrs: [], relayURL: nil)
     )
 
     #expect(throws: CmxRouteTransportFactoryError.unsupportedRouteKind(.iroh)) {

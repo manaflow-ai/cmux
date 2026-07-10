@@ -6,7 +6,7 @@ struct MobileHostRouteSnapshot: Sendable {
     let routes: [CmxAttachRoute]
 
     var payload: [[String: Any]] {
-        routes.map(\.mobileHostJSONObject)
+        routes.mobileHostJSONObjects(for: .authenticated)
     }
 }
 
@@ -369,6 +369,10 @@ final class MobileRouteResolver: @unchecked Sendable {
 
 extension CmxAttachRoute {
     var mobileHostJSONObject: [String: Any] {
+        mobileHostJSONObject(at: Date())
+    }
+
+    func mobileHostJSONObject(at now: Date) -> [String: Any] {
         var endpointPayload: [String: Any] = [:]
         switch endpoint {
         case let .hostPort(host, port):
@@ -378,14 +382,15 @@ extension CmxAttachRoute {
                 "port": port
             ]
         case let .peer(identity, pathHints):
-            let relayHint = pathHints.first {
-                $0.kind == .relayIdentifier && $0.isSafeForCurrentWireFormat
+            let currentPathHints = pathHints.filter { $0.isUsable(at: now) }
+            let relayHint = currentPathHints.first {
+                $0.kind == .relayIdentifier
             }?.value
-            let directAddrs = pathHints
+            let directAddrs = currentPathHints
                 .filter { $0.kind == .directAddress && $0.use == .primary }
                 .map(\.value)
-            let relayURL = pathHints.first {
-                $0.kind == .relayURL && $0.isSafeForCurrentWireFormat
+            let relayURL = currentPathHints.first {
+                $0.kind == .relayURL
             }?.value
             endpointPayload = [
                 "type": "peer",
@@ -397,6 +402,9 @@ extension CmxAttachRoute {
             }
             if let relayURL {
                 endpointPayload["relay_url"] = relayURL
+            }
+            if !currentPathHints.isEmpty {
+                endpointPayload["path_hints"] = currentPathHints.map(\.mobileHostJSONObject)
             }
         case let .url(url):
             endpointPayload = [
@@ -411,5 +419,40 @@ extension CmxAttachRoute {
             "endpoint": endpointPayload,
             "priority": priority
         ]
+    }
+}
+
+private extension CmxIrohPathHint {
+    var mobileHostJSONObject: [String: Any] {
+        var payload: [String: Any] = [
+            "kind": kind.rawValue,
+            "value": value,
+            "source": source.rawValue,
+            "privacy_scope": privacyScope.rawValue,
+        ]
+        if let observedAt {
+            payload["observed_at"] = observedAt.timeIntervalSinceReferenceDate
+        }
+        if let expiresAt {
+            payload["expires_at"] = expiresAt.timeIntervalSinceReferenceDate
+        }
+        if let networkProfile {
+            payload["network_profile"] = [
+                "source": networkProfile.source.rawValue,
+                "profile_id": networkProfile.profileID,
+            ]
+        }
+        return payload
+    }
+}
+
+extension Array where Element == CmxAttachRoute {
+    func mobileHostJSONObjects(
+        for disclosure: CmxAttachRouteDisclosure,
+        at now: Date = Date()
+    ) -> [[String: Any]] {
+        compactMap { route in
+            route.disclosed(for: disclosure, at: now)?.mobileHostJSONObject(at: now)
+        }
     }
 }

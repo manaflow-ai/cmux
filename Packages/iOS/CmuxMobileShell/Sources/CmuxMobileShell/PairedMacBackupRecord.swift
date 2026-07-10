@@ -36,7 +36,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
-        self.routes = routes
+        self.routes = Self.cloudSafeRoutes(routes)
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
         self.isActive = isActive
@@ -56,8 +56,11 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         macDeviceID = try c.decode(String.self, forKey: .macDeviceID)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
-        routes = try c.decodeIfPresent([PairedMacBackupFailableRoute].self, forKey: .routes)?
-            .compactMap(\.value) ?? []
+        let decodedRoutes = try c.decodeIfPresent(
+            [PairedMacBackupFailableRoute].self,
+            forKey: .routes
+        )?.compactMap(\.value) ?? []
+        routes = Self.cloudSafeRoutes(decodedRoutes)
         createdAt = try c.decode(Double.self, forKey: .createdAt)
         lastSeenAt = try c.decode(Double.self, forKey: .lastSeenAt)
         isActive = try c.decode(Bool.self, forKey: .isActive)
@@ -71,12 +74,21 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(macDeviceID, forKey: .macDeviceID)
         try c.encodeIfPresent(displayName, forKey: .displayName)
-        try c.encode(routes, forKey: .routes)
+        try c.encode(Self.cloudSafeRoutes(routes), forKey: .routes)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(lastSeenAt, forKey: .lastSeenAt)
         try c.encode(isActive, forKey: .isActive)
         try c.encode(customName, forKey: .customName)
         try c.encode(customColor, forKey: .customColor)
         try c.encode(customIcon, forKey: .customIcon)
+    }
+
+    private static func cloudSafeRoutes(
+        _ routes: [CmxAttachRoute],
+        at now: Date = Date()
+    ) -> [CmxAttachRoute] {
+        routes.compactMap { route in
+            route.disclosed(for: .pairedMacCloudBackup, at: now)
+        }
     }
 }

@@ -200,7 +200,12 @@ import Testing
             try CmxAttachRoute(
                 id: "iroh",
                 kind: .iroh,
-                endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+                endpoint: .peer(
+                    id: String(repeating: "d", count: 64),
+                    relayHint: nil,
+                    directAddrs: [],
+                    relayURL: nil
+                ),
                 priority: 20
             ),
         ])

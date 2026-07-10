@@ -30,24 +30,17 @@ struct CompactAttachEndpoint: Codable {
             ru = nil
             ph = nil
             u = nil
-        case let .peer(identity, pathHints):
+        case let .peer(identity, _):
             h = nil
             p = nil
             i = identity.endpointID
-            rh = pathHints.first {
-                $0.kind == .relayIdentifier && $0.isSafeForCurrentWireFormat
-            }?.value
-            // Old compact decoders cannot enforce private hint metadata.
-            let directAddrs = pathHints
-                .filter { $0.kind == .directAddress && $0.use == .primary }
-                .map(\.value)
-            da = directAddrs.isEmpty ? nil : directAddrs
-            ru = pathHints.first {
-                $0.kind == .relayURL && $0.isSafeForCurrentWireFormat
-            }?.value
-            ph = pathHints.isEmpty || !pathHints.allSatisfy(\.isSafeForCurrentWireFormat)
-                ? nil
-                : pathHints
+            // A scannable payload discloses Iroh identity only. Managed relays
+            // are app configuration, online discovery is authenticated, and
+            // first-time offline pairing resolves this EndpointID locally.
+            rh = nil
+            da = nil
+            ru = nil
+            ph = nil
             u = nil
         case let .url(url):
             h = nil
@@ -74,11 +67,11 @@ struct CompactAttachEndpoint: Codable {
             }
             if let ph {
                 return .peer(
-                    identity: CmxIrohPeerIdentity(endpointID: i),
+                    identity: try CmxIrohPeerIdentity(endpointID: i),
                     pathHints: ph
                 )
             }
-            return .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
+            return try .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
         case "url":
             guard let u else {
                 throw Self.corruptedEndpoint("url endpoint requires u")

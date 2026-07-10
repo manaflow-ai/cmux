@@ -36,10 +36,10 @@ import Foundation
 /// value, `p` priority (omitted when 0), `e` endpoint.
 /// Key map (endpoint): the type is implied by the keys present (accepted
 /// explicitly under `t` for first-revision payloads): `h` host + `p` port, or
-/// `i` peer id + `ph` provider-attributed path hints + `rh` relay hint + `da`
-/// public direct addrs + `ru` relay URL, or `u` url. Private fallbacks never
-/// downgrade into `da`, because old consumers cannot enforce their expiry,
-/// privacy scope, or active network profile.
+/// `i` peer id, or `u` url. New pairing payloads carry no Iroh path hints:
+/// managed relays are app configuration, online discovery is authenticated,
+/// and offline pairing resolves the scanned EndpointID locally. Decoding still
+/// accepts the first compact revision's `ph`, `rh`, `da`, and `ru` fields.
 public struct CmxAttachTicketCompactCoder: Sendable {
     /// Creates a coder. The coder is stateless; instances are interchangeable.
     public init() {}

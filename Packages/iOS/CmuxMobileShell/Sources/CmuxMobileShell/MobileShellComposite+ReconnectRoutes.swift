@@ -180,7 +180,18 @@ extension MobileShellComposite {
                 return "host:\(host)\u{1F}\(port)"
             case let .peer(identity, pathHints):
                 let hintKey = pathHints.map { hint in
-                    "\(hint.kind.rawValue):\(hint.value):\(hint.source.rawValue):\(hint.privacyScope.rawValue):\(hint.expiresAt?.timeIntervalSince1970.description ?? "")"
+                    let profileKey = hint.networkProfile.map {
+                        "\($0.source.rawValue):\($0.profileID)"
+                    } ?? ""
+                    return [
+                        hint.kind.rawValue,
+                        hint.value,
+                        hint.source.rawValue,
+                        hint.privacyScope.rawValue,
+                        profileKey,
+                        hint.observedAt?.timeIntervalSince1970.description ?? "",
+                        hint.expiresAt?.timeIntervalSince1970.description ?? "",
+                    ].joined(separator: ":")
                 }.joined(separator: ",")
                 return "peer:\(identity.endpointID)\u{1F}\(hintKey)"
             case let .url(url):

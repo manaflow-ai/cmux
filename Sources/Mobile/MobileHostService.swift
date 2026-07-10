@@ -165,11 +165,10 @@ private enum MobileHostPublicStatusCache {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
-        let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
         return .ok(
             includeIdentity
-                ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
-                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+                ? MobileHostService.identityStatusPayload(routes: cachedRoutes)
+                : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )
     }
 }
@@ -298,11 +297,15 @@ final class MobileHostService {
     /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
     /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
-    /// reachability probe any peer may ask for, but the Mac's stable identity
-    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
-    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
-    /// reply that carries it.
-    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+    /// reachability probe any peer may ask for. Private host routes and Iroh
+    /// private/local hints are removed at this boundary. The Mac's account
+    /// identity (`mac_device_id`, `mac_display_name`) is never on this
+    /// unauthenticated surface; a public Iroh route may still disclose its
+    /// cryptographic EndpointID and public hints for reachability.
+    nonisolated static func publicStatusPayload(
+        routes: [CmxAttachRoute],
+        now: Date = Date()
+    ) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
         // the public payload (identity merges on top). `GhosttyConfig.load()`
         // resolves named ghostty themes, cmux's managed defaults, and explicit
@@ -311,7 +314,7 @@ final class MobileHostService {
         // the built-in Monokai default.
         let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
         return [
-            "routes": routesPayload,
+            "routes": routes.mobileHostJSONObjects(for: .publicStatus, at: now),
             "terminal_fidelity": "render_grid",
             "capabilities": mobileHostCapabilities,
             "theme": theme.mobileHostJSONObject,
@@ -323,8 +326,12 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac and which paired-Mac record
     /// the connection belongs to.
-    nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        var payload = publicStatusPayload(routesPayload: routesPayload)
+    nonisolated static func identityStatusPayload(
+        routes: [CmxAttachRoute],
+        now: Date = Date()
+    ) -> [String: Any] {
+        var payload = publicStatusPayload(routes: [], now: now)
+        payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName
@@ -345,9 +352,9 @@ final class MobileHostService {
     /// before it has anything to present), so a tokenless request gets the
     /// cached identity-free payload without touching the main actor or the
     /// Stack verifier — the DoS posture of the public probe is unchanged, and
-    /// an arbitrary process that can reach the port learns nothing that
-    /// identifies or fingerprints this Mac. A request that does present the
-    /// owner's same-account Stack token (the iOS client attaches it to status
+    /// an arbitrary process that can reach the port receives no private route
+    /// hints or account identity. A request that does present the owner's
+    /// same-account Stack token (the iOS client attaches it to status
     /// whenever it has one) is verified and answered with the Mac's identity,
     /// which is what a freshly QR-paired phone needs to key its paired-Mac
     /// record. A token that fails verification degrades to the identity-free

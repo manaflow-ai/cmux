@@ -9,6 +9,38 @@ public enum CmxAttachEndpoint: Equatable, Sendable {
     case url(String)
 }
 
+/// The two ordered attempts for reaching an Iroh peer.
+///
+/// Callers must finish or cancel the public/native attempt before starting the
+/// private-network fallback. The type intentionally has no flattened hint
+/// list, so private routes cannot accidentally enter Iroh's first dial.
+public struct CmxIrohDialPlan: Equatable, Sendable {
+    /// Iroh-native public direct and relay paths used for the first attempt.
+    public let publicPaths: [CmxIrohPathHint]
+    /// Active-profile private/LAN paths used only after the first attempt fails.
+    public let privateFallbackPaths: [CmxIrohPathHint]
+
+    public init(
+        publicPaths: [CmxIrohPathHint],
+        privateFallbackPaths: [CmxIrohPathHint]
+    ) {
+        self.publicPaths = publicPaths
+        self.privateFallbackPaths = privateFallbackPaths
+    }
+}
+
+/// The disclosure boundary applied before serializing attach routes.
+public enum CmxAttachRouteDisclosure: Equatable, Sendable {
+    /// Same-account registry, presence, or local persistence.
+    case authenticated
+    /// An unauthenticated network status response.
+    case publicStatus
+    /// A scannable pairing payload.
+    case pairingQRCode
+    /// The paired-Mac server backup.
+    case pairedMacCloudBackup
+}
+
 extension CmxAttachEndpoint {
     /// Creates an Iroh endpoint from the legacy peer fields.
     ///
@@ -27,7 +59,7 @@ extension CmxAttachEndpoint {
         relayHint: String?,
         directAddrs: [String],
         relayURL: String?
-    ) -> Self {
+    ) throws -> Self {
         var pathHints: [CmxIrohPathHint] = []
         if let relayHint {
             pathHints.append(.legacy(
@@ -51,7 +83,7 @@ extension CmxAttachEndpoint {
             ))
         }
         return .peer(
-            identity: CmxIrohPeerIdentity(endpointID: id),
+            identity: try CmxIrohPeerIdentity(endpointID: id),
             pathHints: pathHints
         )
     }
@@ -64,33 +96,60 @@ extension CmxAttachEndpoint {
         return identity
     }
 
-    /// Current Iroh path hints ordered with public paths before private fallbacks.
+    /// Builds the explicit two-attempt Iroh dial plan.
     ///
     /// A profile-scoped hint is omitted unless its overlay/site/profile is
     /// currently active, preventing an overlapping private address from being
     /// attempted on the wrong network.
     /// - Parameters:
     ///   - now: The time against which hint expiry is checked.
-    ///   - activeNetworkProfileIDs: Locally verified active network profiles.
-    /// - Returns: Current primary hints followed by current fallback-only hints.
-    public func usableIrohPathHints(
+    ///   - activeNetworkProfiles: Locally verified provider-qualified profiles.
+    /// - Returns: A two-phase plan for peer endpoints, otherwise `nil`.
+    public func irohDialPlan(
         at now: Date,
-        activeNetworkProfileIDs: Set<String> = []
-    ) -> [CmxIrohPathHint] {
+        activeNetworkProfiles: Set<CmxIrohNetworkProfileKey> = []
+    ) -> CmxIrohDialPlan? {
         guard case let .peer(_, pathHints) = self else {
-            return []
+            return nil
         }
-        let usable = pathHints.filter { hint in
-            guard hint.isUsable(at: now) else {
+        let publicPaths = pathHints.filter { hint in
+            hint.privacyScope == .publicInternet && hint.isUsable(at: now)
+        }
+        let privateFallbackPaths = pathHints.filter { hint in
+            guard hint.privacyScope != .publicInternet,
+                  hint.isUsable(at: now),
+                  let networkProfile = hint.networkProfile else {
                 return false
             }
-            guard let networkProfileID = hint.networkProfileID else {
-                return true
-            }
-            return activeNetworkProfileIDs.contains(networkProfileID)
+            return activeNetworkProfiles.contains(networkProfile)
         }
-        return usable.filter { $0.use == .primary }
-            + usable.filter { $0.use == .fallbackOnly }
+        return CmxIrohDialPlan(
+            publicPaths: publicPaths,
+            privateFallbackPaths: privateFallbackPaths
+        )
+    }
+}
+
+extension CmxAttachEndpoint {
+    /// Returns a copy whose Iroh hints are current and permitted at a
+    /// serialization boundary.
+    fileprivate func disclosed(
+        for disclosure: CmxAttachRouteDisclosure,
+        at now: Date
+    ) -> Self {
+        guard case let .peer(identity, pathHints) = self else {
+            return self
+        }
+        let disclosedHints: [CmxIrohPathHint]
+        switch disclosure {
+        case .authenticated:
+            disclosedHints = pathHints.filter { $0.isUsable(at: now) }
+        case .publicStatus, .pairedMacCloudBackup:
+            disclosedHints = pathHints.compactMap { $0.publicDisclosure(at: now) }
+        case .pairingQRCode:
+            disclosedHints = []
+        }
+        return .peer(identity: identity, pathHints: disclosedHints)
     }
 }
 
@@ -123,7 +182,7 @@ extension CmxAttachEndpoint: Codable {
                 port: container.decode(Int.self, forKey: .port)
             )
         case .peer:
-            let identity = CmxIrohPeerIdentity(
+            let identity = try CmxIrohPeerIdentity(
                 endpointID: try container.decode(String.self, forKey: .id)
             )
             if let pathHints = try container.decodeIfPresent(
@@ -132,7 +191,7 @@ extension CmxAttachEndpoint: Codable {
             ) {
                 self = .peer(identity: identity, pathHints: pathHints)
             } else {
-                self = .peer(
+                self = try .peer(
                     id: identity.endpointID,
                     relayHint: try container.decodeIfPresent(String.self, forKey: .relayHint),
                     directAddrs: try container.decodeIfPresent(
@@ -157,22 +216,22 @@ extension CmxAttachEndpoint: Codable {
         case let .peer(identity, pathHints):
             try container.encode(EndpointType.peer, forKey: .type)
             try container.encode(identity.endpointID, forKey: .id)
-            if !pathHints.isEmpty,
-               pathHints.allSatisfy(\.isSafeForCurrentWireFormat) {
-                try container.encode(pathHints, forKey: .pathHints)
+            let currentPathHints = pathHints.filter { $0.isUsable(at: Date()) }
+            if !currentPathHints.isEmpty {
+                try container.encode(currentPathHints, forKey: .pathHints)
             }
 
-            let relayHint = pathHints.first {
-                $0.kind == .relayIdentifier && $0.isSafeForCurrentWireFormat
+            let relayHint = currentPathHints.first {
+                $0.kind == .relayIdentifier
             }?.value
             // Legacy `direct_addrs` cannot carry expiry, privacy, or network
             // profile. Emitting private fallbacks there would silently promote
             // them for old clients, so only public primary addresses downgrade.
-            let directAddrs = pathHints
+            let directAddrs = currentPathHints
                 .filter { $0.kind == .directAddress && $0.use == .primary }
                 .map(\.value)
-            let relayURL = pathHints.first {
-                $0.kind == .relayURL && $0.isSafeForCurrentWireFormat
+            let relayURL = currentPathHints.first {
+                $0.kind == .relayURL
             }?.value
             try container.encodeIfPresent(relayHint, forKey: .relayHint)
             if !directAddrs.isEmpty {
@@ -276,6 +335,28 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         default:
             throw CmxAttachRouteError.endpointMismatch(kind: kind, endpoint: endpoint)
         }
+    }
+
+    /// Returns the route shape permitted at a serialization boundary.
+    ///
+    /// Unauthenticated status exposes only Iroh routes with public hints. URL
+    /// and host/port transports have no privacy classification, so they remain
+    /// authenticated-only. Pairing QR and paired-Mac cloud backup keep the
+    /// route identity but remove Iroh hints according to their stricter
+    /// disclosure policies.
+    public func disclosed(
+        for disclosure: CmxAttachRouteDisclosure,
+        at now: Date
+    ) -> Self? {
+        if disclosure == .publicStatus, kind != .iroh {
+            return nil
+        }
+        return try? Self(
+            id: id,
+            kind: kind,
+            endpoint: endpoint.disclosed(for: disclosure, at: now),
+            priority: priority
+        )
     }
 }
 
