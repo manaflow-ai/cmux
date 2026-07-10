@@ -279,7 +279,12 @@ fn parse_endpoint_id(value: &str) -> Result<EndpointId, RequestFailure> {
 
 fn require_json_content_type(headers: &HeaderMap) -> Result<(), RequestFailure> {
     let content_type = single_header(headers, &CONTENT_TYPE).ok_or(RequestFailure::ContentType)?;
-    if content_type == "application/json" {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .map(str::trim)
+        .unwrap_or_default();
+    if media_type.eq_ignore_ascii_case("application/json") {
         Ok(())
     } else {
         Err(RequestFailure::ContentType)
@@ -476,7 +481,11 @@ mod tests {
     use futures_util::stream;
     use http_body::Frame;
     use http_body_util::{BodyExt as _, Full, StreamBody};
-    use hyper::{Method, Request, StatusCode, body::Bytes, header::ALLOW};
+    use hyper::{
+        Method, Request, StatusCode,
+        body::Bytes,
+        header::{ALLOW, HeaderValue},
+    };
     use iroh::SecretKey;
     use rcan::{CapabilityOrigin, Expires, Rcan};
     use time::OffsetDateTime;
@@ -743,7 +752,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn requires_the_exact_json_content_type() {
+    async fn accepts_json_content_type_parameters() {
         let config = test_config();
         let now = SystemTime::now();
         let timestamp = unix_seconds(now).expect("test clock is valid");
@@ -751,13 +760,47 @@ mod tests {
         let mut request = signed_request(Method::POST, MINT_PATH, timestamp, body);
         request.headers_mut().insert(
             CONTENT_TYPE,
-            "text/plain".parse().expect("valid test header"),
+            "Application/JSON; charset=utf-8"
+                .parse()
+                .expect("valid test header"),
         );
 
         assert_eq!(
             handle_request(request, &config, now).await.status(),
-            StatusCode::UNSUPPORTED_MEDIA_TYPE
+            StatusCode::OK
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_non_json_duplicate_and_malformed_content_type_headers() {
+        let config = test_config();
+        let now = SystemTime::now();
+        let timestamp = unix_seconds(now).expect("test clock is valid");
+        let body = valid_body(&test_endpoint().to_string());
+        let mut non_json = signed_request(Method::POST, MINT_PATH, timestamp, body.clone());
+        non_json.headers_mut().insert(
+            CONTENT_TYPE,
+            "text/plain".parse().expect("valid test header"),
+        );
+        let mut duplicate = signed_request(Method::POST, MINT_PATH, timestamp, body.clone());
+        duplicate.headers_mut().append(
+            CONTENT_TYPE,
+            "application/json; charset=utf-8"
+                .parse()
+                .expect("valid test header"),
+        );
+        let mut malformed = signed_request(Method::POST, MINT_PATH, timestamp, body);
+        malformed.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_bytes(&[0xff]).expect("opaque header bytes are representable"),
+        );
+
+        for request in [non_json, duplicate, malformed] {
+            assert_eq!(
+                handle_request(request, &config, now).await.status(),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE
+            );
+        }
     }
 
     #[test]

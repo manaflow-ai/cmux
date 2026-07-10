@@ -43,8 +43,9 @@ minter route or RCAN capabilities.
 
 ## Wire contract
 
-The only accepted route is `POST /api/relay-token` with exact
-`Content-Type: application/json`, no query string, and this body:
+The only accepted route is `POST /api/relay-token` with one `Content-Type`
+header whose media type is `application/json`, optionally followed by parameters
+such as `charset=utf-8`, no query string, and this body:
 
 ```json
 {"endpointId":"<64 lowercase hex characters>","lifetimeSeconds":86400}
