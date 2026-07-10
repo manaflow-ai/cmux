@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import plistlib
+import shutil
 import stat
 import subprocess
 import sys
@@ -19,8 +20,12 @@ ROOT = Path(__file__).resolve().parents[1]
 TEAM_ID = "7WLXT3NR37"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
+BETA_BUNDLE_ID = "dev.cmux.app.beta"
+BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
+APPSTORE_MARKETING_VERSION = "1.0.0"
+BETA_MARKETING_VERSION = "1.0.4"
 
 FAILURES: list[str] = []
 
@@ -37,17 +42,21 @@ def _plist_bytes(value: object) -> bytes:
     return plistlib.dumps(value, fmt=plistlib.FMT_XML)
 
 
-def _profile_plist() -> dict[str, object]:
+def _profile_plist(
+    bundle_id: str = APPSTORE_BUNDLE_ID,
+    name: str = "cmux App Store Distribution Test",
+) -> dict[str, object]:
+    app_id = f"{TEAM_ID}.{bundle_id}"
     return {
-        "Name": "cmux App Store Distribution Test",
+        "Name": name,
         "UUID": "00000000-0000-0000-0000-000000000001",
         "Entitlements": {
-            "application-identifier": APPSTORE_APP_ID,
+            "application-identifier": app_id,
             "com.apple.developer.team-identifier": TEAM_ID,
             "get-task-allow": False,
             "aps-environment": "production",
             "com.apple.developer.applesignin": ["Default"],
-            "keychain-access-groups": [APPSTORE_APP_ID],
+            "keychain-access-groups": [app_id],
         },
     }
 
@@ -60,9 +69,14 @@ def _write_executable(path: Path, body: str) -> None:
 def _install_fake_tools(fakebin: Path) -> None:
     fakebin.mkdir(parents=True, exist_ok=True)
     common = f"""
+import plistlib
+from pathlib import Path
+
 TEAM_ID = {TEAM_ID!r}
-BUNDLE_ID = {APPSTORE_BUNDLE_ID!r}
-APP_ID = {APPSTORE_APP_ID!r}
+APPSTORE_BUNDLE_ID = {APPSTORE_BUNDLE_ID!r}
+APPSTORE_APP_ID = {APPSTORE_APP_ID!r}
+BETA_BUNDLE_ID = {BETA_BUNDLE_ID!r}
+BETA_APP_ID = {BETA_APP_ID!r}
 IDENTITY = {IDENTITY!r}
 
 def plist_bytes(value):
@@ -72,8 +86,25 @@ def write_plist(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plist_bytes(value))
 
-PROFILE = {_profile_plist()!r}
-ENTITLEMENTS = PROFILE["Entitlements"]
+APPSTORE_PROFILE = {_profile_plist()!r}
+BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test")!r}
+
+def profile_for_bundle(bundle_id):
+    if bundle_id == BETA_BUNDLE_ID:
+        return BETA_PROFILE
+    return APPSTORE_PROFILE
+
+def bundle_id_for_target(path):
+    target = Path(path)
+    info = target / "Info.plist" if target.is_dir() else target
+    try:
+        value = plistlib.loads(info.read_bytes()).get("CFBundleIdentifier", "")
+    except Exception:
+        value = ""
+    return value or APPSTORE_BUNDLE_ID
+
+def entitlements_for_bundle(bundle_id):
+    return profile_for_bundle(bundle_id)["Entitlements"]
 """
 
     _write_executable(
@@ -260,7 +291,7 @@ if "archive" in args:
     archive = Path(after("-archivePath"))
     bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
-    marketing_version = setting("MARKETING_VERSION=") or "1.0.4"
+    marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -288,11 +319,13 @@ if "-exportArchive" in args:
     export_options = Path(after("-exportOptionsPlist"))
     shutil.copyfile(export_options, os.environ["CMUX_FAKE_EXPORT_OPTIONS_COPY"])
     app_info = next((archive / "Products" / "Applications").glob("*.app/Info.plist"))
-    bundle_id = plistlib.loads(app_info.read_bytes())["CFBundleIdentifier"]
+    archived_info = plistlib.loads(app_info.read_bytes())
+    bundle_id = archived_info["CFBundleIdentifier"]
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
-    write_plist(app / "Info.plist", {{"CFBundleIdentifier": bundle_id}})
-    (app / "embedded.mobileprovision").write_text("fake profile", encoding="utf-8")
+    write_plist(app / "Info.plist", archived_info)
+    profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
+    (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     ipa = export_path / "cmux.ipa"
     ipa.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ipa, "w") as zf:
@@ -315,7 +348,8 @@ args = sys.argv[1:]
 if "--verify" in args:
     sys.exit(0)
 if "-d" in args and "--entitlements" in args:
-    sys.stdout.buffer.write(plist_bytes(ENTITLEMENTS))
+    bundle_id = bundle_id_for_target(args[-1])
+    sys.stdout.buffer.write(plist_bytes(entitlements_for_bundle(bundle_id)))
     sys.exit(0)
 if "--force" in args:
     sys.exit(0)
@@ -331,8 +365,8 @@ import plistlib
 import sys
 from pathlib import Path
 {common}
-LEGACY_PROFILE = copy.deepcopy(PROFILE)
-LEGACY_PROFILE["Entitlements"] = dict(PROFILE["Entitlements"])
+LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
+LEGACY_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
 LEGACY_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.com.cmuxterm.app"
 LEGACY_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.com.cmuxterm.app"]
 
@@ -341,11 +375,15 @@ if args[:3] == ["find-identity", "-v", "-p"]:
     print(f'  1) ABCDEF "{{IDENTITY}}"')
     sys.exit(0)
 if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
-    profile = PROFILE
+    profile = APPSTORE_PROFILE
     if "-i" in args:
         source = Path(args[args.index("-i") + 1])
-        if source.exists() and b"legacy profile" in source.read_bytes():
-            profile = LEGACY_PROFILE
+        if source.exists():
+            body = source.read_bytes()
+            if b"legacy profile" in body:
+                profile = LEGACY_PROFILE
+            elif b"beta profile" in body:
+                profile = BETA_PROFILE
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -419,11 +457,12 @@ def _run(
     *,
     env: dict[str, str],
     tmp: Path,
+    cwd: Path = ROOT,
     log_failure: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         args,
-        cwd=ROOT,
+        cwd=cwd,
         env=env,
         text=True,
         stdout=subprocess.PIPE,
@@ -433,6 +472,260 @@ def _run(
         print(result.stdout)
         print(result.stderr, file=sys.stderr)
     return result
+
+
+def _version_tuple(version: str) -> tuple[int, int, int]:
+    parts = [int(part) for part in version.split(".")]
+    while len(parts) < 3:
+        parts.append(0)
+    return parts[0], parts[1], parts[2]
+
+
+def _bump_patch(version: str) -> str:
+    major, minor, patch = _version_tuple(version)
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, marketing_version: str) -> None:
+    app = path / "Products" / "Applications" / "cmux.app"
+    info = {
+        "CFBundleIdentifier": bundle_id,
+        "CFBundleVersion": build_number,
+        "CFBundleShortVersionString": marketing_version,
+    }
+    (path).mkdir(parents=True, exist_ok=True)
+    app.mkdir(parents=True, exist_ok=True)
+    (path / "Info.plist").write_bytes(
+        _plist_bytes(
+            {
+                "ApplicationProperties": {
+                    "CFBundleIdentifier": bundle_id,
+                    "CFBundleVersion": build_number,
+                    "CFBundleShortVersionString": marketing_version,
+                }
+            }
+        )
+    )
+    (app / "Info.plist").write_bytes(_plist_bytes(info))
+
+
+def _copy_isolated_ios_upload_repo(target: Path) -> Path:
+    repo = target / "repo"
+    for relative in (
+        "ios/scripts/upload-testflight.sh",
+        "ios/Config/Shared.xcconfig",
+        "ios/Config/cmux-release.entitlements",
+    ):
+        source = ROOT / relative
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "tag", "ios-v1.0.0"], cwd=repo, check=True)
+    return repo
+
+
+def _copy_isolated_ios_version_repo(target: Path) -> Path:
+    repo = target / "repo"
+    for relative in (
+        "ios/scripts/bump-ios-version.sh",
+        "ios/Config/Shared.xcconfig",
+    ):
+        source = ROOT / relative
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return repo
+
+
+def _read_xcconfig_setting(path: Path, key: str) -> str:
+    values = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        before_comment = line.split("//", 1)[0].strip()
+        if not before_comment.startswith(f"{key} "):
+            continue
+        name, _, value = before_comment.partition("=")
+        if name.strip() == key:
+            values.append(value.strip())
+    return values[-1] if values else ""
+
+
+def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041749",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "beta export-only lane succeeds with fake Apple tools")
+
+    xcodebuild_calls = [
+        json.loads(line)
+        for line in (tmp / "xcodebuild.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    archive_call = next(call for call in xcodebuild_calls if "archive" in call)
+    _check(
+        f"PRODUCT_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
+        "beta archive command stamps the beta bundle id",
+    )
+    _check(
+        f"MARKETING_VERSION={BETA_MARKETING_VERSION}" in archive_call,
+        "beta archive command stamps the beta marketing version",
+    )
+    _check(
+        f"MARKETING_VERSION={APPSTORE_MARKETING_VERSION}" not in archive_call,
+        "beta archive command does not stamp the App Store marketing version",
+    )
+
+    export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
+    profiles = export_options.get("provisioningProfiles", {})
+    _check(
+        profiles.get(BETA_BUNDLE_ID) == "cmux Beta Distribution",
+        "export options map the beta profile to dev.cmux.app.beta",
+    )
+
+    ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
+    ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
+    with zipfile.ZipFile(ipa_path) as zf:
+        info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
+    _check(
+        info.get("CFBundleIdentifier") == BETA_BUNDLE_ID,
+        "final signed beta IPA Info.plist is dev.cmux.app.beta",
+    )
+    _check(
+        info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
+        "final signed beta IPA keeps the beta marketing version",
+    )
+
+
+def test_upload_beta_archive_path_accepts_marketing_version_override(tmp: Path, fakebin: Path) -> None:
+    override_version = "1.0.3"
+    archive = tmp / "cmux-beta.xcarchive"
+    _write_fake_archive(
+        archive,
+        bundle_id=BETA_BUNDLE_ID,
+        build_number="20260710041748",
+        marketing_version=override_version,
+    )
+    env = _base_env(tmp, fakebin)
+    env["BETA_MARKETING_VERSION"] = override_version
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--archive-path",
+            str(archive),
+            "--signing",
+            "manual",
+            "--export-only",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "beta archive override export succeeds")
+
+    ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
+    ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
+    with zipfile.ZipFile(ipa_path) as zf:
+        info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
+    _check(
+        info.get("CFBundleShortVersionString") == override_version,
+        "reused beta archive keeps the override marketing version",
+    )
+
+
+def test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp: Path, fakebin: Path) -> None:
+    isolated_repo = _copy_isolated_ios_upload_repo(tmp / "isolated")
+    expected_version = _bump_patch(BETA_MARKETING_VERSION)
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    result = _run(
+        [
+            "bash",
+            str(isolated_repo / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--auto-version",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041752",
+        ],
+        env=env,
+        tmp=tmp,
+        cwd=isolated_repo,
+    )
+
+    _check(result.returncode == 0, "beta auto-version export succeeds with a lower release tag")
+    xcodebuild_calls = [
+        json.loads(line)
+        for line in (tmp / "xcodebuild.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    archive_call = next(call for call in xcodebuild_calls if "archive" in call)
+    stamped_version = next(
+        arg.removeprefix("MARKETING_VERSION=")
+        for arg in archive_call
+        if arg.startswith("MARKETING_VERSION=")
+    )
+    _check(
+        stamped_version == expected_version,
+        "beta auto-version uses the greater of release tags and checked-in beta version",
+    )
+    _check(
+        _version_tuple(stamped_version) > _version_tuple(BETA_MARKETING_VERSION),
+        "beta auto-version does not decrease below the checked-in beta version",
+    )
+
+
+def test_bump_ios_version_accepts_trailing_appstore_lane(tmp: Path, fakebin: Path) -> None:
+    isolated_repo = _copy_isolated_ios_version_repo(tmp / "isolated-version")
+    config = isolated_repo / "ios" / "Config" / "Shared.xcconfig"
+    result = _run(
+        [
+            "bash",
+            str(isolated_repo / "ios" / "scripts" / "bump-ios-version.sh"),
+            "1.0.1",
+            "--lane",
+            "appstore",
+        ],
+        env=os.environ.copy(),
+        tmp=tmp,
+        cwd=isolated_repo,
+    )
+
+    _check(result.returncode == 0, "bump helper accepts trailing --lane appstore")
+    _check(
+        _read_xcconfig_setting(config, "CMUX_IOS_APPSTORE_MARKETING_VERSION") == "1.0.1",
+        "trailing appstore lane updates the App Store marketing version",
+    )
+    _check(
+        _read_xcconfig_setting(config, "CMUX_IOS_BETA_MARKETING_VERSION") == BETA_MARKETING_VERSION,
+        "trailing appstore lane leaves the beta marketing version unchanged",
+    )
+    _check(
+        "CMUX_IOS_APPSTORE_MARKETING_VERSION" not in result.stdout + result.stderr,
+        "bump helper output describes the lane without exposing the internal xcconfig key",
+    )
 
 
 def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path) -> None:
@@ -465,6 +758,14 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "archive command stamps com.cmux.app",
     )
     _check(
+        f"MARKETING_VERSION={APPSTORE_MARKETING_VERSION}" in archive_call,
+        "archive command stamps the App Store marketing version",
+    )
+    _check(
+        f"MARKETING_VERSION={BETA_MARKETING_VERSION}" not in archive_call,
+        "archive command does not stamp the beta marketing version",
+    )
+    _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
         "archive command does not stamp the retired com.cmuxterm.app id",
     )
@@ -482,6 +783,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
+    _check(
+        info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
+        "final signed IPA keeps the App Store marketing version",
+    )
 
 
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
@@ -561,7 +866,7 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
     env = _base_env(tmp, fakebin)
     env["ASC_APP_ID"] = ASC_APP_ID
     result = _run(
-        ["bash", str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"), "--version", "1.0.4"],
+        ["bash", str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh")],
         env=env,
         tmp=tmp,
     )
@@ -573,6 +878,11 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
     validate_call = next(call for call in asc_calls if call and call[0] == "validate")
     app_index = validate_call.index("--app") + 1
     _check(validate_call[app_index] == ASC_APP_ID, "validation helper uses the numeric App Store Connect app id")
+    version_index = validate_call.index("--version") + 1
+    _check(
+        validate_call[version_index] == APPSTORE_MARKETING_VERSION,
+        "validation helper defaults to the App Store marketing version",
+    )
 
     bad_env = _base_env(tmp / "bad-app", fakebin)
     bad_result = _run(
@@ -582,7 +892,7 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
             "--app",
             APPSTORE_BUNDLE_ID,
             "--version",
-            "1.0.4",
+            APPSTORE_MARKETING_VERSION,
         ],
         env=bad_env,
         tmp=tmp / "bad-app",
@@ -597,6 +907,10 @@ def main() -> None:
         tmp = Path(temp_dir)
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
+        test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
+        test_upload_beta_archive_path_accepts_marketing_version_override(tmp / "beta-archive-override-test", fakebin)
+        test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp / "beta-auto-version-test", fakebin)
+        test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)

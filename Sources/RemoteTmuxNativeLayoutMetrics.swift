@@ -115,6 +115,31 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         return max(1, Int(cells.rounded()))
     }
 
+    /// Converts a native point delta to tmux cells along one split axis.
+    func requestedTmuxCellDelta(
+        pointDelta: CGFloat,
+        orientation: SplitOrientation
+    ) -> Int {
+        let cell = cellExtent(along: orientation)
+        guard cell > 0 else { return 0 }
+        let cells = pointDelta / cell
+        return max(1, NSNumber(value: Double(cells.rounded())).intValue)
+    }
+
+    /// Converts a requested outer native pane extent to terminal-grid cells,
+    /// removing the pane chrome that tmux does not represent in its grid span.
+    func requestedTmuxSpan(
+        pane: RemoteTmuxLayoutNode,
+        orientation: SplitOrientation,
+        outerExtent: CGFloat
+    ) -> Int {
+        let cell = cellExtent(along: orientation)
+        guard cell > 0 else { return 0 }
+        let chrome = residualExtent(residual(of: pane), along: orientation)
+        let cells = (outerExtent - chrome) / cell
+        return max(1, NSNumber(value: Double(cells.rounded())).intValue)
+    }
+
     func childExtents(parentExtent: CGFloat, dividerPosition: CGFloat) -> (first: CGFloat, second: CGFloat) {
         let available = max(0, parentExtent - dividerThickness)
         let first = available * dividerPosition
