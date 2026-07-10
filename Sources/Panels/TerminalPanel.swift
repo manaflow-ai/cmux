@@ -7,31 +7,6 @@ import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
 
-struct AgentHibernationPanelState {
-    let agent: SessionRestorableAgentSnapshot
-    let hibernatedAt: Date
-    let lastActivityAt: Date
-
-    var agentDisplayName: String {
-        agent.agentDisplayName
-    }
-}
-
-enum AgentHibernationResumePreparation: Equatable {
-    case unavailable
-    case resumed(queuedStartupInput: Bool)
-
-    var didResume: Bool {
-        if case .resumed = self { return true }
-        return false
-    }
-
-    var queuedStartupInput: Bool {
-        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
-        return false
-    }
-}
-
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor

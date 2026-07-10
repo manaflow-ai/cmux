@@ -330,6 +330,9 @@ public final class TerminalSurface: Identifiable {
     /// The needle from the most recently closed find session.
     public private(set) var lastSearchNeedle = ""
     var searchNeedleTask: Task<Void, Never>?
+    /// Injected so tests can substitute a test clock; the debounce in
+    /// `scheduleSearchNeedle` must stay a cancellation-aware bounded delay.
+    var searchDebounceClock: any Clock<Duration> = ContinuousClock()
 
     /// The key-state indicator text currently shown for the surface view.
     @MainActor

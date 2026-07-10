@@ -100,7 +100,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var lastRenderedChangeGeneration: UInt64 = .max
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
-        private var isUpdatingOutlineProgrammatically = false
+        // Internal (not private): the selection/expansion delegate handlers in
+        // FileExplorerView+OutlineDelegate.swift read this flag.
+        var isUpdatingOutlineProgrammatically = false
 
         init(
             store: FileExplorerStore,
@@ -303,39 +305,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             guard let node = item as? FileExplorerNode else { return false }
             store.collapse(node: node)
             return true
-        }
-
-        func outlineViewSelectionDidChange(_ notification: Notification) {
-            guard !isUpdatingOutlineProgrammatically,
-                  let outlineView = notification.object as? NSOutlineView else {
-                return
-            }
-            let nodes = outlineView.selectedRowIndexes.compactMap { outlineView.item(atRow: $0) as? FileExplorerNode }
-            guard !nodes.isEmpty else { store.select(node: nil); return }
-            let anchor = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode : nil
-            store.select(nodes: nodes, anchor: anchor ?? nodes.first)
-        }
-        // Both handlers ignore programmatic outline mutations (mirroring
-        // outlineViewSelectionDidChange): reloadItem(_:reloadChildren:) inside
-        // refreshLoadedNodes re-fires expand/collapse notifications, and writing
-        // those back into the store bumps its change-generation, which schedules
-        // another refresh — a self-sustaining reload loop whenever any folder is
-        // expanded. Only user-driven expansion (disclosure click, keyboard) may
-        // mutate the store here.
-        func outlineViewItemDidExpand(_ notification: Notification) {
-            guard !isUpdatingOutlineProgrammatically,
-                  let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
-            if !store.isExpanded(node) {
-                store.expand(node: node)
-            }
-        }
-
-        func outlineViewItemDidCollapse(_ notification: Notification) {
-            guard !isUpdatingOutlineProgrammatically,
-                  let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
-            if store.isExpanded(node) {
-                store.collapse(node: node)
-            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {

@@ -2963,6 +2963,9 @@ final class BrowserPortalAnchorView: NSView {
     }
     private(set) var isElementFullscreenActive: Bool = false
     var searchNeedleTask: Task<Void, Never>?
+    /// Injected so tests can substitute a test clock; the debounce in
+    /// `scheduleFindSearch` must stay a cancellation-aware bounded delay.
+    @ObservationIgnored var searchDebounceClock: any Clock<Duration> = ContinuousClock()
 
     /// Find-in-page search execution: generates the find scripts, evaluates them against the
     /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into

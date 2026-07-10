@@ -1,5 +1,5 @@
 import Observation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -25,13 +25,10 @@ final class ObservationChangeFlag: @unchecked Sendable {
 /// synchronously at willSet and the mutation helpers are synchronous
 /// main-actor calls, so the flags are settled when the mutation returns.
 @MainActor
-final class WorkspaceRepublishObservationTests: XCTestCase {
-    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
+struct WorkspaceRepublishObservationTests {
+    @Test func updatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() throws {
         let workspace = Workspace()
-        guard let panelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
 
         let firstChangeFlag = ObservationChangeFlag()
         withObservationTracking {
@@ -43,7 +40,7 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
 
-        XCTAssertTrue(
+        #expect(
             firstChangeFlag.fired,
             "Expected the first focused branch update to publish workspace changes"
         )
@@ -58,18 +55,15 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
 
-        XCTAssertFalse(
-            identicalChangeFlag.fired,
+        #expect(
+            !identicalChangeFlag.fired,
             "Expected identical focused branch refreshes to avoid extra workspace publishes"
         )
     }
 
-    func testUpdatingFocusedPanelPullRequestWithSameStateDoesNotRepublishWorkspace() {
+    @Test func updatingFocusedPanelPullRequestWithSameStateDoesNotRepublishWorkspace() throws {
         let workspace = Workspace()
-        guard let panelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
@@ -91,7 +85,7 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
             branch: "feature/sidebar-pr"
         )
 
-        XCTAssertTrue(
+        #expect(
             firstChangeFlag.fired,
             "Expected the first focused pull request update to publish workspace changes"
         )
@@ -113,8 +107,8 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
             branch: "feature/sidebar-pr"
         )
 
-        XCTAssertFalse(
-            identicalChangeFlag.fired,
+        #expect(
+            !identicalChangeFlag.fired,
             "Expected identical focused pull request refreshes to avoid extra workspace publishes"
         )
     }

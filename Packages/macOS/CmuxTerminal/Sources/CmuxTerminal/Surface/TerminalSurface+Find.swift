@@ -16,10 +16,11 @@ extension TerminalSurface {
             return
         }
 
+        let clock = searchDebounceClock
         searchNeedleTask = Task { @MainActor [weak self] in
             do {
                 // Intentional bounded debounce; cancelled on every edit/close.
-                try await Task.sleep(for: .milliseconds(300))
+                try await clock.sleep(for: .milliseconds(300))
             } catch {
                 return
             }

@@ -55,9 +55,9 @@
 1738	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
-1682	Sources/FileExplorerView.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
+1651	Sources/FileExplorerView.swift
 1604	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1523	cmuxTests/RestorableAgentSessionIndexTests.swift
@@ -73,10 +73,10 @@
 1290	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
-1274	cmuxTests/FileExplorerStoreTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1240	cmuxTests/SidebarOrderingTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
+1204	cmuxTests/FileExplorerStoreTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1197	cmuxTests/VMDefaultCloudCommandTests.swift
 1147	Sources/FileExplorerStore.swift
@@ -102,8 +102,8 @@
 943	Sources/Cloud/VMClient.swift
 942	Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceMacSelectionTests.swift
 937	Sources/TextBoxMentionIndexStore.swift
-929	Sources/Panels/TerminalPanel.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
+908	Sources/Panels/TerminalPanel.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 896	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
