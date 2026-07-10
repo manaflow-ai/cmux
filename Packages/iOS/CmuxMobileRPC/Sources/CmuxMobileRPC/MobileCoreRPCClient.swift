@@ -30,6 +30,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - transportConnectObserver: Optional observer for the underlying transport
+    ///     attempt, success, and failure lifecycle.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -40,7 +42,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
-        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) async -> Void)? = nil
     ) {
         self.runtime = runtime
         self.route = route
@@ -70,10 +73,20 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [runtime, transportRequest] in
+35:             makeTransport: { [runtime, transportRequest] in
                 try runtime.transportFactory.makeTransport(for: transportRequest)
             },
-            makeIndependentEventByteStream: independentEventFactory
+            makeIndependentEventByteStream: independentEventFactory,
+            transportConnectObserver: transportConnectObserver
+36:         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
+        didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
+        transportConnectObserver: TransportConnectObserver? = nil
+37:             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+            let attemptIndex = routeIndex + 1
+            let routeID = route.id
+            let routeKind = route.kind.rawValue
+            let endpointSummary = Self.mobileDialEndpointSummary(route.endpoint)
+            let dialLog = dialLog
         )
     }
 
