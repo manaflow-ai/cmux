@@ -110,6 +110,64 @@ struct CmxIrohEndpointServerTests {
         await server.stop()
         await supervisor.deactivate()
     }
+
+    @Test
+    func oneEndpointIdentityCannotConsumeEveryPendingAdmissionSlot() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "e", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "f", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 3, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let blocker = EndpointServerHandlerBlocker()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            maximumPendingAdmissions: 3
+        ) { connection, generation in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            if await recorder.recordedCount() == 1 {
+                await blocker.wait()
+            } else {
+                await connection.close(errorCode: 0, reason: "handler_accepted")
+            }
+        }
+        let first = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        let duplicate = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        var duplicateCloses = await duplicate.closeEvents().makeAsyncIterator()
+
+        await server.start()
+        await endpoint.enqueue(first)
+        #expect(await recorder.next().identity == remoteIdentity)
+        await endpoint.enqueue(duplicate)
+
+        let close = try #require(await duplicateCloses.next())
+        #expect(close.reason == "admission_identity_capacity")
+
+        await blocker.releaseAll()
+        await server.stop()
+        await supervisor.deactivate()
+    }
 }
 
 private actor EndpointServerHandlerBlocker {
@@ -169,8 +227,10 @@ private actor EndpointServerRecorder {
     typealias Event = (identity: CmxIrohPeerIdentity, generation: UInt64)
     private var events: [Event] = []
     private var waiters: [CheckedContinuation<Event, Never>] = []
+    private var totalRecordedCount = 0
 
     func record(identity: CmxIrohPeerIdentity, generation: UInt64) {
+        totalRecordedCount += 1
         let event = (identity, generation)
         if waiters.isEmpty {
             events.append(event)
@@ -182,6 +242,10 @@ private actor EndpointServerRecorder {
     func next() async -> Event {
         if !events.isEmpty { return events.removeFirst() }
         return await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func recordedCount() -> Int {
+        totalRecordedCount
     }
 }
 
