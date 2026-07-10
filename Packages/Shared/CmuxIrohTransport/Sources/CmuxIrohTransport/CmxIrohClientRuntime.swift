@@ -9,6 +9,12 @@ public actor CmxIrohClientRuntime {
         _ discovery: CmxIrohDiscoveryResponse
     ) async -> Void
 
+    /// Runs when connectivity-only startup restores signed, already-known Mac tuples.
+    public typealias CachedBindingsHandler = @Sendable (
+        _ bindings: [CmxIrohBrokerBinding],
+        _ lanRendezvous: CmxIrohLANRendezvous
+    ) async -> Void
+
     /// Runs after a relay credential is installed on the exact active binding.
     public typealias RelayCredentialHandler = @Sendable (
         _ response: CmxIrohRelayTokenResponse,
@@ -19,10 +25,13 @@ public actor CmxIrohClientRuntime {
     public typealias LocalDeactivationHandler = @Sendable () async -> Void
 
     private struct ResolvedPolicy: Sendable {
-        let registration: CmxIrohRegistrationResponse
-        let discovery: CmxIrohDiscoveryResponse
+        let registration: CmxIrohRegistrationResponse?
+        let discovery: CmxIrohDiscoveryResponse?
         let binding: CmxIrohBrokerBinding
         let expectation: CmxIrohLocalBindingExpectation
+        let offlineExpectation: CmxIrohClientOfflinePolicyExpectation?
+        let cachedTargetBindings: [CmxIrohBrokerBinding]
+        let cachedLANRendezvous: CmxIrohLANRendezvous?
     }
 
     /// The route-aware factory registered by the iOS app before fallback transports.
@@ -34,9 +43,11 @@ public actor CmxIrohClientRuntime {
     private let broker: any CmxIrohClientBrokerServing
     private let configuration: CmxIrohClientRuntimeConfiguration
     private let protocolConfiguration: CmxIrohProtocolConfiguration
+    private let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     private let now: @Sendable () -> Date
     private let handleBinding: BindingHandler
+    private let handleCachedBindings: CachedBindingsHandler
     private let handleRelayCredential: RelayCredentialHandler
     private let handleLocalDeactivation: LocalDeactivationHandler
 
@@ -75,11 +86,13 @@ public actor CmxIrohClientRuntime {
         broker: any CmxIrohClientBrokerServing,
         configuration: CmxIrohClientRuntimeConfiguration,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        offlinePolicyCache: CmxIrohClientOfflinePolicyCache? = nil,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
         now: @escaping @Sendable () -> Date = { Date() },
         handleBinding: @escaping BindingHandler = { _, _ in },
+        handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {}
     ) throws {
@@ -108,9 +121,11 @@ public actor CmxIrohClientRuntime {
         self.broker = broker
         self.configuration = configuration
         self.protocolConfiguration = protocolConfiguration
+        self.offlinePolicyCache = offlinePolicyCache
         self.networkPathSnapshot = networkPathSnapshot
         self.now = now
         self.handleBinding = handleBinding
+        self.handleCachedBindings = handleCachedBindings
         self.handleRelayCredential = handleRelayCredential
         self.handleLocalDeactivation = handleLocalDeactivation
         transportFactory = CmxIrohByteTransportFactory(sessionPool: sessionPool)
@@ -158,7 +173,12 @@ public actor CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            await handleBinding(policy.registration, policy.discovery)
+            if let registration = policy.registration,
+               let discovery = policy.discovery {
+                await handleBinding(registration, discovery)
+            } else if let lanRendezvous = policy.cachedLANRendezvous {
+                await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
+            }
         } catch {
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .failed,
@@ -267,6 +287,7 @@ public actor CmxIrohClientRuntime {
         desiredActive = false
         lifecycleRevision &+= 1
         await tearDownNetwork()
+        try? await offlinePolicyCache?.deactivate()
         await handleLocalDeactivation()
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .inactive,
@@ -311,12 +332,39 @@ public actor CmxIrohClientRuntime {
             pairingEnabled: false,
             capabilities: configuration.capabilities
         )
+        let offlineExpectation = try offlinePolicyCache.map { _ in
+            try CmxIrohClientOfflinePolicyExpectation(
+                accountID: configuration.accountID,
+                localBindingExpectation: expectation,
+                managedRelayURLs: configuration.managedRelayURLs
+            )
+        }
         let signer = try CmxIrohRegistrationSigner(
             identity: configuration.identity,
             endpointID: expectedEndpointID.endpointID
         )
         let prepared = try signer.prepare(payload: payload)
-        let registration = try await broker.register(prepared: prepared, signer: signer)
+        let registration: CmxIrohRegistrationResponse
+        do {
+            registration = try await broker.register(prepared: prepared, signer: signer)
+        } catch {
+            guard Self.isConnectivity(error),
+                  let cached = try await offlineBootstrap(
+                      expectation: offlineExpectation,
+                      confirmedLocalBinding: nil
+                  ) else {
+                throw error
+            }
+            return ResolvedPolicy(
+                registration: nil,
+                discovery: nil,
+                binding: cached.localBinding,
+                expectation: expectation,
+                offlineExpectation: offlineExpectation,
+                cachedTargetBindings: cached.targetBindings,
+                cachedLANRendezvous: cached.lanRendezvous
+            )
+        }
         try requireCurrent(revision)
         guard expectation.matches(registration.binding) else {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
@@ -325,7 +373,27 @@ public actor CmxIrohClientRuntime {
             try validateRelayFleet(relay.relayFleet)
         }
 
-        let discovery = try await broker.discover()
+        let discovery: CmxIrohDiscoveryResponse
+        do {
+            discovery = try await broker.discover()
+        } catch {
+            guard Self.isConnectivity(error),
+                  let cached = try await offlineBootstrap(
+                      expectation: offlineExpectation,
+                      confirmedLocalBinding: registration.binding
+                  ) else {
+                throw error
+            }
+            return ResolvedPolicy(
+                registration: registration,
+                discovery: nil,
+                binding: cached.localBinding,
+                expectation: expectation,
+                offlineExpectation: offlineExpectation,
+                cachedTargetBindings: cached.targetBindings,
+                cachedLANRendezvous: cached.lanRendezvous
+            )
+        }
         try requireCurrent(revision)
         guard discovery.routeContractVersion == payload.routeContractVersion else {
             throw CmxIrohClientRuntimeError.routeContractMismatch
@@ -341,7 +409,22 @@ public actor CmxIrohClientRuntime {
             registration: registration,
             discovery: discovery,
             binding: discovered,
-            expectation: expectation
+            expectation: expectation,
+            offlineExpectation: offlineExpectation,
+            cachedTargetBindings: [],
+            cachedLANRendezvous: nil
+        )
+    }
+
+    private func offlineBootstrap(
+        expectation: CmxIrohClientOfflinePolicyExpectation?,
+        confirmedLocalBinding: CmxIrohBrokerBinding?
+    ) async throws -> CmxIrohClientOfflineBootstrap? {
+        guard let offlinePolicyCache, let expectation else { return nil }
+        return try await offlinePolicyCache.loadBootstrap(
+            for: expectation,
+            confirmedLocalBinding: confirmedLocalBinding,
+            now: now()
         )
     }
 
@@ -351,12 +434,23 @@ public actor CmxIrohClientRuntime {
         startRelays: Bool
     ) async throws {
         try requireCurrent(revision)
+        let offlinePolicy = try policy.offlineExpectation.map { expectation in
+            guard let offlinePolicyCache else {
+                throw CmxIrohClientOfflinePolicyCacheError.policyMismatch
+            }
+            return try CmxIrohClientOfflinePolicyContext(
+                cache: offlinePolicyCache,
+                expectation: expectation,
+                localBinding: policy.binding
+            )
+        }
         let provider = CmxIrohRegistryContextProvider(
             supervisor: supervisor,
             broker: broker,
             localBindingExpectation: policy.expectation,
             managedRelayURLs: configuration.managedRelayURLs,
             networkPathSnapshot: networkPathSnapshot,
+            offlinePolicy: offlinePolicy,
             now: now
         )
         await contextRouter.install(provider)
@@ -378,10 +472,14 @@ public actor CmxIrohClientRuntime {
         }
 
         let bootstrap: CmxIrohRelayTokenResponse?
-        switch policy.registration.relay {
-        case let .issued(response):
-            bootstrap = response
-        case .unavailable:
+        if let registration = policy.registration {
+            switch registration.relay {
+            case let .issued(response):
+                bootstrap = response
+            case .unavailable:
+                bootstrap = startRelays ? configuration.cachedRelayCredential : nil
+            }
+        } else {
             bootstrap = startRelays ? configuration.cachedRelayCredential : nil
         }
         if startRelays || bootstrap != nil {
@@ -449,7 +547,12 @@ public actor CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            await handleBinding(policy.registration, policy.discovery)
+            if let registration = policy.registration,
+               let discovery = policy.discovery {
+                await handleBinding(registration, discovery)
+            } else if let lanRendezvous = policy.cachedLANRendezvous {
+                await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
+            }
         } catch {
             // Keep the last exact verified binding across transient broker failure.
         }
@@ -491,5 +594,9 @@ public actor CmxIrohClientRuntime {
             return []
         }
         return (try? cached.relayConfigurations(now: now)) ?? []
+    }
+
+    private static func isConnectivity(_ error: any Error) -> Bool {
+        (error as? CmxIrohTrustBrokerClientError) == .connectivity
     }
 }

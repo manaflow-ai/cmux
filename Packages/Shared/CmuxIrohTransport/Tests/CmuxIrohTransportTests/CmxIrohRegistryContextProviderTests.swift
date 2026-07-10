@@ -345,6 +345,215 @@ struct CmxIrohRegistryContextProviderTests {
         }
         #expect(await broker.pairGrantRequestCount() == 0)
     }
+
+    @Test
+    func discoveryConnectivityUsesOnlyAReverifiedOfflinePolicy() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: grant,
+            for: expectation,
+            now: fixture.now
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: discovery,
+            pairGrantResponses: [],
+            discoveryError: CmxIrohTrustBrokerClientError.connectivity
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            offlinePolicy: try CmxIrohClientOfflinePolicyContext(
+                cache: cache,
+                expectation: expectation,
+                localBinding: discovery.bindings[0]
+            ),
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(await store.readCount() > 0)
+    }
+
+    @Test
+    func grantConnectivityUsesCacheOnlyForFreshlyConfirmedTuples() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let cache = CmxIrohClientOfflinePolicyCache(
+            secureStore: TestSecureCredentialStore()
+        )
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: grant,
+            for: expectation,
+            now: fixture.now
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: discovery,
+            pairGrantResponses: [],
+            pairGrantError: CmxIrohTrustBrokerClientError.connectivity
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            offlinePolicy: try CmxIrohClientOfflinePolicyContext(
+                cache: cache,
+                expectation: expectation,
+                localBinding: discovery.bindings[0]
+            ),
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(await broker.pairGrantRequestCount() == 1)
+    }
+
+    @Test
+    func authenticatedBrokerFailuresNeverConsultOfflinePolicy() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            ),
+            for: expectation,
+            now: fixture.now
+        )
+        let readsBeforeDial = await store.readCount()
+        let broker = TestIrohRegistryBroker(
+            discovery: discovery,
+            pairGrantResponses: [],
+            discoveryError: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            offlinePolicy: try CmxIrohClientOfflinePolicyContext(
+                cache: cache,
+                expectation: expectation,
+                localBinding: discovery.bindings[0]
+            ),
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )) {
+            try await provider.context(for: fixture.request(hints: []))
+        }
+        #expect(await store.readCount() == readsBeforeDial)
+    }
+
+    @Test
+    func tlsAndDecodeFailuresNeverConsultOfflinePolicy() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            ),
+            for: expectation,
+            now: fixture.now
+        )
+        for error in [
+            TestRegistryBrokerFailure.tls,
+            TestRegistryBrokerFailure.decode,
+        ] {
+            let readsBeforeDial = await store.readCount()
+            let broker = TestIrohRegistryBroker(
+                discovery: discovery,
+                pairGrantResponses: [],
+                discoveryError: error.error
+            )
+            let provider = CmxIrohRegistryContextProvider(
+                supervisor: try await fixture.activeSupervisor(),
+                broker: broker,
+                localBindingExpectation: try fixture.localExpectation(),
+                managedRelayURLs: [fixture.relayURL],
+                activeNetworkProfiles: { [] },
+                offlinePolicy: try CmxIrohClientOfflinePolicyContext(
+                    cache: cache,
+                    expectation: expectation,
+                    localBinding: discovery.bindings[0]
+                ),
+                now: { fixture.now }
+            )
+
+            do {
+                _ = try await provider.context(for: fixture.request(hints: []))
+                Issue.record("Expected \(error) to fail closed")
+            } catch {
+                #expect(await store.readCount() == readsBeforeDial)
+            }
+        }
+    }
+}
+
+private enum TestRegistryBrokerFailure: CaseIterable, CustomStringConvertible {
+    case tls
+    case decode
+
+    var error: any Error {
+        switch self {
+        case .tls: URLError(.serverCertificateUntrusted)
+        case .decode: CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .tls: "TLS failure"
+        case .decode: "decode failure"
+        }
+    }
 }
 
 private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
@@ -356,17 +565,24 @@ private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private var responses: [CmxIrohPairGrantResponse]
     private var pairGrantRequests: [PairGrantRequest] = []
+    private let discoveryError: (any Error)?
+    private let pairGrantError: (any Error)?
 
     init(
         discovery: CmxIrohDiscoveryResponse,
-        pairGrantResponses: [CmxIrohPairGrantResponse]
+        pairGrantResponses: [CmxIrohPairGrantResponse],
+        discoveryError: (any Error)? = nil,
+        pairGrantError: (any Error)? = nil
     ) {
         discoveryResponse = discovery
         responses = pairGrantResponses
+        self.discoveryError = discoveryError
+        self.pairGrantError = pairGrantError
     }
 
-    func discover() -> CmxIrohDiscoveryResponse {
-        discoveryResponse
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        if let discoveryError { throw discoveryError }
+        return discoveryResponse
     }
 
     func issuePairGrant(
@@ -377,6 +593,7 @@ private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
             initiatorBindingID: initiatorBindingID,
             acceptorBindingID: acceptorBindingID
         ))
+        if let pairGrantError { throw pairGrantError }
         guard !responses.isEmpty else { throw TestRegistryError.noGrantResponse }
         return responses.removeFirst()
     }
@@ -440,7 +657,7 @@ private enum TestNetworkPathStateError: Error {
     case unavailable
 }
 
-private struct RegistryFixture: Sendable {
+struct RegistryFixture: Sendable {
     let privateKey: Curve25519.Signing.PrivateKey
     let key: CmxIrohGrantVerificationKey
     let initiator: CmxIrohGrantPeer
@@ -517,6 +734,18 @@ private struct RegistryFixture: Sendable {
         )
     }
 
+    func offlineExpectation(
+        accountID: String = "account-a",
+        localExpectation: CmxIrohLocalBindingExpectation? = nil,
+        managedRelayURLs: Set<String>? = nil
+    ) throws -> CmxIrohClientOfflinePolicyExpectation {
+        try CmxIrohClientOfflinePolicyExpectation(
+            accountID: accountID,
+            localBindingExpectation: localExpectation ?? self.localExpectation(),
+            managedRelayURLs: managedRelayURLs ?? [relayURL]
+        )
+    }
+
     func route(hints: [CmxIrohPathHint]) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "iroh-primary",
@@ -539,24 +768,36 @@ private struct RegistryFixture: Sendable {
     func discovery(
         targetHints: [CmxIrohPathHint],
         relayFleet: [String]? = nil,
-        localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005"
+        localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005",
+        targetDeviceID: String? = nil,
+        includeTarget: Bool = true
     ) throws -> CmxIrohDiscoveryResponse {
+        var bindings: [[String: Any]] = [
+            try bindingObject(
+                peer: initiator,
+                appInstanceID: localAppInstanceID,
+                pairingEnabled: false,
+                hints: []
+            ),
+        ]
+        if includeTarget {
+            bindings.append(try bindingObject(
+                peer: CmxIrohGrantPeer(
+                    bindingID: acceptor.bindingID,
+                    deviceID: targetDeviceID ?? acceptor.deviceID,
+                    tag: acceptor.tag,
+                    platform: acceptor.platform,
+                    endpointID: acceptor.endpointID,
+                    identityGeneration: acceptor.identityGeneration
+                ),
+                appInstanceID: "123e4567-e89b-42d3-a456-426614174006",
+                pairingEnabled: true,
+                hints: targetHints
+            ))
+        }
         let object: [String: Any] = [
             "route_contract_version": 1,
-            "bindings": [
-                try bindingObject(
-                    peer: initiator,
-                    appInstanceID: localAppInstanceID,
-                    pairingEnabled: false,
-                    hints: []
-                ),
-                try bindingObject(
-                    peer: acceptor,
-                    appInstanceID: "123e4567-e89b-42d3-a456-426614174006",
-                    pairingEnabled: true,
-                    hints: targetHints
-                ),
-            ],
+            "bindings": bindings,
             "relay_fleet": relayFleet ?? [relayURL],
             "lan_rendezvous": [
                 "generation": 1,

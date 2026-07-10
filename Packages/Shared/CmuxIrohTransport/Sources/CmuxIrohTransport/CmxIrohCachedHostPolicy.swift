@@ -8,6 +8,7 @@ public struct CmxIrohCachedHostPolicy: Codable, Equatable, Sendable {
         case capabilities
         case grantVerificationKeys
         case endpointAttestation
+        case lanRendezvous
     }
 
     /// The exact registered broker binding recovered by this policy.
@@ -24,6 +25,9 @@ public struct CmxIrohCachedHostPolicy: Codable, Equatable, Sendable {
 
     /// The signed, short-lived proof for this exact endpoint binding.
     public let endpointAttestation: CmxIrohEndpointAttestationResponse
+
+    /// Same-account material used to derive private rotating LAN aliases.
+    public let lanRendezvous: CmxIrohLANRendezvous
 
     /// Creates a cache candidate from exact broker policy values.
     ///
@@ -42,7 +46,8 @@ public struct CmxIrohCachedHostPolicy: Codable, Equatable, Sendable {
         pairingEnabled: Bool,
         capabilities: [String],
         grantVerificationKeys: CmxIrohGrantVerificationKeySet,
-        endpointAttestation: CmxIrohEndpointAttestationResponse
+        endpointAttestation: CmxIrohEndpointAttestationResponse,
+        lanRendezvous: CmxIrohLANRendezvous
     ) throws {
         guard binding.platform == .mac,
               capabilities.count <= 32,
@@ -57,6 +62,7 @@ public struct CmxIrohCachedHostPolicy: Codable, Equatable, Sendable {
         self.capabilities = capabilities
         self.grantVerificationKeys = grantVerificationKeys
         self.endpointAttestation = endpointAttestation
+        self.lanRendezvous = lanRendezvous
     }
 
     /// Creates a cache candidate directly from one validated broker binding.
@@ -69,14 +75,16 @@ public struct CmxIrohCachedHostPolicy: Codable, Equatable, Sendable {
     public init(
         binding: CmxIrohBrokerBinding,
         grantVerificationKeys: CmxIrohGrantVerificationKeySet,
-        endpointAttestation: CmxIrohEndpointAttestationResponse
+        endpointAttestation: CmxIrohEndpointAttestationResponse,
+        lanRendezvous: CmxIrohLANRendezvous
     ) throws {
         try self.init(
             binding: CmxIrohBrokerBindingMetadata(binding: binding),
             pairingEnabled: binding.pairingEnabled,
             capabilities: binding.capabilities,
             grantVerificationKeys: grantVerificationKeys,
-            endpointAttestation: endpointAttestation
+            endpointAttestation: endpointAttestation,
+            lanRendezvous: lanRendezvous
         )
     }
 
@@ -97,6 +105,10 @@ public struct CmxIrohCachedHostPolicy: Codable, Equatable, Sendable {
             endpointAttestation: container.decode(
                 CmxIrohEndpointAttestationResponse.self,
                 forKey: .endpointAttestation
+            ),
+            lanRendezvous: container.decode(
+                CmxIrohLANRendezvous.self,
+                forKey: .lanRendezvous
             )
         )
     }

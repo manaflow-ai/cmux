@@ -10,6 +10,7 @@ struct HostPolicyCacheTestFixture {
     let capabilities: [String]
     let keySet: CmxIrohGrantVerificationKeySet
     let alternateKeySet: CmxIrohGrantVerificationKeySet
+    let lanRendezvous: CmxIrohLANRendezvous
 
     private let signingKey: Curve25519.Signing.PrivateKey
 
@@ -35,6 +36,13 @@ struct HostPolicyCacheTestFixture {
         )
         self.pairingEnabled = pairingEnabled
         self.capabilities = capabilities
+        lanRendezvous = try JSONDecoder().decode(
+            CmxIrohLANRendezvous.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "generation": 3,
+                "key": Data(repeating: 9, count: 32).base64URL,
+            ])
+        )
     }
 
     func expectation(
@@ -72,7 +80,8 @@ struct HostPolicyCacheTestFixture {
             endpointAttestation: attestation(
                 expiresAt: expiresAt ?? now.addingTimeInterval(3_600),
                 responseKeySet: responseKeys
-            )
+            ),
+            lanRendezvous: lanRendezvous
         )
     }
 

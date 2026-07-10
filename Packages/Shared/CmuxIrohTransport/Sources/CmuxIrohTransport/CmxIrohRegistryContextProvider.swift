@@ -6,7 +6,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private struct GrantCache: Sendable {
         let initiator: CmxIrohGrantPeer
         let acceptor: CmxIrohGrantPeer
-        let token: String
+        let response: CmxIrohPairGrantResponse
         let expiresAt: Date
     }
 
@@ -15,6 +15,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private let localBindingExpectation: CmxIrohLocalBindingExpectation
     private let managedRelayURLs: Set<String>
     private let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
+    private let offlinePolicy: CmxIrohClientOfflinePolicyContext?
     private let verifier: CmxIrohGrantVerifier
     private let now: @Sendable () -> Date
     private var grantCache: [CmxIrohPeerIdentity: GrantCache] = [:]
@@ -29,6 +30,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
         activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey>,
+        offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -38,6 +40,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.managedRelayURLs = managedRelayURLs
         _ = activeNetworkProfiles
         networkPathSnapshot = nil
+        self.offlinePolicy = offlinePolicy
         self.verifier = verifier
         self.now = now
     }
@@ -49,6 +52,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
+        offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -57,6 +61,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.networkPathSnapshot = networkPathSnapshot
+        self.offlinePolicy = offlinePolicy
         self.verifier = verifier
         self.now = now
     }
@@ -76,7 +81,26 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
               localBindingExpectation.endpointID == localIdentity else {
             throw CmxIrohRegistryContextError.localBindingUnavailable
         }
-        let discovery = try await broker.discover()
+        let discovery: CmxIrohDiscoveryResponse
+        do {
+            discovery = try await broker.discover()
+        } catch {
+            let clock = now()
+            guard Self.isConnectivity(error),
+                  let cached = try await cachedPolicy(
+                      for: request,
+                      confirmedDiscovery: nil,
+                      at: clock
+                  ) else {
+                throw error
+            }
+            return try await context(
+                targetBinding: cached.targetBinding,
+                routeHints: routeHints,
+                pairGrantToken: cached.pairGrant.grant,
+                at: clock
+            )
+        }
         guard discovery.routeContractVersion == 1 else {
             throw CmxIrohRegistryContextError.incompatibleContract
         }
@@ -105,13 +129,56 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         let initiator = CmxIrohGrantPeer(binding: localBinding)
         let acceptor = CmxIrohGrantPeer(binding: targetBinding)
         let clock = now()
-        let token = try await grant(
-            initiator: initiator,
-            acceptor: acceptor,
-            targetIdentity: targetIdentity,
-            keys: discovery.grantVerificationKeys,
-            now: clock
+        let pairGrant: CmxIrohPairGrantResponse
+        do {
+            pairGrant = try await grant(
+                initiator: initiator,
+                acceptor: acceptor,
+                targetIdentity: targetIdentity,
+                keys: discovery.grantVerificationKeys,
+                now: clock
+            )
+        } catch {
+            guard Self.isConnectivity(error),
+                  let cached = try await cachedPolicy(
+                      for: request,
+                      confirmedDiscovery: discovery,
+                      at: clock
+                  ) else {
+                throw error
+            }
+            return try await context(
+                targetBinding: cached.targetBinding,
+                routeHints: routeHints,
+                pairGrantToken: cached.pairGrant.grant,
+                at: clock
+            )
+        }
+        if let offlinePolicy {
+            try? await offlinePolicy.cache.save(
+                localBinding: localBinding,
+                targetBinding: targetBinding,
+                discovery: discovery,
+                pairGrant: pairGrant,
+                for: offlinePolicy.expectation,
+                now: clock
+            )
+        }
+        return try await context(
+            targetBinding: targetBinding,
+            routeHints: routeHints,
+            pairGrantToken: pairGrant.grant,
+            at: clock
         )
+    }
+
+    private func context(
+        targetBinding: CmxIrohBrokerBinding,
+        routeHints: [CmxIrohPathHint],
+        pairGrantToken: String,
+        at clock: Date
+    ) async throws -> CmxIrohClientContext {
+        let targetIdentity = targetBinding.endpointID
         let pathSnapshot = try await availableNetworkPathSnapshot(
             for: targetBinding.pathHints + routeHints,
             at: clock
@@ -147,8 +214,23 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }
         return CmxIrohClientContext(
             dialPlan: dialPlan,
-            credential: try .pairGrant(token),
+            credential: try .pairGrant(pairGrantToken),
             privateFallbackAuthorization: fallbackAuthorization
+        )
+    }
+
+    private func cachedPolicy(
+        for request: CmxByteTransportRequest,
+        confirmedDiscovery: CmxIrohDiscoveryResponse?,
+        at clock: Date
+    ) async throws -> CmxIrohCachedClientPolicy? {
+        guard let offlinePolicy else { return nil }
+        return try await offlinePolicy.cache.load(
+            for: request,
+            localBinding: offlinePolicy.localBinding,
+            expectation: offlinePolicy.expectation,
+            confirmedDiscovery: confirmedDiscovery,
+            now: clock
         )
     }
 
@@ -199,7 +281,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetIdentity: CmxIrohPeerIdentity,
         keys: CmxIrohGrantVerificationKeySet,
         now: Date
-    ) async throws -> String {
+    ) async throws -> CmxIrohPairGrantResponse {
         let refreshBoundary = now.addingTimeInterval(72 * 60 * 60)
         if let cached = grantCache[targetIdentity],
            cached.initiator == initiator,
@@ -207,13 +289,18 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
            cached.expiresAt > refreshBoundary {
             do {
                 _ = try verifier.verifyPairGrant(
-                    cached.token,
+                    cached.response.grant,
                     keys: keys,
                     initiator: initiator,
                     acceptor: acceptor,
                     now: now
                 )
-                return cached.token
+                try Self.requireMatchingGrantExpiry(
+                    cached.response,
+                    signedExpiry: cached.expiresAt,
+                    now: now
+                )
+                return cached.response
             } catch {
                 grantCache.removeValue(forKey: targetIdentity)
             }
@@ -230,18 +317,18 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             now: now
         )
         let signedExpiresAt = Date(timeIntervalSince1970: TimeInterval(claims.expiresAt))
-        guard let responseExpiresAt = Self.date(response.expiresAt),
-              abs(responseExpiresAt.timeIntervalSince(signedExpiresAt)) < 1,
-              signedExpiresAt > now else {
-            throw CmxIrohRegistryContextError.invalidGrantExpiry
-        }
+        try Self.requireMatchingGrantExpiry(
+            response,
+            signedExpiry: signedExpiresAt,
+            now: now
+        )
         grantCache[targetIdentity] = GrantCache(
             initiator: initiator,
             acceptor: acceptor,
-            token: response.grant,
+            response: response,
             expiresAt: signedExpiresAt
         )
-        return response.grant
+        return response
     }
 
     private func availableNetworkPathSnapshot(
@@ -317,5 +404,21 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func requireMatchingGrantExpiry(
+        _ response: CmxIrohPairGrantResponse,
+        signedExpiry: Date,
+        now: Date
+    ) throws {
+        guard let responseExpiry = date(response.expiresAt),
+              abs(responseExpiry.timeIntervalSince(signedExpiry)) < 1,
+              signedExpiry > now else {
+            throw CmxIrohRegistryContextError.invalidGrantExpiry
+        }
+    }
+
+    private static func isConnectivity(_ error: any Error) -> Bool {
+        (error as? CmxIrohTrustBrokerClientError) == .connectivity
     }
 }

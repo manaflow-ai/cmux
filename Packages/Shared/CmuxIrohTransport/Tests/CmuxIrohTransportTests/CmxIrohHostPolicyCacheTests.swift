@@ -20,6 +20,10 @@ struct CmxIrohHostPolicyCacheTests {
             try await recreated.load(for: expectation, now: fixture.now) == policy
         )
         #expect(
+            try await recreated.load(for: expectation, now: fixture.now)?.lanRendezvous
+                == fixture.lanRendezvous
+        )
+        #expect(
             await store.observedAccessibilities()
                 == [.afterFirstUnlockThisDeviceOnly]
         )

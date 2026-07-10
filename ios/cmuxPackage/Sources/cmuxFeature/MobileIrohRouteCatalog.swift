@@ -35,11 +35,29 @@ public actor MobileIrohRouteCatalog {
         with discovery: CmxIrohDiscoveryResponse,
         scope: UInt64
     ) {
+        replace(with: discovery.bindings, scope: scope)
+    }
+
+    /// Replaces routes from device-only, cryptographically reverified cache rows.
+    ///
+    /// The caller has already scoped these rows to the current account, app,
+    /// local identity, requested known Mac tuples, keyset, and unexpired grants.
+    func replaceCachedBindings(
+        _ bindings: [CmxIrohBrokerBinding],
+        scope: UInt64
+    ) {
+        replace(with: bindings, scope: scope)
+    }
+
+    private func replace(
+        with bindings: [CmxIrohBrokerBinding],
+        scope: UInt64
+    ) {
         guard activeScope == scope else { return }
 
-        let pairableMacs = discovery.bindings.prefix(Self.maximumBindingCount).filter {
+        let pairableMacs = bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }
+        }.prefix(Self.maximumBindingCount)
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID

@@ -2,7 +2,7 @@ public import CMUXMobileCore
 public import Foundation
 
 /// One active endpoint binding returned by the authenticated trust broker.
-public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
+public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case bindingID = "binding_id"
         case deviceID = "device_id"
@@ -77,6 +77,22 @@ public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
         self.lastSeenAt = lastSeenAt
     }
 
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bindingID, forKey: .bindingID)
+        try container.encode(deviceID, forKey: .deviceID)
+        try container.encode(appInstanceID, forKey: .appInstanceID)
+        try container.encode(tag, forKey: .tag)
+        try container.encode(platform, forKey: .platform)
+        try container.encodeIfPresent(displayName, forKey: .displayName)
+        try container.encode(endpointID.endpointID, forKey: .endpointID)
+        try container.encode(identityGeneration, forKey: .identityGeneration)
+        try container.encode(pairingEnabled, forKey: .pairingEnabled)
+        try container.encode(capabilities, forKey: .capabilities)
+        try container.encode(pathHints, forKey: .pathHints)
+        try container.encode(lastSeenAt, forKey: .lastSeenAt)
+    }
+
     private static func isCanonicalUUID(_ value: String) -> Bool {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
@@ -146,7 +162,7 @@ public struct CmxIrohGrantVerificationKeySet: Codable, Equatable, Sendable {
 }
 
 /// Same-account LAN rendezvous material. It is never advertised directly in mDNS.
-public struct CmxIrohLANRendezvous: Decodable, Equatable, Sendable {
+public struct CmxIrohLANRendezvous: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case generation
         case key
@@ -342,7 +358,7 @@ public enum CmxIrohRegistrationRelay: Decodable, Equatable, Sendable {
 }
 
 /// Backend-signed seven-day permission for one iOS initiator and Mac acceptor.
-public struct CmxIrohPairGrantResponse: Decodable, Equatable, Sendable {
+public struct CmxIrohPairGrantResponse: Codable, Equatable, Sendable {
     public let grant: String
     public let expiresAt: String
 

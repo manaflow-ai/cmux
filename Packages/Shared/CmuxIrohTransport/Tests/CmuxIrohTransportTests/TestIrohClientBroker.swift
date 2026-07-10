@@ -5,6 +5,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private let relayResponse: CmxIrohRelayTokenResponse
     private let revokeError: (any Error)?
+    private let registrationError: (any Error)?
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
 
@@ -13,6 +14,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         discovery: CmxIrohDiscoveryResponse,
         relay: CmxIrohRelayTokenResponse,
         issueRelayAtRegistration: Bool = true,
+        registrationError: (any Error)? = nil,
         revokeError: (any Error)? = nil
     ) {
         registration = CmxIrohRegistrationResponse(
@@ -22,13 +24,15 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         discoveryResponse = discovery
         relayResponse = relay
         self.revokeError = revokeError
+        self.registrationError = registrationError
     }
 
     func register(
         prepared: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
-    ) -> CmxIrohRegistrationResponse {
+    ) throws -> CmxIrohRegistrationResponse {
         preparedRegistrations.append(prepared)
+        if let registrationError { throw registrationError }
         return registration
     }
 

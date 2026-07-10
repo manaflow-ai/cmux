@@ -1,0 +1,476 @@
+import CryptoKit
+public import CMUXMobileCore
+public import Foundation
+
+/// Structural failures at the device-only iOS offline-policy boundary.
+public enum CmxIrohClientOfflinePolicyCacheError: Error, Equatable, Sendable {
+    case invalidExpectation
+    case invalidPolicy
+    case policyMismatch
+    case invalidGrantEnvelope
+}
+
+/// The current account, app, endpoint, and relay authority for offline lookup.
+public struct CmxIrohClientOfflinePolicyExpectation: Equatable, Sendable {
+    public let accountID: String
+    public let localBindingExpectation: CmxIrohLocalBindingExpectation
+    public let managedRelayURLs: Set<String>
+
+    public init(
+        accountID: String,
+        localBindingExpectation: CmxIrohLocalBindingExpectation,
+        managedRelayURLs: Set<String>
+    ) throws {
+        guard !accountID.isEmpty,
+              accountID.utf8.count <= 1_024,
+              localBindingExpectation.platform == .ios,
+              (1 ... 8).contains(managedRelayURLs.count),
+              managedRelayURLs.allSatisfy(Self.isCanonicalRelayURL) else {
+            throw CmxIrohClientOfflinePolicyCacheError.invalidExpectation
+        }
+        self.accountID = accountID
+        self.localBindingExpectation = localBindingExpectation
+        self.managedRelayURLs = managedRelayURLs
+    }
+
+    private static func isCanonicalRelayURL(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value),
+              components.scheme == "https",
+              let host = components.host,
+              host == host.lowercased(),
+              !host.isEmpty,
+              components.port == nil,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.path == "/" else {
+            return false
+        }
+        return components.string == value
+    }
+}
+
+/// One exact, reverified iOS-to-Mac authority recovered from device-only storage.
+public struct CmxIrohCachedClientPolicy: Equatable, Sendable {
+    public let localBinding: CmxIrohBrokerBinding
+    public let targetBinding: CmxIrohBrokerBinding
+    public let pairGrant: CmxIrohPairGrantResponse
+    public let grantVerificationKeys: CmxIrohGrantVerificationKeySet
+    public let lanRendezvous: CmxIrohLANRendezvous
+}
+
+/// Reverified route material used only to bootstrap an already-known account.
+public struct CmxIrohClientOfflineBootstrap: Equatable, Sendable {
+    public let localBinding: CmxIrohBrokerBinding
+    public let targetBindings: [CmxIrohBrokerBinding]
+    public let lanRendezvous: CmxIrohLANRendezvous
+}
+
+/// Immutable cache scope installed into a dial-time registry context provider.
+public struct CmxIrohClientOfflinePolicyContext: Sendable {
+    public let cache: CmxIrohClientOfflinePolicyCache
+    public let expectation: CmxIrohClientOfflinePolicyExpectation
+    public let localBinding: CmxIrohBrokerBinding
+
+    public init(
+        cache: CmxIrohClientOfflinePolicyCache,
+        expectation: CmxIrohClientOfflinePolicyExpectation,
+        localBinding: CmxIrohBrokerBinding
+    ) throws {
+        guard expectation.localBindingExpectation.matches(localBinding) else {
+            throw CmxIrohClientOfflinePolicyCacheError.policyMismatch
+        }
+        self.cache = cache
+        self.expectation = expectation
+        self.localBinding = localBinding
+    }
+}
+
+private struct CmxIrohStoredClientPolicyTarget: Codable, Equatable, Sendable {
+    let binding: CmxIrohBrokerBinding
+    let pairGrant: CmxIrohPairGrantResponse
+}
+
+private struct CmxIrohStoredClientPolicyRecord: Codable, Equatable, Sendable {
+    static let currentVersion = 1
+
+    let version: Int
+    let scopeDigest: String
+    let localBinding: CmxIrohBrokerBinding
+    let relayFleet: [String]
+    let grantVerificationKeys: CmxIrohGrantVerificationKeySet
+    let lanRendezvous: CmxIrohLANRendezvous
+    let targets: [CmxIrohStoredClientPolicyTarget]
+}
+
+/// Stores a bounded set of signed pair authorities for connectivity-only fallback.
+public actor CmxIrohClientOfflinePolicyCache {
+    public static let maximumTargetCount = 32
+    private static let storageAccount = "active-client-policies"
+
+    private let secureStore: any CmxIrohSecureCredentialStoring
+    private let verifier: CmxIrohGrantVerifier
+
+    public init(
+        secureStore: any CmxIrohSecureCredentialStoring = CmxIrohKeychainCredentialStore(
+            service: "com.cmuxterm.iroh.client-offline-policy.v1"
+        ),
+        verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier()
+    ) {
+        self.secureStore = secureStore
+        self.verifier = verifier
+    }
+
+    /// Merges one online-verified target into the bounded active-account cache.
+    public func save(
+        localBinding: CmxIrohBrokerBinding,
+        targetBinding: CmxIrohBrokerBinding,
+        discovery: CmxIrohDiscoveryResponse,
+        pairGrant: CmxIrohPairGrantResponse,
+        for expectation: CmxIrohClientOfflinePolicyExpectation,
+        now: Date
+    ) async throws {
+        try validateDiscovery(discovery, for: expectation)
+        guard expectation.localBindingExpectation.matches(localBinding),
+              discovery.bindings.filter({
+                  expectation.localBindingExpectation.matches($0)
+              }).count == 1,
+              discovery.bindings.filter({ $0 == localBinding }).count == 1,
+              discovery.bindings.filter({ $0 == targetBinding }).count == 1,
+              discovery.bindings.filter({
+                  $0.platform == .mac && $0.endpointID == targetBinding.endpointID
+              }).count == 1,
+              targetBinding.platform == .mac,
+              targetBinding.pairingEnabled else {
+            throw CmxIrohClientOfflinePolicyCacheError.invalidPolicy
+        }
+        try validateGrant(
+            pairGrant,
+            localBinding: localBinding,
+            targetBinding: targetBinding,
+            keys: discovery.grantVerificationKeys,
+            now: now
+        )
+
+        var retained: [CmxIrohStoredClientPolicyTarget] = []
+        if let data = try await secureStore.read(account: Self.storageAccount),
+           let record = try? JSONDecoder().decode(CmxIrohStoredClientPolicyRecord.self, from: data),
+           record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
+           record.scopeDigest == Self.scopeDigest(for: expectation),
+           Self.sameAuthority(record.localBinding, localBinding) {
+            for stored in record.targets {
+                guard let fresh = Self.uniqueBinding(
+                    in: discovery.bindings,
+                    matchingAuthorityOf: stored.binding
+                ),
+                    fresh.platform == .mac,
+                    fresh.pairingEnabled,
+                    (try? validateGrant(
+                        stored.pairGrant,
+                        localBinding: localBinding,
+                        targetBinding: fresh,
+                        keys: discovery.grantVerificationKeys,
+                        now: now
+                    )) != nil else {
+                    continue
+                }
+                retained.append(.init(binding: fresh, pairGrant: stored.pairGrant))
+            }
+        }
+
+        let candidate = CmxIrohStoredClientPolicyTarget(
+            binding: targetBinding,
+            pairGrant: pairGrant
+        )
+        var merged = [candidate]
+        merged.append(contentsOf: retained.filter {
+            $0.binding.deviceID != targetBinding.deviceID
+                && $0.binding.endpointID != targetBinding.endpointID
+                && $0.binding.bindingID != targetBinding.bindingID
+        })
+        if merged.count > Self.maximumTargetCount {
+            merged.removeLast(merged.count - Self.maximumTargetCount)
+        }
+        let record = CmxIrohStoredClientPolicyRecord(
+            version: CmxIrohStoredClientPolicyRecord.currentVersion,
+            scopeDigest: Self.scopeDigest(for: expectation),
+            localBinding: localBinding,
+            relayFleet: discovery.relayFleet.sorted(),
+            grantVerificationKeys: discovery.grantVerificationKeys,
+            lanRendezvous: discovery.lanRendezvous,
+            targets: merged
+        )
+        try await secureStore.write(
+            JSONEncoder().encode(record),
+            account: Self.storageAccount,
+            accessibility: .afterFirstUnlockThisDeviceOnly
+        )
+    }
+
+    /// Loads authority for exactly the requested, already-known Mac tuple.
+    public func load(
+        for request: CmxByteTransportRequest,
+        localBinding: CmxIrohBrokerBinding,
+        expectation: CmxIrohClientOfflinePolicyExpectation,
+        confirmedDiscovery: CmxIrohDiscoveryResponse?,
+        now: Date
+    ) async throws -> CmxIrohCachedClientPolicy? {
+        guard request.route.kind == .iroh,
+              request.authorizationMode == .transportAdmission,
+              let expectedDeviceID = request.expectedPeerDeviceID,
+              case let .peer(expectedEndpointID, _) = request.route.endpoint else {
+            return nil
+        }
+        guard var record = try await loadRecord(
+            for: expectation,
+            confirmedLocalBinding: localBinding
+        ) else {
+            return nil
+        }
+
+        let authority: (
+            local: CmxIrohBrokerBinding,
+            targets: [CmxIrohBrokerBinding],
+            keys: CmxIrohGrantVerificationKeySet,
+            lan: CmxIrohLANRendezvous
+        )
+        if let confirmedDiscovery {
+            try validateDiscovery(confirmedDiscovery, for: expectation)
+            let localMatches = confirmedDiscovery.bindings.filter {
+                expectation.localBindingExpectation.matches($0)
+                    && Self.sameAuthority($0, localBinding)
+            }
+            guard localMatches.count == 1, let confirmedLocal = localMatches.first else {
+                try await secureStore.delete(account: Self.storageAccount)
+                return nil
+            }
+            authority = (
+                confirmedLocal,
+                confirmedDiscovery.bindings,
+                confirmedDiscovery.grantVerificationKeys,
+                confirmedDiscovery.lanRendezvous
+            )
+        } else {
+            authority = (
+                record.localBinding,
+                record.targets.map(\.binding),
+                record.grantVerificationKeys,
+                record.lanRendezvous
+            )
+        }
+
+        let originalCount = record.targets.count
+        record = try reverifiedRecord(
+            record,
+            localBinding: authority.local,
+            currentTargets: authority.targets,
+            keys: authority.keys,
+            lanRendezvous: authority.lan,
+            now: now
+        )
+        if record.targets.count != originalCount || confirmedDiscovery != nil {
+            try await persistOrDelete(record)
+        }
+        guard let stored = record.targets.first(where: {
+            $0.binding.deviceID == expectedDeviceID
+                && $0.binding.endpointID == expectedEndpointID
+        }) else {
+            return nil
+        }
+        return CmxIrohCachedClientPolicy(
+            localBinding: record.localBinding,
+            targetBinding: stored.binding,
+            pairGrant: stored.pairGrant,
+            grantVerificationKeys: record.grantVerificationKeys,
+            lanRendezvous: record.lanRendezvous
+        )
+    }
+
+    /// Loads all still-signed known targets for connectivity-only runtime startup.
+    public func loadBootstrap(
+        for expectation: CmxIrohClientOfflinePolicyExpectation,
+        confirmedLocalBinding: CmxIrohBrokerBinding?,
+        now: Date
+    ) async throws -> CmxIrohClientOfflineBootstrap? {
+        guard var record = try await loadRecord(
+            for: expectation,
+            confirmedLocalBinding: confirmedLocalBinding
+        ) else {
+            return nil
+        }
+        let local = confirmedLocalBinding ?? record.localBinding
+        record = try reverifiedRecord(
+            record,
+            localBinding: local,
+            currentTargets: record.targets.map(\.binding),
+            keys: record.grantVerificationKeys,
+            lanRendezvous: record.lanRendezvous,
+            now: now
+        )
+        try await persistOrDelete(record)
+        guard !record.targets.isEmpty else { return nil }
+        return CmxIrohClientOfflineBootstrap(
+            localBinding: record.localBinding,
+            targetBindings: record.targets.map(\.binding),
+            lanRendezvous: record.lanRendezvous
+        )
+    }
+
+    /// Removes every active-account client policy during account/app teardown.
+    public func deactivate() async throws {
+        try await secureStore.deleteAll()
+    }
+
+    private func loadRecord(
+        for expectation: CmxIrohClientOfflinePolicyExpectation,
+        confirmedLocalBinding: CmxIrohBrokerBinding?
+    ) async throws -> CmxIrohStoredClientPolicyRecord? {
+        guard let data = try await secureStore.read(account: Self.storageAccount) else {
+            return nil
+        }
+        do {
+            let record = try JSONDecoder().decode(CmxIrohStoredClientPolicyRecord.self, from: data)
+            guard record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
+                  record.scopeDigest == Self.scopeDigest(for: expectation),
+                  record.targets.count <= Self.maximumTargetCount,
+                  Set(record.relayFleet) == expectation.managedRelayURLs,
+                  record.relayFleet.count == expectation.managedRelayURLs.count,
+                  expectation.localBindingExpectation.matches(record.localBinding),
+                  confirmedLocalBinding.map({
+                      expectation.localBindingExpectation.matches($0)
+                          && Self.sameAuthority($0, record.localBinding)
+                  }) ?? true else {
+                throw CmxIrohClientOfflinePolicyCacheError.policyMismatch
+            }
+            return record
+        } catch {
+            try await secureStore.delete(account: Self.storageAccount)
+            return nil
+        }
+    }
+
+    private func reverifiedRecord(
+        _ record: CmxIrohStoredClientPolicyRecord,
+        localBinding: CmxIrohBrokerBinding,
+        currentTargets: [CmxIrohBrokerBinding],
+        keys: CmxIrohGrantVerificationKeySet,
+        lanRendezvous: CmxIrohLANRendezvous,
+        now: Date
+    ) throws -> CmxIrohStoredClientPolicyRecord {
+        var targets: [CmxIrohStoredClientPolicyTarget] = []
+        for stored in record.targets {
+            guard let current = Self.uniqueBinding(
+                in: currentTargets,
+                matchingAuthorityOf: stored.binding
+            ),
+                current.platform == .mac,
+                current.pairingEnabled,
+                (try? validateGrant(
+                    stored.pairGrant,
+                    localBinding: localBinding,
+                    targetBinding: current,
+                    keys: keys,
+                    now: now
+                )) != nil else {
+                continue
+            }
+            targets.append(.init(binding: current, pairGrant: stored.pairGrant))
+        }
+        return CmxIrohStoredClientPolicyRecord(
+            version: record.version,
+            scopeDigest: record.scopeDigest,
+            localBinding: localBinding,
+            relayFleet: record.relayFleet,
+            grantVerificationKeys: keys,
+            lanRendezvous: lanRendezvous,
+            targets: Array(targets.prefix(Self.maximumTargetCount))
+        )
+    }
+
+    private func persistOrDelete(_ record: CmxIrohStoredClientPolicyRecord) async throws {
+        guard !record.targets.isEmpty else {
+            try await secureStore.delete(account: Self.storageAccount)
+            return
+        }
+        try await secureStore.write(
+            JSONEncoder().encode(record),
+            account: Self.storageAccount,
+            accessibility: .afterFirstUnlockThisDeviceOnly
+        )
+    }
+
+    private func validateDiscovery(
+        _ discovery: CmxIrohDiscoveryResponse,
+        for expectation: CmxIrohClientOfflinePolicyExpectation
+    ) throws {
+        guard discovery.routeContractVersion == 1,
+              discovery.relayFleet.count == expectation.managedRelayURLs.count,
+              Set(discovery.relayFleet) == expectation.managedRelayURLs else {
+            throw CmxIrohClientOfflinePolicyCacheError.invalidPolicy
+        }
+    }
+
+    private func validateGrant(
+        _ response: CmxIrohPairGrantResponse,
+        localBinding: CmxIrohBrokerBinding,
+        targetBinding: CmxIrohBrokerBinding,
+        keys: CmxIrohGrantVerificationKeySet,
+        now: Date
+    ) throws {
+        let claims = try verifier.verifyPairGrant(
+            response.grant,
+            keys: keys,
+            initiator: CmxIrohGrantPeer(binding: localBinding),
+            acceptor: CmxIrohGrantPeer(binding: targetBinding),
+            now: now
+        )
+        let signedExpiry = Date(timeIntervalSince1970: TimeInterval(claims.expiresAt))
+        guard let envelopeExpiry = Self.date(response.expiresAt),
+              abs(envelopeExpiry.timeIntervalSince(signedExpiry)) < 1,
+              envelopeExpiry > now else {
+            throw CmxIrohClientOfflinePolicyCacheError.invalidGrantEnvelope
+        }
+    }
+
+    private static func uniqueBinding(
+        in bindings: [CmxIrohBrokerBinding],
+        matchingAuthorityOf expected: CmxIrohBrokerBinding
+    ) -> CmxIrohBrokerBinding? {
+        let matches = bindings.filter { sameAuthority($0, expected) }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private static func sameAuthority(
+        _ left: CmxIrohBrokerBinding,
+        _ right: CmxIrohBrokerBinding
+    ) -> Bool {
+        left.bindingID == right.bindingID
+            && left.deviceID == right.deviceID
+            && left.appInstanceID == right.appInstanceID
+            && left.tag == right.tag
+            && left.platform == right.platform
+            && left.endpointID == right.endpointID
+            && left.identityGeneration == right.identityGeneration
+            && left.pairingEnabled == right.pairingEnabled
+            && left.capabilities.count == right.capabilities.count
+            && Set(left.capabilities) == Set(right.capabilities)
+    }
+
+    private static func scopeDigest(
+        for expectation: CmxIrohClientOfflinePolicyExpectation
+    ) -> String {
+        let transcript = Data(
+            "cmux/iroh/offline-client-policy-scope/v1\0\(expectation.accountID)\0\(expectation.localBindingExpectation.appInstanceID)".utf8
+        )
+        return SHA256.hash(data: transcript)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func date(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+}

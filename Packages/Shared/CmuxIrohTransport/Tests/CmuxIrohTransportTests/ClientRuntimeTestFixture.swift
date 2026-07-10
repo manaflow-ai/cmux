@@ -33,6 +33,7 @@ struct ClientRuntimeTestFixture {
         binding = try Self.binding(endpointID: endpointID.endpointID)
         discovery = try Self.discovery(binding: binding)
         configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: "account-a",
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
             tag: binding.tag,

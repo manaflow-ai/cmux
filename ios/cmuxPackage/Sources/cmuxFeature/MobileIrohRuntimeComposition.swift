@@ -38,6 +38,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private let appInstances: CmxIrohAppInstanceRepository
     private let identities: CmxIrohIdentityRepository
     private let brokerCredentials: CmxIrohBrokerCredentialRepository
+    private let offlinePolicies: CmxIrohClientOfflinePolicyCache
     private let endpointFactory: any CmxIrohEndpointFactory
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
@@ -116,6 +117,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         appInstances: CmxIrohAppInstanceRepository,
         identities: CmxIrohIdentityRepository,
         brokerCredentials: CmxIrohBrokerCredentialRepository,
+        offlinePolicies: CmxIrohClientOfflinePolicyCache = CmxIrohClientOfflinePolicyCache(),
         endpointFactory: any CmxIrohEndpointFactory,
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
@@ -130,6 +132,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.appInstances = appInstances
         self.identities = identities
         self.brokerCredentials = brokerCredentials
+        self.offlinePolicies = offlinePolicies
         self.endpointFactory = endpointFactory
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
@@ -294,10 +297,13 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
 
     private func applyAuthState(_ state: MobileIrohAuthState) async {
         guard !signOutPreparing else { return }
+        let previousObservedAccountID = observedAccountID
         observedAccountID = state.accountID
         let transition = scheduleReconcile(
             targetAccountID: state.accountID,
             eraseAccountState: state.accountID == nil
+                || (previousObservedAccountID != nil
+                    && previousObservedAccountID != state.accountID)
                 || (activeAccountID != nil && activeAccountID != state.accountID)
         )
         await transition.value
@@ -308,10 +314,13 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         guard let auth else { return }
         let accountID = auth.isAuthenticated ? auth.currentUser?.id : nil
         guard accountID != observedAccountID else { return }
+        let previousObservedAccountID = observedAccountID
         observedAccountID = accountID
         _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
+                || (previousObservedAccountID != nil
+                    && previousObservedAccountID != accountID)
                 || (activeAccountID != nil && activeAccountID != accountID)
         )
     }
@@ -324,10 +333,13 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         guard accountID != observedAccountID || runtime == nil && accountID != nil else {
             return
         }
+        let previousObservedAccountID = observedAccountID
         observedAccountID = accountID
         let transition = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
+                || (previousObservedAccountID != nil
+                    && previousObservedAccountID != accountID)
                 || (activeAccountID != nil && activeAccountID != accountID)
         )
         await transition.value
@@ -366,12 +378,18 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         revision: UInt64
     ) async {
         if activeAccountID != targetAccountID || targetAccountID == nil {
+            let shouldErase = eraseAccountState
+                && (targetAccountID == nil || activeAccountID != targetAccountID)
             let previousRuntime = runtime
             runtime = nil
             activeAccountID = nil
             if let previousRuntime {
-                _ = await previousRuntime.deactivateForSignOut()
-            } else if eraseAccountState {
+                if shouldErase {
+                    _ = await previousRuntime.deactivateForSignOut()
+                } else {
+                    await previousRuntime.stop()
+                }
+            } else if shouldErase {
                 await wipeLocalState()
             }
         }
@@ -449,6 +467,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             )
         )
         let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
             tag: tag,
@@ -466,6 +485,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             factory: endpointFactory,
             broker: broker,
             configuration: configuration,
+            offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
             handleBinding: { [weak self] registration, discovery in
                 let binding = registration.binding
@@ -479,6 +499,9 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                           revision == self.lifecycleRevision else { return }
                     self.lastKnownBindingID = binding.bindingID
                 }
+            },
+            handleCachedBindings: { bindings, _ in
+                await routeCatalog.replaceCachedBindings(bindings, scope: revision)
             },
             handleRelayCredential: { response, binding in
                 try? await credentialRepository.saveRelayCredential(
@@ -508,7 +531,11 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
               !Task.isCancelled,
               !signOutPreparing,
               observedAccountID == accountID else {
-            _ = await runtime.deactivateForSignOut()
+            if signOutPreparing || observedAccountID != accountID {
+                _ = await runtime.deactivateForSignOut()
+            } else {
+                await runtime.stop()
+            }
             throw CancellationError()
         }
         self.runtime = runtime
@@ -518,6 +545,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private func wipeLocalState() async {
         await routeCatalog.clear()
         try? await brokerCredentials.deactivate()
+        try? await offlinePolicies.deactivate()
         try? await identities.deactivate()
         await appInstances.deactivate()
     }

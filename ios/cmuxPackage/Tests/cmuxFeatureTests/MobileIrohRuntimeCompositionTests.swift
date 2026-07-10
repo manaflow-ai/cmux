@@ -142,6 +142,45 @@ struct MobileIrohRuntimeCompositionTests {
         await catalog.deactivate(scope: 2)
         #expect(await catalog.routes(forKnownMacDeviceID: macDeviceID).isEmpty)
     }
+
+    @Test
+    func cachedBindingsRestoreRoutesOnlyForAnAlreadyKnownMac() async throws {
+        let macDeviceID = "123e4567-e89b-42d3-a456-426614174061"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "123e4567-e89b-42d3-a456-426614174062",
+                deviceID: macDeviceID,
+                appInstanceID: "123e4567-e89b-42d3-a456-426614174063",
+                endpointID: String(repeating: "d", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 9)
+        await catalog.replaceCachedBindings(discovery.bindings, scope: 9)
+        let registry = PersonalIrohDeviceRegistryDecorator(
+            base: nil,
+            catalog: catalog,
+            knownRoutes: { requestedDeviceID in
+                requestedDeviceID == macDeviceID ? [] : nil
+            }
+        )
+
+        #expect(
+            await registry.freshRoutes(forMacDeviceID: macDeviceID)?.map(\.kind)
+                == [.iroh]
+        )
+        #expect(
+            await registry.freshRoutes(
+                forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099"
+            ) == nil
+        )
+        switch await registry.listDevices() {
+        case .transientFailure: break
+        case .authRejected, .ok: Issue.record("Cached Iroh routes created a device-list row")
+        }
+    }
 }
 
 private enum TestCompositionError: Error {

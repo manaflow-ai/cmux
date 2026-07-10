@@ -4,6 +4,7 @@ actor ClientRuntimeTestRecorder {
     private var bindingCount = 0
     private var relayCount = 0
     private var localWipeEndpointWasClosed: [Bool] = []
+    private var cachedBindingDeviceIDs: [[String]] = []
 
     func recordBinding() {
         bindingCount += 1
@@ -17,7 +18,12 @@ actor ClientRuntimeTestRecorder {
         localWipeEndpointWasClosed.append(endpointWasClosed)
     }
 
+    func recordCachedBindings(_ bindings: [CmxIrohBrokerBinding]) {
+        cachedBindingDeviceIDs.append(bindings.map(\.deviceID))
+    }
+
     func observedBindingCount() -> Int { bindingCount }
     func observedRelayCount() -> Int { relayCount }
     func observedLocalWipes() -> [Bool] { localWipeEndpointWasClosed }
+    func observedCachedBindingDeviceIDs() -> [[String]] { cachedBindingDeviceIDs }
 }

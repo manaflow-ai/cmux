@@ -5,9 +5,11 @@ actor TestSecureCredentialStore: CmxIrohSecureCredentialStoring {
     private var records: [String: Data] = [:]
     private var accessibilities: [CmxIrohSecureCredentialAccessibility] = []
     private var storedDeleteAllCount = 0
+    private var storedReadCount = 0
     private var lastAccount: String?
 
     func read(account: String) -> Data? {
+        storedReadCount += 1
         lastAccount = account
         return records[account]
     }
@@ -46,6 +48,10 @@ actor TestSecureCredentialStore: CmxIrohSecureCredentialStoring {
 
     func deleteAllCount() -> Int {
         storedDeleteAllCount
+    }
+
+    func readCount() -> Int {
+        storedReadCount
     }
 
     func lastDeletedOrWrittenAccount() -> String? {

@@ -1,5 +1,8 @@
 /// Stable, account-and-build-scoped inputs for one iOS Iroh lifecycle.
 public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
+    /// The authenticated account scope used only for device-local policy isolation.
+    public let accountID: String
+
     /// The app-generated UUID shared with the cmux device registry.
     public let deviceID: String
 
@@ -39,6 +42,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     ///   - managedRelayURLs: The exact managed relay fleet.
     ///   - cachedRelayCredential: A validated cached relay capability.
     public init(
+        accountID: String,
         deviceID: String,
         appInstanceID: String,
         tag: String,
@@ -48,6 +52,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         managedRelayURLs: Set<String>,
         cachedRelayCredential: CmxIrohRelayTokenResponse? = nil
     ) {
+        self.accountID = accountID
         self.deviceID = deviceID.lowercased()
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag

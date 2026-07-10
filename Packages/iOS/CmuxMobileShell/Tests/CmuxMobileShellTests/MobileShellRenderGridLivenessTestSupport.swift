@@ -56,6 +56,7 @@ actor LivenessHostRouter {
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var workspaceID: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -84,8 +85,12 @@ actor LivenessHostRouter {
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
-    func record(method: String?, topics: [String]?) {
-        recorded.append(RecordedRequest(method: method, topics: topics))
+    func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
+        recorded.append(RecordedRequest(
+            method: method,
+            topics: topics,
+            workspaceID: workspaceID
+        ))
         resumeSatisfiedCountWaiters()
     }
 
@@ -176,6 +181,10 @@ actor LivenessHostRouter {
             guard request.method == method else { return nil }
             return request.topics
         }
+    }
+
+    func workspaceIDs(for method: String) -> [String?] {
+        recorded.filter { $0.method == method }.map(\.workspaceID)
     }
 
     func setCapabilities(_ capabilities: [String]) {
@@ -474,7 +483,11 @@ actor LivenessTransport: CmxByteTransport {
                 }
                 return LivenessViewportReport(columns: columns, rows: rows)
             }()
-            await router.record(method: method, topics: topics)
+            await router.record(
+                method: method,
+                topics: topics,
+                workspaceID: params?["workspace_id"] as? String
+            )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.

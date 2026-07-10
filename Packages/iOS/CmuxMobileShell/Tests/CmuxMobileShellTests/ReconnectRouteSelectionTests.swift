@@ -158,6 +158,11 @@ import Testing
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedKinds() == [.iroh])
         #expect(store.activeRoute?.kind == .iroh)
+        #expect(await router.workspaceIDs(for: "workspace.list") == [nil])
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["live-workspace"])
+        #expect(!store.workspaces.contains {
+            $0.rpcWorkspaceID.rawValue == "stored-workspace"
+        })
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {

@@ -303,7 +303,12 @@ final class MobileHostIrohRuntime {
             identity: identity,
             pairingEnabled: true,
             capabilities: Self.capabilities,
-            bindPolicy: .ephemeral,
+            bindPolicy: .preferred(
+                try CmxIrohBindAddress(
+                    ipAddress: "0.0.0.0",
+                    port: UInt16(MobileHostService.configuredPort())
+                )
+            ),
             managedRelayURLs: Self.managedRelayURLs,
             cachedRelayCredential: cachedRelay,
             cachedHostPolicy: cachedHostPolicy
@@ -337,7 +342,8 @@ final class MobileHostIrohRuntime {
                         let policy = try CmxIrohCachedHostPolicy(
                             binding: discovered,
                             grantVerificationKeys: discovery.grantVerificationKeys,
-                            endpointAttestation: attestation
+                            endpointAttestation: attestation,
+                            lanRendezvous: discovery.lanRendezvous
                         )
                         try await hostPolicyCache.save(
                             policy,
