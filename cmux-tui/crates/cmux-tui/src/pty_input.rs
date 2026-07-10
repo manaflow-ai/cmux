@@ -50,6 +50,7 @@ pub struct PtyInputEvent {
     pub bytes: PtyInputBytes,
     pub kind: PtyInputKind,
     mutation: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
+    on_superseded: Option<Box<dyn FnOnce() + Send>>,
     label: &'static str,
     coalesce_key: Option<(&'static str, u64)>,
     remote: bool,
@@ -70,6 +71,7 @@ impl PtyInputEvent {
             bytes,
             kind,
             mutation: None,
+            on_superseded: None,
             label: "PTY input",
             coalesce_key: None,
             remote,
@@ -88,10 +90,21 @@ impl PtyInputEvent {
         event
     }
 
+    #[cfg(test)]
     fn mutation(
         label: &'static str,
         coalesce_key: Option<(&'static str, u64)>,
         remote: bool,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) -> Self {
+        Self::mutation_with_superseded(label, coalesce_key, remote, None, operation)
+    }
+
+    fn mutation_with_superseded(
+        label: &'static str,
+        coalesce_key: Option<(&'static str, u64)>,
+        remote: bool,
+        on_superseded: Option<Box<dyn FnOnce() + Send>>,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
         Self {
@@ -100,6 +113,7 @@ impl PtyInputEvent {
             bytes: PtyInputBytes::new(),
             kind: PtyInputKind::Mutation,
             mutation: Some(Box::new(operation)),
+            on_superseded,
             label,
             coalesce_key,
             remote,
@@ -302,6 +316,9 @@ impl PtyInputSender {
             (PtyInputEnqueueResult::Saturated, None)
         };
         drop(state);
+        if let Some(on_superseded) = outcome.superseded {
+            on_superseded();
+        }
         for failure in outcome.evicted {
             (self.on_failure)(failure);
         }
@@ -320,7 +337,7 @@ impl PtyInputSender {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        let _ = self.enqueue_mutation_with_key(label, None, remote, operation);
+        let _ = self.enqueue_mutation_with_key(label, None, remote, None, operation);
     }
 
     pub fn enqueue_coalescing_mutation(
@@ -328,9 +345,16 @@ impl PtyInputSender {
         label: &'static str,
         key: (&'static str, u64),
         remote: bool,
+        on_superseded: impl FnOnce() + Send + 'static,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
-        self.enqueue_mutation_with_key(label, Some(key), remote, operation)
+        self.enqueue_mutation_with_key(
+            label,
+            Some(key),
+            remote,
+            Some(Box::new(on_superseded)),
+            operation,
+        )
     }
 
     fn enqueue_mutation_with_key(
@@ -338,9 +362,16 @@ impl PtyInputSender {
         label: &'static str,
         key: Option<(&'static str, u64)>,
         remote: bool,
+        on_superseded: Option<Box<dyn FnOnce() + Send>>,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
-        let result = self.enqueue(PtyInputEvent::mutation(label, key, remote, operation));
+        let result = self.enqueue(PtyInputEvent::mutation_with_superseded(
+            label,
+            key,
+            remote,
+            on_superseded,
+            operation,
+        ));
         if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
                 surface_id: None,
@@ -384,20 +415,24 @@ fn enqueue_bounded(
     capacity: usize,
     max_bytes: usize,
 ) -> bool {
-    enqueue_bounded_with_evictions(
+    let outcome = enqueue_bounded_with_evictions(
         events,
         queued_bytes,
         release_reservations,
         event,
         capacity,
         max_bytes,
-    )
-    .accepted
+    );
+    if let Some(on_superseded) = outcome.superseded {
+        on_superseded();
+    }
+    outcome.accepted
 }
 
 struct BoundedEnqueueOutcome {
     accepted: bool,
     evicted: Vec<PtyOperationFailure>,
+    superseded: Option<Box<dyn FnOnce() + Send>>,
 }
 
 fn enqueue_bounded_with_evictions(
@@ -412,8 +447,9 @@ fn enqueue_bounded_with_evictions(
     if let Some(key) = event.coalesce_key {
         for index in (0..events.len()).rev() {
             if events[index].coalesce_key == Some(key) {
-                events[index] = event;
-                return BoundedEnqueueOutcome { accepted: true, evicted };
+                let mut replaced = std::mem::replace(&mut events[index], event);
+                let superseded = replaced.on_superseded.take();
+                return BoundedEnqueueOutcome { accepted: true, evicted, superseded };
             }
             if events[index].coalesce_key.is_none() {
                 break;
@@ -430,11 +466,11 @@ fn enqueue_bounded_with_evictions(
             + event.bytes.len()
             + release_reservations.len() * RESERVED_RELEASE_BYTES;
         if projected_bytes > max_bytes {
-            return BoundedEnqueueOutcome { accepted: false, evicted };
+            return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         }
         *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.bytes.len();
         *events.back_mut().unwrap() = event;
-        return BoundedEnqueueOutcome { accepted: true, evicted };
+        return BoundedEnqueueOutcome { accepted: true, evicted, superseded: None };
     }
 
     let merge_stream = event.kind == PtyInputKind::Ordered
@@ -468,7 +504,7 @@ fn enqueue_bounded_with_evictions(
     while projected > capacity || projected_bytes > max_bytes {
         let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion)
         else {
-            return BoundedEnqueueOutcome { accepted: false, evicted };
+            return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         };
         let removed = events.remove(index).unwrap();
         *queued_bytes = queued_bytes.saturating_sub(removed.bytes.len());
@@ -502,7 +538,7 @@ fn enqueue_bounded_with_evictions(
         *queued_bytes += event.bytes.len();
         events.push_back(event);
     }
-    BoundedEnqueueOutcome { accepted: true, evicted }
+    BoundedEnqueueOutcome { accepted: true, evicted, superseded: None }
 }
 
 fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
@@ -841,6 +877,43 @@ mod tests {
             1024,
         ));
         assert_eq!(events.len(), 4);
+    }
+
+    #[test]
+    fn coalescing_mutation_reports_the_replaced_sample_as_superseded() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = ReleaseReservations::default();
+        let superseded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let replaced = superseded.clone();
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            PtyInputEvent::mutation_with_superseded(
+                "resize old",
+                Some(("resize", 1)),
+                false,
+                Some(Box::new(move || {
+                    replaced.store(true, std::sync::atomic::Ordering::Release);
+                })),
+                || Ok(()),
+            ),
+            8,
+            1024,
+        ));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            PtyInputEvent::mutation("resize latest", Some(("resize", 1)), false, || Ok(())),
+            8,
+            1024,
+        ));
+
+        assert!(superseded.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].label, "resize latest");
     }
 
     #[test]

@@ -58,6 +58,7 @@ const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
 const ROUTING_REFRESH_RETRIES: u8 = 1;
 const APP_EVENT_CAPACITY: usize = 4_096;
+const PTY_FAILURE_CAPACITY: usize = 512;
 
 pub enum AppEvent {
     Mux(MuxEvent),
@@ -68,6 +69,7 @@ pub enum AppEvent {
     },
     Input(Event),
     BrowserResizeFailed(BrowserResizeFailure),
+    PtyFailuresReady,
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
     RemoteTreeUpdated {
@@ -90,6 +92,7 @@ fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
     routing_mutation_committed: Arc<AtomicU64>,
+    mux_recovery_pending: Arc<AtomicBool>,
     tx: SyncSender<AppEvent>,
     mux_titles: Arc<MuxTitleIngress>,
 ) {
@@ -117,6 +120,7 @@ fn forward_mux_events(
         if !session_events.overflowed() {
             return;
         }
+        mux_recovery_pending.store(true, Ordering::Release);
         // Subscribe before fetching the authoritative tree so events emitted
         // during recovery are retained by the new mailbox.
         session_events = event_source.events();
@@ -158,6 +162,57 @@ impl MuxTitleIngress {
         let mut state = self.state.lock().unwrap();
         state.wake_queued = false;
         std::mem::take(&mut state.titles)
+    }
+}
+
+#[derive(Default)]
+struct PtyFailureIngress {
+    state: Mutex<PtyFailureIngressState>,
+}
+
+#[derive(Default)]
+struct PtyFailureIngressState {
+    wake_queued: bool,
+    failures: VecDeque<PtyOperationFailure>,
+}
+
+impl PtyFailureIngress {
+    /// Returns true when the app channel needs one wake event.
+    fn push(&self, failure: PtyOperationFailure) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if failure.kind == Some(PtyInputKind::Motion)
+            && let Some(existing) = state.failures.iter_mut().find(|existing| {
+                existing.kind == Some(PtyInputKind::Motion)
+                    && existing.surface_id == failure.surface_id
+            })
+        {
+            *existing = failure;
+        } else {
+            if state.failures.len() >= PTY_FAILURE_CAPACITY {
+                if let Some(index) = state
+                    .failures
+                    .iter()
+                    .position(|existing| existing.kind == Some(PtyInputKind::Motion))
+                {
+                    state.failures.remove(index);
+                } else {
+                    state.failures.pop_front();
+                }
+            }
+            state.failures.push_back(failure);
+        }
+        if state.wake_queued {
+            false
+        } else {
+            state.wake_queued = true;
+            true
+        }
+    }
+
+    fn take(&self) -> VecDeque<PtyOperationFailure> {
+        let mut state = self.state.lock().unwrap();
+        state.wake_queued = false;
+        std::mem::take(&mut state.failures)
     }
 }
 
@@ -205,23 +260,37 @@ enum SessionCompletionAction {
     BrowserTabCreated { surface: SurfaceId },
 }
 
-struct PendingSessionMutation {
+struct PendingSessionMutationState {
     events: SyncSender<AppEvent>,
     pending_mutations: Arc<AtomicUsize>,
     cancellation_pending: Arc<AtomicBool>,
-    settled: bool,
+    settled: AtomicBool,
 }
 
+#[derive(Clone)]
+struct PendingSessionMutation(Arc<PendingSessionMutationState>);
+
 impl PendingSessionMutation {
-    fn settle(mut self, outcome: SessionMutationOutcome) {
-        let _ = self.events.send(AppEvent::SessionMutationSettled(outcome));
-        self.settled = true;
+    fn settle(self, outcome: SessionMutationOutcome) {
+        if !self.0.settled.swap(true, Ordering::AcqRel) {
+            let _ = self.0.events.send(AppEvent::SessionMutationSettled(outcome));
+        }
+    }
+
+    fn supersede(self) {
+        if !self.0.settled.swap(true, Ordering::AcqRel) {
+            let _ = self.0.pending_mutations.fetch_update(
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                |pending| pending.checked_sub(1),
+            );
+        }
     }
 }
 
-impl Drop for PendingSessionMutation {
+impl Drop for PendingSessionMutationState {
     fn drop(&mut self) {
-        if !self.settled {
+        if !self.settled.load(Ordering::Acquire) {
             match self
                 .events
                 .try_send(AppEvent::SessionMutationSettled(SessionMutationOutcome::Canceled))
@@ -417,12 +486,12 @@ impl OrderedSession {
 
     fn pending_mutation(&self) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
-        PendingSessionMutation {
+        PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: self.events.clone(),
             pending_mutations: self.pending_mutations.clone(),
             cancellation_pending: self.cancellation_pending.clone(),
-            settled: false,
-        }
+            settled: AtomicBool::new(false),
+        }))
     }
 
     fn tree(&self) -> TreeView {
@@ -475,10 +544,12 @@ impl OrderedSession {
         let enqueue_failures = attach_failures.clone();
         let remote = self.remote;
         let pending = self.pending_mutation();
+        let superseded = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation(
             "attach surface",
             ("attach surface", id),
             self.remote,
+            move || superseded.supersede(),
             move || {
                 let _claim = claim;
                 if exited_surfaces.lock().unwrap().contains(&id)
@@ -777,20 +848,27 @@ impl OrderedSession {
         let pending = self.pending_mutation();
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
-        self.operations.enqueue_coalescing_mutation(label, key, remote, move || {
-            if let Err(error) = operation(session.clone()) {
-                if remote && is_remote_timeout(&error) {
-                    session.invalidate_remote_tree();
-                    pending.settle(SessionMutationOutcome::MutationTimedOut(error.to_string()));
-                } else {
-                    pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+        let superseded = pending.clone();
+        self.operations.enqueue_coalescing_mutation(
+            label,
+            key,
+            remote,
+            move || superseded.supersede(),
+            move || {
+                if let Err(error) = operation(session.clone()) {
+                    if remote && is_remote_timeout(&error) {
+                        session.invalidate_remote_tree();
+                        pending.settle(SessionMutationOutcome::MutationTimedOut(error.to_string()));
+                    } else {
+                        pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                    }
+                    return Err(error);
                 }
-                return Err(error);
-            }
-            committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-            pending.settle(SessionMutationOutcome::Success { tree: None });
-            Ok(())
-        });
+                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                pending.settle(SessionMutationOutcome::Success { tree: None });
+                Ok(())
+            },
+        );
     }
 
     fn resize_surface(
@@ -806,10 +884,12 @@ impl OrderedSession {
         let failures = self.surface_resize_failures.clone();
         let enqueue_failures = failures.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
+        let superseded = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation(
             "resize PTY surface",
             ("surface resize", surface_id),
             self.remote,
+            move || superseded.supersede(),
             move || {
                 let _claim = claim;
                 let result = if reassert {
@@ -893,10 +973,12 @@ impl OrderedSession {
         let pending = self.pending_mutation();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let config_generation = self.config_generation.clone();
+        let superseded = pending.clone();
         self.operations.enqueue_coalescing_mutation(
             "apply config",
             ("apply config", 0),
             self.remote,
+            move || superseded.supersede(),
             move || {
                 session.apply_config(&config);
                 config_generation.fetch_add(1, Ordering::AcqRel);
@@ -927,6 +1009,7 @@ impl OrderedSession {
         let session = self.inner.clone();
         let events = self.events.clone();
         let pending = self.pending_mutation();
+        let superseded = pending.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let operation = move || {
             let mut claim = claim;
@@ -951,6 +1034,7 @@ impl OrderedSession {
                 "sync sidebar plugin",
                 ("sidebar plugin", 0),
                 self.remote,
+                move || superseded.supersede(),
                 operation,
             );
         }
@@ -1522,6 +1606,8 @@ pub struct App {
     applied_routing_generation: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
+    pty_failures: Arc<PtyFailureIngress>,
+    mux_recovery_pending: Arc<AtomicBool>,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -1681,17 +1767,23 @@ pub fn run(
         let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
     })?;
     let failure_tx = tx.clone();
+    let pty_failures = Arc::new(PtyFailureIngress::default());
+    let failure_ingress = pty_failures.clone();
     let pty_input = PtyInputDispatcher::spawn(move |failure| {
-        let _ = failure_tx.send(AppEvent::PtyOperationFailed(failure));
+        if failure_ingress.push(failure) {
+            let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
+        }
     })?;
     let session = OrderedSession::new(session, pty_input.sender(), tx.clone());
     let stdout_lock = Arc::new(Mutex::new(()));
     let mux_titles = Arc::new(MuxTitleIngress::default());
+    let mux_recovery_pending = Arc::new(AtomicBool::new(false));
 
     // Session events → app channel.
     let event_source = session.inner.clone();
     let session_events = event_source.events();
     let routing_mutation_committed = session.routing_mutation_committed.clone();
+    let mux_recovery_barrier = mux_recovery_pending.clone();
     std::thread::Builder::new().name("mux-events".into()).spawn({
         let tx = tx.clone();
         let mux_titles = mux_titles.clone();
@@ -1700,6 +1792,7 @@ pub fn run(
                 event_source,
                 session_events,
                 routing_mutation_committed,
+                mux_recovery_barrier,
                 tx,
                 mux_titles,
             );
@@ -1806,6 +1899,8 @@ pub fn run(
         applied_routing_generation: 0,
         pending_session_completions: VecDeque::new(),
         mux_titles,
+        pty_failures,
+        mux_recovery_pending,
         drag: None,
         encoder,
         mouse_encoder,
@@ -1889,6 +1984,7 @@ impl App {
                     Err(_) => break,
                 }
             }
+            action = action.merge(self.apply_pty_failures());
             if self.session.take_cancellation_pending() {
                 if self.session.has_pending_mutations() {
                     self.session.defer_cancellation();
@@ -2006,6 +2102,49 @@ impl App {
         self.status_message = Some("session operation was canceled".to_string());
     }
 
+    fn apply_pty_failures(&mut self) -> RenderAction {
+        let failures = self.pty_failures.take();
+        let mut action = RenderAction::None;
+        for failure in failures {
+            action = action.merge(self.apply_pty_operation_failure(failure));
+        }
+        action
+    }
+
+    fn apply_pty_operation_failure(&mut self, failure: PtyOperationFailure) -> RenderAction {
+        if failure.label == "relaunch sidebar plugin" {
+            self.sidebar_focus_pending = false;
+        }
+        if failure.kind == Some(PtyInputKind::Motion)
+            && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+        {
+            self.mouse_encoder.reset_motion_dedupe();
+        }
+        let failed_active_press = failure.kind == Some(PtyInputKind::Press)
+            && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+            && failure.surface_id.zip(failure.reservation_id).is_some_and(
+                |(surface, reservation_id)| {
+                    matches!(&self.drag, Some(Drag::PtyMouse { surface: active_surface, reservation_id: active_reservation, .. }) if *active_surface == surface && *active_reservation == reservation_id)
+                },
+            );
+        if failed_active_press || failure.lane_failed {
+            self.drag = None;
+        }
+        self.status_message = Some(
+            if failure.label == "attach surface"
+                && failure.delivery == PtyOperationDelivery::Ambiguous
+            {
+                format!(
+                    "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
+                    failure.error
+                )
+            } else {
+                format!("{} failed: {}", failure.label, failure.error)
+            },
+        );
+        RenderAction::Draw
+    }
+
     fn apply_mux_titles(&mut self) -> bool {
         let titles = self.mux_titles.take();
         if titles.is_empty() {
@@ -2064,8 +2203,52 @@ impl App {
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+        let live_surfaces = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .map(|tab| tab.surface)
+            .collect::<HashSet<_>>();
+        let removed_surfaces = self
+            .tab_locations
+            .keys()
+            .copied()
+            .filter(|surface| !live_surfaces.contains(surface))
+            .collect::<Vec<_>>();
+        for surface in removed_surfaces {
+            self.retire_surface_state(surface);
+        }
         self.replace_tree(tree);
+        self.session.reconcile_exited_surfaces(&self.tree);
         self.applied_routing_generation = self.applied_routing_generation.max(routing_generation);
+    }
+
+    fn retire_surface_state(&mut self, surface: SurfaceId) {
+        if matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
+        {
+            self.cancel_pty_release_reservation();
+            self.drag = None;
+        }
+        self.render_states.remove(&surface);
+        self.session.forget_surface(surface);
+        if self.sidebar_plugin_surface == Some(surface) {
+            self.session.invalidate_sidebar_plugin_sync();
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
+            self.sidebar_focused = false;
+        }
+        if self.selection.is_some_and(|selection| selection.surface == surface) {
+            self.selection = None;
+        }
+        if self.omnibar.as_ref().is_some_and(|state| state.surface == surface) {
+            self.omnibar = None;
+        }
+        if self.last_browser_hover.is_some_and(|(hovered, _, _)| hovered == surface) {
+            self.last_browser_hover = None;
+        }
+        self.browser_input.forget_surface(surface);
     }
 
     fn rebuild_tab_locations(&mut self) {
@@ -2480,6 +2663,7 @@ impl App {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
+                    || self.mux_recovery_pending.load(Ordering::Acquire)
                     || self.routing_refresh_pending)
                     && !self.input_can_update_pending_mutation(&input) =>
             {
@@ -2496,6 +2680,7 @@ impl App {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
                         self.replace_authoritative_tree(tree, routing_generation);
+                        self.mux_recovery_pending.store(false, Ordering::Release);
                         if empty {
                             self.quit = true;
                             return Ok(RenderAction::None);
@@ -2520,29 +2705,8 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
-                if matches!(&self.drag, Some(Drag::PtyMouse { surface, .. }) if *surface == id) {
-                    self.cancel_pty_release_reservation();
-                    self.drag = None;
-                }
-                self.render_states.remove(&id);
-                self.session.forget_surface(id);
+                self.retire_surface_state(id);
                 self.remove_surface_from_tree(id);
-                if self.sidebar_plugin_surface == Some(id) {
-                    self.session.invalidate_sidebar_plugin_sync();
-                    self.sidebar_plugin_surface = None;
-                    self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
-                    self.sidebar_focused = false;
-                }
-                if self.selection.is_some_and(|s| s.surface == id) {
-                    self.selection = None;
-                }
-                if self.omnibar.as_ref().is_some_and(|state| state.surface == id) {
-                    self.omnibar = None;
-                }
-                if self.last_browser_hover.is_some_and(|(surface, _, _)| surface == id) {
-                    self.last_browser_hover = None;
-                }
-                self.browser_input.forget_surface(id);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Status(message)) => {
@@ -2575,39 +2739,8 @@ impl App {
                 ));
                 Ok(RenderAction::Draw)
             }
-            AppEvent::PtyOperationFailed(failure) => {
-                if failure.label == "relaunch sidebar plugin" {
-                    self.sidebar_focus_pending = false;
-                }
-                if failure.kind == Some(PtyInputKind::Motion)
-                    && failure.delivery == PtyOperationDelivery::KnownNotDelivered
-                {
-                    self.mouse_encoder.reset_motion_dedupe();
-                }
-                let failed_active_press = failure.kind == Some(PtyInputKind::Press)
-                    && failure.delivery == PtyOperationDelivery::KnownNotDelivered
-                    && failure.surface_id.zip(failure.reservation_id).is_some_and(
-                        |(surface, reservation_id)| {
-                            matches!(&self.drag, Some(Drag::PtyMouse { surface: active_surface, reservation_id: active_reservation, .. }) if *active_surface == surface && *active_reservation == reservation_id)
-                        },
-                    );
-                if failed_active_press || failure.lane_failed {
-                    self.drag = None;
-                }
-                self.status_message = Some(
-                    if failure.label == "attach surface"
-                        && failure.delivery == PtyOperationDelivery::Ambiguous
-                    {
-                        format!(
-                            "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
-                            failure.error
-                        )
-                    } else {
-                        format!("{} failed: {}", failure.label, failure.error)
-                    },
-                );
-                Ok(RenderAction::Draw)
-            }
+            AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
+            AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
             AppEvent::SessionMutationSettled(outcome) => {
                 self.session.settle_pending_mutation();
                 match outcome {
@@ -5485,13 +5618,16 @@ impl App {
     }
 
     fn surface_kind(&self, surface: SurfaceId) -> Option<SurfaceKind> {
-        self.tree
-            .workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .flat_map(|pane| pane.tabs.iter())
-            .find(|tab| tab.surface == surface)
+        self.tab_locations
+            .get(&surface)
+            .and_then(|[workspace, screen, pane, tab]| {
+                self.tree
+                    .workspaces
+                    .get(*workspace)
+                    .and_then(|workspace| workspace.screens.get(*screen))
+                    .and_then(|screen| screen.panes.get(*pane))
+                    .and_then(|pane| pane.tabs.get(*tab))
+            })
             .map(|tab| tab.kind)
             .or_else(|| self.session.surface(surface).map(|surface| surface.kind()))
     }
@@ -5647,12 +5783,13 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, DeferredInput, Drag, MuxTitleIngress, OrderedSession, PaneArea,
-        PendingSessionMutation, RenderAction, SessionCompletion, SessionCompletionAction,
-        SurfaceResizeDecision, browser_content_size_for_rect, browser_hover_forward_allowed,
-        forward_mux_events, pane_parts_for_rect,
+        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress, RenderAction,
+        SessionCompletion, SessionCompletionAction, SurfaceResizeDecision,
+        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
+        pane_parts_for_rect,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -6109,17 +6246,66 @@ mod tests {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
-        let cancellation_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancellation_pending = Arc::new(AtomicBool::new(false));
 
-        drop(PendingSessionMutation {
+        drop(PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events,
             pending_mutations: pending_mutations.clone(),
             cancellation_pending: cancellation_pending.clone(),
-            settled: false,
-        });
+            settled: AtomicBool::new(false),
+        })));
 
         assert_eq!(pending_mutations.load(Ordering::Acquire), 0);
         assert!(cancellation_pending.load(Ordering::Acquire));
+        assert!(matches!(receiver.try_recv(), Ok(AppEvent::MuxTitlesReady)));
+    }
+
+    #[test]
+    fn superseded_mutation_settles_without_canceling_session_input() {
+        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let cancellation_pending = Arc::new(AtomicBool::new(false));
+        let pending = PendingSessionMutation(Arc::new(PendingSessionMutationState {
+            events,
+            pending_mutations: pending_mutations.clone(),
+            cancellation_pending: cancellation_pending.clone(),
+            settled: AtomicBool::new(false),
+        }));
+
+        pending.clone().supersede();
+        drop(pending);
+
+        assert_eq!(pending_mutations.load(Ordering::Acquire), 0);
+        assert!(!cancellation_pending.load(Ordering::Acquire));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn pty_failure_ingress_stays_bounded_and_does_not_block_on_a_full_app_channel() {
+        let ingress = PtyFailureIngress::default();
+        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        events.send(AppEvent::MuxTitlesReady).unwrap();
+        for index in 0..1_000 {
+            let wake = ingress.push(PtyOperationFailure {
+                surface_id: Some(42),
+                kind: Some(PtyInputKind::Motion),
+                reservation_id: None,
+                label: "PTY input",
+                error: format!("motion {index}"),
+                lane_failed: false,
+                delivery: PtyOperationDelivery::KnownNotDelivered,
+            });
+            if wake {
+                assert!(matches!(
+                    events.try_send(AppEvent::PtyFailuresReady),
+                    Err(std::sync::mpsc::TrySendError::Full(_))
+                ));
+            }
+        }
+
+        let failures = ingress.take();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures.front().unwrap().error, "motion 999");
         assert!(matches!(receiver.try_recv(), Ok(AppEvent::MuxTitlesReady)));
     }
 
@@ -6306,8 +6492,17 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let titles = Arc::new(MuxTitleIngress::default());
         let routing_generation = Arc::new(AtomicU64::new(0));
+        let recovery_pending = Arc::new(AtomicBool::new(false));
+        let forwarder_recovery_pending = recovery_pending.clone();
         let forwarder = std::thread::spawn(move || {
-            forward_mux_events(event_source, session_events, routing_generation, tx, titles);
+            forward_mux_events(
+                event_source,
+                session_events,
+                routing_generation,
+                forwarder_recovery_pending,
+                tx,
+                titles,
+            );
         });
 
         for surface in 0..5_000 {
@@ -6323,6 +6518,7 @@ mod tests {
             }
         }
         assert!(recovered);
+        assert!(recovery_pending.load(Ordering::Acquire));
 
         mux.emit(MuxEvent::Bell(9_999));
         assert!(matches!(
@@ -6336,6 +6532,38 @@ mod tests {
         ));
         drop(rx);
         forwarder.join().unwrap();
+    }
+
+    #[test]
+    fn mux_recovery_barrier_defers_input_until_authoritative_tree_is_applied() {
+        let mux = Mux::new("mux-recovery-barrier-test", SurfaceOptions::default());
+        mux.new_workspace(None, None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.mux_recovery_pending.store(true, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Paste("queued".to_string()))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.handle(AppEvent::MuxSubscriptionRecovered {
+            routing_generation: 0,
+            result: Ok(app.session.tree()),
+        })
+        .unwrap();
+        assert!(!app.mux_recovery_pending.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn authoritative_recovery_prunes_render_state_for_missed_surface_exit() {
+        let mux = Mux::new("authoritative-prune-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(notify_tree(42, false));
+        app.render_states.insert(42, RenderState::new().unwrap());
+
+        app.replace_authoritative_tree(TreeView::default(), 0);
+
+        assert!(!app.render_states.contains_key(&42));
+        assert!(!app.tab_locations.contains_key(&42));
     }
 
     #[test]
@@ -7170,14 +7398,10 @@ mod tests {
         app.session.settle_split_ratio();
         release_tx.send(()).unwrap();
 
-        let mut canceled = 0;
         let mut sample_without_tree = 0;
         let mut authoritative_snapshots = 0;
-        for _ in 0..4 {
+        for _ in 0..2 {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
-                AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Canceled) => {
-                    canceled += 1;
-                }
                 AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Success {
                     tree: None,
                 }) => sample_without_tree += 1,
@@ -7188,7 +7412,6 @@ mod tests {
             }
         }
 
-        assert_eq!(canceled, 2, "only the latest deferred ratio should execute");
         assert_eq!(sample_without_tree, 1, "the retained sample must not build a tree");
         assert_eq!(authoritative_snapshots, 1, "final settlement must snapshot exactly once");
     }
@@ -7639,6 +7862,8 @@ mod tests {
             applied_routing_generation: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
+            pty_failures: Arc::new(PtyFailureIngress::default()),
+            mux_recovery_pending: Arc::new(AtomicBool::new(false)),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),
