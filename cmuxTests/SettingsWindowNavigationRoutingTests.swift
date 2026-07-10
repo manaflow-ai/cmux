@@ -69,6 +69,24 @@ struct SettingsWindowNavigationRoutingTests {
         }
     }
 
+    @Test func untargetedShowDoesNotDropPendingNavigationTarget() async {
+        await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter(windowFactory: { makePlainFactoryWindow() })
+            let recorder = SettingsNavigationTargetRecorder()
+
+            #expect(presenter.show(navigationTarget: .browserImport) == .presented)
+            // An untargeted open (e.g. a menu click) lands before the content
+            // appears; it must not erase the still-undelivered target.
+            #expect(presenter.show() == .presented)
+
+            presenter.deliverPendingNavigationAfterContentAppears()
+            await drainMainQueue()
+            recorder.stopObserving()
+
+            #expect(recorder.receivedTargets == [.browserImport])
+        }
+    }
+
     @Test func sidebarToggleRoutesToKeySettingsWindow() async {
         await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter(windowFactory: { makePlainFactoryWindow() })
@@ -181,7 +199,10 @@ private final class SettingsNavigationTargetRecorder: NSObject {
     }
 }
 
-/// Counts `SettingsWindowRoot.sidebarToggleRequestName` posts on the main actor.
+/// Counts settings sidebar-toggle request posts on the main actor. Uses the
+/// raw notification name (the stable contract with CmuxSettingsUI's
+/// `SettingsWindowRoot.sidebarToggleRequestName`) so the test target does not
+/// depend on package-symbol visibility, which differs across toolchains.
 @MainActor
 private final class SettingsSidebarToggleRecorder: NSObject {
     private(set) var receivedCount = 0
@@ -191,7 +212,7 @@ private final class SettingsSidebarToggleRecorder: NSObject {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(didReceive(_:)),
-            name: SettingsWindowRoot.sidebarToggleRequestName,
+            name: Notification.Name("cmux.settings.toggleSidebar"),
             object: nil
         )
     }

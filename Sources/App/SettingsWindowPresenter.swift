@@ -128,7 +128,13 @@ final class SettingsWindowPresenter: NSObject {
         navigationTarget: SettingsNavigationTarget?,
         activateApp: Bool
     ) -> SettingsWindowShowResult {
-        pendingNavigationTarget = navigationTarget
+        // Only a targeted show may replace the pending target. An untargeted
+        // show expresses no pane preference and must not erase a still-
+        // undelivered targeted request (e.g. CLI `settings open account`
+        // followed by a menu open before the content appeared).
+        if let navigationTarget {
+            pendingNavigationTarget = navigationTarget
+        }
 
         var failureReason = "settings window was never presented"
         for attempt in 1...Self.maxPresentAttempts {
