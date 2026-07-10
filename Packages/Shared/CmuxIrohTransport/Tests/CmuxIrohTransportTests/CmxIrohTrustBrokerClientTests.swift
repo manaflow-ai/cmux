@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
-@Suite
+@Suite(.serialized)
 struct CmxIrohTrustBrokerClientTests {
     @Test
     func challengeUsesNativeStackHeadersAndExactJSON() async throws {
@@ -155,6 +155,29 @@ struct CmxIrohTrustBrokerClientTests {
         }
     }
 
+    @Test
+    func redirectsNeverForwardBrokerCredentials() async throws {
+        for destination in [
+            try #require(URL(string: "https://cmux.example/capture")),
+            try #require(URL(string: "https://attacker.example/capture")),
+        ] {
+            BrokerRedirectURLProtocol.reset(destination: destination)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [BrokerRedirectURLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            let client = try CmxIrohTrustBrokerClient(
+                baseURL: try #require(URL(string: "https://cmux.example")),
+                tokenSource: Self.tokenSource,
+                session: session
+            )
+
+            _ = try? await client.discover()
+            session.invalidateAndCancel()
+
+            #expect(BrokerRedirectURLProtocol.capturedDestinationRequests().isEmpty)
+        }
+    }
+
     private func makeClient(
         transport: RecordingBrokerTransport
     ) throws -> CmxIrohTrustBrokerClient {
@@ -263,6 +286,74 @@ struct CmxIrohTrustBrokerClientTests {
       }
     }
     """
+}
+
+private final class BrokerRedirectURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var destination: URL?
+    nonisolated(unsafe) private static var captured: [URLRequest] = []
+
+    static func reset(destination: URL) {
+        lock.lock()
+        self.destination = destination
+        captured.removeAll()
+        lock.unlock()
+    }
+
+    static func capturedDestinationRequests() -> [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return captured
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["cmux.example", "attacker.example"].contains(request.url?.host)
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        if url.path == "/capture" {
+            Self.lock.lock()
+            Self.captured.append(request)
+            Self.lock.unlock()
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("{}".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+
+        Self.lock.lock()
+        let destination = Self.destination
+        Self.lock.unlock()
+        guard let destination else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        var redirected = request
+        redirected.url = destination
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: 302,
+            httpVersion: nil,
+            headerFields: ["Location": destination.absoluteString]
+        )!
+        client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: response)
+    }
+
+    override func stopLoading() {}
 }
 
 private actor RecordingBrokerTransport: CmxIrohHTTPTransport {
