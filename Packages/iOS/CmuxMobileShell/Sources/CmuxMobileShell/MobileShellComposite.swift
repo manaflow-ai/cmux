@@ -1102,7 +1102,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
-        connectionAttemptGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -1619,7 +1618,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 },
                 pairedMacDeviceID: pairedMacDeviceID,
-                ifStillCurrent: ifStillCurrent
+                ifStillCurrent: {
+                    self.isCurrentPairingAttempt(attemptID)
+                        && (ifStillCurrent?() ?? true)
+                }
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if noThrowFailure == nil, connectionState == .connected {
@@ -2877,6 +2879,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let routesToPersist = ticket.routes.count == 1 && !storedRoutes.isEmpty
                 ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes)
                 : ticket.routes
+            if let scope {
+                guard await self.isScopeCurrent(scope) else { return }
+            }
+            guard ifStillCurrent?() != false else { return }
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: ticket.macDeviceID,
@@ -2887,6 +2893,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
+                guard ifStillCurrent?() != false else { return }
+                if let scope {
+                    guard await self.isScopeCurrent(scope) else { return }
+                }
                 await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
                 // A real, reconnectable Mac is now the active paired Mac: record
                 // the persisted hint so the next launch shows RestoringSessionView
@@ -3196,7 +3206,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     rawURL: rawURL,
                     acceptedVersionWarning: acceptedVersionWarning,
                     approvedRouteID: approvedManualRouteID
-                )
+                ),
+                ifStillCurrent: { self.isCurrentPairingAttempt(attemptID) }
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if noThrowFailure == nil, connectionState == .connected && activeTicket != nil {
@@ -3267,7 +3278,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macSwitchAttemptID = nil
         macSwitchAttemptSignInGeneration = nil
         invalidatePairingAttempt()
-        connectionAttemptGeneration = UUID()
         if let restoreTarget {
             return Task { @MainActor [weak self] in
                 guard let self else { return false }
@@ -5418,7 +5428,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macSwitchRestoreBaseline = nil
         }
         invalidatePairingAttempt()
-        connectionAttemptGeneration = UUID()
         return attemptID
     }
 
@@ -5445,7 +5454,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macSwitchRestoreBaseline = nil
         if invalidateUnderlyingConnectionAttempt {
             invalidatePairingAttempt()
-            connectionAttemptGeneration = UUID()
         }
     }
 
@@ -5470,11 +5478,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``
     /// (cancel, sign-out, live-connection teardown), dropping its instrumentation
-    /// so a stale attempt can never emit `ios_pairing_*` via a later auth eviction.
+    /// and rotating the inner connection generation so no stale attempt can
+    /// commit a replacement client or emit `ios_pairing_*` later.
     func invalidatePairingAttempt() {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil
+        connectionAttemptGeneration = UUID()
     }
 
     /// Apply a classified pairing failure to the user-visible error surface and
