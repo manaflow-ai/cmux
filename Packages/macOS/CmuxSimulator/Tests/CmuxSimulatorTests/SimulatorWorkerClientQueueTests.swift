@@ -23,4 +23,46 @@ extension SimulatorWorkerClientTests {
 
         await client.stop()
     }
+
+    @Test("Cancelling a deferred request removes it before worker delivery")
+    func cancelledDeferredRequestIsNeverDelivered() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        try await client.sendRequired(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        let requestID = UUID()
+        let request = SimulatorWorkerInbound.reloadReactNative(requestID: requestID)
+
+        let operation = Task<Bool, Error> {
+            try await client.requestWorkerValue(
+                sending: request,
+                timeout: .seconds(60),
+                timeoutRecovery: .preserveWorker
+            ) { message in
+                guard case let .reactNativeReload(responseID, succeeded) = message,
+                      responseID == requestID else { return nil }
+                return succeeded
+            }
+        }
+        for _ in 0..<10_000 {
+            if await client.deferredMessages.contains(request) { break }
+            await Task.yield()
+        }
+        #expect(await client.deferredMessages.contains(request))
+
+        operation.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await operation.value
+        }
+        for _ in 0..<10_000 {
+            if !(await client.deferredMessages.contains(request)) { break }
+            await Task.yield()
+        }
+        #expect(!(await client.deferredMessages.contains(request)))
+
+        endpoint.emit(.status(.streaming))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!endpoint.inboundMessages().contains(request))
+        await client.stop()
+    }
 }
