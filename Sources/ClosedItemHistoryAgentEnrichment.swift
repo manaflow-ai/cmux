@@ -4,7 +4,7 @@ extension ClosedItemHistoryStore {
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry
-    ) -> Task<Void, Never>? {
+    ) -> Task<Void, Never> {
         pushPreservingAgentMetadata(entry, coordinatedBy: .shared)
     }
 
@@ -14,14 +14,8 @@ extension ClosedItemHistoryStore {
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,
         coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> Task<Void, Never>? {
-        let cachedIndex = sharedIndex.cachedIndex()
-        let initialEntry = cachedIndex.map { entry.enrichingAgentMetadata(from: $0) } ?? entry
-        let record = ClosedItemHistoryRecord(entry: initialEntry)
-        guard cachedIndex == nil else {
-            push(record)
-            return nil
-        }
+    ) -> Task<Void, Never> {
+        let record = ClosedItemHistoryRecord(entry: entry)
         pushPendingEnrichment(record)
         let refreshTask = sharedIndex.indexRefreshTaskForDestructiveClose()
         return Task { @MainActor [weak self] in

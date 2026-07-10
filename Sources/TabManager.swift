@@ -2004,10 +2004,9 @@ class TabManager: ObservableObject {
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let cachedAgentIndex = SharedLiveAgentIndex.shared.cachedIndex()
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: cachedAgentIndex ?? .empty
+                restorableAgentIndex: .empty
             )
             agentMetadataCaptureTask = ClosedItemHistoryStore.shared.pushPreservingAgentMetadata(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,

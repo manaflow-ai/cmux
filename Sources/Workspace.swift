@@ -735,16 +735,10 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        // A cached entry at most one refresh stale is acceptable because restore prefers
-        // the always-fresh in-memory resumeBinding. During the launch prewarm, omit the
-        // optional agent observation instead of blocking this main-actor close path.
-        let agentIndex = SharedLiveAgentIndex.shared.cachedIndex()
-            ?? .empty
-        let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgentObservation: restorableAgentObservation,
+            restorableAgentObservation: nil,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
