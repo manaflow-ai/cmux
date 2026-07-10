@@ -1761,7 +1761,6 @@ class GhosttyApp {
         }
         reloadConfigurationDepth += 1
         defer { reloadConfigurationDepth -= 1 }
-
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
@@ -3700,10 +3699,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
-        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(
-            element: self,
-            events: selectionAccessibilitySignal.events
-        )
+        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(element: self, events: selectionAccessibilitySignal.events)
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
@@ -7496,10 +7492,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_input_scroll_mods_t(mods)
         )
     }
-
     deinit {
         selectionAccessibilitySignal.finish()
-        // Surface lifecycle is managed by TerminalSurface, not the view
 #if DEBUG
         cmuxDebugLog(
             "surface.view.deinit view=\(Unmanaged.passUnretained(self).toOpaque()) " +
