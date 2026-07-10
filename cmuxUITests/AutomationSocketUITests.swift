@@ -218,10 +218,7 @@ final class AutomationSocketUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func waitForSocketPong(
-        timeout: TimeInterval,
-        allowDiagnosticsFallback: Bool = true
-    ) -> Bool {
+    private func waitForSocketPong(timeout: TimeInterval, allowDiagnosticsFallback: Bool = true) -> Bool {
         var resolvedPath: String?
         let ready = waitForControlSocketReady(
             pingTimeout: timeout,
