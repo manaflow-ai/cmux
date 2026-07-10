@@ -4,12 +4,12 @@ public import Observation
 /// The per-window workspace-list sub-model: owns the window's workspace
 /// ("tab") order, the sidebar group sections, and the selected-workspace id —
 /// the stored state the legacy `TabManager` god object kept in its
-/// `@Published tabs` / `workspaceGroups` / `selectedTabId` properties.
+/// `tabs` / `workspaceGroups` / `selectedTabId` properties.
 ///
 /// The window's `TabManager` composition root owns one instance, forwards
 /// its legacy accessors here, and implements `WorkspacesHosting` to receive
-/// the property-observer hooks the legacy `@Published` observers provided
-/// (objectWillChange/bridge re-emission, DEBUG switch tracing, and the
+/// the property-observer hooks the old Combine-published observers provided
+/// (whole-object invalidation/bridge re-emission, DEBUG switch tracing, and the
 /// selection side-effect chain).
 @MainActor
 @Observable
@@ -40,7 +40,7 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     public init() {}
 
     /// Attaches the window-side host. Must be called before the first
-    /// mutation so the property-observer hooks match the legacy `@Published`
+    /// mutation so the property-observer hooks match the old Combine-published
     /// timing from the very first workspace insertion.
     public func attach(host: any WorkspacesHosting<Tab>) {
         self.host = host

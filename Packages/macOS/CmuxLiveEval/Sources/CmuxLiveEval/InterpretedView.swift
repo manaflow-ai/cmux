@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// The compiled stub view hosting an interpreted program.

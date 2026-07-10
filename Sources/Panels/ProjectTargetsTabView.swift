@@ -8,7 +8,7 @@ import SwiftUI
 /// bundle id, and dependency count. Selecting a target shows a detail panel
 /// listing per-config build settings the target overrides at its scope.
 struct ProjectTargetsTabView: View {
-    @ObservedObject var panel: ProjectPanel
+    @Bindable var panel: ProjectPanel
     let model: ProjectModel
 
     var body: some View {

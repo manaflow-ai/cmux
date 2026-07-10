@@ -5,205 +5,6 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
-// MARK: - Explorer Visual Style
-
-enum FileExplorerStyle: Int, CaseIterable {
-    case liquidGlass = 0
-    case highDensity = 1
-    case terminalStealth = 2
-    case proStudio = 3
-    case finder = 4
-
-    var label: String {
-        switch self {
-        case .liquidGlass: return "Liquid Glass"
-        case .highDensity: return "High-Density IDE"
-        case .terminalStealth: return "Terminal Stealth"
-        case .proStudio: return "Pro Studio"
-        case .finder: return "Finder"
-        }
-    }
-
-    var rowHeight: CGFloat {
-        let baseHeight: CGFloat
-        switch self {
-        case .liquidGlass: baseHeight = 28
-        case .highDensity: baseHeight = 20
-        case .terminalStealth: baseHeight = 24
-        case .proStudio: baseHeight = 32
-        case .finder: baseHeight = 26
-        }
-        return GlobalFontMagnification.scaledSize(baseHeight)
-    }
-
-    var indentation: CGFloat {
-        switch self {
-        case .liquidGlass: return 16
-        case .highDensity: return 12
-        case .terminalStealth: return 14
-        case .proStudio: return 20
-        case .finder: return 18
-        }
-    }
-
-    var iconSize: CGFloat {
-        switch self {
-        case .liquidGlass: return 16
-        case .highDensity: return 14
-        case .terminalStealth: return 12
-        case .proStudio: return 18
-        case .finder: return 18
-        }
-    }
-
-    var iconWeight: NSFont.Weight {
-        switch self {
-        case .liquidGlass: return .regular
-        case .highDensity: return .regular
-        case .terminalStealth: return .light
-        case .proStudio: return .regular
-        case .finder: return .medium
-        }
-    }
-
-    var nameFont: NSFont {
-        switch self {
-        case .liquidGlass: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
-        case .highDensity: return GlobalFontMagnification.systemFont(ofSize: 11, weight: .regular)
-        case .terminalStealth: return GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
-        case .proStudio: return GlobalFontMagnification.systemFont(ofSize: 14, weight: .semibold)
-        case .finder: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .regular)
-        }
-    }
-
-    var iconToTextSpacing: CGFloat {
-        switch self {
-        case .liquidGlass: return 8
-        case .highDensity: return 4
-        case .terminalStealth: return 6
-        case .proStudio: return 12
-        case .finder: return 6
-        }
-    }
-
-    var selectionInset: CGFloat {
-        switch self {
-        case .liquidGlass: return 8
-        case .highDensity: return 0
-        case .terminalStealth: return 0
-        case .proStudio: return 4
-        case .finder: return 4
-        }
-    }
-
-    var selectionRadius: CGFloat {
-        switch self {
-        case .liquidGlass: return 6
-        case .highDensity: return 0
-        case .terminalStealth: return 0
-        case .proStudio: return 8
-        case .finder: return 5
-        }
-    }
-
-    var selectionColor: NSColor {
-        switch self {
-        case .liquidGlass: return .controlAccentColor.withAlphaComponent(0.15)
-        case .highDensity: return .selectedContentBackgroundColor
-        case .terminalStealth: return .controlAccentColor
-        case .proStudio: return .controlAccentColor
-        case .finder: return .controlAccentColor.withAlphaComponent(0.15)
-        }
-    }
-
-    var hoverColor: NSColor {
-        switch self {
-        case .liquidGlass: return .labelColor.withAlphaComponent(0.05)
-        case .highDensity: return .white.withAlphaComponent(0.05)
-        case .terminalStealth: return .white.withAlphaComponent(0.03)
-        case .proStudio: return .white.withAlphaComponent(0.1)
-        case .finder: return .labelColor.withAlphaComponent(0.04)
-        }
-    }
-
-    var usesBorderSelection: Bool {
-        self == .terminalStealth
-    }
-
-    var fileIconTint: NSColor {
-        switch self {
-        case .liquidGlass: return .secondaryLabelColor
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .secondaryLabelColor
-        case .finder: return NSColor(white: 0.55, alpha: 1.0)
-        }
-    }
-
-    var folderIconTint: NSColor {
-        switch self {
-        case .liquidGlass: return .systemBlue
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .systemBlue
-        case .finder: return .systemBlue
-        }
-    }
-
-    func gitColor(for status: GitFileStatus) -> NSColor {
-        switch self {
-        case .liquidGlass:
-            switch status {
-            case .modified: return .systemOrange
-            case .added: return .systemTeal
-            case .deleted: return .systemRed
-            case .renamed: return .systemPurple
-            case .untracked: return .quaternaryLabelColor
-            }
-        case .highDensity:
-            switch status {
-            case .modified: return .systemYellow
-            case .added: return .systemGreen
-            case .deleted: return .systemRed
-            case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
-            }
-        case .terminalStealth:
-            switch status {
-            case .modified: return NSColor(red: 0.8, green: 0.7, blue: 0.4, alpha: 1.0)
-            case .added: return NSColor(red: 0.5, green: 0.8, blue: 0.5, alpha: 1.0)
-            case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
-            case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
-            case .untracked: return NSColor(white: 0.5, alpha: 1.0)
-            }
-        case .proStudio:
-            switch status {
-            case .modified: return .systemYellow
-            case .added: return .systemGreen
-            case .deleted: return .systemPink
-            case .renamed: return .systemCyan
-            case .untracked: return .systemGray
-            }
-        case .finder:
-            switch status {
-            case .modified: return .systemOrange
-            case .added: return .systemGreen
-            case .deleted: return .systemRed
-            case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
-            }
-        }
-    }
-
-    static var current: FileExplorerStyle {
-        let defaults = UserDefaults.standard
-        if defaults.object(forKey: "fileExplorer.style") == nil {
-            return .highDensity
-        }
-        return FileExplorerStyle(rawValue: defaults.integer(forKey: "fileExplorer.style")) ?? .highDensity
-    }
-}
-
 // MARK: - Models
 
 struct FileExplorerEntry: Sendable {
@@ -738,14 +539,21 @@ enum FileExplorerSelectionRestoration {
 /// All access must happen on the main thread. Properties are not marked @MainActor
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
-final class FileExplorerStore: ObservableObject {
-    @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
-    @Published private(set) var isRootLoading: Bool = false
-    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
-    @Published private(set) var contentRevision = 0
-    @Published private(set) var rootStatusMessage: String?
-    private(set) var workspaceRootIdentity: UUID?
+final class FileExplorerStore {
+    var rootPath: String = "" { didSet { signalChange() } }
+    var rootNodes: [FileExplorerNode] = [] { didSet { signalChange() } }
+    private(set) var isRootLoading: Bool = false { didSet { signalChange() } }
+    private(set) var gitStatusByPath: [String: GitFileStatus] = [:] { didSet { signalChange() } }
+    private(set) var contentRevision = 0 { didSet { signalChange() } }
+    private(set) var rootStatusMessage: String? { didSet { signalChange() } }
+    private(set) var workspaceRootIdentity: UUID? { didSet { signalChange() } }
+    let storeDidChange = PassthroughSubject<Void, Never>()
+    /// Monotonic counter bumped by every `signalChange()`. The AppKit outline
+    /// coordinator records the last generation it rendered and skips its
+    /// expensive full-tree `refreshLoadedNodes` when the store has not changed
+    /// since, so `updateNSView` storms (e.g. a drag re-rendering the panel's
+    /// SwiftUI ancestor per mouse-move) do not each trigger an outline rebuild.
+    @ObservationIgnored private(set) var changeGeneration: UInt64 = 0
 
     var provider: FileExplorerProvider?
 
@@ -758,9 +566,13 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
-    private(set) var expandedPaths: Set<String> = []
+    private(set) var expandedPaths: Set<String> = [] { didSet { signalChange() } }
 
     /// Stable navigation selection. The outline view mirrors this path after reloads.
+    // Selection is applied to the NSOutlineView synchronously by the
+    // coordinator paths that mutate it; before the Observation migration these
+    // fields published no change notification, and signaling here would schedule a
+    // full-tree reloadIfNeeded() sweep on every click/arrow-key selection.
     private(set) var selectedPath: String?
 
     /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
@@ -770,7 +582,7 @@ final class FileExplorerStore: ObservableObject {
     private var pendingDescendIntoFirstChildPath: String?
 
     /// Paths currently being loaded
-    private(set) var loadingPaths: Set<String> = []
+    private(set) var loadingPaths: Set<String> = [] { didSet { signalChange() } }
 
     /// In-flight load tasks keyed by path
     private var loadTasks: [String: Task<Void, Never>] = [:]
@@ -830,7 +642,10 @@ final class FileExplorerStore: ObservableObject {
             )
         }
     }
-    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; objectWillChange.send(); workspaceRootIdentity = identity }
+    private func signalChange() { changeGeneration &+= 1; storeDidChange.send() }
+
+    // didSet on workspaceRootIdentity signals the change.
+    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; workspaceRootIdentity = identity }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -855,7 +670,7 @@ final class FileExplorerStore: ObservableObject {
 
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
+            applyGitStatusIfChanged([:])
             return
         }
         let path = rootPath
@@ -871,7 +686,7 @@ final class FileExplorerStore: ObservableObject {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusIfChanged(status)
                 }
             }
         } else {
@@ -879,10 +694,17 @@ final class FileExplorerStore: ObservableObject {
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusIfChanged(status)
                 }
             }
         }
+    }
+
+    /// Every directory-watcher event reruns `git status`; an unchanged result
+    /// must not signal, or idle watcher noise rebuilds every visible outline row.
+    private func applyGitStatusIfChanged(_ status: [String: GitFileStatus]) {
+        guard gitStatusByPath != status else { return }
+        gitStatusByPath = status
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -964,11 +786,16 @@ final class FileExplorerStore: ObservableObject {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        expandedPaths.insert(node.path)
+        // Insert only on real membership change: `Set.insert` of an existing
+        // member still fires `didSet`, and every `didSet` here signals a
+        // full outline refresh.
+        if !expandedPaths.contains(node.path) {
+            expandedPaths.insert(node.path)
+        }
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
-            objectWillChange.send()
+            signalChange()
             let nodePath = node.path
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -979,11 +806,14 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func collapse(node: FileExplorerNode) {
-        expandedPaths.remove(node.path)
+        // No-op signals: the `didSet` on `expandedPaths` already signals, and
+        // removing an absent path must not refresh the outline at all.
+        if expandedPaths.contains(node.path) {
+            expandedPaths.remove(node.path)
+        }
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        objectWillChange.send()
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
@@ -1060,7 +890,7 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
-            objectWillChange.send()
+            signalChange()
         }
 
         do {
@@ -1096,12 +926,12 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
+            signalChange()
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                objectWillChange.send()
+                signalChange()
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
@@ -1120,7 +950,7 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                objectWillChange.send()
+                signalChange()
             }
         }
     }

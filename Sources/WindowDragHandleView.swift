@@ -878,28 +878,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     }
 }
 
-final class MinimalModeSidebarChromeHoverState: ObservableObject {
-    static let shared = MinimalModeSidebarChromeHoverState()
-
-    @Published private(set) var hoveredWindowNumber: Int?
-
-    private init() {}
-
-    func setHovering(_ isHovering: Bool, windowNumber: Int) {
-        if isHovering {
-            guard hoveredWindowNumber != windowNumber else { return }
-            hoveredWindowNumber = windowNumber
-        } else if hoveredWindowNumber == windowNumber {
-            hoveredWindowNumber = nil
-        }
-    }
-
-    func clear() {
-        guard hoveredWindowNumber != nil else { return }
-        hoveredWindowNumber = nil
-    }
-}
-
 private enum MinimalModeSidebarTitlebarControlAssociatedKeys {
     private static let sidebarVisibleToken = NSObject()
 

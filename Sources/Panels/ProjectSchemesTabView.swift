@@ -9,7 +9,7 @@ import SwiftUI
 /// listing its run / test / profile / archive targets, launch arguments,
 /// and environment variables.
 struct ProjectSchemesTabView: View {
-    @ObservedObject var panel: ProjectPanel
+    @Bindable var panel: ProjectPanel
     let model: ProjectModel
 
     var body: some View {

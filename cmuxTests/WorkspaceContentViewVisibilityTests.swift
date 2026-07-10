@@ -48,13 +48,13 @@ final class WorkspaceContentViewVisibilityTests {
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
-            .environmentObject(SidebarState())
-            .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
-            .environmentObject(CmuxConfigStore())
+            .environment(tabManager)
+            .environment(notificationStore)
+            .environment(notificationStore.sidebarUnread)
+            .environment(SidebarState())
+            .environment(SidebarSelectionState())
+            .environment(FileExplorerState())
+            .environment(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(

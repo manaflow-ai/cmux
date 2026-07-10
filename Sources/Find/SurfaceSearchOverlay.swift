@@ -20,7 +20,7 @@ private extension NSView {
 struct SurfaceSearchOverlay: View {
     let tabId: UUID
     let surfaceId: UUID
-    @ObservedObject var searchState: TerminalSurface.SearchState
+    @Bindable var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
     let onNavigateSearch: (_ action: String) -> Void
     let onFieldDidFocus: () -> Void

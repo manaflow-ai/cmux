@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// Owns the lifecycle of one settings-store change-stream subscription:

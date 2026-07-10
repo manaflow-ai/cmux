@@ -6,7 +6,7 @@ import SwiftUI
 /// every entrypoint shares one path.
 @MainActor
 struct MarkdownTypographyControl: View {
-    @ObservedObject var panel: MarkdownPanel
+    @Bindable var panel: MarkdownPanel
     @State private var isPresented = false
     // Loaded lazily in the background after the popover appears so it opens
     // instantly even on machines with hundreds of fonts.

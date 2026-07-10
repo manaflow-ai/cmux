@@ -8,8 +8,7 @@ import Observation
 import SwiftUI
 
 @MainActor
-@Observable
-final class DockSplitStore: BonsplitDelegate {
+@Observable final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -35,7 +34,7 @@ final class DockSplitStore: BonsplitDelegate {
     // Internal so cross-container transfers can move live panels without tearing them down.
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
-    var panelCancellables: [UUID: AnyCancellable] = [:]
+    var panelCancellables: [UUID: ObservationToken] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
@@ -548,60 +547,6 @@ final class DockSplitStore: BonsplitDelegate {
         installSubscription(for: panel, tracksTerminalTitle: tracksTerminalTitle)
         applyVisibility(to: panel)
         return tabId
-    }
-
-    // MARK: - Tab metadata subscriptions
-
-    func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
-        if let browser = panel as? BrowserPanel {
-            let cancellable = Publishers.CombineLatest4(
-                browser.$pageTitle.removeDuplicates(),
-                browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$isMuted.removeDuplicates()
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak browser] _ in
-                guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
-                      let existing = self.bonsplitController.tab(tabId) else { return }
-                // Only push fields that actually changed. CombineLatest4 fires on
-                // ANY of the four publishers, so an `isLoading` flicker during a
-                // page load would otherwise re-publish the (unchanged) title and
-                // favicon, mutating the @Observable BonsplitController and
-                // re-rendering the Dock tree for nothing. Mirrors the main area's
-                // guarded path in Workspace.installBrowserPanelSubscription.
-                let resolvedTitle = browser.displayTitle
-                let favicon = browser.faviconPNGData
-                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-                let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
-                let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
-                let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
-                guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
-                self.bonsplitController.updateTab(
-                    tabId,
-                    title: titleUpdate,
-                    iconImageData: faviconUpdate,
-                    isLoading: loadingUpdate,
-                    isAudioMuted: mutedUpdate
-                )
-            }
-            panelCancellables[panel.id] = cancellable
-        } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
-            let cancellable = terminal.$title
-                .removeDuplicates()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak terminal] _ in
-                    guard let self, let terminal, let tabId = self.surfaceId(forPanelId: terminal.id),
-                          let existing = self.bonsplitController.tab(tabId) else { return }
-                    // Skip the @Observable mutation when the resolved title is
-                    // unchanged, so a terminal re-emitting the same title does not
-                    // re-render the Dock tree.
-                    let resolvedTitle = terminal.displayTitle
-                    guard existing.title != resolvedTitle else { return }
-                    self.bonsplitController.updateTab(tabId, title: resolvedTitle)
-                }
-            panelCancellables[panel.id] = cancellable
-        }
     }
 
     // MARK: - BonsplitDelegate

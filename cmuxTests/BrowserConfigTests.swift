@@ -16,6 +16,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
+import Observation
 import Bonsplit
 import UserNotifications
 import Network
@@ -3748,18 +3749,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             !panel.isDeveloperToolsVisible()
         }
 
-        var publishCount = 0
-        let cancellable = panel.objectWillChange.sink {
-            publishCount += 1
-        }
-        defer { _ = cancellable }
+        let changeFlag = ObservationChangeFlag()
+        withObservationTracking { _ = panel.isDeveloperToolsVisible() } onChange: { changeFlag.mark() }
 
         panel.syncDeveloperToolsPreferenceFromInspector()
 
         XCTAssertEqual(
-            publishCount,
-            0,
-            "Repeated hidden-inspector syncs should not republish the same hidden DevTools intent"
+            changeFlag.fired,
+            false,
+            "Repeated hidden-inspector syncs should not invalidate the same hidden DevTools intent"
         )
     }
 

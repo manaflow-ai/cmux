@@ -50,11 +50,19 @@ struct WorkspaceSidebarObservationTests {
         )
 
         let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
-        var workspaceWillChangeCount = 0
-        let objectWillChangeCancellable = workspace.objectWillChange.sink {
-            workspaceWillChangeCount += 1
+        let sidebarRelevantChangeFlag = ObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.statusEntries
+            _ = workspace.metadataBlocks
+            _ = workspace.logEntries
+            _ = workspace.progress
+            _ = workspace.gitBranch
+            _ = workspace.panelGitBranches
+            _ = workspace.pullRequest
+            _ = workspace.panelPullRequests
+        } onChange: {
+            sidebarRelevantChangeFlag.mark()
         }
-        defer { objectWillChangeCancellable.cancel() }
 
         workspace.recordAgentPID(
             key: "codex.session-b",
@@ -72,8 +80,8 @@ struct WorkspaceSidebarObservationTests {
             "Agent PID ownership changes must notify the sidebar row runtime observation stream."
         )
         #expect(
-            workspaceWillChangeCount == 0,
-            "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
+            sidebarRelevantChangeFlag.fired == false,
+            "Agent PID ownership is sidebar presentation state and must not invalidate the sidebar-relevant workspace fields."
         )
     }
 
@@ -118,7 +126,14 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherDeliversManualTitleChangeSynchronously() {
+    // Async: the observation re-arm hop is a MainActor Task, and a Swift
+    // Testing @MainActor test occupies the main actor for its whole body, so
+    // pumpMainRunLoop can never execute that Task (nested run loops do not
+    // drain the occupied actor). Awaiting suspends the test job and releases
+    // the actor instead. Strict same-run-loop-turn timing cannot be expressed
+    // from inside a main-actor test job (plan D3 fallback): assert the leading
+    // edge is delivered within the bounded drain below.
+    @Test func sidebarImmediateObservationPublisherDeliversManualTitleChange() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -129,14 +144,18 @@ struct WorkspaceSidebarObservationTests {
         publishCount = 0
 
         workspace.setCustomTitle("User Edit")
+        await drainMainActor(until: { publishCount == 1 })
 
         #expect(
             publishCount == 1,
-            "The first immediate-field change after subscribing must reach the sidebar in the same run-loop turn; coalescing may only defer the tail of a burst."
+            "The first immediate-field change after subscribing must reach the sidebar after at most the observation re-read hop; coalescing may only defer the tail of a burst."
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() {
+    // Async for the same reason as the leading-edge test above: the re-arm
+    // hop and the RunLoop.main coalesce timer only make progress while the
+    // test job is suspended off the main actor.
+    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -149,19 +168,31 @@ struct WorkspaceSidebarObservationTests {
         for turn in 0..<20 {
             workspace.customDescription = "Agent Turn \(turn)"
         }
+        await drainMainActor(until: { publishCount == 1 })
 
         #expect(
             publishCount == 1,
-            "A synchronous burst of immediate fields must deliver only its leading edge immediately."
+            "A synchronous burst of immediate fields must collapse into one leading-edge delivery after the observation re-read hop."
         )
 
-        // Generous pump so the 50ms trailing emission fires deterministically.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        workspace.customDescription = "Agent Turn Trailing"
+        // No wall-clock "still held" assertion here (test-determinism gate):
+        // the open-window hold is covered deterministically by
+        // coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing via
+        // VirtualCoalesceScheduler. This integration test asserts the burst
+        // settles at exactly two emissions (leading + one trailing), never a
+        // third.
+        await drainMainActor(until: { publishCount == 2 })
 
         #expect(
             publishCount == 2,
             "A coalesced burst must settle with exactly one trailing emission carrying the latest state."
         )
+
+        // A settled burst must not re-emit later: drain again and confirm the
+        // count is stable.
+        await drainMainActor(until: { publishCount > 2 }, maxIterations: 10)
+        #expect(publishCount == 2, "No third emission may follow the trailing edge of a settled burst.")
     }
 
     @Test func coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing() {
@@ -172,7 +203,7 @@ struct WorkspaceSidebarObservationTests {
             .sink { received.append($0) }
         defer { cancellable.cancel() }
 
-        // First value models the @Published current-state replay: forwarded
+        // First value models the current-state replay: forwarded
         // synchronously without opening a coalesce window.
         subject.send(1)
         #expect(received == [1])
@@ -240,6 +271,7 @@ struct WorkspaceSidebarObservationTests {
 
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         #expect(
             publishCount == 0,
@@ -369,12 +401,14 @@ struct WorkspaceSidebarObservationTests {
     }
 }
 
-// Mutable flag captured by Observation's Sendable onChange closure in this test.
-private final class ObservationChangeFlag: @unchecked Sendable {
-    private(set) var fired = false
-
-    func mark() {
-        fired = true
+// Suspends the calling main-actor test job in short slices so pending
+// MainActor Tasks (the observation re-arm hop) and RunLoop.main scheduler
+// timers (the coalesce window) can run. Bounded: ~200 x 2ms = 400ms max.
+@MainActor
+private func drainMainActor(until condition: () -> Bool, maxIterations: Int = 200) async {
+    for _ in 0..<maxIterations where !condition() {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 2_000_000)
     }
 }
 

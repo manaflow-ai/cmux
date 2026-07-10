@@ -1,3 +1,4 @@
+import Observation
 public import AppKit
 public import Combine
 
@@ -6,7 +7,8 @@ public import Combine
 /// drag event is available and falls back to a manual per-tick scroll computed
 /// from `SidebarDragAutoScrollPlanner`.
 @MainActor
-public final class SidebarDragAutoScrollController: ObservableObject {
+@Observable
+public final class SidebarDragAutoScrollController {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?

@@ -4,15 +4,15 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Bridges the `@Observable` WorkstreamStore to tracked snapshot properties so
+/// SwiftUI reliably re-renders the Feed panel on every mutation.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
-    private var storeInstalledObserver: NSObjectProtocol?
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
+    @ObservationIgnored private var storeInstalledObserver: NSObjectProtocol?
 
     init() {
         storeInstalledObserver = NotificationCenter.default.addObserver(
@@ -35,15 +35,20 @@ final class FeedPanelViewModel: ObservableObject {
 
     private func arm() {
         guard let store = FeedCoordinator.shared.store else { return }
-        withObservationTracking {
-            items = store.items
-            hasMorePersistedItems = store.hasMorePersistedItems
-            isLoadingOlderItems = store.isLoadingOlderItems
+        let snapshot = withObservationTracking {
+            (
+                store.items,
+                store.hasMorePersistedItems,
+                store.isLoadingOlderItems
+            )
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.arm()
             }
         }
+        items = snapshot.0
+        hasMorePersistedItems = snapshot.1
+        isLoadingOlderItems = snapshot.2
     }
 
     nonisolated func loadOlderItems() {

@@ -12,7 +12,7 @@ public import Bonsplit
 /// `Transfer` is the window's detached-surface transfer payload type (the
 /// app target's `Workspace.DetachedSurfaceTransfer`, which carries panel
 /// references and app-domain snapshots, so it stays app-side). None of the
-/// stored properties were `@Published` on the legacy god object, so this
+/// stored properties used the old Combine-backed observation path on the legacy god object, so this
 /// storage move carries no observer-parity hooks.
 @MainActor
 @Observable

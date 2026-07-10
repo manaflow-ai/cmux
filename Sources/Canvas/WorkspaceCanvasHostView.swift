@@ -8,13 +8,13 @@ import CmuxSettingsUI
 /// SwiftUI host for a workspace's canvas layout.
 ///
 /// This is the single legacy-observing boundary: it watches the
-/// `ObservableObject` workspace, projects panels into value snapshots
+/// older Combine-backed workspace model, projects panels into value snapshots
 /// (`CanvasPaneDescriptor`), and hands them to the `CmuxCanvasUI` package
 /// through an `NSViewRepresentable`. The canvas itself never observes
 /// stores, and the package never sees panel types — content crosses the
 /// seam as `CanvasPaneContentMount` witnesses.
 struct WorkspaceCanvasHostView: View {
-    @ObservedObject var workspace: Workspace
+    @Bindable var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let portalPriority: Int

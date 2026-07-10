@@ -5,7 +5,7 @@ public import Observation
 /// The per-workspace sidebar-metadata sub-model: owns the sidebar status
 /// entries, metadata blocks, log entries, progress, and git-branch /
 /// pull-request presentation state the legacy `Workspace` god object kept as
-/// loose `@Published` stored properties (`statusEntries`, `metadataBlocks`,
+/// loose Combine-backed stored state (`statusEntries`, `metadataBlocks`,
 /// `logEntries`, `progress`, `gitBranch`, `panelGitBranches`, `pullRequest`,
 /// `panelPullRequests`).
 ///
@@ -13,14 +13,15 @@ public import Observation
 /// through a computed `get`/`set` pair, so every call site (`statusEntries[key]
 /// = …`, `logEntries.append(…)`, `workspace.progress`) stays byte-identical.
 ///
-/// Byte-identical observer parity: the legacy properties were `@Published`, and
+/// Byte-identical observer parity: the legacy properties used the old
+/// Combine-backed observation path, and
 /// the sidebar observation publishers (`Workspace.sidebarObservationPublisher`)
 /// fused their `$projection`s through `CombineLatest` + `removeDuplicates()`.
 /// To preserve that exactly, each property here mirrors its value into a
 /// `CurrentValueSubject` in `didSet`; the matching `…Publisher` accessor
 /// replaces the former `$property`. `CombineLatest` over current-value subjects
 /// seeded with the initial values, then deduplicated, produces the identical
-/// sequence of distinct fused states the `@Published` projections did, so the
+/// sequence of distinct fused states the old property projections did, so the
 /// debounced sidebar refresh fires at the same moments.
 @MainActor
 @Observable
@@ -112,49 +113,49 @@ public final class WorkspaceSidebarMetadataModel {
     }
 
     /// Emits the current status entries on subscription, then on every change
-    /// (replaces the legacy `Workspace.$statusEntries`).
+    /// (replaces the legacy `Workspace status entries projection`).
     public var statusEntriesPublisher: AnyPublisher<[String: SidebarStatusEntry], Never> {
         statusEntriesSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current metadata blocks on subscription, then on every change
-    /// (replaces the legacy `Workspace.$metadataBlocks`).
+    /// (replaces the legacy `Workspace metadata blocks projection`).
     public var metadataBlocksPublisher: AnyPublisher<[String: SidebarMetadataBlock], Never> {
         metadataBlocksSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current log entries on subscription, then on every change
-    /// (replaces the legacy `Workspace.$logEntries`).
+    /// (replaces the legacy `Workspace log entries projection`).
     public var logEntriesPublisher: AnyPublisher<[SidebarLogEntry], Never> {
         logEntriesSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current progress state on subscription, then on every change
-    /// (replaces the legacy `Workspace.$progress`).
+    /// (replaces the legacy `Workspace progress projection`).
     public var progressPublisher: AnyPublisher<SidebarProgressState?, Never> {
         progressSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current workspace git-branch state on subscription, then on
-    /// every change (replaces the legacy `Workspace.$gitBranch`).
+    /// every change (replaces the legacy `Workspace git branch projection`).
     public var gitBranchPublisher: AnyPublisher<SidebarGitBranchState?, Never> {
         gitBranchSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current per-panel git-branch states on subscription, then on
-    /// every change (replaces the legacy `Workspace.$panelGitBranches`).
+    /// every change (replaces the legacy `Workspace panel git branches projection`).
     public var panelGitBranchesPublisher: AnyPublisher<[UUID: SidebarGitBranchState], Never> {
         panelGitBranchesSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current workspace pull-request state on subscription, then on
-    /// every change (replaces the legacy `Workspace.$pullRequest`).
+    /// every change (replaces the legacy `Workspace pull request projection`).
     public var pullRequestPublisher: AnyPublisher<SidebarPullRequestState?, Never> {
         pullRequestSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current per-panel pull-request states on subscription, then on
-    /// every change (replaces the legacy `Workspace.$panelPullRequests`).
+    /// every change (replaces the legacy `Workspace panel pull requests projection`).
     public var panelPullRequestsPublisher: AnyPublisher<[UUID: SidebarPullRequestState], Never> {
         panelPullRequestsSubject.eraseToAnyPublisher()
     }

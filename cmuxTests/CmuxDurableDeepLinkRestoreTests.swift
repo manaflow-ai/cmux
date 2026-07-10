@@ -1,7 +1,7 @@
 import AppKit
 import Bonsplit
-import Combine
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,7 +11,8 @@ import Testing
 #endif
 
 @MainActor
-private final class DurableDeepLinkDockTestPanel: Panel, ObservableObject {
+@Observable
+private final class DurableDeepLinkDockTestPanel: Panel {
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal

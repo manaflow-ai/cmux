@@ -1,12 +1,14 @@
+import Observation
 import AppKit
 import SwiftUI
 
 @MainActor
-final class FocusHistoryMenuInvalidator: ObservableObject {
-    @Published private(set) var revision: UInt64 = 0
+@Observable
+final class FocusHistoryMenuInvalidator {
+    private(set) var revision: UInt64 = 0
 
-    private let center: NotificationCenter
-    private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private let center: NotificationCenter
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     init(center: NotificationCenter = .default) {
         self.center = center

@@ -79,6 +79,10 @@ final class WindowDecorationsController {
             matching: [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDown, .leftMouseDragged]
         ) { [weak self] event in
             guard let self else { return event }
+            // AppKit delivers local event-monitor callbacks on the main thread.
+            // assumeIsolated's result must be Sendable, so hand back a
+            // consume/pass decision instead of the non-Sendable NSEvent.
+            let consumed = MainActor.assumeIsolated {
             guard let target = self.minimalModeSidebarChromeEventTarget(for: event) else {
                 #if DEBUG
                 self.recordMinimalModeSidebarChromeMonitorForUITest(
@@ -90,7 +94,7 @@ final class WindowDecorationsController {
                 )
                 #endif
                 MinimalModeSidebarChromeHoverState.shared.clear()
-                return event
+                return false
             }
             let window = target.window
             let locationInWindow = target.locationInWindow
@@ -130,17 +134,20 @@ final class WindowDecorationsController {
                     window: window,
                     locationInWindow: locationInWindow
                 )
-                return nil
+                return true
             }
             if isHovering {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
             } else {
                 MinimalModeSidebarChromeHoverState.shared.clear()
             }
-            return event
+            return false
+            }
+            return consumed ? nil : event
         }
     }
 
+    @MainActor
     func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
         guard event.type == .leftMouseDown else { return false }
         return handleMinimalModeSidebarChromeMouseDown(
@@ -161,6 +168,7 @@ final class WindowDecorationsController {
         )
     }
 
+    @MainActor
     private func handleMinimalModeSidebarChromeMouseDown(
         window: NSWindow,
         locationInWindow: NSPoint,

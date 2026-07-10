@@ -17,8 +17,8 @@ public import Observation
 /// `TabSelectionRequest` is the window's pending tab-selection request type
 /// (the app target's `Workspace.PendingTabSelectionRequest`, which carries
 /// AppKit hosted-view references and therefore stays app-side). None of the
-/// stored properties were `@Published` on the legacy god object, so this
-/// storage move carries no observer-parity hooks: no `objectWillChange`
+/// stored properties used the old Combine-backed observation path on the legacy god object, so this
+/// storage move carries no observer-parity hooks: no whole-object invalidation
 /// emission existed to preserve.
 @MainActor
 @Observable

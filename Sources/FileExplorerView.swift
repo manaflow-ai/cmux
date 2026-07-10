@@ -35,8 +35,8 @@ enum FileExplorerPanelPlacement: Equatable {
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
-    @ObservedObject var store: FileExplorerStore
-    @ObservedObject var state: FileExplorerState
+    let store: FileExplorerStore
+    @Bindable var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
@@ -84,7 +84,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        var store: FileExplorerStore
+        var store: FileExplorerStore { didSet { if store !== oldValue { lastRootNodeCount = -1; lastRenderedChangeGeneration = .max; observeStore() } } } // Follow store swaps (Bonsplit reuses this coordinator across tool-panel switches): resubscribe and reset so the next reloadIfNeeded (updateNSView calls it) rebuilds; pre-migration the observed-object wrapper masked the stale subscription.
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
@@ -93,9 +93,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        // The store change-generation last rendered into the outline. Guards the
+        // expensive no-structural-change refresh so repeated reloadIfNeeded()
+        // calls with no intervening store mutation (updateNSView storms during a
+        // drag) are cheap. UInt64.max forces the first pass to apply.
+        private var lastRenderedChangeGeneration: UInt64 = .max
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
-        private var isUpdatingOutlineProgrammatically = false
+        // Internal (not private): the selection/expansion delegate handlers in
+        // FileExplorerView+OutlineDelegate.swift read this flag.
+        var isUpdatingOutlineProgrammatically = false
 
         init(
             store: FileExplorerStore,
@@ -158,11 +165,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func observeStore() {
-            observationCancellable = store.objectWillChange
+            observationCancellable = store.storeDidChange
                 .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
                 .sink { [weak self] _ in
                     Task { @MainActor [weak self] in
-                        self?.reloadIfNeeded()
+                        guard let self else { return }; self.containerView?.updateHeader(store: self.store); self.reloadIfNeeded() // updateHeader keeps the root-path display and search scope/contentRevision refresh in step; pre-migration the observed-object wrapper routed store publishes through updateNSView -> updateHeader.
                     }
                 }
         }
@@ -179,6 +186,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             let newCount = store.rootNodes.count
+            let generation = store.changeGeneration
+            // Skip the outline mutation entirely when neither the root-node count
+            // nor the store's change-generation moved since the last render. This
+            // is the common case for updateNSView calls that fire for reasons
+            // unrelated to the file tree (a drag re-rendering the panel's SwiftUI
+            // ancestor per mouse-move), where refreshLoadedNodes would otherwise
+            // reload every directory node for nothing. Visibility was already
+            // synced above.
+            guard newCount != lastRootNodeCount || generation != lastRenderedChangeGeneration else {
+                return
+            }
             withProgrammaticOutlineUpdate {
                 if newCount != lastRootNodeCount {
                     lastRootNodeCount = newCount
@@ -190,6 +208,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
+            lastRenderedChangeGeneration = generation
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
@@ -286,30 +305,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             guard let node = item as? FileExplorerNode else { return false }
             store.collapse(node: node)
             return true
-        }
-
-        func outlineViewSelectionDidChange(_ notification: Notification) {
-            guard !isUpdatingOutlineProgrammatically,
-                  let outlineView = notification.object as? NSOutlineView else {
-                return
-            }
-            let nodes = outlineView.selectedRowIndexes.compactMap { outlineView.item(atRow: $0) as? FileExplorerNode }
-            guard !nodes.isEmpty else { store.select(node: nil); return }
-            let anchor = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode : nil
-            store.select(nodes: nodes, anchor: anchor ?? nodes.first)
-        }
-        func outlineViewItemDidExpand(_ notification: Notification) {
-            guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
-            if !store.isExpanded(node) {
-                store.expand(node: node)
-            }
-        }
-
-        func outlineViewItemDidCollapse(_ notification: Notification) {
-            guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
-            if store.isExpanded(node) {
-                store.collapse(node: node)
-            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {

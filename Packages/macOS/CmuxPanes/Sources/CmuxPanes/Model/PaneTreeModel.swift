@@ -10,8 +10,8 @@ public import Bonsplit
 ///
 /// The owning `Workspace` composition root holds one instance, forwards its
 /// legacy accessors here, and implements `PaneTreeHosting` to receive the
-/// property-observer hooks the legacy `@Published` observers provided
-/// (objectWillChange/bridge re-emission).
+/// property-observer hooks the old Combine-published observers provided
+/// (whole-object invalidation/bridge re-emission).
 @MainActor
 @Observable
 public final class PaneTreeModel<Panel> {
@@ -58,7 +58,7 @@ public final class PaneTreeModel<Panel> {
     public init() {}
 
     /// Attaches the workspace-side host. Must be called before the first
-    /// mutation so the property-observer hooks match the legacy `@Published`
+    /// mutation so the property-observer hooks match the old Combine-published
     /// timing from the very first panel insertion.
     public func attach(host: any PaneTreeHosting<Panel>) {
         self.host = host

@@ -76,7 +76,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.toolTip = "cmux"
         }
 
-        notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
+        notificationMenuSnapshotCancellable = observedValuesPublisher { [weak notificationStore] in
+            notificationStore?.notificationMenuSnapshot
+                ?? NotificationMenuSnapshotBuilder.make(notifications: [])
+        }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
                 self?.refreshUI(snapshot: snapshot)

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
+import Observation
 import SwiftUI
 
 @MainActor
@@ -14,8 +15,8 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
-struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
-    @ObservedObject var panel: PanelModel
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: Observable & FilePreviewTextEditingPanel {
+    @Bindable var panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor

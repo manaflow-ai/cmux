@@ -18,7 +18,7 @@ import WebKit
 ///   - We can copy the rendered HTML straight from the same source the user
 ///     is reading.
 struct MarkdownPanelView: View {
-    @ObservedObject var panel: MarkdownPanel
+    @Bindable var panel: MarkdownPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int

@@ -1,3 +1,4 @@
+import Observation
 import Foundation
 import CmuxTerminalCore
 import Combine
@@ -6,35 +7,10 @@ import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
 
-struct AgentHibernationPanelState {
-    let agent: SessionRestorableAgentSnapshot
-    let hibernatedAt: Date
-    let lastActivityAt: Date
-
-    var agentDisplayName: String {
-        agent.agentDisplayName
-    }
-}
-
-enum AgentHibernationResumePreparation: Equatable {
-    case unavailable
-    case resumed(queuedStartupInput: Bool)
-
-    var didResume: Bool {
-        if case .resumed = self { return true }
-        return false
-    }
-
-    var queuedStartupInput: Bool {
-        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
-        return false
-    }
-}
-
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
-final class TerminalPanel: Panel, ObservableObject {
+@Observable final class TerminalPanel: Panel {
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
@@ -62,17 +38,17 @@ final class TerminalPanel: Panel, ObservableObject {
     var seededWorkspaceEnvironment: [String: String] = [:]
 
     /// Published title from the terminal process
-    @Published private(set) var title: String = "Terminal"
+    private(set) var title: String = "Terminal"
 
     /// Published directory from the terminal
-    @Published private(set) var directory: String = ""
+    private(set) var directory: String = ""
 
-    @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
+    private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
     let textBoxState = TerminalPanelTextBoxState()
-    @Published var isTextBoxActive: Bool = false
-    @Published var textBoxContent: String = ""
-    @Published var textBoxAttachments: [TextBoxAttachment] = []
+    var isTextBoxActive: Bool = false
+    var textBoxContent: String = ""
+    var textBoxAttachments: [TextBoxAttachment] = []
     weak var textBoxInputView: TextBoxInputTextView?
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -101,8 +77,12 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     /// Search state for find functionality
-    @Published var searchState: TerminalSurface.SearchState? {
+    var searchState: TerminalSurface.SearchState? {
         didSet {
+            // Identity guard: the observation mirror writes surface state back
+            // through here, and an unguarded write-through would re-enter
+            // TerminalSurface.searchState's didSet and repeat its search setup.
+            guard surface.searchState !== searchState else { return }
             surface.searchState = searchState
         }
     }
@@ -112,14 +92,14 @@ final class TerminalPanel: Panel, ObservableObject {
     ///
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
-    @Published var viewReattachToken: UInt64 = 0
+    var viewReattachToken: UInt64 = 0
 
-    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+    private(set) var agentHibernationState: AgentHibernationPanelState?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
 
-    private var cancellables = Set<AnyCancellable>()
+    private var searchStateObservationToken: ObservationToken?
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -175,14 +155,12 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
 
-        // Subscribe to surface's search state changes
-        surface.$searchState
-            .sink { [weak self] state in
-                if self?.searchState !== state {
-                    self?.searchState = state
-                }
-            }
-            .store(in: &cancellables)
+        searchStateObservationToken = observeTrackedValue { [weak surface] in
+            surface?.searchState.map(ObjectIdentifier.init)
+        } onChange: { [weak self, weak surface] _ in
+            guard let self, let surface else { return }
+            if self.searchState !== surface.searchState { self.searchState = surface.searchState }
+        }
     }
 
     /// Create a new terminal panel with a fresh surface
@@ -658,6 +636,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        searchStateObservationToken?.cancel()
         discardTextBoxContentForClose()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views

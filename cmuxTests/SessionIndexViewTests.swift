@@ -259,7 +259,7 @@ final class SessionIndexViewTests: XCTestCase {
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []
-        let cancellable = store.$currentDirectory
+        let cancellable = observedValuesPublisher { store.currentDirectory }
             .dropFirst()
             .sink { emittedValues.append($0) }
         defer { cancellable.cancel() }

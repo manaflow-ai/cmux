@@ -28,7 +28,7 @@ private final class RecordingHost: WorkspacesHosting {
 
     private(set) var events: [String] = []
     /// Snapshot of `model.tabs` taken inside the willSet hook, to prove the
-    /// hook fires while storage still holds the old value (@Published parity).
+    /// hook fires while storage still holds the old value (parity).
     private(set) var tabsSeenDuringWillSet: [[UUID]] = []
     private(set) var selectionSeenDuringWillSet: [UUID?] = []
     var model: WorkspacesModel<StubTab>?
@@ -103,7 +103,7 @@ struct WorkspacesModelTests {
         model.selectedTabId = id
         model.workspaceGroups = []
 
-        // @Published fired its observers on every assignment, equal or not;
+        // the previous observer path emitted on every assignment, equal or not;
         // no-op guards belong in the host's hook bodies.
         #expect(host.events == [
             "selection.willSet", "selection.didSet",

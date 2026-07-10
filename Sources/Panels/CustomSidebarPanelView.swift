@@ -9,7 +9,7 @@ import CmuxSwiftRenderUI
 import SwiftUI
 
 struct CustomSidebarPanelView: View {
-    @ObservedObject var panel: CustomSidebarPanel
+    @Bindable var panel: CustomSidebarPanel
     let tabManager: TabManager
     let sidebarUnread: SidebarUnreadModel
     let isFocused: Bool
