@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CoreGraphics
 import Foundation
 import os
 import Testing
@@ -10,12 +11,17 @@ import Testing
 #endif
 
 private actor TerminalInlineImageThumbnailDecodeProbe {
+    private let result: TerminalInlineImageThumbnail?
     private var startedCount = 0
     private var activeCount = 0
     private var maximumActiveCount = 0
     private var isOpen = false
     private var blockedDecodes: [CheckedContinuation<Void, Never>] = []
     private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(result: TerminalInlineImageThumbnail? = nil) {
+        self.result = result
+    }
 
     func decode(path _: String) async -> TerminalInlineImageThumbnail? {
         startedCount += 1
@@ -28,7 +34,7 @@ private actor TerminalInlineImageThumbnailDecodeProbe {
             }
         }
         activeCount -= 1
-        return nil
+        return result
     }
 
     func waitUntilStarted(_ count: Int) async {
@@ -65,15 +71,36 @@ private actor TerminalInlineImageThumbnailDecodeProbe {
 @Suite
 struct TerminalInlineImagePipelineTests {
     @Test
+    func renderedFrameGateIgnoresPaintOnlyFramesAndCoalescesMutations() {
+        var gate = TerminalInlineImageRenderedFrameGate()
+
+        let initialFrame = gate.consumeRenderedFrame()
+        #expect(!initialFrame)
+        gate.noteGridMutation()
+        gate.noteGridMutation()
+        let mutationFrame = gate.consumeRenderedFrame()
+        #expect(mutationFrame)
+        let followingPaintFrame = gate.consumeRenderedFrame()
+        #expect(!followingPaintFrame)
+
+        gate.noteGridMutation()
+        gate.reset()
+        let frameAfterReset = gate.consumeRenderedFrame()
+        #expect(!frameAfterReset)
+    }
+
+    @Test
     func scanGateRunsOneSnapshotAndCoalescesABurstIntoOneFollowUp() throws {
         var gate = TerminalInlineImageScanGate()
 
-        let first = try #require(gate.requestScan())
+        let maybeFirst = gate.requestScan()
+        let first = try #require(maybeFirst)
         #expect(gate.requestScan() == nil)
         #expect(gate.requestScan() == nil)
         #expect(gate.hasPendingScan)
 
-        let followUp = try #require(gate.completeScan(first))
+        let maybeFollowUp = gate.completeScan(first)
+        let followUp = try #require(maybeFollowUp)
         #expect(!gate.hasPendingScan)
         #expect(gate.completeScan(followUp) == nil)
         #expect(gate.isIdle)
@@ -83,9 +110,11 @@ struct TerminalInlineImagePipelineTests {
     func scanGateDropsPendingWorkWhenTheSurfaceSessionEnds() throws {
         var gate = TerminalInlineImageScanGate()
 
-        let inFlight = try #require(gate.requestScan())
+        let maybeInFlight = gate.requestScan()
+        let inFlight = try #require(maybeInFlight)
         #expect(gate.requestScan() == nil)
         gate.discardPendingScan()
+        gate.cancelScan(inFlight)
 
         #expect(gate.completeScan(inFlight) == nil)
         #expect(gate.isIdle)
@@ -174,5 +203,68 @@ struct TerminalInlineImagePipelineTests {
         let snapshot = await probe.snapshot()
         #expect(snapshot.started == 6)
         #expect(snapshot.maximumActive == 2)
+    }
+
+    @Test
+    func clearingThumbnailCacheInvalidatesInFlightDecodeResults() async throws {
+        let thumbnail = try makeThumbnail()
+        let probe = TerminalInlineImageThumbnailDecodeProbe(result: thumbnail)
+        let cache = TerminalInlineImageThumbnailCache(
+            maximumConcurrentDecodes: 1,
+            maximumPendingDecodes: 4,
+            metadataKeyProvider: { "\($0)|version-1" },
+            decode: { path in await probe.decode(path: path) }
+        )
+
+        let staleRequest = Task { await cache.thumbnail(for: "/tmp/stale.png") }
+        await probe.waitUntilStarted(1)
+        await cache.removeAll()
+        #expect(await staleRequest.value == nil)
+
+        let currentRequest = Task { await cache.thumbnail(for: "/tmp/stale.png") }
+        await probe.open()
+        #expect(await currentRequest.value != nil)
+        let snapshot = await probe.snapshot()
+        #expect(snapshot.started == 2)
+    }
+
+    @Test
+    func replacementRequestDoesNotJoinCanceledDecode() async throws {
+        let probe = TerminalInlineImageThumbnailDecodeProbe(result: try makeThumbnail())
+        let cache = TerminalInlineImageThumbnailCache(
+            maximumConcurrentDecodes: 1,
+            maximumPendingDecodes: 4,
+            metadataKeyProvider: { "\($0)|version-1" },
+            decode: { path in await probe.decode(path: path) }
+        )
+
+        let canceledRequest = Task { await cache.thumbnail(for: "/tmp/replaced.png") }
+        await probe.waitUntilStarted(1)
+        canceledRequest.cancel()
+        #expect(await canceledRequest.value == nil)
+
+        let replacementRequest = Task { await cache.thumbnail(for: "/tmp/replaced.png") }
+        await probe.open()
+        #expect(await replacementRequest.value != nil)
+        let snapshot = await probe.snapshot()
+        #expect(snapshot.started == 2)
+    }
+
+    private func makeThumbnail() throws -> TerminalInlineImageThumbnail {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let image = try #require(context.makeImage())
+        return TerminalInlineImageThumbnail(
+            cgImage: image,
+            pixelSize: CGSize(width: 1, height: 1),
+            cost: 4
+        )
     }
 }

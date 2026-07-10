@@ -1,37 +1,31 @@
 import AppKit
-import CMUXMobileCore
 import CmuxTerminal
 import Foundation
-import GhosttyKit
 
 @MainActor
-final class TerminalInlineImageController {
+final class TerminalInlineImageController: TerminalInlineImageScanCoordinatorDelegate {
     private nonisolated static let thumbnailRetryDelay: Duration = .seconds(5)
     private nonisolated static let maximumThumbnailRetryDelay: Duration = .seconds(30)
     private nonisolated static let maximumThumbnailRetryAttempts = 5
-
     private weak var hostedView: GhosttySurfaceScrollView?
     private weak var overlayView: TerminalInlineImageOverlayView?
-    private let scanner = TerminalTranscriptImagePathScanner()
     private let reconciler = TerminalInlineImageReconciler()
+    private let renderer = TerminalInlineImageRenderer()
     private let cache: TerminalInlineImageThumbnailCache
     private let outputService: TerminalInlineImageOutputService
     private let retrySleep: @Sendable (Duration) async throws -> Void
-    private let scanQueue = DispatchQueue(label: "com.cmux.inline-image-scan", qos: .utility)
+    private var scanCoordinator: TerminalInlineImageScanCoordinator!
     private var settingsObserver: TerminalInlineImageSettingsObserver?
-    private var observers: [NSObjectProtocol] = []
-    private var releaseFrameDemand: (() -> Void)?
-    private var releaseSurfaceOutputDemand: (@Sendable () -> Void)?
-    private var surfaceOutputObserver: NSObjectProtocol?
-    private var observedOutputSurfaceID: UUID?
-    private var debounceTimer: DispatchSourceTimer?
-    private var pendingScanFirstRequestedAt: DispatchTime?
-    private var scanGeneration: UInt64 = 0
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    private var eventSubscription: TerminalInlineImageEventSubscription?
+    private var renderedFrameGate = TerminalInlineImageRenderedFrameGate()
+    private var activeSession: TerminalInlineImageSession?
     private var lastScannedGridJSON: Data?
     private var lastScannedRowOffset: Int?
     private var annotations: [TerminalInlineImageAnnotation] = []
     private var thumbnailsByID: [UUID: TerminalInlineImageThumbnail] = [:]
-    private var pendingThumbnailPaths: Set<String> = []
+    private var thumbnailLoadTasksByPath: [String: Task<Void, Never>] = [:]
+    private var thumbnailLoadIDsByPath: [String: UUID] = [:]
     private var thumbnailRetryAttemptByPath: [String: Int] = [:]
     private var thumbnailRetryTasksByPath: [String: Task<Void, Never>] = [:]
     private var isEnabled = false
@@ -40,9 +34,13 @@ final class TerminalInlineImageController {
     init(
         hostedView: GhosttySurfaceScrollView,
         overlayView: TerminalInlineImageOverlayView,
+        scannerService: TerminalInlineImageScannerService = TerminalInlineImageScannerService(),
         cache: TerminalInlineImageThumbnailCache = GhosttyApp.terminalInlineImageThumbnailCache,
         outputService: TerminalInlineImageOutputService = GhosttyApp.terminalInlineImageOutputService,
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        },
+        scanPacingSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         }
     ) {
@@ -51,6 +49,11 @@ final class TerminalInlineImageController {
         self.cache = cache
         self.outputService = outputService
         self.retrySleep = retrySleep
+        scanCoordinator = TerminalInlineImageScanCoordinator(
+            delegate: self,
+            scannerService: scannerService,
+            pacingSleep: scanPacingSleep
+        )
         settingsObserver = TerminalInlineImageSettingsObserver { [weak self] enabled in
             self?.setEnabled(enabled)
         }
@@ -67,88 +70,95 @@ final class TerminalInlineImageController {
     }
 
     deinit {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
-        if let surfaceOutputObserver {
-            NotificationCenter.default.removeObserver(surfaceOutputObserver)
-        }
-        releaseFrameDemand?()
-        releaseSurfaceOutputDemand?()
-        debounceTimer?.cancel()
-        for task in thumbnailRetryTasksByPath.values {
-            task.cancel()
-        }
-    }
-
-    private func setEnabled(_ enabled: Bool) {
-        guard isEnabled != enabled else { return }
-        isEnabled = enabled
-        if enabled {
-            startSurfaceObservers()
-            scheduleScanForVisibleViewport()
-        } else {
-            stopSurfaceObservers()
-            cancelDebounce()
-            lastScannedGridJSON = nil
-            lastScannedRowOffset = nil
-            clearAnnotations()
-            if !TerminalInlineImageSettings.isEnabled() {
-                cache.removeAll()
-            }
-        }
+        lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        thumbnailLoadTasksByPath.values.forEach { $0.cancel() }
+        thumbnailRetryTasksByPath.values.forEach { $0.cancel() }
     }
 
     func setVisibleInUI(_ visible: Bool) {
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
         if visible {
-            startSurfaceObservers()
-            scheduleScanForVisibleViewport()
+            startLifecycleObservers()
+            refreshActiveSession()
+            requestScanForActiveSession()
         } else {
-            stopSurfaceObservers()
-            cancelDebounce()
-            lastScannedGridJSON = nil
-            lastScannedRowOffset = nil
-            clearAnnotations()
+            endActiveSession()
+            stopLifecycleObservers()
         }
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
-        installSurfaceOutputObserver(for: terminalSurface.id)
-        scheduleScanForVisibleViewport()
+        if let activeSession, activeSession.surfaceID != terminalSurface.id {
+            endActiveSession()
+        }
+        refreshActiveSession()
+        requestScanForActiveSession()
     }
 
-    private func startSurfaceObservers() {
-        guard isEnabled, isVisibleInUI, observers.isEmpty, let hostedView else { return }
-        releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
-        releaseSurfaceOutputDemand = outputService.retainNotifications()
+    func hostedViewDidMoveToWindow() {
+        guard isEnabled, isVisibleInUI else {
+            endActiveSession()
+            return
+        }
+        startLifecycleObservers()
+        refreshActiveSession()
+        requestScanForActiveSession()
+    }
+
+    func hostedViewDidUnhide() {
+        guard isEnabled, isVisibleInUI else { return }
+        startLifecycleObservers()
+        refreshActiveSession()
+        requestScanForActiveSession()
+    }
+
+    func notePotentialLocalGridMutation() {
+        guard activeSession != nil else { return }
+        renderedFrameGate.noteGridMutation()
+    }
+
+    private func setEnabled(_ enabled: Bool) {
+        guard isEnabled != enabled else { return }
+        isEnabled = enabled
+        if enabled {
+            startLifecycleObservers()
+            refreshActiveSession()
+            requestScanForActiveSession()
+        } else {
+            endActiveSession()
+            stopLifecycleObservers()
+            if !TerminalInlineImageSettings.isEnabled() {
+                let cache = cache
+                Task {
+                    await cache.removeAll()
+                }
+            }
+        }
+    }
+
+    private func startLifecycleObservers() {
+        guard isEnabled, isVisibleInUI, lifecycleObservers.isEmpty, let hostedView else { return }
         let center = NotificationCenter.default
-        observers.append(center.addObserver(
-            forName: .ghosttyDidRenderFrame,
-            object: hostedView.surfaceView,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
-        })
-        observers.append(center.addObserver(
+        lifecycleObservers.append(center.addObserver(
             forName: .ghosttyDidUpdateScrollbar,
             object: hostedView.surfaceView,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
+            MainActor.assumeIsolated {
+                self?.requestScanForActiveSession(paced: true)
+            }
         })
-        observers.append(center.addObserver(
+        lifecycleObservers.append(center.addObserver(
             forName: .ghosttyDidUpdateCellSize,
             object: hostedView.surfaceView,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
+            MainActor.assumeIsolated {
+                self?.requestScanForActiveSession()
+            }
         })
-        if let surfaceID = hostedView.surfaceView.terminalSurface?.id {
-            installSurfaceOutputObserver(for: surfaceID)
-        }
-        // Ticks are skipped while the window is occluded, so catch up when it
-        // becomes visible again instead of waiting for the next PTY output.
-        observers.append(center.addObserver(
+        lifecycleObservers.append(center.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification,
             object: nil,
             queue: .main
@@ -159,149 +169,159 @@ final class TerminalInlineImageController {
                       (note.object as? NSWindow) === window else {
                     return
                 }
-                self.scheduleScanForVisibleViewport()
+                self.refreshActiveSession()
+                self.requestScanForActiveSession()
             }
         })
     }
 
-    private func scheduleScanForVisibleViewport() {
+    private func stopLifecycleObservers() {
+        lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        lifecycleObservers.removeAll()
+    }
+
+    private func refreshActiveSession() {
         guard let hostedView,
-              let window = hostedView.window,
-              isVisibleInUI,
-              !hostedView.isHiddenOrHasHiddenAncestor,
-              !hostedView.surfaceView.isHiddenOrHasHiddenAncestor,
-              hostedView.bounds.width > 1,
-              hostedView.bounds.height > 1,
-              window.occlusionState.contains(.visible) else {
-            clearAnnotations()
-            lastScannedGridJSON = nil
-            lastScannedRowOffset = nil
+              let (terminalSurface, workspace) = activeSessionCandidate() else {
+            endActiveSession()
             return
         }
-        scheduleScan()
-    }
-
-    private func stopSurfaceObservers() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
-        observers.removeAll()
-        if let surfaceOutputObserver {
-            NotificationCenter.default.removeObserver(surfaceOutputObserver)
+        if activeSession?.matches(surfaceID: terminalSurface.id, workspace: workspace) == true {
+            return
         }
-        surfaceOutputObserver = nil
-        observedOutputSurfaceID = nil
-        releaseFrameDemand?()
-        releaseFrameDemand = nil
-        releaseSurfaceOutputDemand?()
-        releaseSurfaceOutputDemand = nil
-    }
-
-    private func installSurfaceOutputObserver(for surfaceID: UUID) {
-        guard isEnabled, isVisibleInUI else { return }
-        guard observedOutputSurfaceID != surfaceID || surfaceOutputObserver == nil else { return }
-        if let surfaceOutputObserver {
-            NotificationCenter.default.removeObserver(surfaceOutputObserver)
-        }
-        observedOutputSurfaceID = surfaceID
-        surfaceOutputObserver = NotificationCenter.default.addObserver(
-            forName: outputService.notificationName(for: surfaceID),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleScanForVisibleViewport() }
-        }
-    }
-
-    private func scheduleScan() {
-        guard isEnabled else { return }
-        let now = DispatchTime.now()
-        if pendingScanFirstRequestedAt == nil {
-            pendingScanFirstRequestedAt = now
-        }
-        let timer = debounceTimer ?? makeDebounceTimer()
-        let deadline: DispatchTime
-        if let firstRequestedAt = pendingScanFirstRequestedAt,
-           now.uptimeNanoseconds - firstRequestedAt.uptimeNanoseconds >= 600_000_000 {
-            deadline = .now()
-        } else {
-            deadline = .now() + .milliseconds(200)
-        }
-        timer.schedule(deadline: deadline, leeway: .milliseconds(40))
-    }
-
-    private func makeDebounceTimer() -> DispatchSourceTimer {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.pendingScanFirstRequestedAt = nil
-                self?.rescan()
+        endActiveSession()
+        activeSession = TerminalInlineImageSession(
+            surfaceID: terminalSurface.id,
+            workspace: workspace
+        )
+        eventSubscription = TerminalInlineImageEventSubscription(
+            surfaceView: hostedView.surfaceView,
+            terminalSurface: terminalSurface,
+            outputService: outputService,
+            onRenderedFrame: { [weak self] in
+                guard let self, self.renderedFrameGate.consumeRenderedFrame() else { return }
+                self.requestScanForActiveSession(paced: true)
+            },
+            onOutput: { [weak self] in
+                self?.requestScanForActiveSession(paced: true)
+            },
+            onBindingAction: { [weak self] in
+                self?.renderedFrameGate.noteGridMutation()
             }
-        }
-        debounceTimer = timer
-        timer.resume()
-        return timer
+        )
     }
 
-    private func cancelDebounce() {
-        debounceTimer?.cancel()
-        debounceTimer = nil
-        pendingScanFirstRequestedAt = nil
+    private func endActiveSession() {
+        activeSession = nil
+        eventSubscription?.cancel()
+        eventSubscription = nil
+        renderedFrameGate.reset()
+        scanCoordinator.cancelSession()
+        lastScannedGridJSON = nil
+        lastScannedRowOffset = nil
+        clearAnnotations()
     }
 
-    private func rescan() {
+    private func activeSessionCandidate() -> (TerminalSurface, Workspace)? {
         guard isEnabled,
+              isVisibleInUI,
               let hostedView,
+              let window = hostedView.window,
+              !hostedView.isHiddenOrHasHiddenAncestor,
+              !hostedView.surfaceView.isHiddenOrHasHiddenAncestor,
+              window.occlusionState.contains(.visible),
               let terminalSurface = hostedView.surfaceView.terminalSurface,
               let workspace = terminalSurface.owningWorkspace(),
-              !workspace.isRemoteTerminalSurface(terminalSurface.id),
+              !workspace.isRemoteTerminalSurface(terminalSurface.id) else {
+            return nil
+        }
+        return (terminalSurface, workspace)
+    }
+
+    private func isEligible(_ session: TerminalInlineImageSession) -> Bool {
+        guard isEnabled,
+              isVisibleInUI,
+              let hostedView,
+              let window = hostedView.window,
+              !hostedView.isHiddenOrHasHiddenAncestor,
+              !hostedView.surfaceView.isHiddenOrHasHiddenAncestor,
+              window.occlusionState.contains(.visible),
+              let terminalSurface = hostedView.surfaceView.terminalSurface,
+              terminalSurface.id == session.surfaceID,
+              terminalSurface.tabId == session.workspaceID,
+              let workspace = session.workspace,
+              !workspace.isRemoteTerminalSurface(session.surfaceID) else {
+            return false
+        }
+        return true
+    }
+
+    private func requestScanForActiveSession(paced: Bool = false) {
+        guard let session = activeSession, isEligible(session) else {
+            if activeSession != nil {
+                endActiveSession()
+            }
+            return
+        }
+        scanCoordinator.request(paced: paced)
+    }
+
+    func scanCoordinatorRequest(workID: UUID) -> TerminalInlineImageScanRequest? {
+        guard let activeSession,
+              isEligible(activeSession),
+              let workspace = activeSession.workspace,
+              let hostedView,
+              hostedView.bounds.width > 1,
+              hostedView.bounds.height > 1,
+              let terminalSurface = hostedView.surfaceView.terminalSurface,
+              terminalSurface.id == activeSession.surfaceID,
               let gridJSON = terminalSurface.mobileRenderGridJSON(stateSeq: 0) else {
             lastScannedGridJSON = nil
             lastScannedRowOffset = nil
             clearAnnotations()
-            return
+            return nil
         }
         let rowOffset = Int(clamping: hostedView.surfaceView.scrollbar?.offset ?? 0)
         if gridJSON == lastScannedGridJSON, rowOffset == lastScannedRowOffset {
-            // The visible grid did not change, so skip the decode + scan. Still
-            // re-render from current metrics (cell size can change without
-            // changing grid bytes) and retry thumbnails that are still missing
-            // (e.g. the file appeared on disk after its path was printed).
             render()
             requestMissingThumbnails(for: annotations)
+            return nil
+        }
+        return TerminalInlineImageScanRequest(
+            workID: workID,
+            sessionID: activeSession.id,
+            surfaceID: activeSession.surfaceID,
+            gridJSON: gridJSON,
+            rowOffset: rowOffset,
+            context: TerminalTranscriptImagePathScanner.Context(
+                cwd: CommandClickFileOpenRouter.resolveWorkingDirectory(
+                    workspace: workspace,
+                    surfaceId: activeSession.surfaceID
+                ),
+                homeDirectory: NSHomeDirectory()
+            )
+        )
+    }
+
+    func scanCoordinatorApply(
+        _ detected: [DetectedImagePath]?,
+        request: TerminalInlineImageScanRequest
+    ) {
+        guard let activeSession,
+              activeSession.id == request.sessionID,
+              activeSession.surfaceID == request.surfaceID,
+              isEligible(activeSession) else {
             return
         }
-        scanGeneration &+= 1
-        let generation = scanGeneration
-        let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
-            workspace: workspace,
-            surfaceId: terminalSurface.id
-        )
-        let context = TerminalTranscriptImagePathScanner.Context(
-            cwd: cwd,
-            homeDirectory: NSHomeDirectory()
-        )
-        let scanner = scanner
-        scanQueue.async { [weak self] in
-            var detected: [DetectedImagePath]?
-            if let frame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: gridJSON),
-               frame.activeScreen == .primary {
-                detected = scanner.scan(rows: frame.plainRows(), context: context)
-            }
-            let scanned = detected
-            Task { @MainActor in
-                self?.applyScanResult(scanned, gridJSON: gridJSON, rowOffset: rowOffset, generation: generation)
-            }
-        }
+        applyScanResult(detected, request: request)
     }
 
     private func applyScanResult(
         _ detected: [DetectedImagePath]?,
-        gridJSON: Data,
-        rowOffset: Int,
-        generation: UInt64
+        request: TerminalInlineImageScanRequest
     ) {
-        guard isEnabled, generation == scanGeneration else { return }
-        lastScannedGridJSON = gridJSON
-        lastScannedRowOffset = rowOffset
+        lastScannedGridJSON = request.gridJSON
+        lastScannedRowOffset = request.rowOffset
         guard let detected else {
             clearAnnotations()
             return
@@ -309,57 +329,69 @@ final class TerminalInlineImageController {
         let nextAnnotations = reconciler.reconcile(
             existing: annotations,
             detectedPaths: detected,
-            viewport: TerminalInlineImageViewport(rowOffset: rowOffset)
+            viewport: TerminalInlineImageViewport(rowOffset: request.rowOffset)
         )
         annotations = nextAnnotations
         let liveIDs = Set(nextAnnotations.map(\.id))
         let livePaths = Set(nextAnnotations.map(\.resolvedPath))
         thumbnailsByID = thumbnailsByID.filter { liveIDs.contains($0.key) }
         thumbnailRetryAttemptByPath = thumbnailRetryAttemptByPath.filter { livePaths.contains($0.key) }
+        cancelThumbnailLoads(except: livePaths)
         cancelThumbnailRetries(except: livePaths)
         render()
         requestMissingThumbnails(for: nextAnnotations)
     }
 
     private func requestMissingThumbnails(for annotations: [TerminalInlineImageAnnotation]) {
-        for annotation in annotations
-        where thumbnailsByID[annotation.id] == nil {
+        guard let sessionID = activeSession?.id else { return }
+        for annotation in annotations where thumbnailsByID[annotation.id] == nil {
             let path = annotation.resolvedPath
-            guard !pendingThumbnailPaths.contains(path) else { continue }
+            guard thumbnailLoadTasksByPath[path] == nil else { continue }
             guard thumbnailRetryTasksByPath[path] == nil else { continue }
             guard (thumbnailRetryAttemptByPath[path] ?? 0) <= Self.maximumThumbnailRetryAttempts else {
                 continue
             }
-            pendingThumbnailPaths.insert(path)
-            cache.thumbnail(for: path) { [weak self, path] thumbnail in
-                Task { @MainActor in
-                    self?.receiveThumbnail(thumbnail, path: path)
-                }
+            let loadID = UUID()
+            thumbnailLoadIDsByPath[path] = loadID
+            let cache = cache
+            thumbnailLoadTasksByPath[path] = Task { [weak self, cache, path] in
+                let thumbnail = await cache.thumbnail(for: path)
+                guard let self else { return }
+                self.receiveThumbnail(
+                    thumbnail,
+                    path: path,
+                    loadID: loadID,
+                    sessionID: sessionID
+                )
             }
         }
     }
 
     private func receiveThumbnail(
         _ thumbnail: TerminalInlineImageThumbnail?,
-        path: String
+        path: String,
+        loadID: UUID,
+        sessionID: UUID
     ) {
-        pendingThumbnailPaths.remove(path)
+        guard thumbnailLoadIDsByPath[path] == loadID else { return }
+        thumbnailLoadTasksByPath.removeValue(forKey: path)
+        thumbnailLoadIDsByPath.removeValue(forKey: path)
+        guard activeSession?.id == sessionID else { return }
         let matchingAnnotations = annotations.filter { $0.resolvedPath == path }
         guard !matchingAnnotations.isEmpty else { return }
         guard let thumbnail else {
-            rememberThumbnailFailure(for: path)
+            rememberThumbnailFailure(for: path, sessionID: sessionID)
             return
         }
         thumbnailRetryAttemptByPath.removeValue(forKey: path)
-        thumbnailRetryTasksByPath[path]?.cancel()
-        thumbnailRetryTasksByPath.removeValue(forKey: path)
+        thumbnailRetryTasksByPath.removeValue(forKey: path)?.cancel()
         for annotation in matchingAnnotations {
             thumbnailsByID[annotation.id] = thumbnail
         }
         render()
     }
 
-    private func rememberThumbnailFailure(for path: String) {
+    private func rememberThumbnailFailure(for path: String, sessionID: UUID) {
         let attempt = (thumbnailRetryAttemptByPath[path] ?? 0) + 1
         thumbnailRetryAttemptByPath[path] = attempt
         guard attempt <= Self.maximumThumbnailRetryAttempts else { return }
@@ -367,78 +399,66 @@ final class TerminalInlineImageController {
             Self.thumbnailRetryDelay * (1 << min(attempt - 1, 3)),
             Self.maximumThumbnailRetryDelay
         )
-        scheduleThumbnailRetry(for: path, delay: retryDelay)
+        scheduleThumbnailRetry(for: path, sessionID: sessionID, delay: retryDelay)
     }
 
-    private func scheduleThumbnailRetry(for path: String, delay: Duration) {
+    private func scheduleThumbnailRetry(for path: String, sessionID: UUID, delay: Duration) {
         thumbnailRetryTasksByPath[path]?.cancel()
         let sleep = retrySleep
         thumbnailRetryTasksByPath[path] = Task { @MainActor [weak self, path, sleep] in
-            // Genuine bounded backoff; the injected sleep is testable and this
-            // stored task is cancelled on every relevant lifecycle transition.
+            // This is a genuine file-appearance retry delay. It is injected for tests
+            // and the stored task is cancelled whenever the surface session ends.
             do {
                 try await sleep(delay)
             } catch {
                 return
             }
             guard !Task.isCancelled, let self else { return }
+            guard self.activeSession?.id == sessionID else { return }
             self.thumbnailRetryTasksByPath.removeValue(forKey: path)
-            guard self.isEnabled,
-                  self.isVisibleInUI,
-                  self.annotations.contains(where: { $0.resolvedPath == path }) else {
-                return
-            }
-            self.requestMissingThumbnails(for: self.annotations.filter { $0.resolvedPath == path })
+            self.requestMissingThumbnails(
+                for: self.annotations.filter { $0.resolvedPath == path }
+            )
         }
     }
 
     private func render() {
-        guard let hostedView,
-              let overlayView,
-              let surface = hostedView.surfaceView.terminalSurface?.surface else {
+        guard let activeSession,
+              isEligible(activeSession),
+              let hostedView,
+              let overlayView else {
             overlayView?.clear()
             return
         }
-        let surfaceView = hostedView.surfaceView
-        // `surfaceView.cellSize` (and the copy-mode grid metrics built from
-        // it) carries Ghostty's raw pixel cell size, so derive the point-space
-        // grid from the surface size and backing scale, the same way
-        // TerminalSurface.mobileScroll does.
-        let size = ghostty_surface_size(surface)
-        let scale = max(surfaceView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
-        let cellWidth = CGFloat(size.cell_width_px) / scale
-        let cellHeight = CGFloat(size.cell_height_px) / scale
-        guard cellWidth > 0, cellHeight > 0 else {
-            overlayView.clear()
-            return
-        }
-        let xInset = max(0, (surfaceView.bounds.width - CGFloat(size.columns) * cellWidth) / 2)
-        let yInset = max(0, (surfaceView.bounds.height - CGFloat(size.rows) * cellHeight) / 2)
-        let items = annotations.compactMap { annotation -> TerminalInlineImageOverlayItem? in
-            guard let thumbnail = thumbnailsByID[annotation.id] else { return nil }
-            let rowTopFromTop = yInset + CGFloat(annotation.rowIndex) * cellHeight
-            let cellRect = CGRect(
-                x: xInset,
-                y: surfaceView.bounds.height - rowTopFromTop - cellHeight,
-                width: cellWidth,
-                height: cellHeight
-            )
-            return TerminalInlineImageOverlayItem(
-                annotation: annotation,
-                thumbnail: thumbnail,
-                anchorRect: overlayView.convert(cellRect, from: surfaceView)
-            )
-        }
-        overlayView.update(items: items)
+        renderer.render(
+            hostedView: hostedView,
+            overlayView: overlayView,
+            annotations: annotations,
+            thumbnailsByID: thumbnailsByID
+        )
     }
 
     private func clearAnnotations() {
         annotations.removeAll()
         thumbnailsByID.removeAll()
-        pendingThumbnailPaths.removeAll()
         thumbnailRetryAttemptByPath.removeAll()
+        cancelThumbnailLoadTasks()
         cancelThumbnailRetryTasks()
         overlayView?.clear()
+    }
+
+    private func cancelThumbnailLoads(except livePaths: Set<String>) {
+        let stalePaths = thumbnailLoadTasksByPath.keys.filter { !livePaths.contains($0) }
+        for path in stalePaths {
+            thumbnailLoadTasksByPath.removeValue(forKey: path)?.cancel()
+            thumbnailLoadIDsByPath.removeValue(forKey: path)
+        }
+    }
+
+    private func cancelThumbnailLoadTasks() {
+        thumbnailLoadTasksByPath.values.forEach { $0.cancel() }
+        thumbnailLoadTasksByPath.removeAll()
+        thumbnailLoadIDsByPath.removeAll()
     }
 
     private func cancelThumbnailRetries(except livePaths: Set<String>) {
@@ -449,9 +469,7 @@ final class TerminalInlineImageController {
     }
 
     private func cancelThumbnailRetryTasks() {
-        for task in thumbnailRetryTasksByPath.values {
-            task.cancel()
-        }
+        thumbnailRetryTasksByPath.values.forEach { $0.cancel() }
         thumbnailRetryTasksByPath.removeAll()
     }
 }

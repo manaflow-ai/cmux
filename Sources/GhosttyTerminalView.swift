@@ -4295,10 +4295,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
-        return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
-        }
+        terminalSurface?.performBindingAction(action) ?? false
     }
 
     @discardableResult
@@ -5525,6 +5522,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // For performable bindings where the menu didn't handle the event,
             // fall through to keyDown so Ghostty can perform the action directly
             // (e.g. paste when no menu item exists).
+            terminalSurface?.hostedView.notePotentialInlineImageGridMutation()
             keyDown(with: event)
             return true
         }
@@ -9083,6 +9081,7 @@ final class GhosttySurfaceScrollView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         inlineImagePreviewDidMoveToWindow()
+        inlineImageController?.hostedViewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
@@ -9828,6 +9827,18 @@ final class GhosttySurfaceScrollView: NSView {
             }
             self.flashLayer.add(animation, forKey: "cmux.flash")
         }
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        // AppKit sends this for direct and ancestor visibility changes. Portal
+        // geometry churn can reveal this view without another window or UI-visible
+        // transition, so let the per-surface session reacquire notification demand.
+        inlineImageController?.hostedViewDidUnhide()
+    }
+
+    func notePotentialInlineImageGridMutation() {
+        inlineImageController?.notePotentialLocalGridMutation()
     }
 
     func setVisibleInUI(_ visible: Bool) {

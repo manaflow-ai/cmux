@@ -12,11 +12,11 @@ final class TerminalInlineImageOutputService: @unchecked Sendable {
     private let notificationCenter: NotificationCenter
     private let scheduleTick: @Sendable () -> Void
     private let retainTickDemand: @Sendable () -> any RenderDemandRetention
-    private let outputDemand = RenderDemandCounter()
     // SAFETY: Ghostty's synchronous PTY callback cannot await an actor. This lock protects
-    // only a bounded set of surface ids; its hot critical section is one demand recheck and insert.
+    // only per-surface demand and a bounded set of pending ids at the C callback boundary.
     private let pendingSurfaceLock = NSLock()
-    // SAFETY: every access is guarded by `pendingSurfaceLock`.
+    // SAFETY: every access to these properties is guarded by `pendingSurfaceLock`.
+    nonisolated(unsafe) private var demandBySurfaceID: [UUID: RenderDemandCounter] = [:]
     nonisolated(unsafe) private var pendingSurfaceIDs: Set<UUID> = []
     private var tickObserver: NSObjectProtocol?
 
@@ -47,21 +47,24 @@ final class TerminalInlineImageOutputService: @unchecked Sendable {
     ///
     /// The release closure is synchronous and idempotent, so lifecycle teardown does not
     /// need an unstructured task or a main-actor hop.
-    func retainNotifications() -> @Sendable () -> Void {
+    func retainNotifications(for surfaceID: UUID) -> @Sendable () -> Void {
+        pendingSurfaceLock.lock()
+        let surfaceDemand = demandBySurfaceID[surfaceID] ?? RenderDemandCounter()
+        demandBySurfaceID[surfaceID] = surfaceDemand
+        let surfaceRetention = surfaceDemand.retain()
+        pendingSurfaceLock.unlock()
         let tickRetention = retainTickDemand()
-        let outputRetention = outputDemand.retain()
         return { [weak self] in
-            outputRetention.release()
+            surfaceRetention.release()
             tickRetention.release()
-            self?.discardPendingSurfacesIfInactive()
+            self?.releaseSurfaceIfInactive(surfaceID: surfaceID, demand: surfaceDemand)
         }
     }
 
     /// Records output from Ghostty's synchronous pre-parser PTY callback.
     nonisolated func noteSurfaceOutput(surfaceID: UUID) {
-        guard outputDemand.isActive else { return }
         pendingSurfaceLock.lock()
-        guard outputDemand.isActive else {
+        guard demandBySurfaceID[surfaceID]?.isActive == true else {
             pendingSurfaceLock.unlock()
             return
         }
@@ -76,7 +79,7 @@ final class TerminalInlineImageOutputService: @unchecked Sendable {
 
     private func flushPendingSurfaceNotifications() {
         pendingSurfaceLock.lock()
-        let surfaceIDs = pendingSurfaceIDs
+        let surfaceIDs = pendingSurfaceIDs.filter { demandBySurfaceID[$0]?.isActive == true }
         pendingSurfaceIDs.removeAll()
         pendingSurfaceLock.unlock()
         for surfaceID in surfaceIDs {
@@ -84,10 +87,11 @@ final class TerminalInlineImageOutputService: @unchecked Sendable {
         }
     }
 
-    private func discardPendingSurfacesIfInactive() {
+    private func releaseSurfaceIfInactive(surfaceID: UUID, demand: RenderDemandCounter) {
         pendingSurfaceLock.lock()
-        if !outputDemand.isActive {
-            pendingSurfaceIDs.removeAll()
+        if demandBySurfaceID[surfaceID] === demand, !demand.isActive {
+            demandBySurfaceID.removeValue(forKey: surfaceID)
+            pendingSurfaceIDs.remove(surfaceID)
         }
         pendingSurfaceLock.unlock()
     }

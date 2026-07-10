@@ -1400,12 +1400,23 @@
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
 		A76830000000000000000002 /* TerminalInlineImageAnnotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683000000000000000000D /* TerminalInlineImageAnnotation.swift */; };
 		A76830000000000000000003 /* TerminalInlineImageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683000000000000000000E /* TerminalInlineImageController.swift */; };
+		A7683A000000000000000018 /* TerminalInlineImageEventSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000017 /* TerminalInlineImageEventSubscription.swift */; };
 		A76830000000000000000019 /* TerminalInlineImageOutputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000018 /* TerminalInlineImageOutputService.swift */; };
 		A76830000000000000000004 /* TerminalInlineImageOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683000000000000000000F /* TerminalInlineImageOverlayView.swift */; };
 		A7683A000000000000000002 /* TerminalInlineImagePipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000001 /* TerminalInlineImagePipelineTests.swift */; };
 		A7683000000000000000000B /* TerminalInlineImageReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000016 /* TerminalInlineImageReconcilerTests.swift */; };
+		A7683A000000000000000014 /* TerminalInlineImageRenderedFrameGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000013 /* TerminalInlineImageRenderedFrameGate.swift */; };
+		A7683A00000000000000000E /* TerminalInlineImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A00000000000000000D /* TerminalInlineImageRenderer.swift */; };
+		A7683A000000000000000010 /* TerminalInlineImageScanCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A00000000000000000F /* TerminalInlineImageScanCoordinator.swift */; };
+		A7683A000000000000000012 /* TerminalInlineImageScanCoordinatorDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000011 /* TerminalInlineImageScanCoordinatorDelegate.swift */; };
+		A7683A000000000000000004 /* TerminalInlineImageScanGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000003 /* TerminalInlineImageScanGate.swift */; };
+		A7683A000000000000000008 /* TerminalInlineImageScannerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000007 /* TerminalInlineImageScannerService.swift */; };
+		A7683A000000000000000006 /* TerminalInlineImageScanRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000005 /* TerminalInlineImageScanRequest.swift */; };
+		A7683A000000000000000016 /* TerminalInlineImageSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000015 /* TerminalInlineImageSession.swift */; };
 		A76830000000000000000005 /* TerminalInlineImageSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000010 /* TerminalInlineImageSettings.swift */; };
+		A7683A00000000000000000A /* TerminalInlineImageThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A000000000000000009 /* TerminalInlineImageThumbnail.swift */; };
 		A76830000000000000000006 /* TerminalInlineImageThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76830000000000000000011 /* TerminalInlineImageThumbnailCache.swift */; };
+		A7683A00000000000000000C /* TerminalInlineImageThumbnailDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7683A00000000000000000B /* TerminalInlineImageThumbnailDecoder.swift */; };
 		A5F10000000000000000000B /* TerminalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000C /* TerminalNotification.swift */; };
 		A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */; };
 		A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */; };
@@ -3029,12 +3040,23 @@
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
 		A7683000000000000000000D /* TerminalInlineImageAnnotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageAnnotation.swift; sourceTree = "<group>"; };
 		A7683000000000000000000E /* TerminalInlineImageController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageController.swift; sourceTree = "<group>"; };
+		A7683A000000000000000017 /* TerminalInlineImageEventSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageEventSubscription.swift; sourceTree = "<group>"; };
 		A76830000000000000000018 /* TerminalInlineImageOutputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageOutputService.swift; sourceTree = "<group>"; };
 		A7683000000000000000000F /* TerminalInlineImageOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageOverlayView.swift; sourceTree = "<group>"; };
 		A7683A000000000000000001 /* TerminalInlineImagePipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImagePipelineTests.swift; sourceTree = "<group>"; };
 		A76830000000000000000016 /* TerminalInlineImageReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageReconcilerTests.swift; sourceTree = "<group>"; };
+		A7683A000000000000000013 /* TerminalInlineImageRenderedFrameGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageRenderedFrameGate.swift; sourceTree = "<group>"; };
+		A7683A00000000000000000D /* TerminalInlineImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageRenderer.swift; sourceTree = "<group>"; };
+		A7683A00000000000000000F /* TerminalInlineImageScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageScanCoordinator.swift; sourceTree = "<group>"; };
+		A7683A000000000000000011 /* TerminalInlineImageScanCoordinatorDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageScanCoordinatorDelegate.swift; sourceTree = "<group>"; };
+		A7683A000000000000000003 /* TerminalInlineImageScanGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageScanGate.swift; sourceTree = "<group>"; };
+		A7683A000000000000000007 /* TerminalInlineImageScannerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageScannerService.swift; sourceTree = "<group>"; };
+		A7683A000000000000000005 /* TerminalInlineImageScanRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageScanRequest.swift; sourceTree = "<group>"; };
+		A7683A000000000000000015 /* TerminalInlineImageSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageSession.swift; sourceTree = "<group>"; };
 		A76830000000000000000010 /* TerminalInlineImageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageSettings.swift; sourceTree = "<group>"; };
+		A7683A000000000000000009 /* TerminalInlineImageThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageThumbnail.swift; sourceTree = "<group>"; };
 		A76830000000000000000011 /* TerminalInlineImageThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageThumbnailCache.swift; sourceTree = "<group>"; };
+		A7683A00000000000000000B /* TerminalInlineImageThumbnailDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInlineImageThumbnailDecoder.swift; sourceTree = "<group>"; };
 		A5F10000000000000000000C /* TerminalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotification.swift; sourceTree = "<group>"; };
 		A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerResolver.swift; sourceTree = "<group>"; };
 		A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerTests.swift; sourceTree = "<group>"; };
@@ -3556,8 +3578,19 @@
 				A7683000000000000000000E /* TerminalInlineImageController.swift */,
 				A76830000000000000000018 /* TerminalInlineImageOutputService.swift */,
 				A7683000000000000000000F /* TerminalInlineImageOverlayView.swift */,
+				A7683A00000000000000000D /* TerminalInlineImageRenderer.swift */,
+				A7683A000000000000000013 /* TerminalInlineImageRenderedFrameGate.swift */,
+				A7683A000000000000000017 /* TerminalInlineImageEventSubscription.swift */,
+				A7683A00000000000000000F /* TerminalInlineImageScanCoordinator.swift */,
+				A7683A000000000000000011 /* TerminalInlineImageScanCoordinatorDelegate.swift */,
+				A7683A000000000000000003 /* TerminalInlineImageScanGate.swift */,
+				A7683A000000000000000005 /* TerminalInlineImageScanRequest.swift */,
+				A7683A000000000000000007 /* TerminalInlineImageScannerService.swift */,
+				A7683A000000000000000015 /* TerminalInlineImageSession.swift */,
 				A76830000000000000000010 /* TerminalInlineImageSettings.swift */,
+				A7683A000000000000000009 /* TerminalInlineImageThumbnail.swift */,
 				A76830000000000000000011 /* TerminalInlineImageThumbnailCache.swift */,
+				A7683A00000000000000000B /* TerminalInlineImageThumbnailDecoder.swift */,
 				A76830000000000000000012 /* TerminalTranscriptImagePathScanner.swift */,
 			);
 			path = TerminalInlineImages;
@@ -6301,10 +6334,21 @@
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				A76830000000000000000002 /* TerminalInlineImageAnnotation.swift in Sources */,
 				A76830000000000000000003 /* TerminalInlineImageController.swift in Sources */,
+				A7683A000000000000000018 /* TerminalInlineImageEventSubscription.swift in Sources */,
 				A76830000000000000000019 /* TerminalInlineImageOutputService.swift in Sources */,
 				A76830000000000000000004 /* TerminalInlineImageOverlayView.swift in Sources */,
+				A7683A000000000000000014 /* TerminalInlineImageRenderedFrameGate.swift in Sources */,
+				A7683A00000000000000000E /* TerminalInlineImageRenderer.swift in Sources */,
+				A7683A000000000000000010 /* TerminalInlineImageScanCoordinator.swift in Sources */,
+				A7683A000000000000000012 /* TerminalInlineImageScanCoordinatorDelegate.swift in Sources */,
+				A7683A000000000000000004 /* TerminalInlineImageScanGate.swift in Sources */,
+				A7683A000000000000000008 /* TerminalInlineImageScannerService.swift in Sources */,
+				A7683A000000000000000006 /* TerminalInlineImageScanRequest.swift in Sources */,
+				A7683A000000000000000016 /* TerminalInlineImageSession.swift in Sources */,
 				A76830000000000000000005 /* TerminalInlineImageSettings.swift in Sources */,
+				A7683A00000000000000000A /* TerminalInlineImageThumbnail.swift in Sources */,
 				A76830000000000000000006 /* TerminalInlineImageThumbnailCache.swift in Sources */,
+				A7683A00000000000000000C /* TerminalInlineImageThumbnailDecoder.swift in Sources */,
 				A5F10000000000000000000B /* TerminalNotification.swift in Sources */,
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,

@@ -1,88 +1,216 @@
 import AppKit
 import Foundation
-import ImageIO
 
-struct TerminalInlineImageThumbnail: Sendable {
-    let cgImage: CGImage
-    let pixelSize: CGSize
-    let cost: Int
-}
+/// A bounded, deduplicating repository for inline-image thumbnail work.
+actor TerminalInlineImageThumbnailCache {
+    typealias MetadataKeyProvider = @Sendable (String) -> String?
+    typealias Decode = @Sendable (String) async -> TerminalInlineImageThumbnail?
 
-private final class TerminalInlineImageThumbnailBox: NSObject {
-    let thumbnail: TerminalInlineImageThumbnail
-
-    init(thumbnail: TerminalInlineImageThumbnail) {
-        self.thumbnail = thumbnail
+    private struct DecodeRequestToken: Equatable, Sendable {
+        let id: UUID
+        let cacheGeneration: UInt64
     }
-}
 
-// SAFETY: Mutable dictionaries are touched only on `queue`; `NSCache` is thread-safe.
-final class TerminalInlineImageThumbnailCache: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.cmux.inline-image-thumbnails", qos: .utility)
-    private let cache = NSCache<NSString, TerminalInlineImageThumbnailBox>()
+    private let cache = NSCache<NSString, CGImage>()
     private var cachedKeyByPath: [String: String] = [:]
     private var cachedPathOrder: [String] = []
     private let maximumCachedPathKeys = 384
-    private let fileManager: FileManager
+    private let maximumConcurrentDecodes: Int
+    private let maximumPendingDecodes: Int
+    private let metadataKeyProvider: MetadataKeyProvider
+    private let decode: Decode
+    private var waitersByKey: [String: [UUID: CheckedContinuation<TerminalInlineImageThumbnail?, Never>]] = [:]
+    private var pathByKey: [String: String] = [:]
+    private var pendingKeys: [String] = []
+    private var pendingHeadIndex = 0
+    private var activeTasksByKey: [String: Task<Void, Never>] = [:]
+    private var requestTokenByKey: [String: DecodeRequestToken] = [:]
+    private var cacheGeneration: UInt64 = 0
 
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
+    init(
+        maximumConcurrentDecodes: Int = 2,
+        maximumPendingDecodes: Int = 128,
+        metadataKeyProvider: @escaping MetadataKeyProvider = {
+            TerminalInlineImageThumbnailDecoder().metadataKey(for: $0)
+        },
+        decode: @escaping Decode = { path in
+            await TerminalInlineImageThumbnailDecoder().decode(path: path)
+        }
+    ) {
+        self.maximumConcurrentDecodes = max(1, maximumConcurrentDecodes)
+        self.maximumPendingDecodes = max(1, maximumPendingDecodes)
+        self.metadataKeyProvider = metadataKeyProvider
+        self.decode = decode
         cache.countLimit = 128
         cache.totalCostLimit = 64 * 1024 * 1024
     }
 
-    func thumbnail(
-        for path: String,
-        completion: @escaping @Sendable (TerminalInlineImageThumbnail?) -> Void
-    ) {
-        queue.async { [weak self] in
-            guard let self else {
-                DispatchQueue.main.async { completion(nil) }
-                return
+    func thumbnail(for path: String) async -> TerminalInlineImageThumbnail? {
+        guard !Task.isCancelled else { return nil }
+        guard let key = metadataKeyProvider(path) else {
+            return cachedThumbnailForMissingFile(path: path)
+        }
+        if let cached = cachedThumbnail(for: key) {
+            rememberCachedKey(key, for: path)
+            return cached
+        }
+
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                enqueue(
+                    waiterID: waiterID,
+                    continuation: continuation,
+                    path: path,
+                    key: key
+                )
             }
-            let thumbnail = self.thumbnailOnQueue(for: path)
-            DispatchQueue.main.async {
-                completion(thumbnail)
+        } onCancel: { [weak self] in
+            Task {
+                await self?.cancelWaiter(id: waiterID, key: key)
             }
         }
     }
 
     func removeAll() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            cache.removeAllObjects()
-            cachedKeyByPath.removeAll()
-            cachedPathOrder.removeAll()
-        }
+        cacheGeneration &+= 1
+        cache.removeAllObjects()
+        cachedKeyByPath.removeAll()
+        cachedPathOrder.removeAll()
+        activeTasksByKey.values.forEach { $0.cancel() }
+        let continuations = waitersByKey.values.flatMap { $0.values }
+        waitersByKey.removeAll()
+        pathByKey.removeAll()
+        requestTokenByKey.removeAll()
+        pendingKeys.removeAll()
+        pendingHeadIndex = 0
+        continuations.forEach { $0.resume(returning: nil) }
     }
 
-    private func thumbnailOnQueue(for path: String) -> TerminalInlineImageThumbnail? {
-        guard let fileKey = fileMetadataKey(for: path) else {
-            if let previousKey = cachedKeyByPath[path],
-               let cached = cache.object(forKey: previousKey as NSString) {
-                return cached.thumbnail
-            }
-            return nil
+    private func enqueue(
+        waiterID: UUID,
+        continuation: CheckedContinuation<TerminalInlineImageThumbnail?, Never>,
+        path: String,
+        key: String
+    ) {
+        if var waiters = waitersByKey[key] {
+            waiters[waiterID] = continuation
+            waitersByKey[key] = waiters
+            return
         }
-        if let cached = cache.object(forKey: fileKey as NSString) {
-            rememberCachedKey(fileKey, for: path)
-            return cached.thumbnail
+        guard waitersByKey.count < maximumPendingDecodes + maximumConcurrentDecodes else {
+            continuation.resume(returning: nil)
+            return
         }
-        guard let thumbnail = decodeThumbnail(path: path) else { return nil }
-        cache.setObject(
-            TerminalInlineImageThumbnailBox(thumbnail: thumbnail),
-            forKey: fileKey as NSString,
-            cost: thumbnail.cost
+        waitersByKey[key] = [waiterID: continuation]
+        pathByKey[key] = path
+        requestTokenByKey[key] = DecodeRequestToken(
+            id: UUID(),
+            cacheGeneration: cacheGeneration
         )
-        rememberCachedKey(fileKey, for: path)
-        return thumbnail
+        pendingKeys.append(key)
+        startPendingDecodesIfPossible()
     }
 
-    private func rememberCachedKey(_ fileKey: String, for path: String) {
+    private func startPendingDecodesIfPossible() {
+        while activeTasksByKey.count < maximumConcurrentDecodes,
+              pendingHeadIndex < pendingKeys.count {
+            let key = pendingKeys[pendingHeadIndex]
+            guard activeTasksByKey[key] == nil else { break }
+            pendingHeadIndex += 1
+            guard let path = pathByKey[key],
+                  waitersByKey[key] != nil,
+                  let requestToken = requestTokenByKey[key] else {
+                continue
+            }
+            let decode = decode
+            activeTasksByKey[key] = Task { [weak self, decode, key, path] in
+                let thumbnail = await decode(path)
+                let result = Task.isCancelled ? nil : thumbnail
+                await self?.decodeDidFinish(
+                    result,
+                    path: path,
+                    key: key,
+                    requestToken: requestToken
+                )
+            }
+        }
+        compactPendingKeysIfNeeded()
+    }
+
+    private func decodeDidFinish(
+        _ thumbnail: TerminalInlineImageThumbnail?,
+        path: String,
+        key: String,
+        requestToken: DecodeRequestToken
+    ) {
+        activeTasksByKey.removeValue(forKey: key)
+        guard requestTokenByKey[key] == requestToken else {
+            startPendingDecodesIfPossible()
+            return
+        }
+        let currentKey = metadataKeyProvider(path)
+        let currentThumbnail = requestToken.cacheGeneration == cacheGeneration && currentKey == key ? thumbnail : nil
+        if let currentThumbnail {
+            cache.setObject(currentThumbnail.cgImage, forKey: key as NSString, cost: currentThumbnail.cost)
+            rememberCachedKey(key, for: path)
+        }
+        let waiters = waitersByKey.removeValue(forKey: key)?.values ?? [:].values
+        pathByKey.removeValue(forKey: key)
+        requestTokenByKey.removeValue(forKey: key)
+        for continuation in waiters {
+            continuation.resume(returning: currentThumbnail)
+        }
+        startPendingDecodesIfPossible()
+    }
+
+    private func cancelWaiter(id: UUID, key: String) {
+        guard var waiters = waitersByKey[key],
+              let continuation = waiters.removeValue(forKey: id) else {
+            return
+        }
+        continuation.resume(returning: nil)
+        if waiters.isEmpty {
+            if let activeTask = activeTasksByKey[key] {
+                waitersByKey.removeValue(forKey: key)
+                pathByKey.removeValue(forKey: key)
+                requestTokenByKey.removeValue(forKey: key)
+                activeTask.cancel()
+            } else {
+                waitersByKey.removeValue(forKey: key)
+                pathByKey.removeValue(forKey: key)
+                requestTokenByKey.removeValue(forKey: key)
+                compactPendingKeysAfterCancellation()
+            }
+        } else {
+            waitersByKey[key] = waiters
+        }
+    }
+
+    private func cachedThumbnailForMissingFile(path: String) -> TerminalInlineImageThumbnail? {
+        guard let previousKey = cachedKeyByPath[path] else { return nil }
+        return cachedThumbnail(for: previousKey)
+    }
+
+    private func cachedThumbnail(for key: String) -> TerminalInlineImageThumbnail? {
+        guard let image = cache.object(forKey: key as NSString) else { return nil }
+        let cost = max(1, image.width * image.height * 4)
+        return TerminalInlineImageThumbnail(
+            cgImage: image,
+            pixelSize: CGSize(width: image.width, height: image.height),
+            cost: cost
+        )
+    }
+
+    private func rememberCachedKey(_ key: String, for path: String) {
         if cachedKeyByPath[path] == nil {
             cachedPathOrder.append(path)
         }
-        cachedKeyByPath[path] = fileKey
+        cachedKeyByPath[path] = key
         guard cachedPathOrder.count > maximumCachedPathKeys else { return }
         let overflow = cachedPathOrder.count - maximumCachedPathKeys
         for expiredPath in cachedPathOrder.prefix(overflow) {
@@ -91,43 +219,14 @@ final class TerminalInlineImageThumbnailCache: @unchecked Sendable {
         cachedPathOrder.removeFirst(overflow)
     }
 
-    private func fileMetadataKey(for path: String) -> String? {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: path),
-              let fileSize = attributes[.size] as? NSNumber,
-              fileSize.int64Value <= 50 * 1024 * 1024 else {
-            return nil
-        }
-        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        return "\(path)|\(fileSize.int64Value)|\(modified)"
+    private func compactPendingKeysIfNeeded() {
+        guard pendingHeadIndex > 32, pendingHeadIndex * 2 >= pendingKeys.count else { return }
+        pendingKeys.removeFirst(pendingHeadIndex)
+        pendingHeadIndex = 0
     }
 
-    private func decodeThumbnail(path: String) -> TerminalInlineImageThumbnail? {
-        let url = URL(fileURLWithPath: path)
-        let sourceOptions: [CFString: Any] = [
-            kCGImageSourceShouldCache: false
-        ]
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
-            return nil
-        }
-        let thumbnailOptions: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 512,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
-            source,
-            0,
-            thumbnailOptions as CFDictionary
-        ) else {
-            return nil
-        }
-        let bytesPerPixel = 4
-        let cost = max(1, cgImage.width * cgImage.height * bytesPerPixel)
-        return TerminalInlineImageThumbnail(
-            cgImage: cgImage,
-            pixelSize: CGSize(width: cgImage.width, height: cgImage.height),
-            cost: cost
-        )
+    private func compactPendingKeysAfterCancellation() {
+        pendingKeys = pendingKeys[pendingHeadIndex...].filter { waitersByKey[$0] != nil }
+        pendingHeadIndex = 0
     }
 }
