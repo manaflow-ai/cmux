@@ -202,7 +202,46 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(savedWorkspace.panels.first(where: { $0.id == panelId })?.terminal != nil)
     }
 
-    private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
+    @Test
+    func blockedTerminationCaptureCannotDelayCorePersistenceOrWatchdog() async {
+        let captureStarted = DispatchSemaphore(value: 0)
+        let releaseCapture = DispatchSemaphore(value: 0)
+        defer { releaseCapture.signal() }
+        let didPersistCoreSnapshot = OSAllocatedUnfairLock(initialState: false)
+        let didComplete = OSAllocatedUnfairLock(initialState: false)
+        let watchdogFired = OSAllocatedUnfairLock(initialState: false)
+        let scheduledFire = OSAllocatedUnfairLock<(@Sendable () -> Void)?>(initialState: nil)
+        let watchdog = TerminationWatchdog(
+            onFire: { watchdogFired.withLock { $0 = true } },
+            scheduleDeadline: { _, fire in scheduledFire.withLock { $0 = fire } }
+        )
+        let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
+
+        let task = capture.start(
+            persistCoreSnapshot: { didPersistCoreSnapshot.withLock { $0 = true } },
+            capture: {
+                captureStarted.signal()
+                _ = await Self.wait(for: releaseCapture)
+                return nil
+            },
+            completion: { _ in didComplete.withLock { $0 = true } }
+        )
+
+        #expect(didPersistCoreSnapshot.withLock { $0 })
+        let fire = scheduledFire.withLock { $0 }
+        #expect(fire.map { _ in true } == true)
+        #expect(await Self.wait(for: captureStarted))
+        #expect(!didComplete.withLock { $0 })
+        fire?()
+        #expect(watchdogFired.withLock { $0 })
+
+        task.cancel()
+        releaseCapture.signal()
+        await task.value
+        #expect(!didComplete.withLock { $0 })
+    }
+
+    nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
             surfaceResumeBindingIndex: .empty,
