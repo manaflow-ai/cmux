@@ -32,16 +32,27 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 
     /// Write `localConfig` as `LocalConfig.plist` inside a fresh directory
     /// bundle, mirroring how a build bundles the override plist.
-    private func fixtureBundle(localConfig: [String: String]) throws -> Bundle {
+    private func fixtureBundle(
+        localConfig: [String: String],
+        infoPlist: [String: String] = [:]
+    ) throws -> Bundle {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-auth-env-fixture-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try PropertyListSerialization.data(
+        let localConfigData = try PropertyListSerialization.data(
             fromPropertyList: localConfig,
             format: .xml,
             options: 0
         )
-        try data.write(to: directory.appendingPathComponent("LocalConfig.plist"))
+        try localConfigData.write(to: directory.appendingPathComponent("LocalConfig.plist"))
+        if !infoPlist.isEmpty {
+            let infoPlistData = try PropertyListSerialization.data(
+                fromPropertyList: infoPlist,
+                format: .xml,
+                options: 0
+            )
+            try infoPlistData.write(to: directory.appendingPathComponent("Info.plist"))
+        }
         return try #require(Bundle(path: directory.path))
     }
 
@@ -77,6 +88,16 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 
         #expect(composition.config.stack.projectId == Self.developmentProjectID)
         #expect(composition.config.apiBaseURL == "http://localhost:3000")
+    }
+
+    @Test func bakedAPIBaseURLOverridesDevelopmentDefault() throws {
+        let bundle = try fixtureBundle(
+            localConfig: [:],
+            infoPlist: ["CMUXApiBaseURL": "http://cmux-mac.local:4123"]
+        )
+        let composition = try makeComposition(bundle: bundle)
+
+        #expect(composition.config.apiBaseURL == "http://cmux-mac.local:4123")
     }
 
     @Test func productionOverrideExposesProductionAuthEnvironment() throws {
