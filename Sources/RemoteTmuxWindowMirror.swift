@@ -194,7 +194,8 @@ final class RemoteTmuxWindowMirror {
         let livePaneIDsInOrder = newLayout.paneIDsInOrder
         let livePaneIds = Set(livePaneIDsInOrder)
         paneIndexByPaneId = Dictionary(
-            uniqueKeysWithValues: livePaneIDsInOrder.enumerated().map { ($0.element, $0.offset) }
+            livePaneIDsInOrder.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { firstIndex, _ in firstIndex }
         )
         for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
