@@ -523,6 +523,69 @@ import CmuxGit
         #expect(host.orderedWorkspaceIdsReadCount == 4)
     }
 
+    /// A shell branch report can update only the dirty projection while its
+    /// normalized repository source stays unchanged. That projection update
+    /// must not force a PR traversal; command hints remain force requests.
+    @Test(.timeLimit(.minutes(1)))
+    func sameBranchDirtyOnlyUpdateDoesNotTraversePullRequestPoller() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let gitClock = ManualGitPollClock()
+        let pullRequestService = makePullRequestService(host: host)
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: gitClock,
+            pullRequestProbing: pullRequestService
+        )
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await gitClock.waitForSleeper(duration: 0)
+        #expect(await gitClock.resumeFirst(duration: 0))
+        #expect(await waitUntil {
+            host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+                branch: "feature/x",
+                isDirty: false
+            ) && host.orderedWorkspaceIdsReadCount == 1
+        })
+
+        let workspaceReadsBeforeDirtyUpdate = host.orderedWorkspaceIdsReadCount
+        let branchPanelReadsBeforeDirtyUpdate = host.panelGitBranchPanelIdsReadCount
+        let pullRequestPanelReadsBeforeDirtyUpdate = host.panelPullRequestPanelIdsReadCount
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: " feature/x ",
+            isDirty: true
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: true
+        ))
+        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeDirtyUpdate)
+        #expect(host.panelGitBranchPanelIdsReadCount == branchPanelReadsBeforeDirtyUpdate)
+        #expect(host.panelPullRequestPanelIdsReadCount == pullRequestPanelReadsBeforeDirtyUpdate)
+
+        let workspaceReadsBeforeCommandHint = host.orderedWorkspaceIdsReadCount
+        let branchPanelReadsBeforeCommandHint = host.panelGitBranchPanelIdsReadCount
+        let pullRequestPanelReadsBeforeCommandHint = host.panelPullRequestPanelIdsReadCount
+        pullRequestService.handleWorkspacePullRequestCommandHint(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            action: "merge",
+            target: nil
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeCommandHint + 1)
+        #expect(host.panelGitBranchPanelIdsReadCount == branchPanelReadsBeforeCommandHint + 1)
+        #expect(host.panelPullRequestPanelIdsReadCount == pullRequestPanelReadsBeforeCommandHint + 1)
+    }
+
     /// A filesystem event that arrives while a probe is already in flight is a
     /// freshness signal independent of whether the stale snapshot changes
     /// visible sidebar state. It should coalesce to one follow-up probe.
