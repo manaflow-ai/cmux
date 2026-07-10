@@ -152,14 +152,6 @@ public final class CEFApp {
         isContextInitialized = false
     }
 
-    /// Stops driving CEF without tearing it down (used on the way out of the
-    /// process, where finalizeProcessExitIfNeeded ends things).
-    private func quiesce() {
-        CEFMessagePump.shared.stop()
-        isInitialized = false
-        isContextInitialized = false
-    }
-
     /// Ends the process without running atexit handlers. Call at the very
     /// end of the host's applicationWillTerminate when CEF was used this
     /// session: Chromium's atexit/static-destructor path DCHECKs (SIGTRAP)
@@ -190,12 +182,10 @@ public final class CEFApp {
             // all_.empty()).
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                CEFProfile.invalidateAllLiveProfiles()
                 for _ in 0..<20 {
                     CEFRuntime.doMessageLoopWork()
                     RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
                 }
-                self.quiesce()
                 completion()
             }
         }
@@ -208,16 +198,17 @@ public final class CEFApp {
     /// termination, let browsers close on the live run loop, then terminate
     /// again.
     ///
-    /// Call from applicationShouldTerminate. Returns true when it is safe to
-    /// terminate right now (CEF idle or already shut down — CEF has been shut
-    /// down when it returns true). Returns false when browsers are still
-    /// open: the caller must return .terminateCancel, and `onReady` runs on
-    /// the main thread after every browser has closed and CEF has shut down
-    /// (re-invoke NSApp.terminate there).
+    /// Call from applicationShouldTerminate at the point where quit is
+    /// committed. Returns true when it is safe to terminate right now (no
+    /// live browsers). Returns false when browsers are still open: the
+    /// caller must release the pending terminate request, and `onReady` runs
+    /// on the main thread after every browser has closed (re-invoke
+    /// NSApp.terminate there). CEF stays initialized either way — a
+    /// termination the host later cancels leaves the feature usable, and
+    /// process exit skips Chromium teardown via finalizeProcessExitIfNeeded.
     public func prepareForTermination(onReady: @escaping () -> Void) -> Bool {
         guard isInitialized else { return true }
         if liveBrowserCount == 0 {
-            quiesce()
             return true
         }
         if terminationCompletion == nil {

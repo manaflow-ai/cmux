@@ -1899,8 +1899,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            prepareForConfirmedAppTermination()
+            // Confirmed via dialog. If CEF browsers are open, they must close
+            // on the live run loop before termination proceeds: release this
+            // terminate request (the confirmed flag below makes the
+            // re-initiated termination skip the dialog and terminate).
             isQuitWarningConfirmed = true
+            if !CEFRuntimeSupport.prepareForApplicationTermination() {
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.cefDrainAfterConfirm")
+                replyToTerminateOnce(false)
+                return
+            }
+            prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
@@ -1916,13 +1925,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Terminating with CEF browsers open crashes in Chromium's atexit
-        // handlers; close them on the live run loop first (termination is
-        // re-initiated automatically once CEF has shut down). No-op unless
-        // the Chromium (CEF) debug browser was used this session.
-        if !CEFRuntimeSupport.prepareForApplicationTermination() {
-            return .terminateCancel
-        }
         if let reply = Self.pendingTerminateReply(
             isAwaitingTerminateKills: isAwaitingTerminateKills,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
@@ -1953,6 +1955,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
+            // Quit is committed (no dialog will be shown). CEF browsers must
+            // finish closing on the live run loop before termination proceeds
+            // — Chromium's close handshake cannot complete while a terminate
+            // request is pending. Cancel this request; termination is
+            // re-initiated once the drain completes. No-op unless the
+            // Chromium (CEF) debug browser was used this session.
+            if !CEFRuntimeSupport.prepareForApplicationTermination() {
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.cefDrain")
+                return .terminateCancel
+            }
             prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
