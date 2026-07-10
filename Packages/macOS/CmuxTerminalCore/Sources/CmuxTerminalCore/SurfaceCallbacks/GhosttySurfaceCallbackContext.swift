@@ -1,5 +1,6 @@
 public import Foundation
 public import GhosttyKit
+internal import OSLog
 
 /// The retained userdata handed to libghostty surface callbacks.
 ///
@@ -9,13 +10,19 @@ public import GhosttyKit
 /// model and host view through the ``TerminalSurfaceControlling`` and
 /// ``TerminalSurfaceHosting`` seams.
 ///
-/// Isolation: this type is intentionally not `Sendable` and holds no
-/// synchronization. Both references are `weak`, the identifiers are immutable,
-/// and libghostty may invoke callbacks off the main thread; callbacks read
-/// the context, then hop to the main actor before touching the model or view,
-/// preserving the legacy contract exactly. The owner releases the context
-/// only after the runtime surface has been freed.
+/// Isolation: this type is intentionally not `Sendable`. Both owner references
+/// are `weak`; renderer callbacks use only immutable identity plus the tiny
+/// profiling snapshot guarded below, without dereferencing either owner or
+/// hopping to the main actor. The owner releases the context only after the
+/// runtime surface has been freed.
 public final class GhosttySurfaceCallbackContext {
+    private let rendererStateLock = NSLock()
+    private let rendererEventSignposts = TerminalRendererProfilingSignposts()
+    nonisolated(unsafe) private var rendererVisible = true
+    nonisolated(unsafe) private var rendererFocused = false
+    nonisolated(unsafe) private var rendererEventPairing = TerminalRendererEventPairing()
+    nonisolated(unsafe) private var rendererUpdateState: OSSignpostIntervalState?
+    nonisolated(unsafe) private var rendererDrawState: OSSignpostIntervalState?
     /// The host view, used as a fallback identity source when the model
     /// reference has been released.
     public private(set) weak var surfaceHost: (any TerminalSurfaceHosting)?
@@ -28,6 +35,9 @@ public final class GhosttySurfaceCallbackContext {
 
     /// Stable, opaque renderer trace identity captured before any runtime recreation.
     public let rendererProfilingIdentity: TerminalRendererProfilingIdentity
+
+    /// Whether the process requested renderer profiling through the existing environment gate.
+    public var rendererEventProfilingRequested: Bool { rendererEventSignposts.collectionRequested }
 
     /// Creates the callback userdata for one runtime surface.
     ///
@@ -58,5 +68,44 @@ public final class GhosttySurfaceCallbackContext {
     public var runtimeSurface: ghostty_surface_t? {
         surfaceController?.runtimeSurfacePointer
             ?? surfaceHost?.attachedSurfaceController?.runtimeSurfacePointer
+    }
+
+    /// Publishes content-free UI state for the renderer callback.
+    public func updateRendererProfilingState(visible: Bool, focused: Bool) {
+        rendererStateLock.lock()
+        rendererVisible = visible
+        rendererFocused = focused
+        rendererStateLock.unlock()
+    }
+
+    /// Records an exact Ghostty renderer event synchronously on its calling renderer thread.
+    @inline(__always)
+    public func recordRendererEvent(_ event: ghostty_renderer_event_e) {
+        guard rendererEventSignposts.isEnabled,
+              let event = TerminalRendererProfilingEvent(event),
+              rendererStateLock.try() else { return }
+        let visible = rendererVisible
+        let focused = rendererFocused
+        rendererStateLock.unlock()
+
+        guard let action = rendererEventPairing.consume(event) else { return }
+        let metadata = TerminalRendererEventProfilingMetadata(
+            identity: rendererProfilingIdentity,
+            visible: visible,
+            focused: focused,
+            event: event
+        )
+        switch action {
+        case .begin(.updateFrame):
+            rendererUpdateState = rendererEventSignposts.beginRendererEvent(metadata)
+        case .end(.updateFrame):
+            rendererEventSignposts.endRendererEvent(rendererUpdateState, metadata)
+            rendererUpdateState = nil
+        case .begin(.drawFrame):
+            rendererDrawState = rendererEventSignposts.beginRendererEvent(metadata)
+        case .end(.drawFrame):
+            rendererEventSignposts.endRendererEvent(rendererDrawState, metadata)
+            rendererDrawState = nil
+        }
     }
 }

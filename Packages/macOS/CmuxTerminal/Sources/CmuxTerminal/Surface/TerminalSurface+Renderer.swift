@@ -16,6 +16,7 @@ extension TerminalSurface {
     /// Without this, `createSurface` would replay a stale state on recreation.
     public func recordExternalFocusState(_ focused: Bool) {
         desiredFocusState = focused
+        updateRendererCallbackProfilingState()
     }
 
     /// Applies a focus state to the runtime surface (deduplicated).
@@ -25,6 +26,7 @@ extension TerminalSurface {
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }
         desiredFocusState = focused
+        updateRendererCallbackProfilingState()
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
         guard let surface = surface else { return }
@@ -51,7 +53,15 @@ extension TerminalSurface {
     /// transition after recreation.
     public func setOcclusion(_ visible: Bool) {
         desiredOcclusionVisible = visible
+        updateRendererCallbackProfilingState()
         applyDesiredOcclusionIfNeeded()
+    }
+
+    private func updateRendererCallbackProfilingState() {
+        surfaceCallbackContext?.takeUnretainedValue().updateRendererProfilingState(
+            visible: desiredOcclusionVisible,
+            focused: desiredFocusState
+        )
     }
 
     /// Applies retained visibility to the current native surface once.

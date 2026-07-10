@@ -30,8 +30,16 @@ extension TerminalSurface {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
+        let context = GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self)
+        context.updateRendererProfilingState(
+            visible: desiredOcclusionVisible,
+            focused: desiredFocusState
+        )
+        let callbackContext = Unmanaged.passRetained(context)
         surfaceConfig.userdata = callbackContext.toOpaque()
+        if context.rendererEventProfilingRequested {
+            surfaceConfig.renderer_event_cb = terminalRendererEventCallback
+        }
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer

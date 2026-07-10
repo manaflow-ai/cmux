@@ -4,7 +4,7 @@ public import OSLog
 /// Emits terminal-renderer points of interest with negligible disabled-path work.
 public struct TerminalRendererProfilingSignposts: Sendable {
     private let signposter: OSSignposter
-    private let collectionRequested: Bool
+    public let collectionRequested: Bool
 
     private static let defaultCollectionRequested: Bool = {
         let environment = ProcessInfo.processInfo.environment
@@ -33,6 +33,51 @@ public struct TerminalRendererProfilingSignposts: Sendable {
     /// Whether a trace collector currently records points-of-interest signposts.
     @inline(__always)
     public var isEnabled: Bool { collectionRequested && signposter.isEnabled }
+
+    @inline(__always)
+    public func beginRendererEvent(
+        _ metadata: @autoclosure () -> TerminalRendererEventProfilingMetadata
+    ) -> OSSignpostIntervalState? {
+        guard isEnabled else { return nil }
+        let metadata = metadata()
+        switch metadata.event.interval {
+        case .updateFrame:
+            return signposter.beginInterval(
+                "terminal-renderer-update-frame",
+                id: signposter.makeSignpostID(),
+                "\(metadata.details, privacy: .public)"
+            )
+        case .drawFrame:
+            return signposter.beginInterval(
+                "terminal-renderer-draw-frame",
+                id: signposter.makeSignpostID(),
+                "\(metadata.details, privacy: .public)"
+            )
+        }
+    }
+
+    @inline(__always)
+    public func endRendererEvent(
+        _ state: OSSignpostIntervalState?,
+        _ metadata: @autoclosure () -> TerminalRendererEventProfilingMetadata
+    ) {
+        guard let state else { return }
+        let metadata = metadata()
+        switch metadata.event.interval {
+        case .updateFrame:
+            signposter.endInterval(
+                "terminal-renderer-update-frame",
+                state,
+                "\(metadata.details, privacy: .public)"
+            )
+        case .drawFrame:
+            signposter.endInterval(
+                "terminal-renderer-draw-frame",
+                state,
+                "\(metadata.details, privacy: .public)"
+            )
+        }
+    }
 
     /// Starts one drawable-to-presentation frame interval.
     @inline(__always)
