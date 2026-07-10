@@ -128,6 +128,7 @@ final class RemoteTmuxControlConnection {
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
+    private var preControlOutputBuffer = ""
     /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
@@ -311,6 +312,7 @@ final class RemoteTmuxControlConnection {
         failPendingNewWindowRequests()
         attachBlockDrained = false
         stderrBuffer = ""
+        preControlOutputBuffer = ""
         enterReceived = false
 
         let proc = Process()
@@ -565,6 +567,7 @@ final class RemoteTmuxControlConnection {
             // Classify: a session/server found gone is a genuine end; anything else
             // (host unreachable, refused) is transient — keep retrying with backoff.
             let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
+                || decoding.controlOutputIndicatesSessionGone(preControlOutputBuffer)
             teardownProcessHandles()
             if sessionGone {
                 record("reconnect-session-gone")
@@ -811,8 +814,18 @@ final class RemoteTmuxControlConnection {
         case let .streamError(reason):
             record("stream-error \(reason)")
             beginReconnecting()
-        case .ignoredNotification, .unparsed:
+        case .ignoredNotification:
             break
+        case let .unparsed(line):
+            if connectionState == .reconnecting, !enterReceived {
+                preControlOutputBuffer += line + "\n"
+                if preControlOutputBuffer.utf8.count > Self.maxStderrBytes {
+                    preControlOutputBuffer = String(
+                        decoding: preControlOutputBuffer.utf8.suffix(Self.maxStderrBytes),
+                        as: UTF8.self
+                    )
+                }
+            }
         }
     }
 

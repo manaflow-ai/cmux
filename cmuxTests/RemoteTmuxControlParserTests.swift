@@ -401,6 +401,25 @@ import Testing
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(""))
     }
 
+    @Test func reconnectPTYSessionGoneOutputSurvivesControlStreamParsing() {
+        for terminalLine in ["no server running on /private/tmp/tmux-501/default", "no sessions"] {
+            var parser = RemoteTmuxControlStreamParser()
+            let messages = parser.feed(Data("\(terminalLine)\r\n".utf8))
+            let unparsed = messages.compactMap { message -> String? in
+                guard case let .unparsed(line) = message else { return nil }
+                return line
+            }
+
+            #expect(unparsed == [terminalLine])
+            #expect(RemoteTmuxControlMessageDecoding().controlOutputIndicatesSessionGone(
+                unparsed.joined(separator: "\n")
+            ))
+        }
+        #expect(!RemoteTmuxControlMessageDecoding().controlOutputIndicatesSessionGone(
+            "Login banner: no sessions are restored automatically"
+        ))
+    }
+
     // MARK: - Raw layout parser
 
     @Test func parsesLeafLayoutWithChecksum() {
