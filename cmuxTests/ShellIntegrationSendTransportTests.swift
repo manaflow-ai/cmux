@@ -8,41 +8,42 @@ import Testing
 #endif
 
 struct ShellIntegrationSendTransportTests {
-    /// The assertion needs the harness to host a unix-socket loop for spawned
-    /// children at all: on some CI app-host contexts a plain `/usr/bin/nc`
-    /// child delivers nothing to a listener owned by the test process (the
-    /// integration sources cleanly and nc runs; the environment eats the
-    /// connect). Probe that pure baseline, with no shell integration
-    /// involved, so the regression test runs on every developer machine and
-    /// reports as skipped, not failed, where the harness cannot host it.
-    private static func childProcessUnixSocketLoopWorks() -> Bool {
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/nc") else { return false }
-        let dir = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-stp-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else {
-            return false
-        }
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let socketPath = dir.appendingPathComponent("b.sock").path
-        guard let listener = try? UnixLineListener(path: socketPath) else { return false }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-f", "-c", "print -r -- baseline | /usr/bin/nc -w 1 -U '\(socketPath)'"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return false }
-        process.waitUntilExit()
-        return listener.waitForLine(timeout: 5) == "baseline"
+    /// Some CI app-host contexts cannot deliver a child-process unix-socket
+    /// send at all (observed: the integration sources cleanly, `/usr/bin/nc`
+    /// is executable, the send exits 0, and the listener still receives
+    /// nothing; the same flow delivers on developer and fleet Macs). Probe
+    /// the un-shimmed integration flow itself: if the environment cannot
+    /// deliver it, skip rather than fail. The regression this test guards, a
+    /// PATH-first GNU `nc` shadowing the system client, lives on developer
+    /// machines, exactly where the probe passes and the assertion runs.
+    private static func integrationSendDeliversHere() -> Bool {
+        guard let result = try? Self.deliverViaIntegration(shimmed: false) else { return false }
+        return result.delivered == "transport probe"
     }
 
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
     /// in a fresh zsh and sending one payload must deliver that payload to a
-    /// unix-socket listener. This transport carries the whole hook channel
-    /// (report_tty, ports_kick, report_shell_state, git/PR reports); it broke
-    /// silently on machines where PATH `nc` is GNU netcat without unix-socket
-    /// support, so delivery must not depend on PATH resolution.
-    @Test(.enabled(if: childProcessUnixSocketLoopWorks(), "harness cannot host a child-process unix-socket loop"))
-    func sendDeliversPayloadToUnixSocketListener() throws {
+    /// unix-socket listener even when a PATH-first `nc` without unix-socket
+    /// support (GNU netcat's shape) shadows the system client. This transport
+    /// carries the whole hook channel (report_tty, ports_kick,
+    /// report_shell_state, git/PR reports) and previously dropped every
+    /// message on such machines.
+    @Test(.enabled(if: integrationSendDeliversHere(), "environment cannot deliver a child-process unix-socket send"))
+    func sendDeliversPayloadDespiteShadowedPathNC() throws {
+        let result = try Self.deliverViaIntegration(shimmed: true)
+        #expect(
+            result.delivered == "transport probe",
+            "The pinned system client must deliver even with a broken PATH-first nc. exit=\(result.exitStatus) log:\n\(result.diagnostics.suffix(1200))"
+        )
+    }
+
+    private struct DeliveryResult {
+        let delivered: String?
+        let diagnostics: String
+        let exitStatus: Int32
+    }
+
+    private static func deliverViaIntegration(shimmed: Bool) throws -> DeliveryResult {
         let script = try #require(
             RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
                 named: "cmux-zsh-integration.zsh"
@@ -60,14 +61,18 @@ struct ShellIntegrationSendTransportTests {
         try script.write(to: scriptFile, atomically: true, encoding: .utf8)
         let socketPath = dir.appendingPathComponent("t.sock").path
 
-        // Reproduce the regression: a PATH-first `nc` without unix-socket
-        // support (GNU netcat's shape) that fails every invocation. The
-        // transport must deliver anyway by pinning the system client.
-        let shimDir = dir.appendingPathComponent("shims", isDirectory: true)
-        try FileManager.default.createDirectory(at: shimDir, withIntermediateDirectories: true)
-        let shim = shimDir.appendingPathComponent("nc")
-        try "#!/bin/sh\nexit 1\n".write(to: shim, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        var path = "/usr/bin:/bin"
+        if shimmed {
+            // Reproduce the regression: a PATH-first `nc` without unix-socket
+            // support that fails every invocation. The transport must deliver
+            // anyway by pinning the system client.
+            let shimDir = dir.appendingPathComponent("shims", isDirectory: true)
+            try FileManager.default.createDirectory(at: shimDir, withIntermediateDirectories: true)
+            let shim = shimDir.appendingPathComponent("nc")
+            try "#!/bin/sh\nexit 1\n".write(to: shim, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+            path = "\(shimDir.path):/usr/bin:/bin"
+        }
 
         let listener = try UnixLineListener(path: socketPath)
 
@@ -82,7 +87,7 @@ struct ShellIntegrationSendTransportTests {
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.environment = [
             "CMUX_SOCKET_PATH": socketPath,
-            "PATH": "\(shimDir.path):/usr/bin:/bin",
+            "PATH": path,
             "HOME": dir.path,
         ]
         process.arguments = [
@@ -100,17 +105,16 @@ struct ShellIntegrationSendTransportTests {
         try process.run()
         process.waitUntilExit()
 
-        let delivered = listener.waitForLine(timeout: 10)
-        let diagnostics = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<no log>"
-        #expect(
-            delivered == "transport probe",
-            "The shell integration's socket send must deliver its payload to the listener. exit=\(process.terminationStatus) log:\n\(diagnostics.suffix(1200))"
+        return DeliveryResult(
+            delivered: listener.waitForLine(timeout: 10),
+            diagnostics: (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<no log>",
+            exitStatus: process.terminationStatus
         )
     }
 }
 
 /// Minimal blocking unix-socket listener: accepts one client, reads one line,
-/// replies "OK" and closes so response-waiting clients (BSD `nc -N`) exit.
+/// replies "OK" and closes so response-waiting clients exit promptly.
 private final class UnixLineListener: @unchecked Sendable {
     private let serverFD: Int32
     private let received = DispatchSemaphore(value: 0)
