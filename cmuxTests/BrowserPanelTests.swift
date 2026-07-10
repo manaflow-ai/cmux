@@ -1000,6 +1000,144 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         panel.acknowledgeAddressBarFocusRequest(secondRequest)
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
     }
+
+    func testMountedViewLeaseKeepsSuppressionAfterRequestAcknowledgement() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let owner = UUID()
+        let requestId = panel.requestAddressBarFocus()
+
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: owner, reason: "test.mount")
+        )
+        panel.acknowledgeAddressBarFocusRequest(requestId)
+
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+        XCTAssertTrue(
+            panel.relinquishAddressBarViewFocusLease(owner: owner, reason: "test.unmount")
+        )
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+    }
+
+    func testStaleViewCannotReleaseReplacementViewFocusLease() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let staleOwner = UUID()
+        let replacementOwner = UUID()
+
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: staleOwner, reason: "test.stale.mount")
+        )
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: replacementOwner, reason: "test.replacement.mount")
+        )
+        XCTAssertTrue(
+            panel.relinquishAddressBarViewFocusLease(owner: staleOwner, reason: "test.stale.unmount")
+        )
+
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+        XCTAssertTrue(
+            panel.relinquishAddressBarViewFocusLease(owner: replacementOwner, reason: "test.replacement.unmount")
+        )
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+    }
+
+    func testPendingRequestKeepsSuppressionWhileFocusedViewRemounts() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let owner = UUID()
+        let requestId = panel.requestAddressBarFocus()
+
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: owner, reason: "test.mount")
+        )
+        XCTAssertTrue(
+            panel.relinquishAddressBarViewFocusLease(owner: owner, reason: "test.unmount")
+        )
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+
+        panel.acknowledgeAddressBarFocusRequest(requestId)
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+    }
+
+    func testNewestPresentationOwnerSurvivesStaleReregistrationAndUnregister() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let staleOwner = UUID()
+        let replacementOwner = UUID()
+
+        XCTAssertTrue(panel.registerAddressBarViewPresentation(owner: staleOwner))
+        XCTAssertTrue(panel.registerAddressBarViewPresentation(owner: replacementOwner))
+        XCTAssertEqual(panel.currentAddressBarViewPresentationOwner, replacementOwner)
+
+        XCTAssertFalse(panel.registerAddressBarViewPresentation(owner: staleOwner))
+        XCTAssertEqual(panel.currentAddressBarViewPresentationOwner, replacementOwner)
+
+        XCTAssertTrue(panel.unregisterAddressBarViewPresentation(owner: staleOwner))
+        XCTAssertEqual(panel.currentAddressBarViewPresentationOwner, replacementOwner)
+    }
+
+    func testRemovingNewestPresentationPromotesSurvivingOwner() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let previousOwner = UUID()
+        let newestOwner = UUID()
+
+        XCTAssertTrue(panel.registerAddressBarViewPresentation(owner: previousOwner))
+        XCTAssertTrue(panel.registerAddressBarViewPresentation(owner: newestOwner))
+        XCTAssertTrue(panel.unregisterAddressBarViewPresentation(owner: newestOwner))
+
+        XCTAssertEqual(panel.currentAddressBarViewPresentationOwner, previousOwner)
+        XCTAssertTrue(panel.unregisterAddressBarViewPresentation(owner: previousOwner))
+        XCTAssertNil(panel.currentAddressBarViewPresentationOwner)
+    }
+
+    func testFindTransitionDoesNotRestoreReleasedAddressBarSuppression() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let owner = UUID()
+
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: owner, reason: "test.mount")
+        )
+        panel.startFind()
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+
+        panel.hideFind()
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+    }
+
+    func testWebViewHandoffRevokesEveryOverlappingViewLease() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let staleOwner = UUID()
+        let activeOwner = UUID()
+        let panelId = panel.id
+        let blurNotification = expectation(description: "panel-wide address bar blur")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserDidBlurAddressBar,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard notification.object as? UUID == panelId else { return }
+            blurNotification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: staleOwner, reason: "test.stale.mount")
+        )
+        XCTAssertTrue(
+            panel.acquireAddressBarViewFocusLease(owner: activeOwner, reason: "test.active.mount")
+        )
+
+        panel.endAddressBarFocusForWebViewHandoff(reason: "test.escape")
+
+        wait(for: [blurNotification], timeout: 1)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+        XCTAssertFalse(
+            panel.relinquishAddressBarViewFocusLease(owner: staleOwner, reason: "test.stale.unmount")
+        )
+        XCTAssertFalse(
+            panel.relinquishAddressBarViewFocusLease(owner: activeOwner, reason: "test.active.unmount")
+        )
+    }
 }
 
 
