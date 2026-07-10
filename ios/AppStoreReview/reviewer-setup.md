@@ -15,6 +15,10 @@ The prepared Mac must:
 - Run the production cmux macOS app that matches the submitted iOS backend.
 - Stay awake, unlocked after reboot, and reachable from Apple review networks.
 - Use fictional account, workspace, terminal, file, and device names.
+- Use a dedicated review-only macOS user account on a dedicated review Mac or
+  VM. Do not sign in with personal Apple IDs, GitHub accounts, production
+  developer credentials, password managers, SSH keys, cloud drives, Messages, or
+  other private services.
 - Expose a safe workspace named `App Review`.
 - Keep a terminal ready for harmless commands such as `echo app-review-ok`,
   `pwd`, and `date`.
@@ -22,6 +26,9 @@ The prepared Mac must:
   external host/port route, or provide Tailscale install/sign-in instructions
   and credentials in App Store Connect so the reviewer can join the same
   tailnet as the prepared Mac.
+- Restrict the network path to the prepared Mac only. Use a dedicated Tailscale
+  tailnet, ACL, firewall rule, or tunnel that exposes only the cmux mobile host
+  port needed for review, not the rest of Manaflow's network.
 
 Do not rely on LAN-only discovery or a generated route that resolves only to a
 private local-network address. The reviewer must receive exact field values for
@@ -34,6 +41,9 @@ the iOS Add Computer form:
 
 Before submission, verify those exact values from a clean network outside
 Manaflow's office and outside the prepared Mac's LAN.
+
+After review, revoke the review credentials, remove the Tailscale invite or
+tunnel, reset the review macOS user, and delete any files created during review.
 
 ## App Store Connect Review Information
 
@@ -94,7 +104,7 @@ Payments:
 
 Support during review:
 - Contact <REVIEW_CONTACT_EMAIL> or <REVIEW_CONTACT_PHONE> if the prepared Mac
-  or pairing code is unreachable.
+  or pairing route is unreachable.
 ```
 
 ## Pre-Submission Check

@@ -68,8 +68,10 @@ export default function PrivacyPolicyPage() {
         </li>
       </ul>
       <p>
-        The Application checks for updates via Sparkle, which may transmit your
-        operating system version and application version to our update server.
+        The macOS Application checks for updates via Sparkle, which may transmit
+        your operating system version and application version to our update
+        server. The iPhone and iPad Application is updated through the App Store,
+        not Sparkle.
       </p>
       <p>
         The Site uses PostHog for analytics, including page views and navigation
@@ -166,8 +168,8 @@ export default function PrivacyPolicyPage() {
           version.
         </li>
         <li>
-          <strong>Sparkle</strong> &mdash; auto-update framework. Transmits
-          application and OS version to check for updates.
+          <strong>Sparkle</strong> &mdash; macOS auto-update framework.
+          Transmits application and OS version to check for macOS updates.
         </li>
         <li>
           <strong>Ghostty / libghostty</strong> &mdash; terminal rendering
@@ -255,8 +257,20 @@ export default function PrivacyPolicyPage() {
       <h2>IX. Data Retention</h2>
       <p>
         Crash reports and diagnostics are retained only as long as needed to
-        diagnose and fix issues. You may request deletion of any data associated
-        with you from the mobile app account settings or by contacting us at{" "}
+        diagnose and fix issues. Mobile account identifiers and authentication
+        records are retained while your account is active and are deleted or
+        anonymized when account deletion completes, except where retention is
+        required for security, legal, billing, or fraud-prevention reasons.
+        Device and pairing metadata is retained until you unpair the device,
+        sign out and delete local data, delete your account, or the pairing data
+        is pruned as stale. Apple Push Notification service tokens are retained
+        only while notifications are enabled for that device, and are removed
+        when you disable notifications, sign out, delete your account, or Apple
+        reports the token invalid. Mobile product analytics in PostHog is
+        retained for product analytics and debugging for up to 24 months unless
+        you request earlier deletion. You may request deletion of any data
+        associated with you from the mobile app account settings or by contacting
+        us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
       </p>
     </>

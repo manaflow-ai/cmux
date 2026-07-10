@@ -14,8 +14,17 @@ Reviewer access:
   tested with a prepared review Mac by entering the exact Name, Host, and Port
   values supplied in the Review Information notes, or by scanning a QR code whose
   route is reachable from Apple review networks.
-- Follow `reviewer-setup.md` before submission so the reviewer can test without
-  owning a Mac.
+- The reviewer does not need to own or install cmux on a Mac. Before submission,
+  append the prepared review Mac details below directly into App Store Connect:
+  - Name: `App Review Mac`
+  - Host: `<EXTERNALLY_REACHABLE_HOST_OR_TAILSCALE_MAGICDNS>`
+  - Port: `<CMUX_MOBILE_HOST_PORT>`
+  - Tailscale access, only if required: `<TAILSCALE_REVIEW_ACCESS>`
+  - Review contact: `<REVIEW_CONTACT_EMAIL>` / `<REVIEW_CONTACT_PHONE>`
+- The prepared Mac must use a dedicated review-only macOS user, no personal or
+  developer credentials, a safe `App Review` workspace, and a network route
+  restricted to the cmux mobile host port. Revoke the credentials and reset the
+  review user after App Review finishes.
 - The app may request Local Network permission during pairing so it can discover
   and connect to the user's Mac.
 - Camera permission is used only to scan cmux pairing QR codes.
@@ -47,8 +56,13 @@ Privacy and account handling:
 Primary review path:
 
 1. Sign in with the demo account supplied in App Store Connect.
-2. Pair with the prepared Mac or enter the supplied manual pairing code.
-3. Open the workspace list, then open a workspace detail.
-4. Send a short terminal input from the message box.
-5. Enable phone notifications and verify the opt-in prompt, then disable them
+2. Tap Add Computer.
+3. If Tailscale access is required, install Tailscale from the App Store and
+   sign in with the supplied review access first.
+4. Enter the supplied Name, Host, and Port values, then tap Pair. If the
+   supplied QR route is reachable from Apple review networks, Scan QR Code can
+   be used instead.
+5. Open the workspace list, then open the `App Review` workspace detail.
+6. Send `echo app-review-ok` from the message box.
+7. Enable phone notifications and verify the opt-in prompt, then disable them
    again from the same surface.
