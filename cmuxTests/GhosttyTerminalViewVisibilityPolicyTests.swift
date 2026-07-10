@@ -191,6 +191,10 @@ final class TerminalPortalHostAuthorityTests: XCTestCase {
             String(describing: ObjectIdentifier(oldHost))
         )
         XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            inWindow: true, bounds: bounds, reason: "test.old.afterDetachedCandidate"
+        ))
+        XCTAssertTrue(surface.claimPortalHost(
             hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
             inWindow: true, bounds: bounds, reason: "test.new.attached"
         ))
