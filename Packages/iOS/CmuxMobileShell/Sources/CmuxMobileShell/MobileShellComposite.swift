@@ -3470,7 +3470,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             } catch {
                 mobileShellLog.warning(
-                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) route=\(candidate.routeID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .private) route=\(candidate.routeID, privacy: .private) error=\(String(describing: error), privacy: .private)"
                 )
                 continue
             }

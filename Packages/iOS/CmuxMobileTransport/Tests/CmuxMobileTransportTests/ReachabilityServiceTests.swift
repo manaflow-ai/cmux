@@ -37,8 +37,8 @@ import Testing
     _ = await service.register(continuation)
     defer { continuation.finish() }
 
-    await service.apply(online: true, primaryType: .wifi)
-    await service.apply(online: true, primaryType: .wifi)
+    await service.apply(online: true)
+    await service.apply(online: true)
 
     let emitted = await withTaskGroup(of: Bool.self) { group in
         group.addTask {

@@ -4,9 +4,8 @@ import Foundation
 /// A de-singletonized network-reachability monitor backed by `NWPathMonitor`.
 ///
 /// Owns the path monitor and its callback queue, tracks the current online
-/// state and primary interface type as actor-isolated state, and fans
-/// post-initial path updates out to any number of subscribers through
-/// ``pathChanges()``.
+/// state as actor-isolated state, and fans post-initial path updates out to any
+/// number of subscribers through ``pathChanges()``.
 ///
 /// Construct it once at the app composition root and inject it as
 /// `any ReachabilityProviding`:
@@ -22,7 +21,6 @@ public actor ReachabilityService: ReachabilityProviding {
     private let queue: DispatchQueue
     private var started = false
     private var online = true
-    private var lastInterfaceType: NWInterface.InterfaceType?
     private var nextSubscriptionID = 0
     private var subscribers: [Int: AsyncStream<Void>.Continuation] = [:]
     /// Whether `NWPathMonitor` has delivered its first path since `start`.
@@ -122,18 +120,16 @@ public actor ReachabilityService: ReachabilityProviding {
         guard !started else { return }
         started = true
         monitor.pathUpdateHandler = { [weak self] path in
-            // Compute Sendable values on the monitor queue; never capture NWPath.
+            // Compute Sendable state on the monitor queue; never capture NWPath.
             let isSatisfied = path.status == .satisfied
-            let primaryType = ReachabilityService.primaryInterfaceType(of: path)
-            Task { await self?.apply(online: isSatisfied, primaryType: primaryType) }
+            Task { await self?.apply(online: isSatisfied) }
         }
         monitor.start(queue: queue)
     }
 
-    func apply(online: Bool, primaryType: NWInterface.InterfaceType?) {
+    func apply(online: Bool) {
         let isInitialPath = !receivedFirstPath
         self.online = online
-        if online { lastInterfaceType = primaryType }
         if isInitialPath {
             receivedFirstPath = true
             for waiter in firstPathWaiters.values {
@@ -146,16 +142,6 @@ public actor ReachabilityService: ReachabilityProviding {
         for continuation in subscribers.values {
             continuation.yield(())
         }
-    }
-
-    private nonisolated static func primaryInterfaceType(
-        of path: NWPath
-    ) -> NWInterface.InterfaceType? {
-        for type in [NWInterface.InterfaceType.wifi, .wiredEthernet, .cellular]
-        where path.usesInterfaceType(type) {
-            return type
-        }
-        return path.availableInterfaces.first?.type
     }
 
     deinit {

@@ -5,7 +5,7 @@ actor MobileCoreRPCSession {
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias PreEnqueueValidator = @Sendable () async throws -> Void
     typealias SendAuthorizer = @Sendable () async throws -> MobileRPCAuthScope.SendLease
-    typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
+    typealias PendingContinuation = CheckedContinuation<Result<Data, any Error>, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
@@ -73,10 +73,10 @@ actor MobileCoreRPCSession {
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
         let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
 
-        let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
+        let result: Result<Data, any Error> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard pending[requestID] == nil, queuedWriteIDs[requestID] == nil else {
-                    continuation.resume(returning: .failure(.invalidResponse))
+                    continuation.resume(returning: .failure(MobileShellConnectionError.invalidResponse))
                     return
                 }
                 let queuedWriteID = UUID()
@@ -90,7 +90,7 @@ actor MobileCoreRPCSession {
                 guard let queue = writeQueue else {
                     requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
                     pending.removeValue(forKey: requestID)
-                    continuation.resume(returning: .failure(.connectionClosed))
+                    continuation.resume(returning: .failure(MobileShellConnectionError.connectionClosed))
                     return
                 }
                 queuedWriteIDs[requestID] = queuedWriteID
@@ -382,8 +382,7 @@ actor MobileCoreRPCSession {
         if cancelledQueuedWriteIDs.remove(write.id) != nil { return }
         guard queuedWriteIDs[write.requestID] == write.id else { return }
         queuedWriteIDs[write.requestID] = nil
-        let connectionError = error as? MobileShellConnectionError ?? .connectionClosed
-        failPending(requestID: write.requestID, error: connectionError)
+        failPending(requestID: write.requestID, error: error)
     }
 
     private func readLoop(transport: any CmxByteTransport) async {
@@ -443,7 +442,7 @@ actor MobileCoreRPCSession {
             if let data = try? JSONSerialization.data(withJSONObject: result) {
                 cont.resume(returning: .success(data))
             } else {
-                cont.resume(returning: .failure(.invalidResponse))
+                cont.resume(returning: .failure(MobileShellConnectionError.invalidResponse))
             }
             return
         }
@@ -452,18 +451,18 @@ actor MobileCoreRPCSession {
         let code = errorPayload?["code"] as? String
         switch code {
         case "unauthorized":
-            cont.resume(returning: .failure(.authorizationFailed(message)))
+            cont.resume(returning: .failure(MobileShellConnectionError.authorizationFailed(message)))
         case "account_mismatch":
             // The Mac is signed in to a different cmux account. Surface a
             // distinct error so the shell drives a re-auth flow into the owner's
             // account rather than retrying with this account's fresh token.
-            cont.resume(returning: .failure(.accountMismatch(message)))
+            cont.resume(returning: .failure(MobileShellConnectionError.accountMismatch(message)))
         default:
-            cont.resume(returning: .failure(.rpcError(code, message)))
+            cont.resume(returning: .failure(MobileShellConnectionError.rpcError(code, message)))
         }
     }
 
-    private func failPending(requestID: String, error: MobileShellConnectionError) {
+    private func failPending(requestID: String, error: any Error) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         cont.resume(returning: .failure(error))
@@ -474,7 +473,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(.requestTimedOut))
+        cont.resume(returning: .failure(MobileShellConnectionError.requestTimedOut))
     }
 
     private func timeoutPendingRequest(requestID: String) {
@@ -483,7 +482,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(.requestTimedOut))
+        cont.resume(returning: .failure(MobileShellConnectionError.requestTimedOut))
     }
 
     private func shouldSendQueuedWrite(_ write: MobileCoreRPCPendingWrite) -> Bool {
