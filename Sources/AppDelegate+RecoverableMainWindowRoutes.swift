@@ -378,8 +378,8 @@ extension AppDelegate {
             appendTitles(from: context.tabManager)
             if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
         }
-        if let activeTabs = tabManager {
-            appendTitles(from: activeTabs)
+        if let remainingTitleSource = tabManager {
+            appendTitles(from: remainingTitleSource)
         }
         return titles
     }
