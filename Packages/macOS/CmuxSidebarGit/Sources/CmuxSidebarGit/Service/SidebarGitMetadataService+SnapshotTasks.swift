@@ -51,7 +51,7 @@ extension SidebarGitMetadataService {
 
     private func shouldUseTrackedSnapshotCache(reason: String) -> Bool {
         switch reason {
-        case "filesystemEvent":
+        case "filesystemEvent", "fallbackTimer":
             return true
         default:
             return false

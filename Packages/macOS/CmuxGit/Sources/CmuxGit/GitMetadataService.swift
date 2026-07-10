@@ -9,8 +9,10 @@ import Foundation
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
-/// It is a `Sendable` value facade over blocking filesystem reads plus a small
-/// actor-isolated tracked-change cache. The reads do blocking filesystem work
+/// It is a `Sendable` value facade over blocking filesystem reads plus an
+/// injectable actor-isolated tracked-change cache. Callers that share the cache
+/// also share completed snapshots and one in-flight scan per cache key. The
+/// reads do blocking filesystem work
 /// (walking to the repository, parsing the git `index`/`config`), and are plain
 /// `nonisolated async` methods (a struct's `async` methods are nonisolated): a
 /// `nonisolated async` function runs on the global concurrent executor, not the
@@ -34,10 +36,15 @@ public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
-    /// Creates a git-metadata service.
-    public init() {
+    /// Creates a git-metadata service with an injectable snapshot cache.
+    ///
+    /// Services coordinate tracked scans only when they receive the same cache
+    /// instance. The default creates an isolated bounded cache.
+    public init(
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+    ) {
         self.fileStatusReader = SystemGitFileStatusReader()
-        self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
     }
 
     init(
@@ -105,22 +112,13 @@ public struct GitMetadataService: Sendable {
         }
 
         let indexStatSignature = indexStatus.indexStatSignature
-        if let snapshot = await trackedChangesSnapshotCache.snapshot(
+        return await trackedChangesSnapshotCache.snapshot(
             repository: repository,
             indexStatSignature: indexStatSignature,
             trackedPathEventGeneration: trackedPathEventGeneration
         ) {
-            return snapshot
+            gitTrackedChangesSnapshot(repository: repository)
         }
-
-        let snapshot = gitTrackedChangesSnapshot(repository: repository)
-        await trackedChangesSnapshotCache.store(
-            snapshot,
-            repository: repository,
-            indexStatSignature: indexStatSignature,
-            trackedPathEventGeneration: trackedPathEventGeneration
-        )
-        return snapshot
     }
 
     /// The set of existing filesystem paths whose changes can alter the metadata

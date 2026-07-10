@@ -447,6 +447,12 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
+    // Default windows share one explicit CmuxGit coordination scope so
+    // identical tracked-snapshot requests join one bounded cache/in-flight
+    // scan. Tests can still inject an isolated service below.
+    private static let sharedGitMetadataService = GitMetadataService(
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache()
+    )
 
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
@@ -462,7 +468,7 @@ class TabManager: ObservableObject {
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
-        gitMetadataService: GitMetadataService = GitMetadataService(),
+        gitMetadataService: GitMetadataService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
@@ -470,6 +476,7 @@ class TabManager: ObservableObject {
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
+        let gitMetadataService = gitMetadataService ?? Self.sharedGitMetadataService
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
