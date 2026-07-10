@@ -4388,11 +4388,14 @@ final class BrowserPanel: Panel, ObservableObject {
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
-        // Keep the last SSH route while its endpoint is pending or unavailable.
-        guard !usesRemoteWorkspaceProxy || remoteProxyEndpoint != nil else { return }
-        let route = remoteProxyEndpoint.map {
-            BrowserProxyConfigurationRoute.remoteWorkspace(host: $0.host, port: $0.port)
-        } ?? .currentSystem
+        let route: BrowserProxyConfigurationRoute
+        if usesRemoteWorkspaceProxy {
+            route = remoteProxyEndpoint.map {
+                BrowserProxyConfigurationRoute.remoteWorkspace(host: $0.host, port: $0.port)
+            } ?? .direct
+        } else {
+            route = .currentSystem
+        }
         route.apply(to: webView.configuration.websiteDataStore)
     }
 
