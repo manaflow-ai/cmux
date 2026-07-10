@@ -4,6 +4,15 @@ import Testing
 
 @Suite("Simulator accessibility discovery")
 struct SimulatorAccessibilityDiscoveryTests {
+    @Test("Scalar private properties are boxed without object retention")
+    func scalarPrivatePropertyABI() {
+        let target = SimulatorScalarPropertyDouble()
+
+        let value = objectProperty(target, selectorName: "pid") as? NSNumber
+
+        #expect(value?.int32Value == 4_877)
+    }
+
     @Test("Traversal matches serve-sim's bounded node and depth limits")
     func boundedTraversalLimits() {
         let bridge = SimulatorAccessibilityBridge()
@@ -90,4 +99,8 @@ struct SimulatorAccessibilityDiscoveryTests {
             in: NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 10)
         ).isEmpty)
     }
+}
+
+private final class SimulatorScalarPropertyDouble: NSObject {
+    @objc dynamic func pid() -> Int32 { 4_877 }
 }
