@@ -89,6 +89,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
+    // Kept as a strict subset of `records` so eligible history count is O(1).
     private var pendingEnrichmentRecordIDs = Set<UUID>()
     private let capacity: Int?
     private let fileURL: URL?
@@ -225,28 +226,25 @@ final class ClosedItemHistoryStore: ObservableObject {
                 }
                 records.remove(at: removalIndex)
             }
+            discardPendingEnrichmentIDsWithoutRecords()
         }
         revision &+= 1
         persistRecords()
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        let eligibleRecords = records.filter { !pendingEnrichmentRecordIDs.contains($0.id) }
-        // Build items only for the records the menu will show — this runs in
-        // the App commands body on every menu rebuild, and `records` is
-        // unbounded persisted history.
-        if let maxItemCount, maxItemCount >= 0, eligibleRecords.count > maxItemCount {
-            return ClosedItemHistoryMenuSnapshot(
-                items: eligibleRecords.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
-                totalItemCount: eligibleRecords.count,
-                isLimited: true
-            )
-        }
-
+        let eligibleItemCount = records.count - pendingEnrichmentRecordIDs.count
+        let projection = ClosedItemHistoryMenuProjector.project(
+            newestFirst: records.reversed(),
+            eligibleItemCount: eligibleItemCount,
+            maxItemCount: maxItemCount,
+            isEligible: { !pendingEnrichmentRecordIDs.contains($0.id) },
+            transform: Self.menuItem(for:)
+        )
         return ClosedItemHistoryMenuSnapshot(
-            items: eligibleRecords.reversed().map(Self.menuItem(for:)),
-            totalItemCount: eligibleRecords.count,
-            isLimited: false
+            items: projection.items,
+            totalItemCount: eligibleItemCount,
+            isLimited: projection.isLimited
         )
     }
 
@@ -308,6 +306,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let result = Self.recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
         if result.didUpdate {
             records = result.records
+            discardPendingEnrichmentIDsWithoutRecords()
             revision &+= 1
             persistRecords()
         }
@@ -327,6 +326,10 @@ final class ClosedItemHistoryStore: ObservableObject {
     private func trimToCapacityIfNeeded() {
         guard let capacity, records.count > capacity else { return }
         records.removeFirst(records.count - capacity)
+        discardPendingEnrichmentIDsWithoutRecords()
+    }
+
+    private func discardPendingEnrichmentIDsWithoutRecords() {
         pendingEnrichmentRecordIDs.formIntersection(records.map(\.id))
     }
 

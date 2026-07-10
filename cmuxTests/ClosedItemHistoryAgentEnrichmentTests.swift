@@ -45,7 +45,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
         )
         let store = ClosedItemHistoryStore(capacity: 10)
-        let enrichment = store.pushPreservingAgentMetadata(
+        let enrichment = try #require(store.pushPreservingAgentMetadata(
             .panel(ClosedPanelHistoryEntry(
                 workspaceId: workspaceId,
                 paneId: UUID(),
@@ -53,7 +53,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
                 snapshot: Self.panelSnapshot(panelId: panelId)
             )),
             coordinatedBy: sharedIndex
-        )
+        ))
         let closeDeferrer = AgentMetadataCloseDeferrer()
         let closeTask = closeDeferrer.deferClose(id: panelId, until: enrichment) {
             state.withLock { $0.closeCount += 1 }
@@ -110,7 +110,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         )
         sharedIndex.latestCompletedLoadResult = Self.loadResult(index: staleIndex)
         let store = ClosedItemHistoryStore(capacity: 10)
-        let capture = store.pushPreservingAgentMetadata(
+        let capture = try #require(store.pushPreservingAgentMetadata(
             .panel(ClosedPanelHistoryEntry(
                 workspaceId: workspaceId,
                 paneId: UUID(),
@@ -118,7 +118,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
                 snapshot: Self.panelSnapshot(panelId: panelId)
             )),
             coordinatedBy: sharedIndex
-        )
+        ))
 
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: loadStarted))
         #expect(!store.canReopen)
@@ -156,7 +156,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
         )
         let store = ClosedItemHistoryStore(capacity: 10)
-        let captureTask = store.pushPreservingAgentMetadata(
+        let captureTask = try #require(store.pushPreservingAgentMetadata(
             .panel(ClosedPanelHistoryEntry(
                 workspaceId: UUID(),
                 paneId: UUID(),
@@ -164,7 +164,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
                 snapshot: Self.panelSnapshot(panelId: UUID())
             )),
             coordinatedBy: sharedIndex
-        )
+        ))
         let closeTask = AgentMetadataCloseDeferrer().deferClose(
             id: UUID(),
             until: captureTask
@@ -232,6 +232,79 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         #expect(panel.didTeardownRuntimeForClose)
         panel.close()
         #expect(panel.didTeardownRuntimeForClose)
+    }
+
+    @Test
+    func entriesWithoutMissingTerminalAgentMetadataBypassCapture() async {
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+        defer { releaseLoad.signal() }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                releaseLoad.wait()
+                return Self.emptyLoadResult
+            },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
+        )
+        let store = ClosedItemHistoryStore(capacity: 10)
+        let workspaceId = UUID()
+        let browserPanelId = UUID()
+        let browserEntry = ClosedItemHistoryEntry.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspaceId,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: SessionPanelSnapshot(
+                id: browserPanelId,
+                type: .browser,
+                title: "Browser",
+                customTitle: nil,
+                directory: nil,
+                isPinned: false,
+                isManuallyUnread: false,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: nil,
+                browser: nil,
+                markdown: nil,
+                filePreview: nil,
+                rightSidebarTool: nil
+            )
+        ))
+        let enrichedPanelId = UUID()
+        var enrichedPanel = Self.panelSnapshot(panelId: enrichedPanelId)
+        enrichedPanel.terminal?.agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "already-captured",
+            workingDirectory: "/tmp/already-captured",
+            launchCommand: nil
+        )
+        let enrichedEntry = ClosedItemHistoryEntry.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspaceId,
+            paneId: UUID(),
+            tabIndex: 1,
+            snapshot: enrichedPanel
+        ))
+
+        let browserCapture: Task<Void, Never>? = store.pushPreservingAgentMetadata(
+            browserEntry,
+            coordinatedBy: sharedIndex
+        )
+        let enrichedCapture: Task<Void, Never>? = store.pushPreservingAgentMetadata(
+            enrichedEntry,
+            coordinatedBy: sharedIndex
+        )
+
+        #expect(browserCapture == nil)
+        #expect(enrichedCapture == nil)
+        #expect(store.canReopen)
+        #expect(store.menuSnapshot().items.map(\.title) == ["Agent terminal", "Browser"])
+        await Task.yield()
+        #expect(loadCount.withLock { $0 } == 0)
+
+        releaseLoad.signal()
+        await browserCapture?.value
+        await enrichedCapture?.value
     }
 
     @Test

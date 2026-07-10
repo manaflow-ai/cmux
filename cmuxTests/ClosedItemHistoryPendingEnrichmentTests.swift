@@ -26,7 +26,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
             loadPersisted: false,
             persistsRecordsSynchronously: true
         )
-        let capture = store.pushPreservingAgentMetadata(
+        let capture = try #require(store.pushPreservingAgentMetadata(
             Self.entry(workspaceId: workspaceId, panelId: panelId),
             coordinatedBy: Self.blockedIndex(
                 workspaceId: workspaceId,
@@ -35,7 +35,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
                 started: started,
                 release: release
             )
-        )
+        ))
 
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: started))
         #expect(!store.canReopen)
@@ -66,7 +66,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
         let store = ClosedItemHistoryStore()
-        let capture = store.pushPreservingAgentMetadata(
+        let capture = try #require(store.pushPreservingAgentMetadata(
             Self.entry(workspaceId: workspaceId, panelId: panelId),
             coordinatedBy: Self.blockedIndex(
                 workspaceId: workspaceId,
@@ -75,7 +75,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
                 started: started,
                 release: release
             )
-        )
+        ))
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: started))
 
         store.removeAll()
@@ -98,7 +98,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
             closedAt: Date(timeIntervalSince1970: 1),
             entry: Self.entry(workspaceId: UUID(), panelId: UUID())
         ))
-        let capture = store.pushPreservingAgentMetadata(
+        let capture = try #require(store.pushPreservingAgentMetadata(
             Self.entry(workspaceId: workspaceId, panelId: panelId),
             coordinatedBy: Self.blockedIndex(
                 workspaceId: workspaceId,
@@ -107,7 +107,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
                 started: started,
                 release: release
             )
-        )
+        ))
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: started))
         var restoreCalls = 0
         #expect(!store.canReopen)
@@ -160,6 +160,37 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     }
 
     @Test
+    func menuCountRemainsExactWhenPendingRecordsAreRemoved() {
+        let pendingWorkspaceId = UUID()
+        let readyWorkspaceId = UUID()
+        let pendingRecord = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: pendingWorkspaceId, panelId: UUID())
+        )
+        let readyRecord = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: readyWorkspaceId, panelId: UUID())
+        )
+        let replacementRecord = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: readyWorkspaceId, panelId: UUID())
+        )
+
+        let capacityStore = ClosedItemHistoryStore(capacity: 2)
+        capacityStore.pushPendingEnrichment(pendingRecord)
+        capacityStore.push(readyRecord)
+        capacityStore.insert(replacementRecord, at: 1)
+        let capacitySnapshot = capacityStore.menuSnapshot(maxItemCount: 10)
+        #expect(capacitySnapshot.totalItemCount == 2)
+        #expect(capacitySnapshot.items.map(\.id) == [readyRecord.id, replacementRecord.id])
+
+        let removalStore = ClosedItemHistoryStore()
+        removalStore.pushPendingEnrichment(pendingRecord)
+        removalStore.push(readyRecord)
+        removalStore.removePanelRecords(forWorkspaceIds: [pendingWorkspaceId])
+        let removalSnapshot = removalStore.menuSnapshot(maxItemCount: 10)
+        #expect(removalSnapshot.totalItemCount == 1)
+        #expect(removalSnapshot.items.map(\.id) == [readyRecord.id])
+    }
+
+    @Test
     func remapDuringPendingCaptureIsPreservedByEnrichment() async throws {
         let oldWorkspaceId = UUID()
         let newWorkspaceId = UUID()
@@ -168,7 +199,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
         let store = ClosedItemHistoryStore()
-        let capture = store.pushPreservingAgentMetadata(
+        let capture = try #require(store.pushPreservingAgentMetadata(
             Self.entry(workspaceId: oldWorkspaceId, panelId: panelId),
             coordinatedBy: Self.blockedIndex(
                 workspaceId: oldWorkspaceId,
@@ -177,7 +208,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
                 started: started,
                 release: release
             )
-        )
+        ))
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: started))
         store.remapPanelWorkspaceIds(from: oldWorkspaceId, to: newWorkspaceId)
 
