@@ -105,7 +105,38 @@ struct SimulatorAccessibilityWorkerClientTests {
         await client.stop()
     }
 
-    private func makeClient(launcher: TestWorkerLauncher) -> SimulatorWorkerClient {
+    @Test("A foreground telemetry timeout preserves the healthy renderer")
+    func foregroundTimeoutDoesNotRestartWorker() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(
+            launcher: launcher,
+            sleeper: ForegroundTimeoutSleeper()
+        )
+        let events = await client.subscribe()
+        var iterator = events.makeAsyncIterator()
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.capabilities([.foregroundApplication]))
+        endpoint.emit(.context(15))
+        _ = await iterator.next()
+        _ = await iterator.next()
+
+        do {
+            _ = try await client.perform(.readForegroundApplication)
+            Issue.record("Expected the bounded foreground timeout")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "worker_response_timed_out")
+        }
+
+        #expect(endpoint.terminationCountValue() == 0)
+        #expect(launcher.endpoint(at: 1) == nil)
+        await client.stop()
+    }
+
+    private func makeClient(
+        launcher: TestWorkerLauncher,
+        sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
+    ) -> SimulatorWorkerClient {
         SimulatorWorkerClient(
             executableURL: URL(fileURLWithPath: "/fake/cmux"),
             arguments: [SimulatorWorkerClient.workerModeArgument],
@@ -114,7 +145,7 @@ struct SimulatorAccessibilityWorkerClientTests {
             replayTimeout: .seconds(120),
             simulatorControl: TestSimulatorControl(),
             launcher: launcher,
-            sleeper: ContinuousSimulatorWorkerSleeper()
+            sleeper: sleeper
         )
     }
 
@@ -124,4 +155,11 @@ struct SimulatorAccessibilityWorkerClientTests {
         orientation: .portrait,
         scale: 3
     )
+}
+
+private struct ForegroundTimeoutSleeper: SimulatorWorkerSleeping {
+    func sleep(for duration: Duration) async throws {
+        if duration == .seconds(15) { return }
+        try await ContinuousClock().sleep(for: .seconds(3_600))
+    }
 }
