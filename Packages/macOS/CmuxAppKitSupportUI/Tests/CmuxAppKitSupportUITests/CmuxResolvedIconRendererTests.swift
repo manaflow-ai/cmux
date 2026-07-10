@@ -128,7 +128,7 @@ import Testing
         sourceImage.addRepresentation(transparentBitmapRepresentation(pixels: 16))
         let appearance = try #require(NSAppearance(named: .aqua))
 
-        let image = renderer.image(
+        let result = renderer.render(
             for: CmuxResolvedIconRequest(
                 source: .image(sourceImage),
                 size: NSSize(width: 16, height: 16)
@@ -136,7 +136,7 @@ import Testing
             appearance: appearance
         )
 
-        #expect(image == nil)
+        #expect(result == .failure(.blankOutput))
     }
 
     @Test func imageViewPreservesLastGoodImageWhenRenderProducesBlankPixels() throws {
@@ -161,6 +161,27 @@ import Testing
 
         #expect(preservedImage === firstImage)
         #expect(preservedPixel.redComponent > preservedPixel.blueComponent)
+    }
+
+    @Test func imageViewClearsPreviousImageWhenDifferentRequestRendersBlankPixels() throws {
+        let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        view.appearance = NSAppearance(named: .aqua)
+        let visibleImage = NSImage(size: NSSize(width: 16, height: 16))
+        visibleImage.addRepresentation(solidBitmapRepresentation(color: .systemRed, pixels: 16))
+        view.apply(CmuxResolvedIconRequest(
+            source: .image(visibleImage),
+            size: NSSize(width: 16, height: 16)
+        ))
+        #expect(renderedImage(in: view) != nil)
+
+        let blankImage = NSImage(size: NSSize(width: 16, height: 16))
+        blankImage.addRepresentation(transparentBitmapRepresentation(pixels: 16))
+        view.apply(CmuxResolvedIconRequest(
+            source: .image(blankImage),
+            size: NSSize(width: 16, height: 16)
+        ))
+
+        #expect(renderedImage(in: view) == nil)
     }
 
     private func solidBitmapRepresentation(color: NSColor, pixels: Int) -> NSBitmapImageRep {

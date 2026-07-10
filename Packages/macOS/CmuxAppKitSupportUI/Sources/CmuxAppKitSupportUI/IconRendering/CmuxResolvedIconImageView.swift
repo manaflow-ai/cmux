@@ -7,6 +7,8 @@ public final class CmuxResolvedIconImageView: NSView {
     private let renderer = CmuxResolvedIconRenderer()
     private var request: CmuxResolvedIconRequest?
     private var renderKey: RenderKey?
+    private var lastVisibleRenderKey: RenderKey?
+    private var blankRenderKey: RenderKey?
 
     /// Creates the resolved icon view.
     public override init(frame frameRect: NSRect) {
@@ -50,20 +52,33 @@ public final class CmuxResolvedIconImageView: NSView {
     private func renderIfNeeded(force: Bool) {
         guard let request else {
             renderKey = nil
+            lastVisibleRenderKey = nil
+            blankRenderKey = nil
             imageView.image = nil
             return
         }
         let nextKey = RenderKey(request: request, appearance: effectiveAppearance)
         guard force || renderKey != nextKey else { return }
+        guard force || blankRenderKey?.shouldSkipBlankRetry(for: nextKey) != true else { return }
         switch renderer.render(for: request, appearance: effectiveAppearance) {
         case .success(let image):
             renderKey = nextKey
+            lastVisibleRenderKey = nextKey
+            blankRenderKey = nil
             imageView.image = image
         case .failure(.sourceUnavailable):
             renderKey = nextKey
+            lastVisibleRenderKey = nil
+            blankRenderKey = nil
             imageView.image = nil
         case .failure(.blankOutput):
             renderKey = nil
+            blankRenderKey = nextKey
+            guard lastVisibleRenderKey?.matchesRequestAndAppearance(nextKey) == true else {
+                lastVisibleRenderKey = nil
+                imageView.image = nil
+                break
+            }
         }
         imageView.contentTintColor = nil
     }
@@ -101,15 +116,21 @@ public final class CmuxResolvedIconImageView: NSView {
         }
 
         static func == (lhs: RenderKey, rhs: RenderKey) -> Bool {
-            lhs.canReuseRenderedImage &&
-                rhs.canReuseRenderedImage &&
-                lhs.source == rhs.source &&
-                lhs.width == rhs.width &&
-                lhs.height == rhs.height &&
-                lhs.symbolWeight == rhs.symbolWeight &&
-                lhs.appearanceName == rhs.appearanceName &&
-                lhs.appearanceIdentity == rhs.appearanceIdentity &&
-                colorsEqual(lhs.tint, rhs.tint)
+            lhs.canReuseRenderedImage && rhs.canReuseRenderedImage && lhs.matchesRequestAndAppearance(rhs)
+        }
+
+        func matchesRequestAndAppearance(_ other: RenderKey) -> Bool {
+            source == other.source &&
+                width == other.width &&
+                height == other.height &&
+                symbolWeight == other.symbolWeight &&
+                appearanceName == other.appearanceName &&
+                appearanceIdentity == other.appearanceIdentity &&
+                Self.colorsEqual(tint, other.tint)
+        }
+
+        func shouldSkipBlankRetry(for other: RenderKey) -> Bool {
+            canReuseRenderedImage && other.canReuseRenderedImage && matchesRequestAndAppearance(other)
         }
 
         private static func colorsEqual(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
@@ -126,7 +147,7 @@ public final class CmuxResolvedIconImageView: NSView {
         private enum SourceKey: Equatable {
             case systemSymbol(name: String, accessibilityDescription: String?)
             case asset(name: String, bundle: ObjectIdentifier)
-            case image
+            case image(ObjectIdentifier)
 
             init(_ source: CmuxResolvedIconSource) {
                 switch source {
@@ -134,8 +155,8 @@ public final class CmuxResolvedIconImageView: NSView {
                     self = .systemSymbol(name: name, accessibilityDescription: accessibilityDescription)
                 case .asset(let name, let bundle):
                     self = .asset(name: name, bundle: ObjectIdentifier(bundle))
-                case .image:
-                    self = .image
+                case .image(let image):
+                    self = .image(ObjectIdentifier(image))
                 }
             }
 
