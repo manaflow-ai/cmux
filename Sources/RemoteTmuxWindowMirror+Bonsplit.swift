@@ -365,7 +365,7 @@ extension RemoteTmuxWindowMirror {
     }
 
     func title(forPane paneId: Int) -> String {
-        let index = paneIDsInOrder.firstIndex(of: paneId) ?? 0
+        let index = paneIndexByPaneId[paneId] ?? 0
         return Self.windowPaneTitle(windowTitle, paneIndex: index)
     }
 

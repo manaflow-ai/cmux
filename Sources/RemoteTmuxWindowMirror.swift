@@ -80,6 +80,7 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored var paneIdByPaneId: [Int: PaneID] = [:]
     @ObservationIgnored var paneIdByBonsplitPane: [PaneID: Int] = [:]
     @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
+    @ObservationIgnored var paneIndexByPaneId: [Int: Int] = [:]
     @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
@@ -190,8 +191,12 @@ final class RemoteTmuxWindowMirror {
         layout newLayout: RemoteTmuxLayoutNode,
         previousRenderedLayout: RemoteTmuxLayoutNode
     ) {
-        let livePaneIds = Set(newLayout.paneIDsInOrder)
-        for paneId in newLayout.paneIDsInOrder where panelsByPaneId[paneId] == nil {
+        let livePaneIDsInOrder = newLayout.paneIDsInOrder
+        let livePaneIds = Set(livePaneIDsInOrder)
+        paneIndexByPaneId = Dictionary(
+            uniqueKeysWithValues: livePaneIDsInOrder.enumerated().map { ($0.element, $0.offset) }
+        )
+        for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             let surface = panel.surface
