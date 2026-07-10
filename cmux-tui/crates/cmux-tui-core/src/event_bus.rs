@@ -1,4 +1,4 @@
-//! Per-subscriber mux event delivery with bounded latest-title state.
+//! Per-subscriber mux event delivery with bounded coalesced state.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
@@ -6,6 +6,9 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use crate::{MuxEvent, SurfaceId};
+
+// A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
+const MAX_PENDING_EVENTS: usize = 4_096;
 
 #[derive(Default)]
 pub struct MuxEventBroadcaster {
@@ -28,6 +31,8 @@ struct MuxEventMailboxState {
     events: VecDeque<(u128, MuxEvent)>,
     title_sequences: HashMap<SurfaceId, u128>,
     titles: BTreeMap<u128, (SurfaceId, String)>,
+    surface_output_sequences: HashMap<SurfaceId, u128>,
+    surface_outputs: BTreeMap<u128, SurfaceId>,
     closed: bool,
 }
 
@@ -42,8 +47,7 @@ impl MuxEventBroadcaster {
         let mut subscribers = self.subscribers.lock().unwrap();
         subscribers.retain(|subscriber| {
             let Some(mailbox) = subscriber.upgrade() else { return false };
-            mailbox.push(event.clone());
-            true
+            mailbox.push(event.clone())
         });
     }
 }
@@ -59,29 +63,57 @@ impl Drop for MuxEventBroadcaster {
 }
 
 impl MuxEventMailbox {
-    fn push(&self, event: MuxEvent) {
+    fn push(&self, event: MuxEvent) -> bool {
         let mut state = self.state.lock().unwrap();
         if state.closed {
-            return;
+            return false;
         }
         let sequence = state.next_sequence;
         state.next_sequence = state.next_sequence.saturating_add(1);
         match event {
             MuxEvent::TitleChanged { surface, title } => {
-                if let Some(previous) = state.title_sequences.insert(surface, sequence) {
+                if let Some(previous) = state.title_sequences.get(&surface).copied() {
                     state.titles.remove(&previous);
+                } else if !state.reserve_pending_slot() {
+                    self.changed.notify_all();
+                    return false;
                 }
+                state.title_sequences.insert(surface, sequence);
                 state.titles.insert(sequence, (surface, title));
+            }
+            MuxEvent::SurfaceOutput(surface) => {
+                if let Some(previous) = state.surface_output_sequences.get(&surface).copied() {
+                    state.surface_outputs.remove(&previous);
+                } else if !state.reserve_pending_slot() {
+                    self.changed.notify_all();
+                    return false;
+                }
+                state.surface_output_sequences.insert(surface, sequence);
+                state.surface_outputs.insert(sequence, surface);
             }
             MuxEvent::SurfaceExited(surface) => {
                 if let Some(previous) = state.title_sequences.remove(&surface) {
                     state.titles.remove(&previous);
                 }
+                if let Some(previous) = state.surface_output_sequences.remove(&surface) {
+                    state.surface_outputs.remove(&previous);
+                }
+                if !state.reserve_pending_slot() {
+                    self.changed.notify_all();
+                    return false;
+                }
                 state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
             }
-            event => state.events.push_back((sequence, event)),
+            event => {
+                if !state.reserve_pending_slot() {
+                    self.changed.notify_all();
+                    return false;
+                }
+                state.events.push_back((sequence, event));
+            }
         }
         self.changed.notify_one();
+        true
     }
 
     fn close(&self) {
@@ -91,20 +123,34 @@ impl MuxEventMailbox {
 }
 
 impl MuxEventMailboxState {
+    fn reserve_pending_slot(&mut self) -> bool {
+        if self.events.len() + self.titles.len() + self.surface_outputs.len() < MAX_PENDING_EVENTS {
+            true
+        } else {
+            self.closed = true;
+            false
+        }
+    }
+
     fn pop(&mut self) -> Option<MuxEvent> {
         let event_sequence = self.events.front().map(|(sequence, _)| *sequence);
         let title_sequence = self.titles.first_key_value().map(|(sequence, _)| *sequence);
-        match (event_sequence, title_sequence) {
-            (Some(event), Some(title)) if event <= title => {
-                self.events.pop_front().map(|(_, event)| event)
-            }
-            (Some(_), Some(_)) | (None, Some(_)) => {
-                let (_, (surface, title)) = self.titles.pop_first()?;
-                self.title_sequences.remove(&surface);
-                Some(MuxEvent::TitleChanged { surface, title })
-            }
-            (Some(_), None) => self.events.pop_front().map(|(_, event)| event),
-            (None, None) => None,
+        let surface_output_sequence =
+            self.surface_outputs.first_key_value().map(|(sequence, _)| *sequence);
+        let next_sequence = [event_sequence, title_sequence, surface_output_sequence]
+            .into_iter()
+            .flatten()
+            .min()?;
+        if event_sequence == Some(next_sequence) {
+            self.events.pop_front().map(|(_, event)| event)
+        } else if title_sequence == Some(next_sequence) {
+            let (_, (surface, title)) = self.titles.pop_first()?;
+            self.title_sequences.remove(&surface);
+            Some(MuxEvent::TitleChanged { surface, title })
+        } else {
+            let (_, surface) = self.surface_outputs.pop_first()?;
+            self.surface_output_sequences.remove(&surface);
+            Some(MuxEvent::SurfaceOutput(surface))
         }
     }
 }
@@ -226,5 +272,58 @@ mod tests {
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_output_churn_keeps_one_latest_position_per_surface() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::SurfaceOutput(1));
+        broadcaster.emit(MuxEvent::Bell(2));
+        for _ in 0..10_000 {
+            broadcaster.emit(MuxEvent::SurfaceOutput(1));
+            broadcaster.emit(MuxEvent::SurfaceOutput(3));
+        }
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::Bell(2)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(1)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(3)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_exit_discards_its_pending_output() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::SurfaceOutput(4));
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn slow_subscriber_disconnects_at_the_hard_bound() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let fast = broadcaster.subscribe();
+        let slow = broadcaster.subscribe();
+
+        for surface in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::Bell(surface as SurfaceId));
+            assert!(
+                matches!(fast.recv().unwrap(), MuxEvent::Bell(id) if id == surface as SurfaceId)
+            );
+        }
+
+        let slow_events = slow.try_iter().collect::<Vec<_>>();
+        assert_eq!(slow_events.len(), MAX_PENDING_EVENTS);
+        assert!(matches!(slow.try_recv(), Err(TryRecvError::Disconnected)));
+
+        broadcaster.emit(MuxEvent::Bell(9_999));
+        assert!(matches!(fast.recv().unwrap(), MuxEvent::Bell(9_999)));
     }
 }

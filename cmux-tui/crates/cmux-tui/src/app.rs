@@ -299,6 +299,7 @@ pub struct OrderedSession {
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
     committed_mutation_generation: Arc<AtomicU64>,
+    routing_mutation_generation: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
     remote_refresh_sequence: Arc<AtomicU64>,
@@ -322,6 +323,7 @@ impl OrderedSession {
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
+            routing_mutation_generation: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
@@ -487,6 +489,10 @@ impl OrderedSession {
         self.pending_mutations.load(Ordering::Acquire) > 0
     }
 
+    fn routing_mutation_generation(&self) -> u64 {
+        self.routing_mutation_generation.load(Ordering::Acquire)
+    }
+
     fn settle_pending_mutation(&self) {
         let result =
             self.pending_mutations.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
@@ -584,7 +590,18 @@ impl OrderedSession {
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, move |session| {
+        self.enqueue_with_completion(label, false, move |session| {
+            operation(session)?;
+            Ok(None)
+        });
+    }
+
+    fn enqueue_routing(
+        &self,
+        label: &'static str,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_with_completion(label, true, move |session| {
             operation(session)?;
             Ok(None)
         });
@@ -593,6 +610,7 @@ impl OrderedSession {
     fn enqueue_with_completion(
         &self,
         label: &'static str,
+        routing: bool,
         operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
         + Send
         + 'static,
@@ -601,6 +619,7 @@ impl OrderedSession {
         let pending = self.pending_mutation();
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
+        let routing_mutation_generation = self.routing_mutation_generation.clone();
         self.operations.enqueue_session_mutation(label, self.remote, move || {
             let completion = match operation(session.clone()) {
                 Ok(completion) => completion,
@@ -616,6 +635,9 @@ impl OrderedSession {
             };
             let mutation_generation =
                 committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            if routing {
+                routing_mutation_generation.fetch_add(1, Ordering::AcqRel);
+            }
             let completion =
                 completion.map(|action| SessionCompletion { mutation_generation, action });
             session.invalidate_remote_tree();
@@ -840,7 +862,7 @@ impl OrderedSession {
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue("create tab", move |session| session.new_tab(pane, size));
+        self.enqueue_routing("create tab", move |session| session.new_tab(pane, size));
         Ok(())
     }
 
@@ -850,7 +872,7 @@ impl OrderedSession {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create browser tab", move |session| {
+        self.enqueue_with_completion("create browser tab", true, move |session| {
             let surface = session.new_browser_tab(url, pane, size)?;
             Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
         });
@@ -864,17 +886,17 @@ impl OrderedSession {
     }
 
     pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue("create workspace", move |session| session.new_workspace(size));
+        self.enqueue_routing("create workspace", move |session| session.new_workspace(size));
         Ok(())
     }
 
     pub fn new_screen(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue("create screen", move |session| session.new_screen(size));
+        self.enqueue_routing("create screen", move |session| session.new_screen(size));
         Ok(())
     }
 
     pub fn close_screen(&self, screen: cmux_tui_core::ScreenId) {
-        self.enqueue("close screen", move |session| session.close_screen(screen));
+        self.enqueue_routing("close screen", move |session| session.close_screen(screen));
     }
 
     pub fn rename_screen(&self, screen: cmux_tui_core::ScreenId, name: String) {
@@ -882,7 +904,7 @@ impl OrderedSession {
     }
 
     pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue("select screen", move |session| session.select_screen(index, delta));
+        self.enqueue_routing("select screen", move |session| session.select_screen(index, delta));
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
@@ -895,7 +917,7 @@ impl OrderedSession {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue("split pane", move |session| session.split(pane, dir, size));
+        self.enqueue_routing("split pane", move |session| session.split(pane, dir, size));
         Ok(())
     }
 
@@ -921,11 +943,11 @@ impl OrderedSession {
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
-        self.enqueue("close tab", move |session| session.close_surface(surface));
+        self.enqueue_routing("close tab", move |session| session.close_surface(surface));
     }
 
     pub fn close_pane(&self, pane: PaneId) {
-        self.enqueue("close pane", move |session| session.close_pane(pane));
+        self.enqueue_routing("close pane", move |session| session.close_pane(pane));
     }
 
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
@@ -933,7 +955,7 @@ impl OrderedSession {
     }
 
     pub fn close_workspace(&self, workspace: WorkspaceId) {
-        self.enqueue("close workspace", move |session| session.close_workspace(workspace));
+        self.enqueue_routing("close workspace", move |session| session.close_workspace(workspace));
     }
 
     pub fn rename_surface(&self, surface: SurfaceId, name: String) {
@@ -945,19 +967,21 @@ impl OrderedSession {
     }
 
     pub fn focus_pane(&self, pane: PaneId) {
-        self.enqueue("focus pane", move |session| session.focus_pane(pane));
+        self.enqueue_routing("focus pane", move |session| session.focus_pane(pane));
     }
 
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue("select tab", move |session| session.select_tab(pane, index, delta));
+        self.enqueue_routing("select tab", move |session| session.select_tab(pane, index, delta));
     }
 
     pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue("select workspace", move |session| session.select_workspace(index, delta));
+        self.enqueue_routing("select workspace", move |session| {
+            session.select_workspace(index, delta)
+        });
     }
 
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
-        self.enqueue("move tab", move |session| session.move_tab(surface, pane, index));
+        self.enqueue_routing("move tab", move |session| session.move_tab(surface, pane, index));
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
@@ -1332,6 +1356,7 @@ enum PtyMouseReleaseCapture {
 struct DeferredInput {
     event: Event,
     destination: Option<SurfaceId>,
+    routing_generation: u64,
 }
 
 pub struct App {
@@ -1820,7 +1845,9 @@ impl App {
                 break;
             }
             let Some(input) = self.deferred_input.pop_front() else { break };
-            if self.input_destination(&input.event) != input.destination {
+            let routing_advanced =
+                self.session.routing_mutation_generation() > input.routing_generation;
+            if !routing_advanced && self.input_destination(&input.event) != input.destination {
                 self.status_message = Some(
                     "Deferred input was discarded because its destination changed".to_string(),
                 );
@@ -2224,6 +2251,9 @@ impl App {
         if rect.width == 0 || rect.height == 0 {
             return false;
         }
+        if !relaunch && self.sidebar_plugin_retry_at.is_some() {
+            return false;
+        }
         if relaunch && !self.prepare_pty_input_before_mutation() {
             return false;
         }
@@ -2237,7 +2267,9 @@ impl App {
         }
         self.sidebar_plugin_retry_at = None;
         self.sidebar_plugin_retry_after_ms = None;
-        let _ = self.sync_sidebar_plugin(false);
+        if !self.sync_sidebar_plugin(true) {
+            self.sidebar_plugin_retry_at = Some(Instant::now() + Duration::from_millis(250));
+        }
     }
 
     fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface, relaunch: bool) {
@@ -2643,25 +2675,33 @@ impl App {
 
     fn defer_input(&mut self, input: Event) -> RenderAction {
         let destination = self.input_destination(&input);
+        let routing_generation = self.session.routing_mutation_generation();
         let replace_motion = match (&input, self.deferred_input.back()) {
             (
                 Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                     destination: previous_destination,
+                    routing_generation: previous_generation,
                 }),
-            ) => *previous_destination == destination,
+            ) => *previous_destination == destination && *previous_generation == routing_generation,
             (
                 Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
                     destination: previous_destination,
+                    routing_generation: previous_generation,
                 }),
-            ) => button == previous && *previous_destination == destination,
+            ) => {
+                button == previous
+                    && *previous_destination == destination
+                    && *previous_generation == routing_generation
+            }
             _ => false,
         };
         if replace_motion {
-            *self.deferred_input.back_mut().unwrap() = DeferredInput { event: input, destination };
+            *self.deferred_input.back_mut().unwrap() =
+                DeferredInput { event: input, destination, routing_generation };
             return RenderAction::None;
         }
         let input_bytes = deferred_input_bytes(&input);
@@ -2684,7 +2724,11 @@ impl App {
             let Some(removed) = self.deferred_input.pop_front() else { break };
             queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed.event));
         }
-        self.deferred_input.push_back(DeferredInput { event: input, destination });
+        self.deferred_input.push_back(DeferredInput {
+            event: input,
+            destination,
+            routing_generation,
+        });
         RenderAction::None
     }
 
@@ -5916,6 +5960,37 @@ mod tests {
     }
 
     #[test]
+    fn deferred_input_follows_a_committed_routing_mutation() {
+        let mux = Mux::new("deferred-routing-generation-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+
+        app.session.select_tab(Some(pane), Some(1), None);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(app.deferred_input.front().and_then(|input| input.destination), Some(first.id));
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.handle(settled).unwrap();
+        app.routing_refresh_pending = false;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.active_surface(), Some(second.id));
+        assert!(app.deferred_input.is_empty());
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some("Deferred input was discarded because its destination changed")
+        );
+    }
+
+    #[test]
     fn identity_refresh_completion_consumes_coalesced_background_refresh() {
         let mux = Mux::new("identity-refresh-dirty-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -6212,6 +6287,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
+            routing_generation: 0,
         });
 
         app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 2, result: Ok(newer.clone()) })
@@ -6361,6 +6437,8 @@ mod tests {
         assert!(app.sidebar_plugin_error.is_some());
         assert!(app.sidebar_plugin_retry_at.is_some());
         assert!(app.session.sidebar_plugin_sync.lock().unwrap().applied.is_none());
+        assert!(!app.sync_sidebar_plugin(false));
+        assert!(!app.session.has_pending_mutations());
 
         app.sidebar_plugin_retry_at = Some(Instant::now() - Duration::from_millis(1));
         app.retry_sidebar_plugin_if_due();
@@ -6407,6 +6485,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(surface),
+            routing_generation: 0,
         });
 
         assert_eq!(
@@ -6506,6 +6585,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
+            routing_generation: 0,
         });
         app.session
             .enqueue("timed out mutation", |_| Err(crate::session::test_remote_timeout_error()));
@@ -6531,6 +6611,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
+            routing_generation: 0,
         });
 
         for (label, key) in [
@@ -6867,6 +6948,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
+            routing_generation: 0,
         });
 
         app.handle(AppEvent::SessionMutationSettled(
