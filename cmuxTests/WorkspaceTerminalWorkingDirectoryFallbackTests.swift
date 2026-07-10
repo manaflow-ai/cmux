@@ -72,6 +72,27 @@ import Testing
         #expect(panel.requestedWorkingDirectory == liveDirectory)
     }
 
+    @Test func promptIdleSplitLiveWorkingDirectoryBeatsTrackedDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let staleDirectory = "/tmp/cmux-stale-split-\(UUID().uuidString)"
+        let liveDirectory = "/tmp/cmux-live-split-\(UUID().uuidString)"
+
+        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: staleDirectory))
+        workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
+        workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
+            panelId == sourcePanelId ? liveDirectory : nil
+        }
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        #expect(panel.requestedWorkingDirectory == liveDirectory)
+    }
+
     @Test func commandRunningFallbackLiveWorkingDirectoryDoesNotBeatTrackedDirectory() throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)

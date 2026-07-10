@@ -7149,8 +7149,6 @@ final class Workspace: Identifiable, ObservableObject {
             base: startupEnvironmentWithRemoteSession,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
-        // Hold remote-command panes open after exit so startup errors remain visible
-        // instead of Ghostty respawning a local login shell.
         if startupCommand != nil {
             inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
         }
@@ -7161,15 +7159,18 @@ final class Workspace: Identifiable, ObservableObject {
             "remoteCommand=\(remoteTerminalStartupCommand == nil ? 0 : 1)"
         )
 #endif
-
+        let splitLiveWorkingDirectory = panelShellActivityStates[panelId] == .promptIdle
+            ? liveForegroundProcessWorkingDirectory(panelId: panelId)
+            : nil
+        let splitInheritedWorkingDirectory = splitLiveWorkingDirectory ?? (inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil)
         let splitWorkingDirectory = isRemoteStartupCommand
             ? Self.normalizedTerminalWorkingDirectory(workingDirectory)
             : resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-                inheritedWorkingDirectory: inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
+                inheritedWorkingDirectory: splitInheritedWorkingDirectory,
+                inheritedWorkingDirectoryRequiresPromptIdle: splitLiveWorkingDirectory != nil
             )
         inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
-
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
@@ -7442,29 +7443,25 @@ final class Workspace: Identifiable, ObservableObject {
         let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && !isRemoteStartupCommand
         var inheritedConfigSourcePanelId: UUID?
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId, sourcePanelId: { inheritedConfigSourcePanelId = $0 })
-        let fallbackLiveWorkingDirectory = shouldInheritWorkingDirectoryFallback && inheritedConfigSourcePanelId != fallbackSourcePanelId
+        let fallbackLiveWorkingDirectory = shouldInheritWorkingDirectoryFallback
+            && fallbackSourcePanelId.map({ panelShellActivityStates[$0] == .promptIdle }) == true
             ? fallbackSourcePanelId.flatMap { liveForegroundProcessWorkingDirectory(panelId: $0) }
             : nil
-        let inheritedWorkingDirectory = inheritedConfigSourcePanelId == fallbackSourcePanelId
-            ? inheritedConfig?.workingDirectory
-            : fallbackLiveWorkingDirectory
+        let inheritedWorkingDirectory = fallbackLiveWorkingDirectory ?? (inheritedConfigSourcePanelId == fallbackSourcePanelId ? inheritedConfig?.workingDirectory : nil)
         if startupCommand != nil {
             inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
         }
         let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
-                requestedWorkingDirectory: workingDirectory,
-                sourcePanelId: fallbackSourcePanelId,
+                requestedWorkingDirectory: workingDirectory, sourcePanelId: fallbackSourcePanelId,
                 inheritedWorkingDirectory: inheritedWorkingDirectory,
-                inheritedWorkingDirectoryRequiresPromptIdle: inheritedConfigSourcePanelId != fallbackSourcePanelId
+                inheritedWorkingDirectoryRequiresPromptIdle: fallbackLiveWorkingDirectory != nil
             )
             : workingDirectory
         if shouldInheritWorkingDirectoryFallback {
             inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
         }
 
-        // Restored panels reuse their persisted Ghostty surface id so session
-        // bindings survive relaunch; callers only pass ids verified as free.
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
