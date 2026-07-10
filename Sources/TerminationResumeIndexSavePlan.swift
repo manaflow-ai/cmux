@@ -9,7 +9,7 @@ nonisolated struct TerminationResumeIndexSavePlan {
         _ resumeIndexes: ProcessDetectedResumeIndexes?,
         cachedResumeIndexes: () -> ProcessDetectedResumeIndexes? = { nil }
     ) -> TerminationResumeIndexSavePlan {
-        if let resumeIndexes {
+        if let resumeIndexes = resumeIndexes ?? cachedResumeIndexes() {
             return TerminationResumeIndexSavePlan(
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
