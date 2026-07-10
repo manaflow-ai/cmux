@@ -101,6 +101,32 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func concurrentControlOwnerFailsInsteadOfSharingTheControlReader() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let first = try factory.makeTransport(for: fixture.request)
+        let second = try factory.makeTransport(for: fixture.request)
+
+        try await first.connect()
+        await #expect(throws: CmxIrohByteTransportError.controlLaneAlreadyOwned) {
+            try await second.connect()
+        }
+
+        #expect(await endpoint.observedDialedAddresses().count == 1)
+        #expect(await connection.observedCloseCallCount() == 0)
+        await first.close()
+    }
+
+    @Test
     func remoteConnectionCloseEvictsPooledSessionBeforeRedial() async throws {
         let fixture = try PoolFixture()
         let firstConnection = TestIrohConnection(
