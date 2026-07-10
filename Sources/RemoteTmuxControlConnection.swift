@@ -742,7 +742,11 @@ final class RemoteTmuxControlConnection {
             initialBatchStaged[id] = nil
             finishInitialBatchMember(id)
             record("window-close @\(id)")
-            observers.notifyTopologyChanged()
+            // A move of the window's final pane reports the source close before
+            // the destination layout. Re-list atomically so observers reconcile
+            // against the destination's pending tree instead of pruning the
+            // surviving pane during that event gap.
+            requestWindows()
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a

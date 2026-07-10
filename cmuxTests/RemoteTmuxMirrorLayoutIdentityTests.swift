@@ -278,6 +278,53 @@ import Testing
             .panes.map(\.paneID)
         #expect(Set(paneIDs).count == paneIDs.count)
     }
+
+    @Test("moving a window's only pane preserves its control identity")
+    func movingOnlyPanePreservesControlIdentity() throws {
+        let harness = try Harness(
+            initialWindowLines: [
+                "@1 f92f,80x24,0,0,11 f92f,80x24,0,0,11 [] editor",
+                "@2 abcd,80x24,0,0,44 abcd,80x24,0,0,44 [] logs",
+            ],
+            initialRectsByWindow: [
+                1: ["%11 0 0 80 24 1 off :zsh"],
+                2: ["%44 0 0 80 24 1 off :zsh"],
+            ]
+        )
+        defer { harness.tearDown() }
+
+        let oldPanel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
+        let oldSurfaceID = oldPanel.id
+        let stablePaneID = try #require(harness.controlPaneID(surfaceID: oldSurfaceID))
+
+        harness.connection.handleMessageForTesting(.windowClose(windowId: 1))
+        let layout = "cafe,80x24,0,0[80x12,0,0,44,80x11,0,13,11]"
+        harness.connection.handleMessageForTesting(.layoutChange(
+            windowId: 2, layout: layout, visibleLayout: layout, zoomed: false
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 0,
+            lines: ["@2 \(layout) \(layout) [] logs"],
+            isError: false
+        ))
+        while let command = harness.connection.pendingCommandKindsForTesting.first {
+            let lines: [String]
+            if case .paneRects(let windowID, _) = command, windowID == 2 {
+                lines = ["%44 0 0 80 12 1 off :zsh", "%11 0 13 80 11 0 off :zsh"]
+            } else {
+                lines = []
+            }
+            harness.connection.handleMessageForTesting(
+                .commandResult(commandNumber: 0, lines: lines, isError: false)
+            )
+        }
+
+        let destination = try #require(harness.windowMirror(windowID: 2))
+        let newSurfaceID = try #require(destination.panel(forPane: 11)?.id)
+        #expect(newSurfaceID != oldSurfaceID)
+        #expect(harness.controlPaneID(surfaceID: newSurfaceID) == stablePaneID)
+        #expect(harness.sessionMirror.controlPaneID(forPane: 11)?.id == stablePaneID)
+    }
 }
 
 @MainActor
