@@ -24,22 +24,20 @@ extension Workspace {
 
         let paneIsRendered = bonsplitController.zoomedPaneId.map { $0.id == paneId.id } ?? true
         let panelIsSelected = bonsplitController.selectedTabId(inPane: paneId) == tabId
-        let focusedPanelId = bonsplitController.focusedPaneId
-            .flatMap { bonsplitController.selectedTabId(inPane: $0) }
-            .flatMap(panelIdFromSurfaceId)
+        let workspaceFocusedPanelId = focusedPanelId
         let panelIsRendered: Bool
         if layoutMode == .canvas {
             panelIsRendered = canvasModel.layout.panes.contains {
                 $0.selectedPanelId.rawValue == panelId
             }
         } else {
-            panelIsRendered = panelIsSelected || focusedPanelId == panelId
+            panelIsRendered = panelIsSelected || workspaceFocusedPanelId == panelId
         }
         guard paneIsRendered, panelIsRendered else { return .hidden }
 
         let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
         return .visible(
-            isActive: focusedPanelId == panelId && !rightSidebarOwnsFocus,
+            isActive: workspaceFocusedPanelId == panelId && !rightSidebarOwnsFocus,
             zPriority: 2
         )
     }

@@ -37,10 +37,11 @@ extension Workspace: WorkspaceSurfaceTreeReading {
 
     var focusedPaneSelectedSurfaceId: UUID? {
         guard let paneId = bonsplitController.focusedPaneId,
-              let tab = bonsplitController.selectedTab(inPane: paneId) else {
+              let tabId = bonsplitController.selectedTabId(inPane: paneId),
+              bonsplitController.paneId(containing: tabId) == paneId else {
             return nil
         }
-        return tab.id.uuid
+        return tabId.uuid
     }
 
     var allPaneIds: [UUID] {
