@@ -3,32 +3,17 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
-    struct SplitResizeTarget {
-        let orientation: SplitOrientation
-        let paneId: Int
-        let totalCells: Int
-    }
-
     var renderedLayout: RemoteTmuxLayoutNode { visibleLayout ?? layout }
 
-    static func makeController(appearance: BonsplitConfiguration.Appearance) -> BonsplitController {
-        let config = BonsplitConfiguration(
-            allowSplits: true,
-            allowCloseTabs: true,
-            allowCloseLastPane: false,
-            allowTabReordering: false,
-            allowCrossPaneTabMove: false,
-            autoCloseEmptyPanes: false,
-            contentViewLifecycle: .keepAllAlive,
-            newTabPosition: .end,
-            tabBarVisibility: .always,
-            appearance: appearance
+    static func makeController(configuration: BonsplitConfiguration) -> BonsplitController {
+        BonsplitController(
+            configuration: configuration.remoteTmuxEmbedded
         )
-        return BonsplitController(configuration: config)
     }
 
     func configureBonsplitController() {
         bonsplitController.delegate = self
+        bonsplitController.tabShortcutHintsEnabled = false
         bonsplitController.onExternalTabDrop = { _ in false }
     }
 
@@ -98,10 +83,10 @@ extension RemoteTmuxWindowMirror {
         guard let first = children.first else { return nil }
         guard children.count > 1 else { return build(first, inPane: pane) }
         let rest = Array(children.dropFirst())
-        let fraction = Self.dividerFraction(
+        let fraction = nativeDividerFraction(
             first: first,
             rest: rest,
-            horizontal: orientation == .horizontal
+            orientation: orientation
         )
         guard let restPane = bonsplitController.splitPane(
             pane,
@@ -115,42 +100,60 @@ extension RemoteTmuxWindowMirror {
     }
 
     func refreshDividerPositions() {
-        splitTargets.removeAll()
         lastDividerPositions.removeAll()
-        applyDividerPositions(tmuxNode: renderedLayout, treeNode: bonsplitController.treeSnapshot())
+        let treeNode = bonsplitController.treeSnapshot()
+        let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
+        if let metrics = nativeLayoutMetrics() {
+            applyDividerPositions(
+                tmuxTree: RemoteTmuxNativeMeasuredSplitTree(
+                    tree: splitTree,
+                    metrics: metrics
+                ),
+                treeNode: treeNode,
+                metrics: metrics
+            )
+        } else {
+            applyFallbackDividerPositions(tmuxTree: splitTree, treeNode: treeNode)
+        }
     }
 
-    func applyDividerPositions(tmuxNode: RemoteTmuxLayoutNode, treeNode: ExternalTreeNode) {
-        guard case .split(let split) = treeNode else { return }
-        let children: [RemoteTmuxLayoutNode]
-        let orientation: SplitOrientation
-        switch tmuxNode.content {
-        case .pane:
-            return
-        case .horizontal(let value):
-            children = value
-            orientation = .horizontal
-        case .vertical(let value):
-            children = value
-            orientation = .vertical
-        }
-        guard let first = children.first, children.count > 1,
+    func applyDividerPositions(
+        tmuxTree: RemoteTmuxNativeMeasuredSplitTree,
+        treeNode: ExternalTreeNode,
+        metrics: RemoteTmuxNativeLayoutMetrics
+    ) {
+        guard case .split(let split) = treeNode,
+              case .split(_, _, let orientation, let firstTree, let secondTree) = tmuxTree,
+              split.orientation == (orientation == .horizontal ? "horizontal" : "vertical"),
               let splitId = UUID(uuidString: split.id) else { return }
-        let rest = Array(children.dropFirst())
+        let fraction = metrics.dividerFraction(
+            first: firstTree,
+            second: secondTree,
+            orientation: orientation
+        )
+        _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
+        lastDividerPositions[splitId] = fraction
+        applyDividerPositions(tmuxTree: firstTree, treeNode: split.first, metrics: metrics)
+        applyDividerPositions(tmuxTree: secondTree, treeNode: split.second, metrics: metrics)
+    }
+
+    func applyFallbackDividerPositions(
+        tmuxTree: RemoteTmuxNativeSplitTree,
+        treeNode: ExternalTreeNode
+    ) {
+        guard case .split(let split) = treeNode,
+              case .split(_, let orientation, let firstTree, let secondTree) = tmuxTree,
+              split.orientation == (orientation == .horizontal ? "horizontal" : "vertical"),
+              let splitId = UUID(uuidString: split.id) else { return }
         let fraction = Self.dividerFraction(
-            first: first,
-            rest: rest,
+            first: firstTree.layout,
+            rest: [secondTree.layout],
             horizontal: orientation == .horizontal
         )
         _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
         lastDividerPositions[splitId] = fraction
-        splitTargets[splitId] = SplitResizeTarget(
-            orientation: orientation,
-            paneId: first.paneIDsInOrder.first ?? 0,
-            totalCells: orientation == .horizontal ? tmuxNode.width : tmuxNode.height
-        )
-        applyDividerPositions(tmuxNode: first, treeNode: split.first)
-        applyDividerPositions(tmuxNode: combined(children: rest, orientation: orientation), treeNode: split.second)
+        applyFallbackDividerPositions(tmuxTree: firstTree, treeNode: split.first)
+        applyFallbackDividerPositions(tmuxTree: secondTree, treeNode: split.second)
     }
 
     func applyTargetedStructureChange(from oldLayout: RemoteTmuxLayoutNode, to newLayout: RemoteTmuxLayoutNode) -> Bool {
@@ -256,10 +259,10 @@ extension RemoteTmuxWindowMirror {
         return (
             split.orientation,
             paneIds,
-            Self.dividerFraction(
+            nativeDividerFraction(
                 first: split.children[0],
                 rest: [split.children[1]],
-                horizontal: split.orientation == .horizontal
+                orientation: split.orientation
             )
         )
     }
@@ -361,34 +364,6 @@ extension RemoteTmuxWindowMirror {
             command: connection?.paneForegroundStates[paneId]?.command,
             cwd: cwdByPaneId[paneId]
         ) ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
-    }
-
-    /// Synchronizes changed dividers in one tree traversal for the resize hot path.
-    func syncChangedDividerPositions() {
-        syncChangedDividerPositions(node: bonsplitController.treeSnapshot())
-    }
-
-    private func syncChangedDividerPositions(node: ExternalTreeNode) {
-        switch node {
-        case .pane:
-            return
-        case .split(let split):
-            if let splitId = UUID(uuidString: split.id),
-               let target = splitTargets[splitId] {
-                let position = CGFloat(split.dividerPosition)
-                let previous = lastDividerPositions[splitId] ?? position
-                if abs(position - previous) > 0.005 {
-                    lastDividerPositions[splitId] = position
-                    let cells = max(1, Int(round(CGFloat(target.totalCells) * position)))
-                    let flag = target.orientation == .horizontal ? "-x" : "-y"
-                    _ = connection?.send(
-                        "resize-pane -t @\(windowId).%\(target.paneId) \(flag) \(cells)"
-                    )
-                }
-            }
-            syncChangedDividerPositions(node: split.first)
-            syncChangedDividerPositions(node: split.second)
-        }
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {

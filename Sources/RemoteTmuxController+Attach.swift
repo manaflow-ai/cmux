@@ -11,6 +11,19 @@ extension RemoteTmuxController {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
+        let initialExistingMirrorWindowID = existingMirrorManager(for: host)
+            .flatMap { appDelegate.windowId(for: $0) }
+        let initialActiveWindowID = appDelegate.tabManager
+            .flatMap { appDelegate.windowId(for: $0) }
+        guard windowTarget.resolve(
+            existingMirrorWindowID: initialExistingMirrorWindowID,
+            activeWindowID: initialActiveWindowID,
+            isLive: { appDelegate.tabManagerFor(windowId: $0) != nil }
+        ) != nil else {
+            // Reject a guaranteed-invalid destination before discovery can
+            // create a default remote session or open a cached SSH master.
+            throw RemoteTmuxError.unreachable("app not ready")
+        }
         guard windowRegistry.beginAttach(hostHash: host.connectionHash) else {
             throw RemoteTmuxError.unreachable("already attaching \(host.destination)")
         }
@@ -32,8 +45,10 @@ extension RemoteTmuxController {
         try Task.checkCancellation()
         try await ensureControlMasterReadyForBurst(host: host)
 
-        // Resolve stable ids after every SSH await. A live existing mirror
-        // stays first so one host cannot be split across windows.
+        // Resolve stable ids after every SSH await. Explicit window routing
+        // fails closed if that window disappeared; contextual routing may
+        // recover to the active window. A live existing mirror stays first so
+        // one host cannot be split across windows.
         let existingMirrorWindowID = existingMirrorManager(for: host)
             .flatMap { appDelegate.windowId(for: $0) }
         let activeWindowID = appDelegate.tabManager
@@ -43,6 +58,12 @@ extension RemoteTmuxController {
             activeWindowID: activeWindowID,
             isLive: { appDelegate.tabManagerFor(windowId: $0) != nil }
         ), let targetManager = appDelegate.tabManagerFor(windowId: resolvedWindowId) else {
+            // A valid target can close while SSH discovery is in flight. A new
+            // host has no mirror owner to clean up the transport in that race.
+            if initialExistingMirrorWindowID == nil {
+                transportRegistry.remove(connectionHash: host.connectionHash)
+                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            }
             throw RemoteTmuxError.unreachable("app not ready")
         }
 

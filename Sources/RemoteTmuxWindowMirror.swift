@@ -36,6 +36,7 @@ final class RemoteTmuxWindowMirror {
     var bonsplitController: BonsplitController
 
     @ObservationIgnored weak var connection: RemoteTmuxControlConnection?
+    @ObservationIgnored weak var workspaceBonsplitController: BonsplitController?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
     @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
@@ -78,7 +79,6 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
     @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
-    @ObservationIgnored var splitTargets: [UUID: SplitResizeTarget] = [:]
 
     // MARK: Sizing inputs (locally owned; never tmux-derived)
 
@@ -126,17 +126,22 @@ final class RemoteTmuxWindowMirror {
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
         appearance: BonsplitConfiguration.Appearance = .init(),
+        workspaceBonsplitController: BonsplitController? = nil,
         geometrySource: (() -> RemoteTmuxMirrorGeometry?)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
+        self.workspaceBonsplitController = workspaceBonsplitController
         self.makePanel = makePanel
         self.geometrySource = geometrySource
         self.layout = layout
-        self.bonsplitController = Self.makeController(appearance: appearance)
+        let initialConfiguration = workspaceBonsplitController?.configuration
+            ?? BonsplitConfiguration(appearance: appearance)
+        self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
+        observeWorkspaceBonsplitConfiguration()
         reconcile(layout: layout)
     }
 
@@ -278,7 +283,12 @@ final class RemoteTmuxWindowMirror {
             surfacePadHeightPx: minNonGridHeightPxByScale[scale] ?? max(0, nonGridH),
             scale: scale
         )
-        if geometrySnapshot != geometry { geometrySnapshot = geometry }
+        if geometrySnapshot != geometry {
+            geometrySnapshot = geometry
+            // The first measured cell size, and later scale/font changes, alter
+            // the exact native fraction that represents tmux's cell geometry.
+            refreshDividerPositions()
+        }
     }
 
     private func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample) {
@@ -424,6 +434,7 @@ final class RemoteTmuxWindowMirror {
 
     /// Tears down every pane panel (called when the window-tab is removed).
     func teardown() {
+        workspaceBonsplitController = nil
         // Unsubscribe each pane's cwd subscription first — matching reconcile(layout:),
         // which unsubscribes per removed pane. Without this, a control connection that
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.

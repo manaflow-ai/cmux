@@ -1,12 +1,15 @@
+import Bonsplit
 import Foundation
 
 extension RemoteTmuxWindowMirror {
     func clientGrid(contentSize: CGSize) -> (columns: Int, rows: Int)? {
+        nativeLayoutMetrics()?.clientGrid(layout: layout, contentSize: contentSize)
+    }
+
+    func nativeLayoutMetrics() -> RemoteTmuxNativeLayoutMetrics? {
         guard let geometry = currentGeometry() else { return nil }
         let appearance = bonsplitController.configuration.appearance
-        return Self.clientGrid(
-            layout: layout,
-            contentSize: contentSize,
+        return RemoteTmuxNativeLayoutMetrics(
             cellSize: CGSize(
                 width: CGFloat(geometry.cellWidthPx) / geometry.scale,
                 height: CGFloat(geometry.cellHeightPx) / geometry.scale
@@ -30,58 +33,12 @@ extension RemoteTmuxWindowMirror {
     ) -> (columns: Int, rows: Int)? {
         guard contentSize.width > 1, contentSize.height > 1,
               cellSize.width > 1, cellSize.height > 1 else { return nil }
-        let chrome = chromeOverhead(
-            layout: layout,
+        RemoteTmuxNativeLayoutMetrics(
+            cellSize: cellSize,
             surfacePadding: surfacePadding,
             tabBarHeight: tabBarHeight,
             dividerThickness: dividerThickness
-        )
-        let columns = Int((contentSize.width - chrome.width) / cellSize.width)
-        let rows = Int((contentSize.height - chrome.height) / cellSize.height)
-        return (max(20, columns), max(5, rows))
-    }
-
-    nonisolated static func chromeOverhead(
-        layout: RemoteTmuxLayoutNode,
-        surfacePadding: CGSize = .zero,
-        tabBarHeight: CGFloat,
-        dividerThickness: CGFloat
-    ) -> CGSize {
-        switch layout.content {
-        case .pane:
-            return CGSize(
-                width: surfacePadding.width,
-                height: tabBarHeight + surfacePadding.height
-            )
-        case .horizontal(let children):
-            let childChrome = children.map {
-                chromeOverhead(
-                    layout: $0,
-                    surfacePadding: surfacePadding,
-                    tabBarHeight: tabBarHeight,
-                    dividerThickness: dividerThickness
-                )
-            }
-            return CGSize(
-                width: childChrome.reduce(0) { $0 + $1.width }
-                    + dividerThickness * CGFloat(max(0, children.count - 1)),
-                height: childChrome.map(\.height).max() ?? 0
-            )
-        case .vertical(let children):
-            let childChrome = children.map {
-                chromeOverhead(
-                    layout: $0,
-                    surfacePadding: surfacePadding,
-                    tabBarHeight: tabBarHeight,
-                    dividerThickness: dividerThickness
-                )
-            }
-            return CGSize(
-                width: childChrome.map(\.width).max() ?? 0,
-                height: childChrome.reduce(0) { $0 + $1.height }
-                    + dividerThickness * CGFloat(max(0, children.count - 1))
-            )
-        }
+        ).clientGrid(layout: layout, contentSize: contentSize)
     }
 
     nonisolated static func paneTitle(command: String?, cwd: String?) -> String? {
@@ -107,6 +64,22 @@ extension RemoteTmuxWindowMirror {
         let restSpan = rest.reduce(0) { $0 + (horizontal ? $1.width : $1.height) }
             + max(0, rest.count - 1)
         return CGFloat(firstSpan) / CGFloat(max(1, firstSpan + restSpan + 1))
+    }
+
+    func nativeDividerFraction(
+        first: RemoteTmuxLayoutNode,
+        rest: [RemoteTmuxLayoutNode],
+        orientation: SplitOrientation
+    ) -> CGFloat {
+        nativeLayoutMetrics()?.dividerFraction(
+            first: first,
+            rest: rest,
+            orientation: orientation
+        ) ?? Self.dividerFraction(
+            first: first,
+            rest: rest,
+            horizontal: orientation == .horizontal
+        )
     }
 
     nonisolated static func sameShapeAndPaneIds(

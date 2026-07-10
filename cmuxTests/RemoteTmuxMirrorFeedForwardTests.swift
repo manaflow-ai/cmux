@@ -70,7 +70,7 @@ import Testing
     }
 
     /// A mirror fully readied for sizing: calibrated constants injected + an
-    /// 800×620pt container at 2× (native chrome + padding → 98×34).
+    /// 800×620pt container at 2× (native chrome + padding → 100×34).
     private func readyMirror(
         layout: RemoteTmuxLayoutNode
     ) -> (RemoteTmuxWindowMirror, RemoteTmuxControlConnection) {
@@ -154,7 +154,7 @@ import Testing
         // Both present: ready, and it lands per-window.
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
-        #expect(pushed(connection)?.cols == 98) // (1600-3·8)/16
+        #expect(pushed(connection)?.cols == 100) // native dividers replace tmux's separator columns
         #expect(pushed(connection)?.rows == 34) // 620pt − the native 30pt pane tab bar
         #expect(connection.lastWindowSizes[0] != nil)
     }
@@ -183,7 +183,7 @@ import Testing
         let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         let claim = pushed(connection)
-        #expect(claim?.cols == 98)
+        #expect(claim?.cols == 100)
         mirror.reconcile(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         #expect(pushed(connection)?.cols == claim?.cols)
@@ -249,12 +249,12 @@ import Testing
 
     @Test func framesImposeOnlyWhenTheAssignmentMatchesF() {
         let (mirror, _) = readyMirror(layout: reflow123)
-        // Assigned size (123×35) ≠ f for these pixels (98×35): transient mode (nil).
+        // Assigned size (123×35) ≠ f for these pixels (100×34): transient mode (nil).
         #expect(mirror.framesForRender(containerPt: CGSize(width: 800, height: 620)) == nil)
         // A tmux layout matching f imposes.
         let matching = node(.horizontal([
-            node(.pane(1), w: 32, h: 34), node(.pane(2), w: 32, h: 34), node(.pane(3), w: 32, h: 34),
-        ]), w: 98, h: 34)
+            node(.pane(1), w: 33, h: 34), node(.pane(2), w: 33, h: 34), node(.pane(3), w: 32, h: 34),
+        ]), w: 100, h: 34)
         mirror.reconcile(layout: matching)
         let frames = mirror.framesForRender(containerPt: CGSize(width: 800, height: 620))
         #expect(frames != nil)
