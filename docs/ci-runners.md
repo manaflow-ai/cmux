@@ -9,8 +9,8 @@ that takes effect on the next workflow run.
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
 | `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `warp-ubuntu-latest-x64-4x`   |
 | `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `tart-macos-15` | `warp-macos-15-arm64-6x`         |
-| `MACOS_RUNNER_26`   | macOS 26 compatibility jobs                                | `tart-macos-26`             | `blacksmith-6vcpu-macos-26`      |
-| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `tart-release`              | `blacksmith-6vcpu-macos-26`      |
+| `MACOS_RUNNER_26`   | macOS 26 compatibility jobs                                | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
+| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests           | `tart-gui`                  | `warp-macos-15-arm64-6x`         |
 | `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `tart-ios` | `blacksmith-6vcpu-macos-26`  |
 
@@ -25,10 +25,12 @@ fresh clone with an Aqua login session, then the host deletes the clone. This
 provides the GUI session required by macOS XCTest and prevents DerivedData,
 simulators, credentials, and workspaces from leaking into later jobs.
 
-The fleet has 16 Sequoia slots and two Tahoe slots. The disk-heavy release label
-is assigned to one Tahoe slot so two simultaneous release builds cannot exhaust
-Austin's internal SSD. Hosts reject new jobs below their free-space threshold,
-delete every job VM after use, and reap stale clones.
+The fleet has 18 Sequoia slots: two each on the seven 48 GB or larger hosts and
+one each on the two 16 GB hosts. The 16 large-host slots accept GUI and iOS
+jobs; all 18 accept ordinary macOS 15 jobs. macOS 26 and release builds stay on
+Blacksmith until a Tahoe VM image passes the same runner and GUI canaries. Hosts
+reject new jobs below their free-space threshold, delete every job VM after
+use, and reap stale clones.
 
 Do not route jobs to the physical mini runner records. The supported
 self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
@@ -54,8 +56,8 @@ Restore the self-hosted pool with explicit labels:
 
 ```bash
 gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15
-gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b tart-macos-26
-gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b tart-release
+gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
+gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b tart-gui
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b tart-ios
 ```
