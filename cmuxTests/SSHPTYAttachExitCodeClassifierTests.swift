@@ -87,4 +87,13 @@ import Testing
             ) == SSHPTYAttachExitCode.sessionNotFound
         )
     }
+
+    @Test func closedLifecycleCodeOverridesTransientMessage() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "pty_lifecycle_closed",
+                message: "remote daemon tunnel is not ready"
+            ) == SSHPTYAttachExitCode.fatal
+        )
+    }
 }

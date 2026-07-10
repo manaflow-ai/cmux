@@ -846,10 +846,10 @@ struct AgentSessionAutoResumeSwiftTests {
                 projectDir: projectDir
             )
 
-            // The agent exits: the shell reaches a prompt, which invalidates the
+            // The agent exits: the shell reaches a prompt, which completes the
             // restored-resume state and re-reports the real cwd.
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
-            try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+            try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .completedAgentExit)
             #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
 

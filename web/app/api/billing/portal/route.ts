@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
           },
         );
       }
-      return pricingRedirect(request, "external");
+      return pricingRedirect(request, "unavailable");
     }
 
     const session = await stripe().billingPortal.sessions.create({
@@ -101,7 +101,7 @@ function billingPortalScope(raw: string | null): "user" | "team" {
   return raw === "team" ? "team" : "user";
 }
 
-function pricingRedirect(request: NextRequest, billing: "unavailable" | "external" | "error") {
+function pricingRedirect(request: NextRequest, billing: "unavailable" | "error") {
   return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, request.url), 302);
 }
 

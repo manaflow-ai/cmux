@@ -31,7 +31,7 @@ use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
-use crate::config::{Action, Config, ScrollbarPosition};
+use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
@@ -379,6 +379,7 @@ enum Drag {
 pub struct App {
     pub session: Session,
     pub config: Config,
+    pub chrome: ChromeTheme,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -546,8 +547,14 @@ fn pane_parts_for_rect(
     (bar, omnibar, content, track)
 }
 
-pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
-    let config = crate::config::load();
+pub fn run(
+    session: Session,
+    session_label: String,
+    default_colors: cmux_tui_core::DefaultColors,
+) -> anyhow::Result<()> {
+    let mut config = crate::config::load();
+    let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
+    config.apply_chrome_defaults(chrome);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
     // will actually render at (a post-spawn resize makes shells like zsh
@@ -634,6 +641,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     let mut app = App {
         session,
         config,
+        chrome,
         tree: TreeView::default(),
         render_states: HashMap::new(),
         graphics_writer,
@@ -844,7 +852,8 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        let config = crate::config::load();
+        let mut config = crate::config::load();
+        config.apply_chrome_defaults(self.chrome);
         self.session.apply_config(&config);
         self.config = config;
     }
@@ -2880,7 +2889,7 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     use crate::browser_input::BrowserInputDispatcher;
-    use crate::config::{Config, ScrollbarPosition};
+    use crate::config::{ChromeTheme, Config, ScrollbarPosition};
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
 
@@ -2975,10 +2984,53 @@ mod tests {
         mux.close_surface(surface.id);
     }
 
+    #[test]
+    fn plugin_sidebar_registers_resize_drag_hit() {
+        let mux = Mux::new(
+            "plugin-sidebar-drag-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 12;
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
+            cwd: None,
+        });
+        app.tree = notify_tree(surface.id, false);
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::draw(&mut app, frame);
+            })
+            .unwrap();
+
+        // Regression: with a plugin sidebar the divider column must still be a
+        // drag handle, exactly like the built-in sidebar.
+        let divider_x = app.sidebar_width - 1;
+        assert!(
+            app.hits.iter().any(|(rect, hit)| matches!(hit, super::Hit::SidebarResize)
+                && rect.x == divider_x
+                && rect.width == 1),
+            "plugin sidebar must register the SidebarResize hit on the divider column"
+        );
+
+        mux.close_surface(surface.id);
+    }
+
     fn test_app(session: Session) -> App {
         App {
             session,
             config: Config::default(),
+            chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             render_states: HashMap::<u64, RenderState>::new(),
             graphics_writer: None,

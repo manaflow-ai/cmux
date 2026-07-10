@@ -2,7 +2,6 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import Foundation
-
 /// The surface-domain input / read / resume / reporting witnesses, plus the
 /// `surface.move` bridge and `debug.terminals` passthrough. Split out of
 /// `TerminalController+ControlSurfaceContext` to keep the conformance readable; see
@@ -12,6 +11,12 @@ extension TerminalController {
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
+        if let surfaceID = remoteTmuxMirrorContainerID(in: params) {
+            return .err(
+                code: "not_found", message: "Surface not found",
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
+        }
         // `v2SurfaceMove` walks windows/workspaces/panes and mutates Bonsplit; it
         // stays in TerminalController.swift (shared with pane.join). We forward the
         // raw params and bridge its Foundation result, exactly as pane.join does.
@@ -32,6 +37,9 @@ extension TerminalController {
         requestedFocus: Bool
     ) -> ControlSurfaceReorderResolution {
         let focus = v2FocusAllowed(requested: requestedFocus)
+        guard locateRemoteTmuxMirrorContainer(surfaceID) == nil else {
+            return .surfaceNotFound(surfaceID)
+        }
         guard let app = AppDelegate.shared,
               let located = app.locateSurface(surfaceId: surfaceID),
               let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
@@ -96,7 +104,7 @@ extension TerminalController {
             return .workspaceNotFound
         }
         var refreshedCount = 0
-        for panel in ws.panels.values {
+        for panel in controlSurfacePanels(workspace: ws) {
             if let terminalPanel = panel as? TerminalPanel {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
                 refreshedCount += 1
@@ -153,20 +161,24 @@ extension TerminalController {
         if hasSurfaceIDParam, surfaceID == nil {
             return .surfaceNotFoundForID
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        let target: (surfaceID: UUID, panel: TerminalPanel)?
+        if let surfaceID {
+            target = ws.controlTerminalTarget(for: surfaceID)
+        } else {
+            target = ws.controlDefaultTerminalTarget(paneID: routing.paneID)
+        }
+        guard let target else {
+            if let surfaceID { return .surfaceNotTerminal(surfaceID) }
             return .noFocusedSurface
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
-        }
-        guard terminalPanel.performBindingAction("clear_screen") else {
+        guard target.panel.performBindingAction("clear_screen") else {
             return .bindingActionUnavailable
         }
-        terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
+        target.panel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
         return .cleared(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: surfaceId
+            surfaceID: target.surfaceID
         )
     }
 
@@ -199,19 +211,26 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        guard let resolution = ws.controlRequestedSurfaceTarget(
+            explicitSurfaceID: surfaceID,
+            routedPaneID: routing.paneID
+        ) else {
             return .noFocusedSurface
         }
-        guard ws.panels[surfaceId] != nil else {
-            return .surfaceNotFound(surfaceId)
+        guard let target = resolution.target else {
+            return .surfaceNotFound(resolution.requestedSurfaceID)
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
-        ws.triggerFocusFlash(panelId: surfaceId)
+        if ws.panels[target.surfaceID] != nil {
+            ws.triggerFocusFlash(panelId: target.surfaceID)
+        } else {
+            target.panel.triggerFlash(reason: .navigation)
+        }
         return .flashed(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: surfaceId
+            surfaceID: target.surfaceID
         )
     }
 
@@ -247,7 +266,8 @@ extension TerminalController {
     private func resolveSendSurface(
         in ws: Workspace,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        paneID: UUID?
     ) -> SendSurfaceTarget {
         if hasSurfaceIDParam {
             guard let surfaceId = surfaceID else {
@@ -255,7 +275,7 @@ extension TerminalController {
             }
             return .surface(surfaceId)
         }
-        guard let focused = ws.focusedPanelId else {
+        guard let focused = ws.controlDefaultTerminalTarget(paneID: paneID)?.surfaceID else {
             return .unresolved(.noFocusedSurface)
         }
         return .surface(focused)
@@ -310,13 +330,28 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let surfaceId: UUID
-        switch resolveSendSurface(in: ws, surfaceID: surfaceID, hasSurfaceIDParam: hasSurfaceIDParam) {
+        let requestedSurfaceID: UUID
+        switch resolveSendSurface(
+            in: ws,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            paneID: routing.paneID
+        ) {
         case .unresolved(let resolution): return resolution
-        case .surface(let id): surfaceId = id
+        case .surface(let id): requestedSurfaceID = id
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceNotTerminal(requestedSurfaceID)
+        }
+        let surfaceId = target.surfaceID
+        let terminalPanel = target.panel
+        if let remote = controlRemoteTmuxSendText(
+            workspace: ws,
+            tabManager: tabManager,
+            surfaceID: surfaceId,
+            text: text
+        ) {
+            return remote
         }
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
@@ -390,13 +425,28 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let surfaceId: UUID
-        switch resolveSendSurface(in: ws, surfaceID: surfaceID, hasSurfaceIDParam: hasSurfaceIDParam) {
+        let requestedSurfaceID: UUID
+        switch resolveSendSurface(
+            in: ws,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            paneID: routing.paneID
+        ) {
         case .unresolved(let resolution): return resolution
-        case .surface(let id): surfaceId = id
+        case .surface(let id): requestedSurfaceID = id
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceNotTerminal(requestedSurfaceID)
+        }
+        let surfaceId = target.surfaceID
+        let terminalPanel = target.panel
+        if let remote = controlRemoteTmuxSendKey(
+            workspace: ws,
+            tabManager: tabManager,
+            surfaceID: surfaceId,
+            key: key
+        ) {
+            return remote
         }
         let sendResult = terminalPanel.sendNamedKeyResult(key)
         switch sendResult {
