@@ -6,4 +6,6 @@ struct MobileShellScopeSnapshot: Equatable, Sendable {
     let userID: String
     let teamID: String?
     let generation: Int
+    let signInGeneration: Int
+    let rpcAuthContext: MobileShellRPCAuthContext
 }

@@ -10,6 +10,6 @@ struct MobilePairingManualHostAdvertisability: Sendable {
         guard let host = CmxManualHost(trimmed) else {
             return false
         }
-        return !CmxLoopbackHost().matches(host.rawValue)
+        return host.isAdvertisable
     }
 }

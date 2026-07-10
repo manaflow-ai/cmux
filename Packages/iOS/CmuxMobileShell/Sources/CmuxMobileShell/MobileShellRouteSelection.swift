@@ -143,14 +143,19 @@ struct MobileShellRouteSelection: Sendable {
         port: Int,
         isPhysicalDevice: Bool? = nil
     ) throws -> CmxAttachRoute {
-        let routeKind = routeAuthPolicy.manualRouteKind(
-            for: host,
+        guard let normalizedHost = routeAuthPolicy.normalizedManualRouteHost(host) else {
+            throw URLError(.badURL)
+        }
+        guard let routeKind = routeAuthPolicy.manualRouteKind(
+            for: normalizedHost,
             allowsDebugLoopback: !(isPhysicalDevice ?? self.isPhysicalDevice)
-        )
+        ) else {
+            throw URLError(.badURL)
+        }
         return try CmxAttachRoute(
             id: routeKind.rawValue,
             kind: routeKind,
-            endpoint: .hostPort(host: host, port: port)
+            endpoint: .hostPort(host: normalizedHost, port: port)
         )
     }
 

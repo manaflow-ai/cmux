@@ -18,7 +18,7 @@ import Testing
             stackAccessToken: "trusted-manual-token",
             rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try qrPairingTicket(route: route),
@@ -77,7 +77,7 @@ import Testing
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
             stackAccessToken: "trusted-manual-token"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try qrPairingTicket(route: route),

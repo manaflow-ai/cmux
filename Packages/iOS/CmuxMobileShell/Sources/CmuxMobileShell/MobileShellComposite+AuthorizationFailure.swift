@@ -12,10 +12,14 @@ extension MobileShellComposite {
         guard shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
+        if case let .foreground(client, generation, _) = owner,
+           (remoteClient !== client || connectionGeneration != generation) {
+            return true
+        }
         if let connectionError = error as? MobileShellConnectionError,
            case .insecureManualRoute = connectionError {
             switch owner {
-            case let .foreground(route):
+            case let .foreground(_, _, route):
                 if queueForegroundManualHostReapproval(route: route) {
                     return true
                 }
@@ -41,7 +45,7 @@ extension MobileShellComposite {
         return true
     }
 
-    private func queueForegroundManualHostReapproval(route: CmxAttachRoute?) -> Bool {
+    func queueForegroundManualHostReapproval(route: CmxAttachRoute?) -> Bool {
         guard let route,
               MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(route),
               case let .hostPort(host, port) = route.endpoint else {

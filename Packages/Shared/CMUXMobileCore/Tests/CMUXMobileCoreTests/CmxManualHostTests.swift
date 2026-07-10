@@ -25,6 +25,9 @@ import Testing
     #expect(CmxManualHost("[abc]def]") == nil)
     #expect(CmxManualHost("studio]mac") == nil)
     #expect(CmxManualHost("studio mac") == nil)
+    #expect(CmxManualHost("studio-mac.local")?.isAdvertisable == true)
+    #expect(CmxManualHost("127.0.0.1")?.isAdvertisable == false)
+    #expect(CmxManualHost("localhost")?.isAdvertisable == false)
 }
 
 @Test func manualHostRouteNormalizerAcceptsAlreadyNormalizedIPv6() {

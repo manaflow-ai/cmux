@@ -121,5 +121,9 @@ import Testing
         #expect(await router.count(of: "mobile.attach_ticket.create") == 0)
         #expect(store.connectionState == .connected)
         #expect(store.remoteClient === foregroundClient)
+
+        store.terminalInputText = "pwd"
+        await store.submitTerminalInput()
+        #expect(await router.count(of: "terminal.input") == 1)
     }
 }

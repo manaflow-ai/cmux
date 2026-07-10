@@ -16,6 +16,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
     private let manualHostStackAuthTrustProvider: @Sendable () async -> Bool
+    private let authScope: MobileRPCAuthScope
+    private let authScopeValidator: @Sendable () async -> Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -33,12 +35,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///     exact `.manualHost` route may carry Stack auth. The provider is called
     ///     for every token-bearing request so approval expiry or revocation takes
     ///     effect without replacing the client.
+    ///   - authScope: Immutable signed-in authorization epoch for token-task isolation.
+    ///   - authScopeValidator: Revalidates that `authScope` still owns the live session.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
         manualHostStackAuthTrustProvider: @escaping @Sendable () async -> Bool = { false },
+        authScope: MobileRPCAuthScope,
+        authScopeValidator: @escaping @Sendable () async -> Bool,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -51,6 +57,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
         self.manualHostStackAuthTrustProvider = manualHostStackAuthTrustProvider
+        self.authScope = authScope
+        self.authScopeValidator = authScopeValidator
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -142,15 +150,21 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// not trip the re-auth prompt; a definitive failure surfaces as
     /// `.authorizationFailed` to drive re-auth.
     private func forceRefreshStackTokenForRetry(deadline: RPCRequestDeadline) async throws {
+        try await validateAuthScope()
         guard allowsStackAuthFallback,
               await routeAllowsStackAuth() else {
             throw MobileShellConnectionError.insecureManualRoute
         }
         do {
             _ = try await stackTokenForceRefreshGate.token(
+                scope: authScope,
                 timeoutNanoseconds: try deadline.remainingNanoseconds()
             ) { [runtime] in
                 try await runtime.stackAccessTokenForceRefresher()
+            }
+            try await validateAuthScope()
+            guard await routeAllowsStackAuth() else {
+                throw MobileShellConnectionError.insecureManualRoute
             }
         } catch let error as MobileShellConnectionError {
             throw error
@@ -185,10 +199,25 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             deadline: deadline
         )
         try Task.checkCancellation()
+        let preEnqueueValidator: MobileCoreRPCSession.PreEnqueueValidator?
+        let sendAuthorizer: MobileCoreRPCSession.SendAuthorizer?
+        if authenticated.containsStackAccessToken {
+            preEnqueueValidator = { @Sendable [self] in
+                try await validateTokenBearingRequestBeforeEnqueue()
+            }
+            sendAuthorizer = { @Sendable [self] in
+                try await authorizeTokenBearingSend()
+            }
+        } else {
+            preEnqueueValidator = nil
+            sendAuthorizer = nil
+        }
         return try await session.send(
-            payload: authenticated,
+            payload: authenticated.data,
             requestID: id,
-            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds,
+            preEnqueueValidator: preEnqueueValidator,
+            sendAuthorizer: sendAuthorizer
         )
     }
 
@@ -210,9 +239,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+    private func requestDataWithAuth(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline
+    ) async throws -> (data: Data, containsStackAccessToken: Bool) {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return requestData
+            return (requestData, false)
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
@@ -244,12 +276,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // supplementary route/workspace context.
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
+            try await validateAuthScope()
             guard allowsStackAuthFallback,
                   await routeAllowsStackAuth() else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
                 let stackAccessToken = try await stackAccessToken(deadline: deadline)
+                try await validateAuthScope()
                 guard await routeAllowsStackAuth() else {
                     throw MobileShellConnectionError.insecureManualRoute
                 }
@@ -277,16 +311,24 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         if !requestNeedsAuth,
            isHostStatusRequest(request),
-           allowsStackAuthFallback,
-           await routeAllowsStackAuth(),
-           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline),
-           await routeAllowsStackAuth() {
-            auth["stack_access_token"] = stackAccessToken
+           allowsStackAuthFallback {
+            try await validateAuthScope()
+            if await routeAllowsStackAuth(),
+               let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
+                try await validateAuthScope()
+                guard await routeAllowsStackAuth() else {
+                    throw MobileShellConnectionError.insecureManualRoute
+                }
+                auth["stack_access_token"] = stackAccessToken
+            }
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
-        return try JSONSerialization.data(withJSONObject: request)
+        return (
+            try JSONSerialization.data(withJSONObject: request),
+            auth["stack_access_token"] != nil
+        )
     }
 
     private func routeAllowsStackAuth() async -> Bool {
@@ -316,9 +358,32 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     private func stackAccessToken(deadline: RPCRequestDeadline) async throws -> String {
-        try await stackTokenGate.token(timeoutNanoseconds: try deadline.remainingNanoseconds()) { [runtime] in
+        try await stackTokenGate.token(
+            scope: authScope,
+            timeoutNanoseconds: try deadline.remainingNanoseconds()
+        ) { [runtime] in
             try await runtime.stackAccessTokenProvider()
         }
+    }
+
+    private func validateAuthScope() async throws {
+        guard await authScopeValidator() else { throw CancellationError() }
+    }
+
+    private func validateTokenBearingRequestBeforeEnqueue() async throws {
+        try await validateAuthScope()
+        guard await routeAllowsStackAuth() else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+        try await validateAuthScope()
+    }
+
+    private func authorizeTokenBearingSend() async throws -> MobileRPCAuthScope.SendLease {
+        try await validateTokenBearingRequestBeforeEnqueue()
+        guard let lease = authScope.beginSend() else {
+            throw CancellationError()
+        }
+        return lease
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {

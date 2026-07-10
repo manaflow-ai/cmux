@@ -17,28 +17,35 @@ extension MobileShellComposite {
         }
     }
 
-    func manualHostTrustScope(for route: CmxAttachRoute?) -> MobileManualHostTrustScope? {
+    func manualHostTrustScope(
+        for route: CmxAttachRoute?,
+        stackUserID: String? = nil
+    ) -> MobileManualHostTrustScope? {
         guard let route,
               MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(route) else {
             return nil
         }
         return MobileManualHostTrustScope(
             route: route,
-            stackUserID: identityProvider?.currentUserID
+            stackUserID: stackUserID ?? identityProvider?.currentUserID
         )
     }
 
-    func manualHostStackAuthTrusted(for route: CmxAttachRoute?) async -> Bool {
-        guard let scope = manualHostTrustScope(for: route) else {
+    func manualHostStackAuthTrusted(
+        for route: CmxAttachRoute?,
+        stackUserID: String? = nil
+    ) async -> Bool {
+        guard let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) else {
             return false
         }
         return await manualHostTrustStore.isTrusted(scope)
     }
 
     func manualHostStackAuthTrustProvider(
-        for route: CmxAttachRoute?
+        for route: CmxAttachRoute?,
+        stackUserID: String? = nil
     ) -> @Sendable () async -> Bool {
-        guard let scope = manualHostTrustScope(for: route) else {
+        guard let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) else {
             return { false }
         }
         let trustStore = manualHostTrustStore
@@ -47,19 +54,23 @@ extension MobileShellComposite {
         }
     }
 
-    func manualHostRouteNeedsApproval(_ route: CmxAttachRoute) async -> Bool {
-        guard let scope = manualHostTrustScope(for: route) else {
+    func manualHostRouteNeedsApproval(
+        _ route: CmxAttachRoute,
+        stackUserID: String? = nil
+    ) async -> Bool {
+        guard let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) else {
             return false
         }
         return !(await manualHostTrustStore.isTrusted(scope))
     }
 
     func firstManualHostRouteNeedingApproval(
-        in routes: [CmxAttachRoute]
+        in routes: [CmxAttachRoute],
+        stackUserID: String?
     ) async -> (route: CmxAttachRoute, scope: MobileManualHostTrustScope)? {
         let routeAuthPolicy = MobileShellRouteAuthPolicy()
         for route in routes {
-            if let scope = manualHostTrustScope(for: route) {
+            if let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) {
                 if !(await manualHostTrustStore.isTrusted(scope)) {
                     return (route, scope)
                 }
@@ -97,13 +108,13 @@ extension MobileShellComposite {
     }
 
     /// Persists the queued manual-host trust approval and resumes the pending pairing attempt.
-    /// - Returns: The resumed pairing attempt's connection result, or `.failed` if no warning is pending.
+    /// - Returns: The resumed result, or `.superseded` when the warning is no longer current.
     @discardableResult
     public func acceptManualHostTrustWarning() async -> MobilePairingURLConnectionResult {
         guard let warning = manualHostTrustWarning,
               let pending = pendingManualHostTrust else {
             clearManualHostTrustWarning()
-            return .failed
+            return .superseded
         }
         guard isPendingManualHostTrustCurrent(pending) else {
             finishPendingManualHostSwitchAttempt(pending)
@@ -111,8 +122,19 @@ extension MobileShellComposite {
             return .superseded
         }
         let workspaceOpenIntent = takePendingWorkspaceOpenIntent(for: pending)
+        let approvalAuthScope = manualHostRPCAuthScope
         clearManualHostTrustWarning()
         await manualHostTrustStore.trust(warning.scope)
+        guard approvalAuthScope == manualHostRPCAuthScope else {
+            // A path change can race persistence. Remove again after the write so
+            // trust from the previous network epoch cannot survive the boundary.
+            await manualHostTrustStore.removeAll()
+            if let workspaceOpenIntent {
+                cancelWorkspaceOpen(workspaceOpenIntent)
+            }
+            finishPendingManualHostSwitchAttempt(pending)
+            return .superseded
+        }
         guard isPendingManualHostTrustCurrent(pending) else {
             if let workspaceOpenIntent {
                 cancelWorkspaceOpen(workspaceOpenIntent)

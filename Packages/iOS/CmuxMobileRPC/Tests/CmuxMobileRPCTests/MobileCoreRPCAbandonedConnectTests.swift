@@ -20,7 +20,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -64,7 +64,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -132,7 +132,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -188,7 +188,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -235,7 +235,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -305,7 +305,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -460,7 +460,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,

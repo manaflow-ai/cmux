@@ -631,6 +631,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let connectAttemptRegistry = MobileRPCConnectAttemptRegistry()
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
+    var rpcAuthScope = MobileRPCAuthScope()
+    var manualHostRPCAuthScope = MobileRPCAuthScope()
+    var rpcAuthStackUserID: String?
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
     private var connectionOutageThrottle = ConnectionOutageThrottle()
     /// When the current outage began, for the recovered event's duration.
@@ -1059,7 +1062,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signIn() {
+        let replacedAuthenticatedUser = prepareRPCAuthForSignIn()
         let wasSignedIn = isSignedIn
+        if !wasSignedIn && !replacedAuthenticatedUser {
+            rotateRPCAuthScope()
+        }
         isSignedIn = true
         clearPairingError()
         // Fire only on the signed-out→signed-in edge (this is called on every
@@ -1078,6 +1085,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signOut() {
+        rotateRPCAuthScope()
+        rpcAuthStackUserID = nil
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
         if isSignedIn {
@@ -1465,7 +1474,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
+                self.rotateManualHostRPCAuthScope()
+                self.invalidatePairingAttempt()
+                self.clearSupersededManualHostTrustWarning()
                 await self.manualHostTrustStore.removeAll()
+                if self.remoteClient != nil,
+                   self.queueForegroundManualHostReapproval(route: self.activeRoute) {
+                    continue
+                }
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -1604,6 +1620,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> MobilePairingURLConnectionResult {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let preservesActiveConnection = hasActiveMacConnection
+        let authContext = currentRPCAuthContext()
         guard let normalizedHost = MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionErrorGuidance = nil
@@ -1629,11 +1646,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
+        guard authContext.hasStackUserID else {
+            applyAuthorizationFailure(.authFailed, preservingActiveConnection: preservesActiveConnection)
+            return .failed
+        }
         let directRoute = try? routeSelection.manualHostRoute(host: normalizedHost, port: port, preserving: route)
         let approvalAttemptID = beginPairingValidationAttempt()
         if let directRoute {
-            let needsApproval = await manualHostRouteNeedsApproval(directRoute)
-            guard isCurrentPairingAttempt(approvalAttemptID) else { return .superseded }
+            let needsApproval = await manualHostRouteNeedsApproval(
+                directRoute,
+                stackUserID: authContext.stackUserID
+            )
+            guard isCurrentPairingAttempt(approvalAttemptID),
+                  isRPCAuthContextCurrent(authContext) else { return .superseded }
             if needsApproval {
                 queueManualHostTrustWarning(
                     route: directRoute,
@@ -1674,19 +1699,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             guard ifStillCurrent?() != false else { return .superseded }
-            let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
-            guard isCurrentPairingAttempt(attemptID), ifStillCurrent?() != false else { return .superseded }
+            let manualHostTrusted = await manualHostStackAuthTrusted(
+                for: directRoute,
+                stackUserID: authContext.stackUserID
+            )
+            guard isCurrentPairingAttempt(attemptID),
+                  isRPCAuthContextCurrent(authContext),
+                  ifStillCurrent?() != false else { return .superseded }
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,
                 port: port,
                 route: directRoute,
                 attemptStartedAt: pairingAttemptStartedAt,
-                manualHostTrusted: manualHostTrusted
+                manualHostTrusted: manualHostTrusted,
+                authContext: authContext
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             let noThrowFailure = try await connect(
                 ticket: ticket,
+                authContext: authContext,
                 allowsStackAuthFallback: directRoute.map {
                     MobileShellRouteAuthPolicy().routeAllowsStackAuth(
                         $0,
@@ -2300,7 +2332,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         activeMacID,
                         in: knownMacs,
                         supportedKinds: self.runtime?.supportedRouteKinds ?? [],
-                        preferNonLoopback: self.routeSelection.prefersNonLoopbackRoutes,
                         routeSelection: self.routeSelection
                    )) {
                     self.recoverMobileConnection(trigger: .presencePush)
@@ -2432,7 +2463,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if result == .needsUserApproval || result == .superseded {
                 return
             }
-            guard connectionState == .connected,
+            guard result == .connected, connectionState == .connected,
+                  foregroundMacDeviceID == device.deviceId,
                   case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
                   routeAuthPolicy.normalizedManualRouteHost(liveHost) == routeAuthPolicy.normalizedManualRouteHost(route.host),
                   livePort == route.port else {
@@ -2515,13 +2547,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
             visibleLoaded,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
             routeSelection: routeSelection
         )
         let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoaded,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
             routeSelection: routeSelection
         )
         pairedMacAliasIDsByRepresentativeID = coalesced.reduce(into: [String: [String]]()) { result, mac in
@@ -3147,6 +3177,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         approvedManualRouteID: String? = nil
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
+        let authContext = currentRPCAuthContext()
         let validationAttemptID = beginPairingValidationAttempt()
         let preservesActiveConnection = hasActiveMacConnection
         connectionAttemptGeneration = UUID()
@@ -3221,8 +3252,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPairingValidationFailure(.invalidCode)
             return .failed
         }
-        let manualHostApproval = await firstManualHostRouteNeedingApproval(in: routesForAttempt)
-        guard isCurrentPairingAttempt(validationAttemptID) else { return .superseded }
+        if routesForAttempt.first.map(MobileShellRouteAuthPolicy().routeRequiresManualHostTrust) == true,
+           !authContext.hasStackUserID {
+            applyAuthorizationFailure(.authFailed, preservingActiveConnection: preservesActiveConnection)
+            return .failed
+        }
+        let manualHostApproval = await firstManualHostRouteNeedingApproval(
+            in: routesForAttempt,
+            stackUserID: authContext.stackUserID
+        )
+        guard isCurrentPairingAttempt(validationAttemptID),
+              isRPCAuthContextCurrent(authContext) else { return .superseded }
         if let approval = manualHostApproval,
            case let .hostPort(host, _) = approval.route.endpoint {
             queueManualHostTrustWarning(
@@ -3257,6 +3297,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             let noThrowFailure = try await connect(
                 ticket: ticketForAttempt,
+                authContext: authContext,
                 pendingManualHostTrust: .pairingURL(
                     attemptID: attemptID,
                     rawURL: rawURL,
@@ -3305,12 +3346,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Cancels the active pairing attempt and clears transient pairing prompts.
     public func cancelPairing() {
+        let preservesActiveConnection = hasActiveMacConnection
         invalidatePairingAttempt()
         clearPairingError()
-        let hadBlockingPrompt = pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil || manualHostTrustWarning != nil
         clearPairingVersionWarning()
         clearSupersededManualHostTrustWarning()
-        if hadBlockingPrompt, hasActiveMacConnection { return }
+        if preservesActiveConnection { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
@@ -3427,8 +3468,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticket), or nil if it has no reachable route / the ticket fails. The caller
     /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
     /// touches the foreground connection.
-    private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
+    private func makeSecondaryClient(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
+        guard await isScopeCurrent(scope) else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
         guard let candidate = routeSelection.reconnectHostPortRoutes(
             mac.routes,
@@ -3446,14 +3488,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 port: port,
                 preserving: candidate.route
             )
-            let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
+            let manualHostTrusted = await manualHostStackAuthTrusted(
+                for: directRoute,
+                stackUserID: scope.userID
+            )
+            guard await isScopeCurrent(scope) else { return nil }
             ticket = try await manualHostTicket(
                 name: mac.displayName ?? host,
                 host: host,
                 port: port,
                 route: directRoute,
                 attemptStartedAt: nil,
-                manualHostTrusted: manualHostTrusted
+                manualHostTrusted: manualHostTrusted,
+                authContext: scope.rpcAuthContext
             )
         } catch {
             mobileShellLog.warning(
@@ -3476,7 +3523,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
             ?? supportedRoutes.first
         guard let route else { return nil }
-        let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
+        let manualHostTrusted = await manualHostStackAuthTrusted(
+            for: route,
+            stackUserID: scope.userID
+        )
+        guard await isScopeCurrent(scope) else { return nil }
         guard MobileShellRouteAuthPolicy().routeAllowsStackAuth(
             route,
             manualHostTrusted: manualHostTrusted
@@ -3488,7 +3539,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             route: route,
             ticket: ticket,
             allowsStackAuthFallback: true,
-            manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(for: route),
+            manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(
+                for: route,
+                stackUserID: scope.userID
+            ),
+            authScope: rpcAuthScopeForRoute(for: route, context: scope.rpcAuthContext),
+            authScopeValidator: rpcAuthScopeValidator(for: route, context: scope.rpcAuthContext),
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -3572,10 +3628,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// write). Replaces any prior in-flight pass.
     func scheduleSecondaryAggregation() {
         secondaryAggregationTask?.cancel()
-        secondaryAggregationTask = Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+        secondaryAggregationTask = Task { [weak self] in
+            await self?.performSecondaryMacWorkspaceRefresh()
+        }
     }
 
     func refreshSecondaryMacWorkspaces() async {
+        secondaryAggregationTask?.cancel()
+        secondaryAggregationTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performSecondaryMacWorkspaceRefresh()
+        }
+        await secondaryAggregationTask?.value
+    }
+
+    private func performSecondaryMacWorkspaceRefresh() async {
         guard let pairedMacStore, multiMacAggregationEnabled else { return }
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
@@ -3674,13 +3741,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
             routeSelection: routeSelection
         )
         let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
             routeSelection: routeSelection
         )
         let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
@@ -3701,7 +3766,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil else { return }
-        guard let handle = await makeSecondaryClient(for: mac) else {
+        guard let handle = await makeSecondaryClient(for: mac, scope: scope) else {
             guard await isSecondaryMacStillVisible(macID, scope: scope) else { return }
             markSecondaryMacUnavailable(macID)
             return
@@ -3825,36 +3890,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
             self.secondaryMacSubscriptions[macID]?.refreshTask = nil
         }
-    }
-
-    /// Routing target for a workspace mutation (rename / pin / unread / close): the
-    /// connection that owns `id` in the aggregated multi-Mac list.
-    ///
-    /// - `client == remoteClient`, `isForeground == true` for a foreground-owned
-    ///   row, a single-Mac session, or an anonymous/manual host (owner unknown).
-    /// - the live secondary connection for a row owned by another aggregated Mac.
-    /// - `client == nil` when the owner is a known non-foreground Mac that has no
-    ///   live connection right now, so the caller must NOT fall back to the
-    ///   foreground client (that is exactly the wrong-Mac bug this avoids).
-    func workspaceMutationTarget(for id: MobileWorkspacePreview.ID) -> WorkspaceMutationTarget {
-        let owner = workspaces.first(where: { $0.id == id })?.macDeviceID
-        if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
-            return WorkspaceMutationTarget(
-                client: remoteClient,
-                route: activeRoute,
-                isForeground: true,
-                macDeviceID: foregroundMacDeviceID
-            )
-        }
-        if let owner, let sub = secondaryMacSubscriptions[owner] {
-            return WorkspaceMutationTarget(
-                client: sub.client,
-                route: sub.route,
-                isForeground: false,
-                macDeviceID: owner
-            )
-        }
-        return WorkspaceMutationTarget(client: nil, route: nil, isForeground: false, macDeviceID: owner)
     }
 
     /// Re-sync the authoritative workspace list for the Mac a mutation actually hit:
@@ -4940,6 +4975,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     private func connect(
         ticket: CmxAttachTicket,
+        authContext: MobileShellRPCAuthContext,
         allowsStackAuthFallback: Bool? = nil,
         pendingManualHostTrust: PendingManualHostTrust? = nil,
         pairedMacDeviceID: String? = nil,
@@ -4993,8 +5029,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             if let pendingManualHostTrust {
-                let needsApproval = await manualHostRouteNeedsApproval(route)
-                guard isConnectCurrent() else { return nil }
+                let needsApproval = await manualHostRouteNeedsApproval(
+                    route,
+                    stackUserID: authContext.stackUserID
+                )
+                guard isConnectCurrent(),
+                      isRPCAuthContextCurrent(authContext) else { return nil }
                 if needsApproval, case let .hostPort(host, _) = route.endpoint {
                     queueManualHostTrustWarning(
                         route: route,
@@ -5004,7 +5044,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     throw ManualHostTrustApprovalQueued.required
                 }
             }
-            let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
+            let manualHostTrusted = await manualHostStackAuthTrusted(
+                for: route,
+                stackUserID: authContext.stackUserID
+            )
+            guard isConnectCurrent(),
+                  isRPCAuthContextCurrent(authContext) else { return nil }
             let routeAllowsStackAuth = MobileShellRouteAuthPolicy().routeAllowsStackAuth(
                 route,
                 manualHostTrusted: manualHostTrusted
@@ -5015,7 +5060,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ticket: ticket,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
                     ?? routeAllowsStackAuth,
-                manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(for: route),
+                manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(
+                    for: route,
+                    stackUserID: authContext.stackUserID
+                ),
+                authScope: rpcAuthScopeForRoute(for: route, context: authContext),
+                authScopeValidator: rpcAuthScopeValidator(for: route, context: authContext),
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -5226,7 +5276,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if isCurrentRemoteConnection(client: client, generation: generation) {
                 _ = handleAuthorizationFailureIfNeeded(
                     error,
-                    owner: .foreground(route: activeRoute)
+                    owner: .foreground(client: client, generation: generation, route: activeRoute)
                 )
             }
             return false
@@ -5244,7 +5294,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRequiresReauth = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(preservingOtherMacWorkspaceState: true)
     }
 
     /// Removes a failed secondary client from the internal connection pool.
@@ -5902,7 +5952,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !handleAuthorizationFailureIfNeeded(
                 error,
-                owner: .foreground(route: activeRoute)
+                owner: .foreground(client: client, generation: generation, route: activeRoute)
             ) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
@@ -5966,7 +6016,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration else { return }
             guard !handleAuthorizationFailureIfNeeded(
                 error,
-                owner: .foreground(route: activeRoute)
+                owner: .foreground(client: client, generation: generation, route: activeRoute)
             ) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
@@ -6053,7 +6103,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration else { return false }
             guard !handleAuthorizationFailureIfNeeded(
                 error,
-                owner: .foreground(route: activeRoute)
+                owner: .foreground(client: client, generation: generation, route: activeRoute)
             ) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
@@ -6153,7 +6203,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration else { return false }
             guard !handleAuthorizationFailureIfNeeded(
                 error,
-                owner: .foreground(route: activeRoute)
+                owner: .foreground(client: client, generation: generation, route: activeRoute)
             ) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
@@ -6186,6 +6236,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reason: String,
         topics: [String]
     ) async -> TerminalEventSubscriptionAck {
+        let generation = connectionGeneration
         let requestData: Data
         do {
             requestData = try MobileCoreRPCClient.requestData(
@@ -6216,10 +6267,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A definitive auth failure here (RPC layer already tried a
             // force-refresh + retry) must drive the re-auth prompt instead of a
             // silently stale live frame.
-            if remoteClient === client {
+            if isCurrentRemoteConnection(client: client, generation: generation) {
                 _ = handleAuthorizationFailureIfNeeded(
                     error,
-                    owner: .foreground(route: activeRoute)
+                    owner: .foreground(client: client, generation: generation, route: activeRoute)
                 )
             }
             return .failed
@@ -6955,6 +7006,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        let generation = connectionGeneration
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             clearTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
@@ -7265,7 +7317,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // prompt instead of silently leaving a stale frame.
                 guard !self.handleAuthorizationFailureIfNeeded(
                     error,
-                    owner: .foreground(route: self.activeRoute)
+                    owner: .foreground(
+                        client: client,
+                        generation: generation,
+                        route: self.activeRoute
+                    )
                 ) else { return }
                 if let retryToken = self.prepareTerminalReplayFailureRetry(
                     surfaceID: surfaceID,

@@ -177,6 +177,11 @@ struct CMUXMobileRootView: View {
                 reconnectStoredMacIfNeeded()
             }
         }
+        .onChange(of: authManager.currentUser?.id) { _, _ in
+            // Stack Auth can replace one authenticated user with another without
+            // toggling `isAuthenticated`; resynchronize the shell on that edge.
+            syncShellAuthentication(isAuthenticated)
+        }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }

@@ -27,7 +27,7 @@ import Testing
         // Stack token unconditionally and would otherwise throw `insecureManualRoute`
         // before reaching the transport. This is a transport queue/cancellation test,
         // so enable fallback to match the real trusted-route path.
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -330,7 +330,7 @@ import Testing
             stackAccessToken: stackAccessToken,
             stackAccessTokenForStatus: stackAccessTokenForStatus
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try qrPairingTicket(route: route),
@@ -393,7 +393,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -435,7 +435,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,

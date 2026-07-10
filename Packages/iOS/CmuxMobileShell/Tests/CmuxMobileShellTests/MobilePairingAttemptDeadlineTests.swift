@@ -34,8 +34,9 @@ import Testing
             transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
         )
         let store = makeStore(runtime: runtime)
-
-        let first = await store.connectPairingURLResult(Self.qrURL)
+        let firstTask = Task { @MainActor in await store.connectPairingURLResult(Self.qrURL) }
+        await transport.waitUntilConnectStarted()
+        let first = await firstTask.value
         let second = await store.connectPairingURLResult(Self.qrURL)
         let connectCount = await transport.connectCount()
         await transport.releaseStuckConnects()
@@ -45,7 +46,6 @@ import Testing
         #expect(connectCount == 1)
         #expect(store.connectionState == .disconnected)
     }
-
     @Test func mixedTrustedAndUntrustedRoutesStillConnectOverTrustedRoute() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -305,14 +305,13 @@ import Testing
             kind: .manualHost,
             endpoint: .hostPort(host: "192.168.1.77", port: 58_465)
         )
-        let scope = try #require(MobileManualHostTrustScope(route: route, stackUserID: nil))
+        let scope = try #require(MobileManualHostTrustScope(route: route, stackUserID: "test-user"))
 
         #expect(approved == .superseded)
         #expect(store.manualHostTrustWarning == nil)
         #expect(await trustStore.isTrusted(scope) == false)
         #expect(await router.count(of: "mobile.attach_ticket.create") == 0)
     }
-
     @Test func staleManualHostApprovalLookupCannotReplaceCurrentPrompt() async throws {
         let trustStore = BlockingManualHostTrustStore()
         let store = makeStore(
@@ -389,7 +388,7 @@ import Testing
             kind: .manualHost,
             endpoint: .hostPort(host: "192.168.1.77", port: 58_465)
         )
-        let scope = try #require(MobileManualHostTrustScope(route: route, stackUserID: nil))
+        let scope = try #require(MobileManualHostTrustScope(route: route, stackUserID: "test-user"))
         let url = try attachURL(for: manualHostTicket(host: "192.168.1.77"))
 
         let queued = await store.connectPairingURLResult(url)
@@ -491,6 +490,7 @@ import Testing
             isSignedIn: true,
             connectionState: connectionState,
             pairingCode: pairingCode,
+            identityProvider: StaticIdentityProvider(userID: "test-user"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(suiteName: "pairing-deadline-\(UUID().uuidString)")!,
             manualHostTrustStore: manualHostTrustStore

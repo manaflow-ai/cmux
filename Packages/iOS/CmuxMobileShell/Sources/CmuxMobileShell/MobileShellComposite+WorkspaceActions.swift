@@ -337,8 +337,14 @@ extension MobileShellComposite {
                     client: client,
                     route: route
                 )
+            } else if let generation = target.connectionGeneration {
+                failureOwner = .foreground(
+                    client: client,
+                    generation: generation,
+                    route: target.route
+                )
             } else {
-                failureOwner = .foreground(route: target.route)
+                return .failure(.notConnected(hostDisplayName: hostDisplayName))
             }
             if handleAuthorizationFailureIfNeeded(error, owner: failureOwner) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
@@ -374,6 +380,7 @@ extension MobileShellComposite {
             return WorkspaceMutationTarget(
                 client: remoteClient,
                 route: activeRoute,
+                connectionGeneration: connectionGeneration,
                 isForeground: true,
                 macDeviceID: foregroundMacDeviceID
             )

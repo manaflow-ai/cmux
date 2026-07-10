@@ -7,6 +7,26 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellAuthScopeIsolationTests {
+    @Test func manualHostApprovalFailsClosedWithoutConcreteAccount() async {
+        let store = MobileShellComposite(
+            runtime: PairingDeadlineRuntime(supportedRouteKinds: [.manualHost]),
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: nil),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "nil-auth-scope-\(UUID().uuidString)")!
+        )
+
+        let result = await store.connectManualHost(
+            name: "LAN Mac",
+            host: "192.168.1.77",
+            port: 58_465
+        )
+
+        #expect(result == .failed)
+        #expect(store.manualHostTrustWarning == nil)
+        #expect(store.connectionRequiresReauth)
+    }
+
     @Test func accountSwitchDuringDirectSecondaryRefreshNeverSendsNewTokenToOldManualHost() async throws {
         try await assertSessionChangeNeverSendsNewToken(
             replacementUserID: "user-b",

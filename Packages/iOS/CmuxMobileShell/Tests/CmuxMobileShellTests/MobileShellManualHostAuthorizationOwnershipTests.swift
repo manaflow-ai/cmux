@@ -49,7 +49,9 @@ import Testing
         let secondaryClient = MobileCoreRPCClient(
             runtime: runtime,
             route: secondaryRoute,
-            ticket: secondaryTicket
+            ticket: secondaryTicket,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
         let secondarySubscription = SecondaryMacSubscription(
             macDeviceID: "secondary-mac",
@@ -121,7 +123,9 @@ import Testing
             route: secondaryRoute,
             ticket: secondaryTicket,
             allowsStackAuthFallback: true,
-            manualHostStackAuthTrustProvider: { false }
+            manualHostStackAuthTrustProvider: { false },
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
         let actionCapabilities = MobileWorkspaceActionCapabilities(supportsWorkspaceActions: true)
         store.secondaryMacSubscriptions["secondary-mac"] = SecondaryMacSubscription(
@@ -191,7 +195,13 @@ import Testing
         let newRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56_585)
         let oldTicket = try ticket(route: oldRoute, macDeviceID: "old-mac", authToken: "old-ticket")
         let newTicket = try ticket(route: newRoute, macDeviceID: "new-mac", authToken: "new-ticket")
-        let newClient = MobileCoreRPCClient(runtime: oldRuntime, route: newRoute, ticket: newTicket)
+        let newClient = MobileCoreRPCClient(
+            runtime: oldRuntime,
+            route: newRoute,
+            ticket: newTicket,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
+        )
         let store = MobileShellComposite.preview(runtime: oldRuntime)
         store.signIn()
         #expect(await store.connectPairingURL(try attachURL(for: oldTicket)))

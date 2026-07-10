@@ -47,14 +47,15 @@ public struct MobileShellRouteAuthPolicy: Sendable {
     ///     `.debugLoopback`. Keep this `false` for physical-device manual entry:
     ///     loopback dials the phone itself there, not the Mac.
     /// - Returns: `.debugLoopback` for allowed loopback hosts, `.tailscale` for
-    ///   Tailscale IP/MagicDNS hosts, otherwise `.manualHost`.
+    ///   Tailscale IP/MagicDNS hosts, `.manualHost` otherwise, or `nil` for an
+    ///   invalid host.
     public func manualRouteKind(
         for host: String,
         allowsDebugLoopback: Bool = true
-    ) -> CmxAttachTransportKind {
-        let normalizedHost = (normalizedManualRouteHost(host) ?? host)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    ) -> CmxAttachTransportKind? {
+        guard let normalizedHost = normalizedManualRouteHost(host)?.lowercased() else {
+            return nil
+        }
         if allowsDebugLoopback, isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }

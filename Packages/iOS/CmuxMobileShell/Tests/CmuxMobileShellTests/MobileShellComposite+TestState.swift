@@ -1,10 +1,8 @@
-#if DEBUG
-internal import CmuxMobileShellModel
+import CmuxMobileShellModel
+@testable import CmuxMobileShell
 
 @MainActor
 extension MobileShellComposite {
-    /// Test seam: seed the full per-Mac workspace source of truth so aggregation
-    /// edge cases can be tested without opening live secondary transports.
     func setWorkspaceStatesForTesting(
         _ states: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
@@ -16,4 +14,3 @@ extension MobileShellComposite {
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
     func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
 }
-#endif

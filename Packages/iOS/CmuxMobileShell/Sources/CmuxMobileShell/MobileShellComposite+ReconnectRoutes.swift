@@ -133,7 +133,6 @@ extension MobileShellComposite {
         let aliasSetsByMacID = macDeviceIDAliasSetsByPairedMacID(
             in: candidates,
             supportedKinds: supportedKinds,
-            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
             routeSelection: routeSelection
         )
         return candidates.first { candidate in

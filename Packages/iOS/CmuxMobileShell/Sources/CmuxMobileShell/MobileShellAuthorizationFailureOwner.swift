@@ -1,15 +1,16 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import Foundation
 
 /// The connection whose request produced an authorization failure.
 enum MobileShellAuthorizationFailureOwner {
-    case foreground(route: CmxAttachRoute?)
+    case foreground(client: MobileCoreRPCClient, generation: UUID, route: CmxAttachRoute?)
     case connectionAttempt(route: CmxAttachRoute?, preservingActiveConnection: Bool)
     case secondary(macDeviceID: String, client: MobileCoreRPCClient, route: CmxAttachRoute)
 
     var route: CmxAttachRoute? {
         switch self {
-        case let .foreground(route), let .connectionAttempt(route, _):
+        case let .foreground(_, _, route), let .connectionAttempt(route, _):
             route
         case let .secondary(_, _, route):
             route

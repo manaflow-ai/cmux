@@ -87,6 +87,7 @@ import Testing
         #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "100.71.210.41") == .tailscale)
         #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "work-mac.tailnet.ts.net") == .tailscale)
         #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.attacker.example") == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "https://bad.example") == nil)
 
         // Encrypted / loopback channels and explicitly approved manual hosts may
         // carry the Stack bearer token.
@@ -183,6 +184,19 @@ import Testing
         #expect(await store.isTrusted(bracketedIPv4MappedIPv6))
         #expect(await store.isTrusted(differentPort) == false)
         #expect(await store.isTrusted(differentAccount) == false)
+    }
+
+    @Test func manualHostTrustScopeRequiresConcreteAccount() {
+        #expect(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58_465,
+            stackUserID: nil
+        ) == nil)
+        #expect(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58_465,
+            stackUserID: "  "
+        ) == nil)
     }
 
     @Test func userDefaultsManualHostTrustIsSessionScopedAndExpires() async throws {

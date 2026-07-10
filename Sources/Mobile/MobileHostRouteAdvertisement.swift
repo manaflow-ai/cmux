@@ -15,11 +15,11 @@ final class MobileHostRouteAdvertisement {
 
     nonisolated static func configuredManualHost(defaults: UserDefaults = .standard) -> String? {
         guard let raw = defaults.object(forKey: manualHostDefaultsKey) as? String,
-              let host = CmxManualHost(raw)?.rawValue,
-              !CmxLoopbackHost().matches(host) else {
+              let manualHost = CmxManualHost(raw),
+              manualHost.isAdvertisable else {
             return nil
         }
-        return host
+        return manualHost.rawValue
     }
 
     nonisolated static func manualHostNeedsRouteRefresh(previous: String?, current: String?) -> Bool {

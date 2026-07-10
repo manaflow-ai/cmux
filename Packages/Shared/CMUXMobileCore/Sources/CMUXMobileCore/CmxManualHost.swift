@@ -11,6 +11,14 @@ public struct CmxManualHost: Equatable, Sendable {
     /// The normalized bare host, with IPv6 brackets removed when present.
     public let rawValue: String
 
+    /// Whether this host may be published as a remote manual pairing route.
+    ///
+    /// Loopback names the publishing machine itself, so advertising it to a
+    /// phone would make the phone dial its own local process instead of the Mac.
+    public var isAdvertisable: Bool {
+        !CmxLoopbackHost().matches(rawValue)
+    }
+
     /// Creates a normalized manual host.
     ///
     /// - Parameter rawHost: A DNS name or IP literal. IPv6 literals must be

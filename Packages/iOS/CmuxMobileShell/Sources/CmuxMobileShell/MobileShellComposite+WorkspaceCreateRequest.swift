@@ -81,7 +81,11 @@ extension MobileShellComposite {
             guard generation == connectionGeneration, !Task.isCancelled else { return .success(()) }
             if handleAuthorizationFailureIfNeeded(
                 error,
-                owner: .foreground(route: activeRoute)
+                owner: .foreground(
+                    client: client,
+                    generation: generation,
+                    route: activeRoute
+                )
             ) {
                 return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
             }

@@ -406,7 +406,9 @@ func makeRoutingConnectedStore(
         runtime: runtime,
         route: route,
         ticket: ticket,
-        allowsStackAuthFallback: true
+        allowsStackAuthFallback: true,
+        authScope: MobileRPCAuthScope(),
+        authScopeValidator: { true }
     )
     store.foregroundMacDeviceID = "test-mac"
     return store
@@ -438,7 +440,9 @@ func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHos
         runtime: runtime,
         route: route,
         ticket: ticket,
-        allowsStackAuthFallback: true
+        allowsStackAuthFallback: true,
+        authScope: MobileRPCAuthScope(),
+        authScopeValidator: { true }
     )
     store.foregroundMacDeviceID = "test-mac-2"
 }
@@ -470,7 +474,9 @@ func installSecondaryClient(
         runtime: runtime,
         route: route,
         ticket: ticket,
-        allowsStackAuthFallback: true
+        allowsStackAuthFallback: true,
+        authScope: MobileRPCAuthScope(),
+        authScopeValidator: { true }
     )
     store.secondaryMacSubscriptions[macDeviceID] = SecondaryMacSubscription(
         macDeviceID: macDeviceID,

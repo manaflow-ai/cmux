@@ -632,6 +632,8 @@ func installFreshLivenessRemoteClient(
         runtime: runtime,
         route: route,
         ticket: ticket,
-        allowsStackAuthFallback: true
+        allowsStackAuthFallback: true,
+        authScope: MobileRPCAuthScope(),
+        authScopeValidator: { true }
     )
 }

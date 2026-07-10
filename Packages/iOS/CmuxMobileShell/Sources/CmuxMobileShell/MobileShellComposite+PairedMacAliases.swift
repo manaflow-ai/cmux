@@ -8,7 +8,6 @@ extension MobileShellComposite {
         Self.coalescePairedMacsByDialEndpoint(
             pairedMacs,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
-            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
             routeSelection: routeSelection
         )
     }

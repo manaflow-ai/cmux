@@ -11,7 +11,8 @@ import Testing
         let oldBox = TransportBox()
         let transport = CountingSlowIgnoringCancellationTransport()
         let runtime = PairingDeadlineRuntime(
-            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
+            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport),
+            pairingAttemptTimeoutNanoseconds: 30 * 1_000_000_000
         )
         let store = MobileShellComposite(
             runtime: runtime,

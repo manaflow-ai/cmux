@@ -194,7 +194,7 @@ struct PairingView: View {
 
                             Text(L10n.string(
                                 "mobile.pairing.manualHostTrustBody",
-                                defaultValue: "cmux mobile currently relies on Tailscale/WireGuard for transport encryption. With a subnet router, iPhone to router may be encrypted, but router to Mac is normal LAN traffic. Trust only this host and port if you control that network."
+                                defaultValue: "cmux does not encrypt this direct connection end to end. Account credentials are sent through it and can be intercepted on an untrusted network. Trust this host and port only on a network you control."
                             ))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
