@@ -1,9 +1,12 @@
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
 use crate::{Result, check};
+
+static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -197,6 +200,7 @@ impl MouseModeScan {
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
+    instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
@@ -247,6 +251,7 @@ impl Terminal {
 
         let mut term = Terminal {
             raw,
+            instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
             callbacks: Box::new(callbacks),
@@ -279,6 +284,10 @@ impl Terminal {
 
     pub(crate) fn mouse_mode_revision(&self) -> u64 {
         self.mouse_mode_revision
+    }
+
+    pub(crate) fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 
     /// Feed VT-encoded bytes (pty output) into the terminal.
@@ -628,7 +637,7 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::MouseModeScan;
+    use super::{Callbacks, MouseModeScan, Terminal};
 
     #[test]
     fn mouse_mode_scan_tracks_split_private_mode_sequences() {
@@ -641,5 +650,13 @@ mod tests {
         assert!(scan.feed(b"\x1b[?1000r"));
         assert!(scan.feed(b"\x1b[!p"));
         assert!(scan.feed(b"\x1bc"));
+    }
+
+    #[test]
+    fn terminal_instances_have_lifetime_stable_ids() {
+        let first = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+
+        assert_ne!(first.instance_id(), second.instance_id());
     }
 }

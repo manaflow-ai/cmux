@@ -44,7 +44,7 @@ pub struct MouseInput {
 pub struct MouseEncoder {
     encoder: sys::GhosttyMouseEncoder,
     event: sys::GhosttyMouseEvent,
-    terminal_state: Option<(usize, u64)>,
+    terminal_state: Option<(u64, u64)>,
     size: Option<((u32, u32), (u32, u32))>,
 }
 
@@ -70,7 +70,7 @@ impl MouseEncoder {
     }
 
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
-        let state = (terminal.raw() as usize, terminal.mouse_mode_revision());
+        let state = (terminal.instance_id(), terminal.mouse_mode_revision());
         if self.terminal_state == Some(state) {
             return;
         }

@@ -4418,21 +4418,11 @@ impl App {
         }
         self.sidebar_focused = false;
         self.selection = None;
-        let release_capture =
-            self.capture_pty_mouse_release(area.surface, area.content, x, y, button, modifiers);
+        let (release_capture, forwarded) =
+            self.prepare_pty_mouse_press(area.surface, area.content, x, y, button, modifiers);
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             return PtyMousePressResult::Consumed;
         }
-        let forwarded = self.forward_pty_mouse_to_surface(
-            area.surface,
-            area.content,
-            x,
-            y,
-            MouseAction::Press,
-            Some(Self::ghostty_mouse_button(button)),
-            modifiers,
-            true,
-        );
         if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
         }
@@ -4453,6 +4443,75 @@ impl App {
             modifiers,
         });
         PtyMousePressResult::Started
+    }
+
+    fn prepare_pty_mouse_press(
+        &mut self,
+        surface_id: SurfaceId,
+        content: Rect,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> (PtyMouseReleaseCapture, PtyInputForwardResult) {
+        let failed = || PtyInputForwardResult { accepted: false, reservation_id: None };
+        let Some(surface) = self.session.surface(surface_id) else {
+            return (PtyMouseReleaseCapture::Failed, failed());
+        };
+        let cell_width = u32::from(self.cell_pixels.0.max(1));
+        let cell_height = u32::from(self.cell_pixels.1.max(1));
+        let position = (
+            (x as f32 - content.x as f32 + 0.5) * cell_width as f32,
+            (y as f32 - content.y as f32 + 0.5) * cell_height as f32,
+        );
+        let screen_size = (
+            u32::from(content.width).saturating_mul(cell_width),
+            u32::from(content.height).saturating_mul(cell_height),
+        );
+        let press = MouseInput {
+            action: MouseAction::Press,
+            button: Some(Self::ghostty_mouse_button(button)),
+            mods: Self::ghostty_mouse_mods(modifiers),
+            position,
+            screen_size,
+            cell_size: (cell_width, cell_height),
+            any_button_pressed: true,
+        };
+        let release =
+            MouseInput { action: MouseAction::Release, any_button_pressed: false, ..press };
+        let Ok(mut release_encoder) = MouseEncoder::new() else {
+            return (PtyMouseReleaseCapture::Failed, failed());
+        };
+        let mut release_output = Vec::new();
+        self.encode_buf.clear();
+        let encoded = surface.with_terminal(|terminal| {
+            release_encoder.sync_from_terminal(terminal);
+            release_encoder.encode(release, &mut release_output)?;
+            self.mouse_encoder.sync_from_terminal(terminal);
+            self.mouse_encoder.encode(press, &mut self.encode_buf)
+        });
+        if !matches!(encoded, Some(Ok(()))) {
+            return (PtyMouseReleaseCapture::Failed, failed());
+        }
+        let release_capture = if release_output.is_empty() {
+            PtyMouseReleaseCapture::NotReported
+        } else {
+            PtyMouseReleaseCapture::Bytes(PtyInputBytes::from_slice(&release_output))
+        };
+        if self.encode_buf.is_empty() {
+            return (
+                release_capture,
+                PtyInputForwardResult { accepted: true, reservation_id: None },
+            );
+        }
+        let kind = if matches!(release_capture, PtyMouseReleaseCapture::Bytes(_)) {
+            PtyInputKind::Press
+        } else {
+            PtyInputKind::Ordered
+        };
+        let bytes = PtyInputBytes::from_slice(&self.encode_buf);
+        let forwarded = self.enqueue_pty_bytes(surface_id, surface, bytes, kind);
+        (release_capture, forwarded)
     }
 
     fn forward_pty_mouse_drag(
