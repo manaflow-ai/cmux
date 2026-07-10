@@ -290,7 +290,8 @@ struct RemotePortScanGatingTests {
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@"
-            )
+            ),
+            orphanedProcessReaper: RemoteOrphanedProcessReaper()
         )
     }
 }

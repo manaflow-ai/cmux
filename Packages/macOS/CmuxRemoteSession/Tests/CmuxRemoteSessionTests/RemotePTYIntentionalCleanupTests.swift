@@ -134,7 +134,8 @@ struct RemotePTYIntentionalCleanupTests {
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@"
-            )
+            ),
+            orphanedProcessReaper: RemoteOrphanedProcessReaper()
         )
     }
 }

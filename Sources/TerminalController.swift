@@ -132,6 +132,8 @@ class TerminalController {
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
     /// planned `RemoteSessionCoordinator` wiring.
     nonisolated let remoteProxyBroker: any RemoteProxyBrokering
+    /// Process-wide native orphan cleanup, shared by every remote coordinator.
+    nonisolated let remoteOrphanedProcessReaper: RemoteOrphanedProcessReaper
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -351,11 +353,13 @@ class TerminalController {
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
-        )
+        ),
+        remoteOrphanedProcessReaper: RemoteOrphanedProcessReaper = RemoteOrphanedProcessReaper()
     ) {
         self.passwordStore = passwordStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        self.remoteOrphanedProcessReaper = remoteOrphanedProcessReaper
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,

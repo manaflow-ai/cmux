@@ -62,6 +62,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let buildInfo: any RemoteSessionBuildInfoProviding
     let daemonStrings: RemoteDaemonStrings
     let strings: RemoteSessionStrings
+    let orphanedProcessReaper: any RemoteOrphanedProcessReaping
     /// Sleep seam for every legacy `asyncAfter` delay (reconnect backoff,
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
@@ -108,10 +109,14 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var bootstrapRemoteTTYFetchInFlight = false
     var bootstrapRemoteTTYRetryCount = 0
     var reverseRelayStderrPipe: Pipe?
+    var reverseRelayPreparationTask: Task<Void, Never>?
+    var reverseRelayPreparationToken: UUID?
     var reverseRelayRestartTask: Task<Void, Never>?
     var reverseRelayRestartToken: UUID?
     var reverseRelayStderrBuffer = ""
     var reconnectRetryCount = 0
+    var connectionPreparationTask: Task<Void, Never>?
+    var connectionPreparationToken: UUID?
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
     var consecutiveUnreachableProbeCount = 0
@@ -148,6 +153,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///   - buildInfo: App-build inputs (`Bundle.main` stays app-side).
     ///   - daemonStrings: App-localized daemon error strings.
     ///   - strings: App-localized connection-state strings.
+    ///   - orphanedProcessReaper: Process-wide orphan cleanup service injected
+    ///     by the app composition root.
     ///   - clock: Sleep seam driving every retry/backoff delay (production
     ///     default: the continuous clock).
     public init(
@@ -161,6 +168,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         buildInfo: any RemoteSessionBuildInfoProviding,
         daemonStrings: RemoteDaemonStrings,
         strings: RemoteSessionStrings,
+        orphanedProcessReaper: any RemoteOrphanedProcessReaping,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
     ) {
         self.host = host
@@ -174,6 +182,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.daemonStrings = daemonStrings
         self.strings = strings
         self.clock = clock
+        self.orphanedProcessReaper = orphanedProcessReaper
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -239,6 +248,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     func stopAllLocked() {
         debugLog("remote.session.stop \(debugConfigSummary())")
         isStopping = true
+        cancelConnectionPreparationLocked()
         cancelReconnectRetryLocked()
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
@@ -277,12 +287,41 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
+        cancelConnectionPreparationLocked()
+        let token = UUID()
+        connectionPreparationToken = token
+        let reaper = orphanedProcessReaper
+        let destination = configuration.destination
+        let relayPort = configuration.relayPort
+        let persistentDaemonSlot = configuration.persistentDaemonSlot
+        connectionPreparationTask = Task { [weak self] in
+            await reaper.reap(
+                destination: destination,
+                relayPort: relayPort,
+                persistentDaemonSlot: persistentDaemonSlot
+            )
+            guard !Task.isCancelled else { return }
+            self?.queue.async { [weak self] in
+                self?.connectionPreparationDidFinishLocked(token: token)
+            }
+        }
+    }
 
-        Self.killOrphanedRemoteSSHProcesses(
-            destination: configuration.destination,
-            relayPort: configuration.relayPort,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
-        )
+    private func connectionPreparationDidFinishLocked(token: UUID) {
+        guard connectionPreparationToken == token else { return }
+        connectionPreparationTask = nil
+        connectionPreparationToken = nil
+        guard !isStopping else { return }
+        beginConnectionAttemptAfterOrphanCleanupLocked()
+    }
+
+    private func cancelConnectionPreparationLocked() {
+        connectionPreparationTask?.cancel()
+        connectionPreparationTask = nil
+        connectionPreparationToken = nil
+    }
+
+    private func beginConnectionAttemptAfterOrphanCleanupLocked() {
         connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         // The armed retry (if any) is consumed by this attempt; a stale fire

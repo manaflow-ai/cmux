@@ -13,6 +13,54 @@ extension RemoteSessionCoordinator {
     func startReverseRelayLocked(remotePath: String) {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+        guard configuration.relayID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return
+        }
+        guard configuration.relayToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return
+        }
+        guard configuration.localSocketPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return
+        }
+        guard reverseRelayProcess == nil else { return }
+        guard reverseRelayControlMasterForwardSpec == nil else { return }
+        guard reverseRelayPreparationTask == nil else { return }
+
+        cancelReverseRelayRestartLocked()
+        let token = UUID()
+        reverseRelayPreparationToken = token
+        let reaper = orphanedProcessReaper
+        let destination = configuration.destination
+        let persistentDaemonSlot = configuration.persistentDaemonSlot
+        reverseRelayPreparationTask = Task { [weak self] in
+            await reaper.reap(
+                destination: destination,
+                relayPort: relayPort,
+                persistentDaemonSlot: persistentDaemonSlot
+            )
+            guard !Task.isCancelled else { return }
+            self?.queue.async { [weak self] in
+                self?.reverseRelayPreparationDidFinishLocked(
+                    remotePath: remotePath,
+                    token: token
+                )
+            }
+        }
+    }
+
+    private func reverseRelayPreparationDidFinishLocked(remotePath: String, token: UUID) {
+        guard reverseRelayPreparationToken == token else { return }
+        reverseRelayPreparationTask = nil
+        reverseRelayPreparationToken = nil
+        guard !isStopping else { return }
+        startReverseRelayAfterOrphanCleanupLocked(remotePath: remotePath)
+    }
+
+    private func startReverseRelayAfterOrphanCleanupLocked(remotePath: String) {
+        guard !isStopping else { return }
+        guard daemonReady else { return }
         guard let relayPort = configuration.relayPort, relayPort > 0,
               let relayID = configuration.relayID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !relayID.isEmpty,
@@ -26,7 +74,6 @@ extension RemoteSessionCoordinator {
         guard reverseRelayProcess == nil else { return }
         guard reverseRelayControlMasterForwardSpec == nil else { return }
 
-        cancelReverseRelayRestartLocked()
         var relayServer: RemoteCLIRelayServer?
         do {
             let server = try ensureCLIRelayServerLocked(
@@ -36,11 +83,6 @@ extension RemoteSessionCoordinator {
             )
             relayServer = server
             let localRelayPort = try server.start()
-            Self.killOrphanedRemoteSSHProcesses(
-                destination: configuration.destination,
-                relayPort: relayPort,
-                persistentDaemonSlot: configuration.persistentDaemonSlot
-            )
             let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
 
             if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec, relayPort: relayPort) {
@@ -219,7 +261,14 @@ extension RemoteSessionCoordinator {
         reverseRelayRestartToken = nil
     }
 
+    private func cancelReverseRelayPreparationLocked() {
+        reverseRelayPreparationTask?.cancel()
+        reverseRelayPreparationTask = nil
+        reverseRelayPreparationToken = nil
+    }
+
     func stopReverseRelayLocked() {
+        cancelReverseRelayPreparationLocked()
         reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
