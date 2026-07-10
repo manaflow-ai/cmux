@@ -10,13 +10,11 @@ extension RemoteTmuxWindowMirror {
                   let panel = panel(forPane: tmuxPaneID) else {
                 return nil
             }
-            let header = paneHeaderLabels[tmuxPaneID]?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return RemoteTmuxControlPane(
                 tmuxPaneID: tmuxPaneID,
                 paneID: paneID,
                 panel: panel,
-                title: header.isEmpty ? panel.displayTitle : header,
+                title: title(forPane: tmuxPaneID),
                 isFocused: tmuxPaneID == activePaneId
             )
         }

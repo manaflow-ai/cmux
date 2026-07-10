@@ -66,6 +66,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    /// Display title for this mirrored tmux window; every inner surface/tab title
+    /// derives from this tmux window name, never from pane-border labels.
+    private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
     /// tabs stay mounted and still receive geometry callbacks, so default-hidden
@@ -80,6 +83,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var paneIdByPaneId: [Int: PaneID] = [:]
     @ObservationIgnored var paneIdByBonsplitPane: [PaneID: Int] = [:]
     @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
+    @ObservationIgnored var paneIndexByPaneId: [Int: Int] = [:]
     @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
@@ -179,6 +183,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// never creates or closes panels, and f's output is zoom-invariant.
     func apply(window: RemoteTmuxWindow) {
         let previousRenderedLayout = renderedLayout
+        let nextTitle = RemoteTmuxSessionMirror.tabTitle(for: window)
+        if windowTitle != nextTitle { windowTitle = nextTitle }
         let newVisible = window.zoomed ? window.visibleLayout : nil
         if visibleLayout != newVisible { visibleLayout = newVisible }
         if zoomed != window.zoomed { zoomed = window.zoomed }
@@ -196,8 +202,13 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         layout newLayout: RemoteTmuxLayoutNode,
         previousRenderedLayout: RemoteTmuxLayoutNode
     ) {
-        let livePaneIds = Set(newLayout.paneIDsInOrder)
-        for paneId in newLayout.paneIDsInOrder where panelsByPaneId[paneId] == nil {
+        let livePaneIDsInOrder = newLayout.paneIDsInOrder
+        let livePaneIds = Set(livePaneIDsInOrder)
+        paneIndexByPaneId = Dictionary(
+            livePaneIDsInOrder.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { firstIndex, _ in firstIndex }
+        )
+        for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             onControlSurfaceChanged?(paneId, panel.id)
