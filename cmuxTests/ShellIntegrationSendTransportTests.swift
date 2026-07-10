@@ -21,8 +21,11 @@ struct ShellIntegrationSendTransportTests {
             ),
             "cmux-zsh-integration.zsh must ship in the app bundle"
         )
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-send-transport-\(UUID().uuidString)", isDirectory: true)
+        // Deliberately short root: unix socket paths must fit
+        // sockaddr_un.sun_path (104 bytes on Darwin), and the default
+        // temporaryDirectory under /var/folders is long enough to overflow it.
+        let dir = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-st-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let scriptFile = dir.appendingPathComponent("integration.zsh")

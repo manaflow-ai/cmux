@@ -67,28 +67,15 @@ _cmux_send() {
 # Fire-and-forget send, always detached from the interactive shell: the
 # client's connect and response wait must never run in the foreground, or a
 # wedged cmux listener (hung app, full backlog, post-wake socket) blocks every
-# precmd/preexec hook and freezes the user's prompt.
-#
-# Detached (&!) jobs leave the shell's job table, so the jobstates soft limit
-# cannot bound them. Track in-flight send pids and drop new sends at a small
-# cap: at most _CMUX_SEND_MAX_IN_FLIGHT children exist per shell while the
-# listener is wedged (each also self-bounds via its client timeout), and sends
-# resume as soon as the listener drains.
-typeset -ga _CMUX_SEND_PIDS
-typeset -gi _CMUX_SEND_MAX_IN_FLIGHT=8
+# precmd/preexec hook and freezes the user's prompt. Each child self-bounds
+# via its client timeout (-w 1 / -T 1), so a wedged listener cannot
+# accumulate children beyond roughly one second's worth of sends.
 # Accepts multiple payloads: they are sent sequentially inside ONE child, so
 # callers with an ordering dependency between two messages (report_tty before
 # ports_kick) batch them instead of racing two independent children.
-# Returns nonzero when the payload was dropped (cap or job-table saturation)
-# so callers with edge-triggered latches can leave them unset and retry.
+# Returns nonzero when the payload was dropped (job-table saturation) so
+# callers with edge-triggered latches can leave them unset and retry.
 _cmux_send_bg() {
-    local -a live=()
-    local pid
-    for pid in "${_CMUX_SEND_PIDS[@]}"; do
-        kill -0 "$pid" 2>/dev/null && live+=("$pid")
-    done
-    _CMUX_SEND_PIDS=("${live[@]}")
-    (( ${#_CMUX_SEND_PIDS[@]} >= _CMUX_SEND_MAX_IN_FLIGHT )) && return 1
     _cmux_zsh_job_table_saturated && return 1
     {
         local _cmux_msg
@@ -96,7 +83,6 @@ _cmux_send_bg() {
             _cmux_send "$_cmux_msg"
         done
     } >/dev/null 2>&1 &!
-    _CMUX_SEND_PIDS+=("$!")
     return 0
 }
 
