@@ -475,9 +475,12 @@
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
 		C0A735500000000000000002 /* CuaDriverBinaryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735500000000000000001 /* CuaDriverBinaryResolver.swift */; };
 		C0A735510000000000000002 /* CuaDriverBinaryResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735510000000000000001 /* CuaDriverBinaryResolverTests.swift */; };
+		C0A735540000000000000002 /* CuaDriverFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735540000000000000001 /* CuaDriverFileReader.swift */; };
 		C0A735500000000000000004 /* CuaDriverManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735500000000000000003 /* CuaDriverManager.swift */; };
 		C0A735510000000000000004 /* CuaDriverManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735510000000000000003 /* CuaDriverManagerTests.swift */; };
 		C0A735520000000000000002 /* CuaDriverMCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735520000000000000001 /* CuaDriverMCP.swift */; };
+		C0A735550000000000000002 /* CuaDriverProcessSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735550000000000000001 /* CuaDriverProcessSession.swift */; };
+		C0A735560000000000000002 /* CuaDriverTerminationInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735560000000000000001 /* CuaDriverTerminationInbox.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
 		C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00010000000000000002 /* CustomSidebarPanel.swift */; };
 		C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00090000000000000002 /* CustomSidebarPanelView.swift */; };
@@ -1801,9 +1804,12 @@
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
 		C0A735500000000000000001 /* CuaDriverBinaryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverBinaryResolver.swift; sourceTree = "<group>"; };
 		C0A735510000000000000001 /* CuaDriverBinaryResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuaDriverBinaryResolverTests.swift; sourceTree = "<group>"; };
+		C0A735540000000000000001 /* CuaDriverFileReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverFileReader.swift; sourceTree = "<group>"; };
 		C0A735500000000000000003 /* CuaDriverManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverManager.swift; sourceTree = "<group>"; };
 		C0A735510000000000000003 /* CuaDriverManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuaDriverManagerTests.swift; sourceTree = "<group>"; };
 		C0A735520000000000000001 /* CuaDriverMCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverMCP.swift; sourceTree = "<group>"; };
+		C0A735550000000000000001 /* CuaDriverProcessSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverProcessSession.swift; sourceTree = "<group>"; };
+		C0A735560000000000000001 /* CuaDriverTerminationInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverTerminationInbox.swift; sourceTree = "<group>"; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
 		C57B00010000000000000002 /* CustomSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanel.swift; sourceTree = "<group>"; };
 		C57B00090000000000000002 /* CustomSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanelView.swift; sourceTree = "<group>"; };
@@ -3496,8 +3502,11 @@
 				CD0CFE6400000000CD0CFE64 /* HostSettingsActions+ComputerUse.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
 				C0A735500000000000000001 /* CuaDriverBinaryResolver.swift */,
+				C0A735540000000000000001 /* CuaDriverFileReader.swift */,
 				C0A735520000000000000001 /* CuaDriverMCP.swift */,
 				C0A735500000000000000003 /* CuaDriverManager.swift */,
+				C0A735550000000000000001 /* CuaDriverProcessSession.swift */,
+				C0A735560000000000000001 /* CuaDriverTerminationInbox.swift */,
 				C0A735500000000000000005 /* SystemPermissionsChecker.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */,
@@ -4716,8 +4725,11 @@
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
 				C0A735500000000000000002 /* CuaDriverBinaryResolver.swift in Sources */,
+				C0A735540000000000000002 /* CuaDriverFileReader.swift in Sources */,
 				C0A735500000000000000004 /* CuaDriverManager.swift in Sources */,
 				C0A735520000000000000002 /* CuaDriverMCP.swift in Sources */,
+				C0A735550000000000000002 /* CuaDriverProcessSession.swift in Sources */,
+				C0A735560000000000000002 /* CuaDriverTerminationInbox.swift in Sources */,
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
 				C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */,
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,

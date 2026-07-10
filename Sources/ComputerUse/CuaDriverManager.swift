@@ -22,6 +22,12 @@ final class CuaDriverManager {
     }
 
     static let shared = CuaDriverManager()
+    static let handshakeResponseTimeout: Duration = .seconds(10)
+    private static let processTerminationTimeout: Duration = .seconds(3)
+    private static let startWaitTimeout =
+        handshakeResponseTimeout + handshakeResponseTimeout +
+        handshakeResponseTimeout + handshakeResponseTimeout +
+        processTerminationTimeout + processTerminationTimeout
     private static let skyCursorArguments = ["mcp", "--no-daemon-relaunch", "--cursor-shape", "sky"]
     private static let plainArguments = ["mcp", "--no-daemon-relaunch"]
 
@@ -32,6 +38,7 @@ final class CuaDriverManager {
     @ObservationIgnored private let resolver: CuaDriverBinaryResolver
     @ObservationIgnored private let clock = ContinuousClock()
     @ObservationIgnored private var session: CuaDriverProcessSession?
+    @ObservationIgnored private var activeStartID: UUID?
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var stateContinuations: [UUID: AsyncStream<State>.Continuation] = [:]
 
@@ -108,7 +115,18 @@ final class CuaDriverManager {
         case .running(let info):
             return info
         case .starting:
-            return await runningInfoAfterCurrentStart()
+            guard let startID = activeStartID else {
+                state = .stopped
+                await start(
+                    settingValue: settingValue,
+                    environment: environment,
+                    bundleHelperURL: bundleHelperURL,
+                    fileExists: fileExists
+                )
+                guard case .running(let info) = state else { return nil }
+                return info
+            }
+            return await runningInfoAfterCurrentStart(startID: startID)
         case .notFound, .stopped, .failed:
             await start(
                 settingValue: settingValue,
@@ -121,18 +139,32 @@ final class CuaDriverManager {
         }
     }
 
-    private func runningInfoAfterCurrentStart() async -> RunningInfo? {
-        for await update in stateUpdates() {
-            switch update {
-            case .running(let info):
-                return info
-            case .notFound, .stopped, .failed:
+    private func runningInfoAfterCurrentStart(startID: UUID) async -> RunningInfo? {
+        let updates = stateUpdates()
+        do {
+            return try await withTimeout(Self.startWaitTimeout) {
+                for await update in updates {
+                    switch update {
+                    case .running(let info):
+                        return info
+                    case .notFound, .stopped, .failed:
+                        return nil
+                    case .starting:
+                        continue
+                    }
+                }
                 return nil
-            case .starting:
-                continue
             }
+        } catch is CancellationError {
+            return nil
+        } catch {
+            guard activeStartID == startID, case .starting = state else { return nil }
+            await stop()
+            if activeStartID == startID, case .stopped = state {
+                state = .failed(CuaDriverManagerError.timeout.localizedDescription)
+            }
+            return nil
         }
-        return nil
     }
 
     func start(
@@ -141,9 +173,12 @@ final class CuaDriverManager {
         bundleHelperURL: URL = CuaDriverBinaryResolver.bundleHelperURL(),
         fileExists: (URL) -> Bool = { FileManager.default.isExecutableFile(atPath: $0.path) }
     ) async {
+        guard activeStartID == nil else { return }
         switch state {
-        case .starting, .running:
+        case .running:
             return
+        case .starting:
+            state = .stopped
         case .notFound, .stopped, .failed:
             break
         }
@@ -159,6 +194,17 @@ final class CuaDriverManager {
         }
 
         state = .starting
+        let startID = UUID()
+        activeStartID = startID
+        var terminalState: State = .stopped
+        defer {
+            if activeStartID == startID {
+                activeStartID = nil
+                if case .starting = state {
+                    state = terminalState
+                }
+            }
+        }
 
         let firstAttempt = await startResolvedDriver(
             resolution: resolution,
@@ -166,13 +212,29 @@ final class CuaDriverManager {
             environment: environment,
             retryWhenProcessExitsBeforeHandshake: true
         )
+        let finalAttempt: CuaDriverStartAttemptResult
         if case .retryWithoutCursor = firstAttempt {
-            _ = await startResolvedDriver(
+            guard activeStartID == startID, case .starting = state else { return }
+            finalAttempt = await startResolvedDriver(
                 resolution: resolution,
                 arguments: Self.plainArguments,
                 environment: environment,
                 retryWhenProcessExitsBeforeHandshake: false
             )
+        } else {
+            finalAttempt = firstAttempt
+        }
+
+        switch finalAttempt {
+        case .running:
+            terminalState = .stopped
+        case .retryWithoutCursor, .stopped:
+            terminalState = .stopped
+        case .failed(let message):
+            terminalState = .failed(message)
+        }
+        if activeStartID == startID, case .starting = state {
+            state = terminalState
         }
     }
 
@@ -225,26 +287,42 @@ final class CuaDriverManager {
                 if retryWhenProcessExitsBeforeHandshake {
                     return .retryWithoutCursor
                 }
-                state = .failed(Self.exitedStatusMessage(process.terminationStatus))
-                return .failed
+                let message = Self.exitedStatusMessage(process.terminationStatus)
+                state = .failed(message)
+                return .failed(message)
             }
             guard self.session === runningSession else {
-                state = .stopped
-                return .stopped
+                return startAttemptResultAfterSessionLoss()
             }
             runningSession.suppressTerminationFailureBeforeHandshake = false
             runningSession.stdoutDrainTask = CuaDriverLineStream.drain(lines: lineInbox)
             state = .running(info)
             return .running
         } catch {
+            if runningSession.isStopping {
+                return .stopped
+            }
             if self.session === runningSession {
                 if retryWhenProcessExitsBeforeHandshake, !process.isRunning, !runningSession.isStopping {
                     self.session = nil
                     return .retryWithoutCursor
                 }
-                await stopSession(runningSession, finalState: .failed(error.localizedDescription))
-                return .failed
+                let message = error.localizedDescription
+                await stopSession(runningSession, finalState: .failed(message))
+                return .failed(message)
             }
+            return startAttemptResultAfterSessionLoss()
+        }
+    }
+
+    private func startAttemptResultAfterSessionLoss() -> CuaDriverStartAttemptResult {
+        switch state {
+        case .failed(let message):
+            return .failed(message)
+        case .starting:
+            state = .stopped
+            return .stopped
+        case .notFound, .stopped, .running:
             return .stopped
         }
     }
@@ -252,6 +330,8 @@ final class CuaDriverManager {
     func stop() async {
         guard let session else {
             if case .notFound = state {
+                state = .stopped
+            } else if case .starting = state {
                 state = .stopped
             }
             return
@@ -268,21 +348,23 @@ final class CuaDriverManager {
             terminate(process)
 
             do {
-                _ = try await withTimeout(.seconds(3)) {
+                _ = try await withTimeout(Self.processTerminationTimeout) {
                     try await terminationInbox.next()
                 }
             } catch {
                 if process.isRunning {
                     kill(process.processIdentifier, SIGKILL)
+                    _ = try? await withTimeout(Self.processTerminationTimeout) {
+                        try await terminationInbox.next()
+                    }
                 }
-                _ = try? await terminationInbox.next()
             }
         }
 
         if self.session === session {
             self.session = nil
+            state = finalState
         }
-        state = finalState
     }
 
     func withTimeout<T>(
@@ -327,7 +409,7 @@ final class CuaDriverManager {
 
     private func handleTermination(session terminatedSession: CuaDriverProcessSession?, status: Int32) async {
         guard let terminatedSession, session === terminatedSession else { return }
-        await terminatedSession.terminationInbox.yield(status)
+        terminatedSession.terminationInbox.yield(status)
         if terminatedSession.isStopping {
             return
         }
@@ -354,60 +436,5 @@ private enum CuaDriverStartAttemptResult {
     case running
     case retryWithoutCursor
     case stopped
-    case failed
-}
-
-// Process and pipe handles are touched from MainActor; the termination inbox is an actor.
-private final class CuaDriverProcessSession: @unchecked Sendable {
-    let process: Process
-    let stdin: Pipe
-    let terminationInbox = CuaDriverTerminationInbox()
-    var stdoutDrainTask: Task<Void, Never>?
-    var stderrDrainTask: Task<Void, Never>?
-    var pid: Int32?
-    var isStopping = false
-    var suppressTerminationFailureBeforeHandshake: Bool
-
-    init(
-        process: Process,
-        stdin: Pipe,
-        stdoutDrainTask: Task<Void, Never>?,
-        stderrDrainTask: Task<Void, Never>?,
-        suppressTerminationFailureBeforeHandshake: Bool = false
-    ) {
-        self.process = process
-        self.stdin = stdin
-        self.stdoutDrainTask = stdoutDrainTask
-        self.stderrDrainTask = stderrDrainTask
-        self.suppressTerminationFailureBeforeHandshake = suppressTerminationFailureBeforeHandshake
-    }
-
-    deinit {
-        stdoutDrainTask?.cancel()
-        stderrDrainTask?.cancel()
-    }
-}
-
-private actor CuaDriverTerminationInbox {
-    private var bufferedStatus: Int32?
-    private var continuation: CheckedContinuation<Int32, Never>?
-
-    func yield(_ status: Int32) {
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(returning: status)
-        } else {
-            bufferedStatus = status
-        }
-    }
-
-    func next() async throws -> Int32 {
-        if let status = bufferedStatus {
-            bufferedStatus = nil
-            return status
-        }
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
-    }
+    case failed(String)
 }

@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -13,7 +14,7 @@ final class CuaDriverManagerTests: XCTestCase {
             while IFS= read -r line; do
               if [[ "$line" == *'"method":"initialize"'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
-              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+              elif [[ "$line" == *'"id":2'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"},{"name":"two"}]}}'
               fi
             done
@@ -96,7 +97,7 @@ final class CuaDriverManagerTests: XCTestCase {
             while IFS= read -r line; do
               if [[ "$line" == *'"method":"initialize"'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
-              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+              elif [[ "$line" == *'"id":2'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"}]}}'
               fi
             done
@@ -134,7 +135,7 @@ final class CuaDriverManagerTests: XCTestCase {
             while IFS= read -r line; do
               if [[ "$line" == *'"method":"initialize"'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
-              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+              elif [[ "$line" == *'"id":2'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"},{"name":"two"}]}}'
               fi
             done
@@ -172,7 +173,7 @@ final class CuaDriverManagerTests: XCTestCase {
             while IFS= read -r line; do
               if [[ "$line" == *'"method":"initialize"'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
-              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+              elif [[ "$line" == *'"id":2'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"}]}}'
               fi
             done
@@ -215,7 +216,7 @@ final class CuaDriverManagerTests: XCTestCase {
             while IFS= read -r line; do
               if [[ "$line" == *'"method":"initialize"'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.2"}}}'
-              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+              elif [[ "$line" == *'"id":2'* ]]; then
                 printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"},{"name":"two"}]}}'
               fi
             done
@@ -246,6 +247,143 @@ final class CuaDriverManagerTests: XCTestCase {
         XCTAssertEqual(retried.toolCount, 2)
         XCTAssertEqual(try readRecordedLines(from: invocationsFile).count, 3)
         await manager.stop()
+    }
+
+    func testLineStreamSplitsLinesTrimsCarriageReturnsAndFlushesEOF() async throws {
+        let pipe = Pipe()
+        let inbox = CuaDriverLineInbox(stream: CuaDriverLineStream.lines(from: pipe.fileHandleForReading))
+
+        try pipe.fileHandleForWriting.write(contentsOf: Data("first\r\n".utf8))
+        let first = try await inbox.nextLine()
+        try pipe.fileHandleForWriting.write(contentsOf: Data("second\npartial".utf8))
+        pipe.fileHandleForWriting.closeFile()
+        let second = try await inbox.nextLine()
+        let partial = try await inbox.nextLine()
+        let eof = try await inbox.nextLine()
+        XCTAssertEqual(first, "first")
+        XCTAssertEqual(second, "second")
+        XCTAssertEqual(partial, "partial")
+        XCTAssertNil(eof)
+        pipe.fileHandleForReading.closeFile()
+    }
+
+    func testLineStreamRejectsInvalidUTF8() async throws {
+        let pipe = Pipe()
+        let inbox = CuaDriverLineInbox(stream: CuaDriverLineStream.lines(from: pipe.fileHandleForReading))
+
+        try pipe.fileHandleForWriting.write(contentsOf: Data([0xFF]))
+        pipe.fileHandleForWriting.closeFile()
+
+        do {
+            _ = try await inbox.nextLine()
+            XCTFail("Expected invalid UTF-8 to fail the line stream")
+        } catch CuaDriverManagerError.invalidUTF8 {
+            // Expected.
+        } catch {
+            XCTFail("Expected invalidUTF8, got \(error)")
+        }
+        pipe.fileHandleForReading.closeFile()
+    }
+
+    func testTerminationInboxWaitIsCancellationAware() async {
+        let inbox = CuaDriverTerminationInbox()
+        let waiter = Task {
+            try await inbox.next()
+        }
+        await Task.yield()
+        waiter.cancel()
+
+        do {
+            _ = try await waiter.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    func testEnsureDuringInFlightFailingStartNeverLeavesStarting() async throws {
+        let directory = try makeTemporaryDirectory()
+        let attemptsFile = directory.appendingPathComponent("attempts.txt")
+        let releaseFIFO = directory.appendingPathComponent("release.fifo")
+        XCTAssertEqual(mkfifo(releaseFIFO.path, 0o600), 0)
+        let executable = try makeStubExecutable(
+            name: "cua-driver-concurrent-failure",
+            directory: directory,
+            body: """
+            printf '%s\\n' "$*" >> \(shellQuoted(attemptsFile.path))
+            attempt=$(wc -l < \(shellQuoted(attemptsFile.path)))
+            if (( attempt == 1 )); then
+              IFS= read -r _ < \(shellQuoted(releaseFIFO.path))
+            fi
+            printf '%s\\n' "error: rejected test arguments" >&2
+            exit 2
+            """
+        )
+        let manager = CuaDriverManager(registerTerminationObserver: false)
+        let updates = CuaDriverStateUpdateIterator(manager.stateUpdates())
+        _ = await updates.next()
+
+        let firstEnsure = Task { @MainActor in
+            await manager.ensure(
+                settingValue: executable.path,
+                environment: [:],
+                bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+                fileExists: { $0.path == executable.path }
+            )
+        }
+        let starting = await nextState(from: updates, matching: { $0 == .starting })
+        XCTAssertEqual(starting, .starting)
+
+        let fifoPath = releaseFIFO.path
+        let releaseTask = Task {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    let descriptor = open(fifoPath, O_WRONLY)
+                    guard descriptor >= 0 else {
+                        continuation.resume(returning: -1)
+                        return
+                    }
+                    var byte: UInt8 = 0x0A
+                    let written = withUnsafeBytes(of: &byte) { bytes in
+                        write(descriptor, bytes.baseAddress, bytes.count)
+                    }
+                    close(descriptor)
+                    continuation.resume(returning: written)
+                }
+            }
+        }
+        let secondResult = await manager.ensure(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+
+        let releasedBytes = await releaseTask.value
+        let firstResult = await firstEnsure.value
+        XCTAssertEqual(releasedBytes, 1)
+        XCTAssertNil(secondResult)
+        XCTAssertNil(firstResult)
+        guard case .failed = manager.state else {
+            XCTFail("Expected failed state, got \(manager.state)")
+            return
+        }
+        XCTAssertEqual(try readRecordedLines(from: attemptsFile).count, 2)
+
+        let retryResult = await manager.ensure(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+        XCTAssertNil(retryResult)
+        guard case .failed = manager.state else {
+            XCTFail("Expected retry to end failed, got \(manager.state)")
+            return
+        }
+        XCTAssertEqual(try readRecordedLines(from: attemptsFile).count, 4)
     }
 
     private func nextState(

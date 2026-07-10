@@ -57,7 +57,7 @@ extension CuaDriverManager {
     }
 
     private func response(id: Int, lines: CuaDriverLineInbox) async throws -> [String: Any] {
-        try await withTimeout(.seconds(10)) {
+        try await withTimeout(Self.handshakeResponseTimeout) {
             while true {
                 guard let line = try await lines.nextLine() else {
                     throw CuaDriverManagerError.unexpectedEOF
@@ -135,56 +135,29 @@ enum CuaDriverLineStream {
                 continuation.finish(throwing: POSIXError(.EBADF))
                 return
             }
-            let task = Task.detached(priority: .utility) {
-                let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-                var buffer = Data()
-                do {
-                    while !Task.isCancelled {
-                        let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
-                        if chunk.isEmpty {
-                            if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
-                                continuation.yield(line)
-                            }
-                            continuation.finish()
-                            return
-                        }
-                        buffer.append(chunk)
-                        while let newline = buffer.firstIndex(of: 0x0A) {
-                            let lineData = buffer[..<newline]
-                            let next = buffer.index(after: newline)
-                            buffer.removeSubrange(..<next)
-                            if let line = String(data: lineData, encoding: .utf8) {
-                                continuation.yield(line.trimmingCharacters(in: CharacterSet(charactersIn: "\r")))
-                            } else {
-                                continuation.finish(throwing: CuaDriverManagerError.invalidUTF8)
-                                return
-                            }
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
+            let reader = CuaDriverFileReader(fileDescriptor: fd, continuation: continuation)
             continuation.onTermination = { _ in
-                task.cancel()
+                reader.cancel()
             }
+            reader.start()
         }
     }
 
     static func drain(fileHandle: FileHandle) -> Task<Void, Never> {
         let fd = dup(fileHandle.fileDescriptor)
-        return Task.detached(priority: .utility) {
-            guard fd >= 0 else { return }
-            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-            while !Task.isCancelled {
-                do {
-                    let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
-                    if chunk.isEmpty { return }
-                } catch {
-                    return
-                }
+        let completion = AsyncStream<Void> { continuation in
+            guard fd >= 0 else {
+                continuation.finish()
+                return
             }
+            let reader = CuaDriverFileReader(fileDescriptor: fd, continuation: continuation)
+            continuation.onTermination = { _ in
+                reader.cancel()
+            }
+            reader.start()
+        }
+        return Task.detached(priority: .utility) {
+            for await _ in completion {}
         }
     }
 
