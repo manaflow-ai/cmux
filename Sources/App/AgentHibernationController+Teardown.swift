@@ -97,6 +97,7 @@ extension AgentHibernationController {
                 return
             }
 
+            var latestValidationIndex = postSnapshotIndex
             for request in requests {
                 let record = request.record
                 guard let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
@@ -106,7 +107,7 @@ extension AgentHibernationController {
                 // tick will re-arm if still idle.
                 guard confirmedTeardownStillQualifies(
                     request,
-                    index: postSnapshotIndex,
+                    index: latestValidationIndex,
                     runtimeObservation: runtimeObservationProvider?(record)
                 ) else {
                     continue
@@ -157,11 +158,15 @@ extension AgentHibernationController {
                                     sessionId: record.agent.sessionId
                                 )
                             }
-                            continue
+                            // This capture is also the validation boundary for
+                            // every later request in the batch. Without it their
+                            // process state is unknown, so fail the batch closed.
+                            return
                         }
+                        latestValidationIndex = capturedIndex
                         finalIndex = capturedIndex
                     } else {
-                        finalIndex = postSnapshotIndex
+                        finalIndex = latestValidationIndex
                     }
                     let finalProcessIDs = record.processIDs.union(
                         finalIndex.processIDs(
