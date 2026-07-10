@@ -73,7 +73,7 @@ struct PairingView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.addDevice.help",
-                        defaultValue: "Scan the Mac's Iroh QR when possible. Manual host and port is a legacy fallback for Tailscale, another VPN, or a trusted LAN."
+                        defaultValue: "Scan the Mac's Iroh QR when possible. Manual host and port is a legacy fallback for a numeric Tailscale address only."
                     ))
                 }
                 .overlay(alignment: .topLeading) {
@@ -279,7 +279,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual host and port bypasses Iroh transport. Use a Tailscale address, or only use a LAN or VPN address you trust."
+            defaultValue: "Manual host and port bypasses Iroh. Only a numeric Tailscale address can carry account credentials; LAN, DNS, and other VPN addresses are not authorized."
         )
     }
 

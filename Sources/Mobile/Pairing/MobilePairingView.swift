@@ -164,7 +164,7 @@ struct MobilePairingView: View {
         case .some(true):
             return String(
                 localized: "mobile.pairing.req.privateNetwork.reachable",
-                defaultValue: "Tailscale is available as a legacy and private-network fallback."
+                defaultValue: "Tailscale is available for older-client compatibility and may become a direct Iroh path after admission."
             )
         case .some(false):
             return String(
@@ -174,7 +174,7 @@ struct MobilePairingView: View {
         case .none:
             return String(
                 localized: "mobile.pairing.req.privateNetwork.hint",
-                defaultValue: "Tailscale, another VPN, or the same LAN can provide extra direct paths."
+                defaultValue: "After Iroh admits the phone, Tailscale, another VPN, or the same LAN may become a direct path."
             )
         }
     }

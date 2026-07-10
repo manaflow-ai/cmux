@@ -72,7 +72,7 @@ struct OnboardingPage: Sendable {
             ),
             body: L10n.string(
                 "mobile.onboarding.privateNetworkBody",
-                defaultValue: "Tailscale, WireGuard, another VPN, or the same LAN can give Iroh extra direct paths to your Mac. They are optional, and Iroh keeps its encryption and identity checks on those paths."
+                defaultValue: "After cmux admits both devices over Iroh, Tailscale, WireGuard, another VPN, or the same LAN may become a faster direct path. They are optional, and Iroh keeps its encryption and identity checks."
             ),
             checklist: [
                 L10n.string(
@@ -85,7 +85,7 @@ struct OnboardingPage: Sendable {
                 ),
                 L10n.string(
                     "mobile.onboarding.privateNetworkStep3",
-                    defaultValue: "Optional: connect both devices to the same private network when the Mac is reachable only there."
+                    defaultValue: "Optional: connect both devices to the same private network so an admitted Iroh session can migrate to it."
                 ),
             ],
             links: [
@@ -116,7 +116,7 @@ struct OnboardingPage: Sendable {
             ),
             body: L10n.string(
                 "mobile.onboarding.pairBody",
-                defaultValue: "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically; Tailscale and other private routes remain fallbacks."
+                defaultValue: "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Private networks may speed up an admitted Iroh connection; numeric Tailscale also supports older clients."
             )
         )
     }

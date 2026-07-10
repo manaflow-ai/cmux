@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Mac's Iroh QR when possible. Manual host and port is a legacy fallback for Tailscale, another VPN, or a trusted LAN."
+            "value": "Scan the Mac's Iroh QR when possible. Manual host and port is a legacy fallback for a numeric Tailscale address only."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "可能な場合はMacのIroh QRをスキャンしてください。ホストとポートの手入力は、Tailscale、別のVPN、または信頼できるLAN向けの従来のフォールバックです。"
+            "value": "可能な場合はMacのIroh QRをスキャンしてください。ホストとポートの手入力は、数値のTailscaleアドレス専用の従来互換フォールバックです。"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual host and port bypasses Iroh transport. Use a Tailscale address, or only use a LAN or VPN address you trust."
+            "value": "Manual host and port bypasses Iroh. Only a numeric Tailscale address can carry account credentials; LAN, DNS, and other VPN addresses are not authorized."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストとポートの手入力はIrohトランスポートを経由しません。Tailscaleアドレス、または信頼できるLANやVPNのアドレスだけを使用してください。"
+            "value": "ホストとポートの手入力はIrohを経由しません。アカウント認証情報を送信できるのは数値のTailscaleアドレスだけです。LAN、DNS、その他のVPNアドレスは許可されません。"
           }
         }
       }
@@ -2761,13 +2761,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically; Tailscale and other private routes remain fallbacks."
+            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Private networks may speed up an admitted Iroh connection; numeric Tailscale also supports older clients."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続し、Tailscaleなどのプライベート経路もフォールバックとして維持します。"
+            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。プライベートネットワークは認証済みのIroh接続を高速化でき、数値のTailscaleアドレスは旧クライアントにも対応します。"
           }
         }
       }
@@ -2795,13 +2795,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale, WireGuard, another VPN, or the same LAN can give Iroh extra direct paths to your Mac. They are optional, and Iroh keeps its encryption and identity checks on those paths."
+            "value": "After cmux admits both devices over Iroh, Tailscale, WireGuard, another VPN, or the same LAN may become a faster direct path. They are optional, and Iroh keeps its encryption and identity checks."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale、WireGuard、別のVPN、または同じLANを使うと、IrohからMacへの直接経路を追加できます。これらは任意で、どの経路でもIrohの暗号化とID検証は維持されます。"
+            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、WireGuard、別のVPN、または同じLANが、より高速な直接経路になる場合があります。これらは任意で、Irohの暗号化とID検証は維持されます。"
           }
         }
       }
@@ -2846,13 +2846,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional: connect both devices to the same private network when the Mac is reachable only there."
+            "value": "Optional: connect both devices to the same private network so an admitted Iroh session can migrate to it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "任意：Macがプライベートネットワーク内からしか届かない場合は、両方の端末を同じネットワークに接続します。"
+            "value": "任意：認証済みのIrohセッションが移行できるよう、両方の端末を同じプライベートネットワークに接続します。"
           }
         }
       }
@@ -4852,13 +4852,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional: put both devices on Tailscale, another VPN, or the same LAN to give Iroh extra direct paths. Manual host and port bypasses Iroh transport, so use it only through Tailscale or another network you trust."
+            "value": "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. Manual host and port is a legacy fallback for numeric Tailscale addresses only."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "任意で、両方の端末をTailscale、別のVPN、または同じLANに接続すると、Irohの直接経路を追加できます。ホストとポートの手入力はIrohトランスポートを経由しないため、Tailscaleなど信頼できるネットワークでのみ使用してください。"
+            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、別のVPN、または同じLANが、より高速な直接経路になる場合があります。ホストとポートの手入力は、数値のTailscaleアドレス専用の従来互換フォールバックです。"
           }
         }
       }
