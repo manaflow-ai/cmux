@@ -60,6 +60,7 @@ final class RemoteTmuxSessionMirror {
     private var defaultClosed = false
     private var panelIdByWindow: [Int: UUID] = [:]
     private var panelIdByPane: [Int: UUID] = [:]
+    private var windowIdByPane: [Int: Int] = [:]
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
     private var cwdByPane: [Int: String] = [:]
@@ -166,11 +167,12 @@ final class RemoteTmuxSessionMirror {
             mirror.teardown()
         }
         windowMirrorByWindowId.removeAll()
+        windowIdByPane.removeAll()
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
     private func windowIdContaining(pane paneId: Int) -> Int? {
-        connection.windowsByID.first(where: { $0.value.paneIDsInOrder.contains(paneId) })?.key
+        windowIdByPane[paneId]
     }
 
     /// Adds a tab for any window that doesn't yet have one, refreshes existing
@@ -186,9 +188,11 @@ final class RemoteTmuxSessionMirror {
     }
 
     private func rebuildTopology(in workspace: Workspace) {
+        windowIdByPane.removeAll(keepingCapacity: true)
         for windowId in connection.windowOrder {
             guard let window = connection.windowsByID[windowId],
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
+            for paneId in window.paneIDsInOrder { windowIdByPane[paneId] = windowId }
             let title = Self.tabTitle(for: window)
             let panelId: UUID
             if let existing = panelIdByWindow[windowId] {

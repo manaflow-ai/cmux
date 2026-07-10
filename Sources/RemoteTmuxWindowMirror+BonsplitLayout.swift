@@ -33,7 +33,7 @@ extension RemoteTmuxWindowMirror {
     ) -> (columns: Int, rows: Int)? {
         guard contentSize.width > 1, contentSize.height > 1,
               cellSize.width > 1, cellSize.height > 1 else { return nil }
-        RemoteTmuxNativeLayoutMetrics(
+        return RemoteTmuxNativeLayoutMetrics(
             cellSize: cellSize,
             surfacePadding: surfacePadding,
             tabBarHeight: tabBarHeight,
