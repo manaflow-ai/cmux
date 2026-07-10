@@ -36,6 +36,10 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return toggles it when the add field is empty, and Cmd+Return always
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
+    /// The item currently under the pointer, used to reveal the trailing
+    /// delete button. A single id (not a per-row `@State`) is enough because
+    /// only one row can be hovered at a time; mirrors `highlightedItemId`.
+    @State private var hoveredItemId: UUID?
 
     private static let itemFontSize: CGFloat = 13
     /// Checkbox glyphs draw at 13pt (the inline row's base is 8pt·scale).
@@ -146,6 +150,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            removeItemButton(for: item)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -155,6 +160,13 @@ struct SidebarWorkspaceChecklistPopover: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { highlightedItemId = item.id }
+        .onHover { hovering in
+            if hovering {
+                hoveredItemId = item.id
+            } else if hoveredItemId == item.id {
+                hoveredItemId = nil
+            }
+        }
         .contextMenu {
             Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
                 beginItemEdit(item)
@@ -177,6 +189,28 @@ struct SidebarWorkspaceChecklistPopover: View {
         case .inProgress: return "minus.square"
         case .completed: return "checkmark.square.fill"
         }
+    }
+
+    /// Trailing hover-reveal delete affordance, in addition to the row's
+    /// context-menu "Remove" entry. Always laid out at a fixed size (only
+    /// `.opacity`/`.allowsHitTesting` toggle) so the row's height never jumps
+    /// when the pointer enters/leaves.
+    private func removeItemButton(for item: WorkspaceChecklistItem) -> some View {
+        let isHovered = hoveredItemId == item.id
+        return Button {
+            actions.removeItem(item.id)
+        } label: {
+            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2)
+                .foregroundColor(.secondary)
+                .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(String(localized: "sidebar.checklist.removeItemTooltip", defaultValue: "Remove item"))
+        .opacity(isHovered ? 1 : 0)
+        .allowsHitTesting(isHovered)
+        .accessibilityHidden(!isHovered)
+        .accessibilityIdentifier("SidebarChecklistPopoverRemoveItemButton")
     }
 
     private func moreRow(hiddenCount: Int) -> some View {

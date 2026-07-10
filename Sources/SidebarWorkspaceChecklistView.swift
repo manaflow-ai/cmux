@@ -89,6 +89,10 @@ struct SidebarWorkspaceChecklistSection: View {
     /// and clears itself on appear).
     @State private var inlineAddGeneration = 0
     @State private var editingItemId: UUID?
+    /// The item currently under the pointer, used to reveal the trailing
+    /// delete button. A single id (not a per-row `@State`) is enough because
+    /// only one row can be hovered at a time; mirrors `editingItemId`.
+    @State private var hoveredItemId: UUID?
 
     /// Whether taps and the "Add Checklist Item…" activation token should
     /// route to the anchored popover instead of the inline expansion. Equal
@@ -248,6 +252,15 @@ struct SidebarWorkspaceChecklistSection: View {
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            removeItemButton(for: item)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                hoveredItemId = item.id
+            } else if hoveredItemId == item.id {
+                hoveredItemId = nil
+            }
         }
         .contextMenu {
             Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
@@ -271,6 +284,29 @@ struct SidebarWorkspaceChecklistSection: View {
         case .inProgress: return "minus.square"
         case .completed: return "checkmark.square.fill"
         }
+    }
+
+    /// Trailing hover-reveal delete affordance, in addition to the row's
+    /// context-menu "Remove" entry. Always laid out at a fixed size (only
+    /// `.opacity`/`.allowsHitTesting` toggle) so the row's height never jumps
+    /// when the pointer enters/leaves — same reserved-space technique as the
+    /// workspace row's hover close button (`SidebarWorkspaceTrailingStatusSlot`).
+    private func removeItemButton(for item: WorkspaceChecklistItem) -> some View {
+        let isHovered = hoveredItemId == item.id
+        return Button {
+            actions.removeItem(item.id)
+        } label: {
+            CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 9 * fontScale)
+                .foregroundColor(secondaryColor)
+                .frame(width: 9 * fontScale + 8, height: 9 * fontScale + 8, alignment: .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(String(localized: "sidebar.checklist.removeItemTooltip", defaultValue: "Remove item"))
+        .opacity(isHovered ? 1 : 0)
+        .allowsHitTesting(isHovered)
+        .accessibilityHidden(!isHovered)
+        .accessibilityIdentifier("SidebarChecklistRemoveItemButton")
     }
 
     private func moreRow(hiddenCount: Int) -> some View {
