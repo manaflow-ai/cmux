@@ -247,6 +247,7 @@ download_profile_from_asc() {
     note "reusing App Store profile '$profile_name'"
   fi
 
+  rm -f "$TMP_PROFILE"
   asc profiles download --id "$profile_id" --output "$TMP_PROFILE" >/dev/null
   validate_profile "$TMP_PROFILE" "$TMP_PLIST" "ASC profile '$profile_name'" "true"
   install_profile

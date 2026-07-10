@@ -137,9 +137,7 @@ extension Workspace {
         } else {
             removeAgentPIDOwnership(key: key)
         }
-        if refreshPorts {
-            refreshTrackedAgentPorts()
-        }
+        if refreshPorts { refreshTrackedAgentPorts() }
         syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
@@ -189,9 +187,7 @@ extension Workspace {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         syncTerminalTabAgentIconAssetsForAllTerminalPanels()
-        if hadAgentPIDs, refreshPorts {
-            refreshTrackedAgentPorts()
-        }
+        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
@@ -465,6 +461,7 @@ extension Workspace {
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
+        pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)

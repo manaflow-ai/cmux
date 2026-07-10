@@ -271,6 +271,7 @@ extension DockSplitStore {
                 panel.focus()
             }
         }
+        scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface")
         return detached.panelId
     }
 }

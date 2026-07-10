@@ -101,9 +101,6 @@
         "pendingBody": "{team}は{date}に終了する予定です。",
         "price": "$35/シート/月"
       },
-      "legacy": {
-        "body": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。"
-      },
       "details": {
         "renewsOn": "更新日",
         "endsOn": "終了日",
@@ -124,6 +121,12 @@
         "cancelSummary": "プランをキャンセル",
         "confirmCancel": "キャンセルを確定",
         "resume": "プランを再開"
+      },
+      "plan": {
+        "heading": "個人プラン",
+        "free": "無料",
+        "pro": "Pro",
+        "loading": "読み込み中…"
       }
     },
     "testflight": {
@@ -617,7 +620,6 @@
     "welcomePendingAction": "再確認",
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
-    "billingExternal": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
