@@ -253,6 +253,15 @@ struct WorkspaceForkConversationContextMenuTests {
             )?.sessionId == sessionId,
             "The published generation must contain the process-remapped live panel."
         )
+        for child in Mirror(reflecting: sharedIndex).children {
+            guard let label = child.label,
+                  label == "pendingForkValidationGenerationByPanelID"
+                    || label == "validatedForkPanels"
+                    || label == "validatedForkPanelProbeCompletedAt" else {
+                continue
+            }
+            print("CMUX_FORK_GENERATION_DIAGNOSTIC \(label)=\(String(reflecting: child.value))")
+        }
         #expect(
             sharedIndex.snapshotForForkConversationCandidate(
                 workspaceId: liveWorkspaceId,
