@@ -235,6 +235,55 @@ struct SimulatorCameraAdapterTests {
         }
     }
 
+    @Test("A detached camera operation performs no stale external mutation")
+    @MainActor
+    func detachedConfigurationDoesNotMutateSimulator() async throws {
+        let bundleIdentifier = "com.example.CameraFixture"
+        let compileGate = CameraConfigurationCompileGate(
+            libraryURL: URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib")
+        )
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(getpid())
+        )
+        let permission = CameraPermissionRecorder()
+        let adapter = SimulatorCameraAdapter(
+            cameraPermission: SimulatorCameraPermissionAdapter {
+                device, action, service, bundle in
+                await permission.record(
+                    device: device,
+                    action: action,
+                    service: service,
+                    bundle: bundle
+                )
+            },
+            compiledLibrary: { await compileGate.compile() },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: "DEVICE")
+        var operationIsCurrent = true
+        let operation = Task { @MainActor in
+            try await adapter.configure(
+                .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+                inferredApplication: nil,
+                operationIsCurrent: { operationIsCurrent }
+            )
+        }
+        await compileGate.waitUntilStarted()
+
+        operationIsCurrent = false
+        await compileGate.release()
+
+        await #expect(throws: CancellationError.self) {
+            try await operation.value
+        }
+        #expect(await permission.mutation == nil)
+        #expect(await simctl.lifecycleMutationCount == 0)
+        adapter.detachFromUnavailableDevice()
+    }
+
     @Test("simctl launch output extracts the injected app pid")
     func launchOutput() {
         #expect(
@@ -454,6 +503,12 @@ private actor CameraReinjectionSimctlFake {
         invocations.count {
             $0.arguments.first == "launch"
                 && $0.environment["SIMCTL_CHILD_DYLD_INSERT_LIBRARIES"] != nil
+        }
+    }
+
+    var lifecycleMutationCount: Int {
+        invocations.count {
+            $0.arguments.first == "terminate" || $0.arguments.first == "launch"
         }
     }
 }
