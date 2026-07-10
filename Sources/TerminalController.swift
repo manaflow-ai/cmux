@@ -6800,12 +6800,7 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            if let internalURL = URL(string: url),
-               internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
-                context.browserPanel.navigate(to: internalURL)
-            } else {
-                context.browserPanel.navigateSmart(url)
-            }
+            context.browserPanel.navigateFromCLI(url)
             if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
                 basePayload = v2WindowDockBrowserActionPayload(context)
             } else {

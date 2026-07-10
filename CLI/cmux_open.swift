@@ -1045,32 +1045,10 @@ extension CMUXCLI {
 
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
         let completedViewer = try completeDeferredDiffViewer(viewer)
-
-        // Custom-scheme pages cannot poll the old HTTP wait endpoint. Keep the
-        // fast opening placeholder, then navigate the new browser surface after
-        // the deferred Git work atomically replaces it. The same URL reloads the
-        // selected page; a source fallback may navigate to a sibling page.
-        if viewer.completeDeferred != nil,
-           viewer.url.scheme == DiffViewerURLMapper.scheme,
-           let openedSurface = (payload["surface_id"] as? String) ?? (payload["surface_ref"] as? String) {
-            // Diff generation can outlive the socket server's idle-connection
-            // window. Reconnect for the completion navigation instead of
-            // depending on the connection that opened the placeholder.
-            if let navigationClient = try? connectClient(
-                socketPath: socketPath,
-                explicitPassword: explicitPassword,
-                launchIfNeeded: false
-            ) {
-                _ = try? navigationClient.sendV2(
-                    method: "browser.navigate",
-                    params: [
-                        "surface_id": openedSurface,
-                        "url": completedViewer.url.absoluteString,
-                    ]
-                )
-                navigationClient.close()
-            }
-        }
+        navigateCompletedDiffViewerIfNeeded(
+            viewer.completeDeferred != nil, viewer.url.scheme, payload,
+            completedViewer.url, socketPath, explicitPassword
+        )
 
         if jsonOutput {
             var response = payload

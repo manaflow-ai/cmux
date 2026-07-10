@@ -432,3 +432,22 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         ]
     }
 }
+
+@MainActor
+enum DiffViewerBridges {
+    static func installIfNeeded(on userContentController: WKUserContentController) {
+        DiffCommentsBridge.installIfNeeded(on: userContentController)
+        DiffSidecarBridge.installIfNeeded(on: userContentController)
+    }
+}
+
+extension BrowserPanel {
+    func navigateFromCLI(_ url: String) {
+        if let internalURL = URL(string: url),
+           internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
+            navigate(to: internalURL)
+        } else {
+            navigateSmart(url)
+        }
+    }
+}

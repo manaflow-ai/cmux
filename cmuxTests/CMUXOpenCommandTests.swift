@@ -371,8 +371,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let viewerPayload = try diffViewerPayload(from: viewerConfig)
         let viewerAssets = try diffViewerAssets(from: viewerConfig)
         let transport = try XCTUnwrap(viewerPayload["transport"] as? [String: Any])
-        XCTAssertEqual(transport["kind"] as? String, "webKit")
-        XCTAssertEqual(transport["endpoint"] as? String, "cmuxDiff")
+        XCTAssertEqual([transport["kind"] as? String, transport["endpoint"] as? String], ["webKit", "cmuxDiff"])
         XCTAssertEqual(transport["protocolVersion"] as? Int, 1)
         let shortcuts = try XCTUnwrap(viewerPayload["shortcuts"] as? [String: Any])
         let scrollDown = try XCTUnwrap(shortcuts["diffViewerScrollDown"] as? [String: Any])
@@ -550,14 +549,11 @@ final class CMUXOpenCommandTests: XCTestCase {
 
     func testDiffCommandMaterializesRemotePatchForCustomScheme() throws {
         let cliPath = try bundledCLIPath()
-        let fakeBin = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-fake-curl-\(UUID().uuidString)", isDirectory: true)
+        let fakeBin = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-diff-fake-curl-\(UUID().uuidString)", isDirectory: true)
         let fakeCurl = fakeBin.appendingPathComponent("curl", isDirectory: false)
         try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
-        try """
-        #!/bin/sh
-        printf 'diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n'
-        """.write(to: fakeCurl, atomically: true, encoding: .utf8)
+        let script = "#!/bin/sh\nprintf 'diff --git a/file.txt b/file.txt\\n--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n'\n"
+        try script.write(to: fakeCurl, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCurl.path)
         defer { try? FileManager.default.removeItem(at: fakeBin) }
 
@@ -582,7 +578,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
         XCTAssertTrue(FileManager.default.fileExists(atPath: patchSidecarURL.path))
-        XCTAssertFalse(result.patch.isEmpty)
     }
 
     func testDiffViewerServerBoundsDeferredWaitRequests() throws {

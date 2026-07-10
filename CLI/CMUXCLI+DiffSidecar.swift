@@ -2,6 +2,30 @@ import Foundation
 
 /// Process selection and launch for the portable diff-viewer backend.
 extension CMUXCLI {
+    /// Navigates a deferred custom-scheme viewer after Git work replaces its placeholder.
+    func navigateCompletedDiffViewerIfNeeded(
+        _ wasDeferred: Bool,
+        _ scheme: String?,
+        _ payload: [String: Any],
+        _ completedURL: URL,
+        _ socketPath: String,
+        _ explicitPassword: String?
+    ) {
+        guard wasDeferred,
+              scheme == "cmux-diff-viewer",
+              let surface = (payload["surface_id"] as? String) ?? (payload["surface_ref"] as? String),
+              let client = try? connectClient(
+                  socketPath: socketPath,
+                  explicitPassword: explicitPassword,
+                  launchIfNeeded: false
+              ) else { return }
+        defer { client.close() }
+        _ = try? client.sendV2(
+            method: "browser.navigate",
+            params: ["surface_id": surface, "url": completedURL.absoluteString]
+        )
+    }
+
     func startDiffViewerHTTPServer(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
         guard let cmuxExecutableURL = diffViewerExecutableURL(for: runtime),
               let executableURL = diffViewerServerExecutableURL(for: runtime) else {
