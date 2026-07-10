@@ -40,7 +40,6 @@ final class SettingsWindowPresenter: NSObject {
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
     private static let frameAutosaveName = "cmux.settings"
-    private static let visibleAreaInset: CGFloat = 18
     /// One reuse-or-create pass plus one recreate-from-scratch pass. Creation
     /// is synchronous, so more attempts cannot help: if two consecutive fresh
     /// windows refuse to order in, AppKit itself is wedged and we fail loudly.
@@ -48,37 +47,57 @@ final class SettingsWindowPresenter: NSObject {
     /// Maximum re-entrant `show()` depth reached through close-triggered
     /// observers before the presenter fails loudly instead of recursing.
     static let maxReentrantShowDepth = 3
+    /// How long a show may pump the run loop waiting for an initiated
+    /// deminiaturization to land before falling back to window replacement.
+    /// Overridable so tests exercising the stalled path stay fast.
+    static var deminiaturizeSettleTimeout: TimeInterval = 1.0
 
     static let shared = SettingsWindowPresenter()
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
     /// become attributable from
     /// `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
-    private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+    /// Internal (not private) so the geometry/recovery extension file logs
+    /// through the same channel.
+    nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
-    private let windowFactory: @MainActor () -> NSWindow
+    private let windowFactory: @MainActor (SettingsWindowPresenter) -> NSWindow
     /// Strong while open: the presenter owns the window's lifetime. Cleared
     /// (and the window's identifier removed) in `settingsWindowWillClose` so
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
-    private var pendingNavigationTarget: SettingsNavigationTarget?
+    // Navigation-delivery state is internal (not private) because its
+    // behavior lives in SettingsWindowNavigationDelivery.swift (split for
+    // the file-length budget); no type outside the presenter touches it.
+    var pendingNavigationTarget: SettingsNavigationTarget?
     /// Current re-entrant depth of `performShow` (close-triggered observers
     /// may re-enter). Bounded by `maxReentrantShowDepth`.
     private var activeShowDepth = 0
+    /// Window whose deminiaturization an outer `performShow` is currently
+    /// awaiting. `deminiaturize` clears `isMiniaturized` before visibility
+    /// lands, so without this a re-entrant show during the wait would see a
+    /// plain invisible window and demolish the live transition.
+    private var windowAwaitingDeminiaturize: NSWindow?
     /// Monotonic delivery token: bumped on every posted navigation so a
     /// queued fresh-window delivery can detect it was superseded by a newer
     /// targeted show and stay silent instead of navigating backwards.
-    private var navigationDeliveryGeneration = 0
+    var navigationDeliveryGeneration = 0
     /// Whether the current window's SwiftUI content has signaled (via the
-    /// host root's `onAppear`) that its navigation consumer is installed. An
-    /// `NSWindow` existing is not enough: posting before this is set would
-    /// drop the navigation on the floor.
-    private var isContentReadyForNavigation = false
+    /// host root's `onAppear`) that its navigation consumer is installed;
+    /// posting before then would drop the navigation on the floor.
+    var isContentReadyForNavigation = false
 
     override convenience init() {
-        self.init(windowFactory: { SettingsWindowFactory.makeSettingsWindow() })
+        // Content readiness reports back to the presenter instance that owns
+        // the window (never the singleton), so instance presenters — e.g.
+        // the real-factory regression tests — drain their own navigation.
+        self.init(windowFactory: { presenter in
+            SettingsWindowFactory.makeSettingsWindow(onContentAppear: { [weak presenter] in
+                presenter?.deliverPendingNavigationAfterContentAppears()
+            })
+        })
     }
 
-    init(windowFactory: @escaping @MainActor () -> NSWindow) {
+    init(windowFactory: @escaping @MainActor (SettingsWindowPresenter) -> NSWindow) {
         self.windowFactory = windowFactory
         super.init()
     }
@@ -93,10 +112,6 @@ final class SettingsWindowPresenter: NSObject {
         activateApp: Bool = true
     ) -> SettingsWindowShowResult {
         shared.show(navigationTarget: navigationTarget, activateApp: activateApp)
-    }
-
-    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        shared.consumePendingNavigationTarget()
     }
 
     /// Presents the Settings window, creating it if needed. Synchronous: on
@@ -156,6 +171,7 @@ final class SettingsWindowPresenter: NSObject {
         }
 
         var failureReason = "settings window was never presented"
+        var didUnhideForVerification = false
         for attempt in 1...Self.maxPresentAttempts {
             let window: NSWindow
             let reusedExisting: Bool
@@ -174,23 +190,71 @@ final class SettingsWindowPresenter: NSObject {
                 reusedExisting = false
             }
 
-            orderFront(window, activateApp: activateApp)
-
-            if window.isVisible {
-                deliverNavigation(reusedExistingWindow: reusedExisting)
-                return .presented
+            // A re-entrant show during an in-flight deminiaturization must
+            // coalesce onto the transition, not treat the (no longer
+            // miniaturized, not yet visible) window as a failed husk.
+            let wasMiniaturized = window.isMiniaturized || windowAwaitingDeminiaturize === window
+            orderFrontWithoutActivation(window)
+            if activateApp && !window.isVisible && NSApp.isHidden {
+                // The app being hidden can be exactly what visibility is
+                // waiting on. Unhide WITHOUT activating (the API exists for
+                // precisely this) so verification itself never activates the
+                // app or redirects focus; the failure exit re-hides.
+                NSApp.unhideWithoutActivation()
+                didUnhideForVerification = true
             }
             if NSApp.isHidden && !activateApp {
                 // Ordering front succeeded as far as AppKit allows without
-                // unhiding the app; the window appears on unhide. Reused live
-                // content still receives the navigation now — its notification
-                // subscriptions outlive visibility, and the host root's
-                // onAppear consumer only runs for fresh windows.
+                // unhiding the app; the window appears on unhide. Checked
+                // before the deminiaturize wait: under a hidden app no
+                // amount of waiting produces visibility, and this is the
+                // synchronous socket path (`settings.open --activate=false`)
+                // that must not stall. Reused live content still receives
+                // the navigation now — its subscriptions outlive visibility.
                 deliverNavigation(reusedExistingWindow: reusedExisting)
                 Self.log.notice(
                     "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
                 )
                 return .orderedWhileAppHidden
+            }
+            if wasMiniaturized && !window.isVisible {
+                // The deminiaturization was initiated above; give AppKit a
+                // bounded chance to land it before concluding failure, so a
+                // live window full of unsaved edits is never destroyed just
+                // because an OS version commits the transition a turn later.
+                let previousAwaiting = windowAwaitingDeminiaturize
+                windowAwaitingDeminiaturize = window
+                defer { windowAwaitingDeminiaturize = previousAwaiting }
+                awaitVisibility(of: window, timeout: Self.deminiaturizeSettleTimeout)
+                if settingsWindow !== window {
+                    // The nested pump processed a close or a re-entrant
+                    // show; this attempt's window is gone. Report reality —
+                    // never resurrect a window the user just closed — and an
+                    // adopted replacement still owes this request its
+                    // activation semantics (the re-entrant show may have
+                    // presented without activating).
+                    if let current = settingsWindow, current.isVisible {
+                        if activateApp {
+                            activateAndSurface(current)
+                        }
+                        deliverNavigation(reusedExistingWindow: true)
+                        return .presented
+                    }
+                    failureReason = "settings window was closed while deminiaturizing"
+                    Self.log.notice("settings.window.show \(failureReason, privacy: .public)")
+                    break
+                }
+            }
+
+            if window.isVisible {
+                // Activation (unhide, activate, make key) runs only after
+                // visibility is verified, so a failed presentation can never
+                // activate the app or steal focus as a side effect.
+                if activateApp {
+                    activateAndSurface(window)
+                }
+                deliverNavigation(reusedExistingWindow: reusedExisting)
+                return .presented
             }
 
             failureReason = Self.presentationFailureReason(
@@ -205,14 +269,25 @@ final class SettingsWindowPresenter: NSObject {
         Self.log.fault(
             "settings.window.show FAILED after \(Self.maxPresentAttempts, privacy: .public) attempts: \(failureReason, privacy: .public)"
         )
+        // A failed request must not leak its target into a later open: an
+        // untargeted show deliberately preserves pending targets, so without
+        // this a later recovered open would navigate to a pane whose request
+        // already received `.failed`. Only this request's own target is
+        // cleared — a re-entrant show that set a different target supersedes.
+        if pendingNavigationTarget == navigationTarget {
+            pendingNavigationTarget = nil
+        }
+        if didUnhideForVerification {
+            // The (non-activating) unhide above was a verification gamble
+            // that did not pay off; re-hide so a failed presentation leaves
+            // the app exactly as the caller found it. Focus was never
+            // touched: activation only ever runs after verified visibility.
+            NSApp.hide(nil)
+        }
         return .failed(reason: failureReason)
     }
 
-    func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        let target = pendingNavigationTarget
-        pendingNavigationTarget = nil
-        return target
-    }
+    // Navigation delivery lives in SettingsWindowNavigationDelivery.swift.
 
     // MARK: - Window acquisition
 
@@ -268,7 +343,7 @@ final class SettingsWindowPresenter: NSObject {
     }
 
     private func makeConfiguredWindow() -> NSWindow {
-        let window = windowFactory()
+        let window = windowFactory(self)
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
@@ -302,25 +377,46 @@ final class SettingsWindowPresenter: NSObject {
 
     // MARK: - Presentation
 
-    private func orderFront(_ window: NSWindow, activateApp: Bool) {
+    /// Orders the window in without touching app activation, unhide, or key
+    /// status, so visibility can be verified before any focus-affecting side
+    /// effect. This alone satisfies the socket no-focus-steal contract
+    /// (`settings.open --activate=false`).
+    private func orderFrontWithoutActivation(_ window: NSWindow) {
         if window.isMiniaturized {
+            // Reusing (not replacing) a Dock-miniaturized window preserves
+            // its SwiftUI tree and any unsaved Settings edits; the caller
+            // waits out the transition via `awaitVisibility(of:timeout:)`.
             window.deminiaturize(nil)
         }
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
-        guard activateApp else {
-            // Socket no-focus-steal contract (`settings.open --activate=false`):
-            // make the window visible without keying it, raising other cmux
-            // windows, or activating/unhiding the app.
-            window.orderFrontRegardless()
-            return
+        window.orderFrontRegardless()
+    }
+
+    /// Bounded synchronous wait for an initiated deminiaturization: pumps
+    /// the main run loop in small slices (as AppKit's own modal and menu
+    /// tracking do) until the window reports visible, ownership changes
+    /// (the pump processed a close or re-entrant show — caller re-examines),
+    /// or the deadline passes. Instant where `deminiaturize` +
+    /// `orderFrontRegardless` commits same-turn (probed on macOS 26);
+    /// elsewhere it lets AppKit finish instead of tearing down a live window
+    /// full of unsaved edits. Deadline expiry means genuinely wedged.
+    private func awaitVisibility(of window: NSWindow, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !window.isVisible && settingsWindow === window && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
-        // Surface the preferred main window first so Settings opens layered
-        // above it — the standard "Settings in front of its app" presentation.
-        // Both windows are ordered front *as peers*, never via
-        // `addChildWindow`: a child window is pinned above its parent forever
-        // and can never recede when the user clicks the main window
-        // (https://github.com/manaflow-ai/cmux/issues/5081).
+    }
+
+    /// The focus-affecting half of presentation, run only for `activateApp`
+    /// requests and only once the window is visible (or when unhiding the
+    /// app is itself what visibility is waiting on). Surfaces the preferred
+    /// main window first so Settings opens layered above it — both windows
+    /// ordered front *as peers*, never via `addChildWindow`: a child window
+    /// is pinned above its parent forever and can never recede when the user
+    /// clicks the main window
+    /// (https://github.com/manaflow-ai/cmux/issues/5081).
+    private func activateAndSurface(_ window: NSWindow) {
         if let parentWindow = AppDelegate.shared?.preferredMainWindowForSettingsPresentation(),
            parentWindow !== window {
             if parentWindow.isMiniaturized {
@@ -332,55 +428,6 @@ final class SettingsWindowPresenter: NSObject {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-    }
-
-    private static func presentationFailureReason(
-        window: NSWindow,
-        attempt: Int,
-        reusedExisting: Bool
-    ) -> String {
-        """
-        window did not become visible after order front \
-        (attempt \(attempt)/\(maxPresentAttempts), reusedExisting=\(reusedExisting), \
-        appHidden=\(NSApp.isHidden), appActive=\(NSApp.isActive), \
-        miniaturized=\(window.isMiniaturized), screens=\(NSScreen.screens.count), \
-        frame=\(NSStringFromRect(window.frame)))
-        """
-    }
-
-    /// Ready live content receives the navigation immediately. Until the
-    /// content signals readiness (a window can exist before its navigation
-    /// consumer is installed — fresh creation, hidden app), the target stays
-    /// pending and ``SettingsWindowHostRoot`` delivers it from `onAppear` via
-    /// `deliverPendingNavigationAfterContentAppears()`.
-    private func deliverNavigation(reusedExistingWindow: Bool) {
-        guard let target = pendingNavigationTarget else { return }
-        if reusedExistingWindow && isContentReadyForNavigation {
-            pendingNavigationTarget = nil
-            navigationDeliveryGeneration &+= 1
-            SettingsNavigationRequest.post(target)
-        }
-    }
-
-    static func deliverPendingNavigationAfterContentAppears() {
-        shared.deliverPendingNavigationAfterContentAppears()
-    }
-
-    /// Marks the content ready and delivers any pending target. The post is
-    /// deferred one main-actor hop so the content's own restore navigation
-    /// (posted from a descendant `onAppear`) cannot clobber it, and it is
-    /// generation-guarded: a newer targeted `show()` that delivered in the
-    /// meantime supersedes this queued post instead of being overridden by it.
-    func deliverPendingNavigationAfterContentAppears() {
-        isContentReadyForNavigation = true
-        guard let target = pendingNavigationTarget else { return }
-        pendingNavigationTarget = nil
-        navigationDeliveryGeneration &+= 1
-        let generation = navigationDeliveryGeneration
-        Task { @MainActor in
-            guard self.navigationDeliveryGeneration == generation else { return }
-            SettingsNavigationRequest.post(target)
-        }
     }
 
     // MARK: - Teardown
@@ -431,57 +478,5 @@ final class SettingsWindowPresenter: NSObject {
         window.contentView = nil
     }
 
-    // MARK: - Diagnostics
-
-    private static func logExistingWindowState(_ window: NSWindow) {
-        log.notice(
-            """
-            settings.window.show found existing window \
-            visible=\(window.isVisible, privacy: .public) \
-            miniaturized=\(window.isMiniaturized, privacy: .public) \
-            onActiveSpace=\(window.isOnActiveSpace, privacy: .public) \
-            offAllScreens=\(window.screen == nil, privacy: .public) \
-            frame=\(NSStringFromRect(window.frame), privacy: .public)
-            """
-        )
-    }
-
-    // MARK: - Multi-monitor recovery
-
-    private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
-        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
-        let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
-        guard let visibleFrame = Self.targetVisibleFrame(
-            windowFrame: window.frame,
-            screens: screens,
-            mouseLocation: NSEvent.mouseLocation,
-            fallbackVisibleFrame: fallbackVisibleFrame
-        ) else { return }
-
-        let minimumFrameSize = NSSize(
-            width: max(window.minSize.width, window.contentMinSize.width),
-            height: max(window.minSize.height, window.contentMinSize.height)
-        )
-        let originalFrame = window.frame
-        let clamped = Self.clampedFrame(
-            originalFrame,
-            minimumSize: minimumFrameSize,
-            into: visibleFrame,
-            inset: Self.visibleAreaInset
-        )
-        guard clamped != originalFrame else { return }
-
-        let wasOffAllScreens = window.screen == nil
-        window.setFrame(clamped, display: true)
-        if wasOffAllScreens {
-            Self.log.notice(
-                """
-                settings.window.clamp recovered an offscreen frame onto a visible screen \
-                from=\(NSStringFromRect(originalFrame), privacy: .public) \
-                to=\(NSStringFromRect(clamped), privacy: .public)
-                """
-            )
-        }
-    }
-
+    // Multi-monitor recovery + diagnostics live in SettingsWindowGeometry.swift.
 }
