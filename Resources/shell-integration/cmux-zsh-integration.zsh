@@ -1,14 +1,15 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
-# Prefer the zsocket builtin for socket sends (no fork, ~0.2ms per send vs
-# ~3ms for fork+exec of ncat/socat/nc).  zsocket lives in zsh/net/socket;
-# zsh/net/unix does not exist, so loading it left this fast path permanently
-# disabled.  Falls back to external tools if the module is unavailable.
-typeset -g _CMUX_HAS_ZSOCKET=0
-if zmodload zsh/net/socket 2>/dev/null; then
-    _CMUX_HAS_ZSOCKET=1
-fi
+# Socket sends exec a unix-socket-capable client in a detached child. The
+# historical zsocket fast path (zmodload zsh/net/unix) never activated: that
+# module does not exist (zsocket lives in zsh/net/socket), and enabling it has
+# three known defects — its instant-exit child loses the server's live
+# peer-ancestry authorization race in cmuxOnly mode, per-connection handler
+# threads make cross-connection ordering nondeterministic unless the client
+# waits for responses, and a timeout-free blocked child can outlive its shell.
+# A future fast path needs one connection per batch plus response reads; until
+# then the external-client transport below is the only send path.
 
 typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
@@ -32,14 +33,21 @@ _cmux_restore_status() {
     builtin return "$1"
 }
 
+# BSD nc at /usr/bin/nc is preferred: it always supports -U, it waits for the
+# server to process the line and close (which preserves send order across a
+# batched child and keeps the peer alive through cmuxOnly ancestry checks),
+# and -w bounds its lifetime. PATH `nc` cannot be trusted first: GNU netcat
+# (e.g. Homebrew in /usr/local/bin) lacks -U and fails silently, which dropped
+# every hook message (report_tty, ports_kick, report_shell_state) on machines
+# where it shadows the system nc.
 _cmux_send() {
     local payload="$1"
-    if (( _CMUX_HAS_ZSOCKET )); then
-        local fd
-        zsocket "$CMUX_SOCKET_PATH" 2>/dev/null || return 1
-        fd=$REPLY
-        print -u $fd -r -- "$payload" 2>/dev/null
-        exec {fd}>&- 2>/dev/null
+    if [[ -x /usr/bin/nc ]]; then
+        if print -r -- "$payload" | /usr/bin/nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+            :
+        else
+            print -r -- "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+        fi
         return 0
     fi
     if command -v ncat >/dev/null 2>&1; then
@@ -55,17 +63,16 @@ _cmux_send() {
     fi
 }
 
-# Fire-and-forget send, always detached from the interactive shell. zsocket
-# still avoids the ncat/socat/nc exec inside the subshell, but the connect and
-# write must not run in the foreground: zsocket has no timeout, so a wedged
-# cmux listener (hung app, full backlog, post-wake socket) would otherwise
-# block every precmd/preexec hook and freeze the user's prompt.
+# Fire-and-forget send, always detached from the interactive shell: the
+# client's connect and response wait must never run in the foreground, or a
+# wedged cmux listener (hung app, full backlog, post-wake socket) blocks every
+# precmd/preexec hook and freezes the user's prompt.
 #
 # Detached (&!) jobs leave the shell's job table, so the jobstates soft limit
-# cannot bound them, and a timeout-free zsocket child can hang for as long as
-# the listener stays wedged. Track in-flight send pids and drop new sends at a
-# small cap: at most _CMUX_SEND_MAX_IN_FLIGHT children ever exist per shell,
-# and sends resume as soon as the listener drains them.
+# cannot bound them. Track in-flight send pids and drop new sends at a small
+# cap: at most _CMUX_SEND_MAX_IN_FLIGHT children exist per shell while the
+# listener is wedged (each also self-bounds via its client timeout), and sends
+# resume as soon as the listener drains.
 typeset -ga _CMUX_SEND_PIDS
 typeset -gi _CMUX_SEND_MAX_IN_FLIGHT=8
 # Accepts multiple payloads: they are sent sequentially inside ONE child, so
