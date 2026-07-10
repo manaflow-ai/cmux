@@ -275,48 +275,12 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var result: Set<Int> = includeRoot && processesByPID[rootPID] != nil ? [rootPID] : []
         var visited: Set<Int> = []
         var stack = childrenByParentPID[rootPID] ?? []
-        stack.append(contentsOf: Self.listedChildPIDs(parentPID: rootPID))
         while let pid = stack.popLast() {
             guard visited.insert(pid).inserted else { continue }
             guard result.insert(pid).inserted else { continue }
             stack.append(contentsOf: childrenByParentPID[pid] ?? [])
-            stack.append(contentsOf: Self.listedChildPIDs(parentPID: pid))
         }
         return result
-    }
-
-    private static func listedChildPIDs(parentPID: Int) -> [Int] {
-        guard parentPID > 0 else { return [] }
-
-        let pidStride = MemoryLayout<pid_t>.stride
-        var capacity = 16
-        var lastChildren: [Int] = []
-        for _ in 0..<4 {
-            var pids = Array(repeating: pid_t(), count: capacity)
-            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
-                proc_listchildpids(
-                    pid_t(parentPID),
-                    buffer.baseAddress,
-                    Int32(buffer.count * pidStride)
-                )
-            }
-            guard returnedCount >= 0 else {
-                return lastChildren
-            }
-
-            let count = min(pids.count, Int(returnedCount))
-            lastChildren = pids
-                .prefix(count)
-                .compactMap { pid in
-                    let intPID = Int(pid)
-                    return intPID > 0 ? intPID : nil
-                }
-            if Int(returnedCount) < pids.count {
-                return lastChildren
-            }
-            capacity = max(pids.count * 2, Int(returnedCount) + 16)
-        }
-        return lastChildren
     }
 
     func summaryPayload(for pids: Set<Int>, rootPIDs: Set<Int> = []) -> [String: Any] {

@@ -21,6 +21,7 @@ actor CmuxTopProcessSnapshotStore {
         let storedAt: Date
 #if DEBUG
         let generation: UInt64
+        let metricsToken: ProcessPerformanceMetricToken
 #endif
     }
 
@@ -87,7 +88,8 @@ actor CmuxTopProcessSnapshotStore {
             metrics.recordProcessSnapshotReuse(
                 consumer: consumer,
                 generation: cached.generation,
-                source: .cache
+                source: .cache,
+                token: cached.metricsToken
             )
 #endif
             return cached.snapshot
@@ -102,7 +104,8 @@ actor CmuxTopProcessSnapshotStore {
                     metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: inFlight.id,
-                        source: .inFlight
+                        source: .inFlight,
+                        token: inFlight.metricsToken
                     )
 #endif
                     return snapshot
@@ -117,7 +120,8 @@ actor CmuxTopProcessSnapshotStore {
                     metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: cached.generation,
-                        source: .cache
+                        source: .cache,
+                        token: cached.metricsToken
                     )
 #endif
                     return cached.snapshot
@@ -162,19 +166,21 @@ actor CmuxTopProcessSnapshotStore {
         _ completed: InFlightCapture,
         snapshot: CmuxTopProcessSnapshot
     ) async {
+        let storedAt = await now()
         guard inFlight?.id == completed.id else { return }
 #if DEBUG
         cached = CachedSnapshot(
             snapshot: snapshot,
             requirements: completed.requirements,
-            storedAt: await now(),
-            generation: completed.id
+            storedAt: storedAt,
+            generation: completed.id,
+            metricsToken: completed.metricsToken
         )
 #else
         cached = CachedSnapshot(
             snapshot: snapshot,
             requirements: completed.requirements,
-            storedAt: await now()
+            storedAt: storedAt
         )
 #endif
         inFlight = nil

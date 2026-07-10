@@ -132,19 +132,20 @@ actor PortScanSnapshotStore {
         _ completed: InFlightScan,
         portsByPID: [Int: Set<Int>]
     ) async {
+        let storedAt = await now()
         guard inFlight?.id == completed.id else { return }
 #if DEBUG
         cached = CachedScan(
             requestedPIDs: completed.requestedPIDs,
             portsByPID: portsByPID,
-            storedAt: await now(),
+            storedAt: storedAt,
             metricsToken: completed.metricsToken
         )
 #else
         cached = CachedScan(
             requestedPIDs: completed.requestedPIDs,
             portsByPID: portsByPID,
-            storedAt: await now()
+            storedAt: storedAt
         )
 #endif
         inFlight = nil

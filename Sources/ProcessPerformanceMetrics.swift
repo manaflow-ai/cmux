@@ -276,9 +276,11 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     func recordProcessSnapshotReuse(
         consumer: ProcessSnapshotConsumer,
         generation: UInt64,
-        source: ProcessSnapshotReuseSource
+        source: ProcessSnapshotReuseSource,
+        token: ProcessPerformanceMetricToken
     ) {
         state.withLock { state in
+            guard token.epoch == state.epoch else { return }
             var byGeneration = state.consumerGenerationReuse[consumer.rawValue, default: [:]]
             var metrics = byGeneration[generation, default: ProcessPerformanceReuseMetrics()]
             switch source {
