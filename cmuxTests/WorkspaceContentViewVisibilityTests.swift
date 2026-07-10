@@ -41,6 +41,31 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func remoteTmuxEmbeddedLayoutKeepsAllMirroredPaneViewsMounted() {
+        let configuration = BonsplitConfiguration().remoteTmuxEmbedded
+
+        switch configuration.contentViewLifecycle {
+        case .keepAllAlive:
+            break
+        case .recreateOnSwitch:
+            Issue.record("Remote tmux mirrors require every mirrored pane view to remain mounted.")
+        }
+    }
+
+    @Test
+    @MainActor
+    func dockKeepsAllTabViewsMounted() {
+        let configuration = DockSplitStore.makeConfiguration()
+
+        switch configuration.contentViewLifecycle {
+        case .keepAllAlive:
+            break
+        case .recreateOnSwitch:
+            Issue.record("Dock tab view state must remain mounted across tab selection changes.")
+        }
+    }
+
+    @Test
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
         _ = NSApplication.shared
