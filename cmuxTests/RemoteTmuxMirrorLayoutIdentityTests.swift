@@ -92,6 +92,45 @@ import Testing
         #expect(removedThirdPanel == nil)
         #expect(mirror.controlPanes().map(\.tmuxPaneID) == [11])
     }
+
+    @Test("fallback rebuild keeps control identities unique and stable")
+    func fallbackRebuildKeepsControlIdentitiesUniqueAndStable() throws {
+        let harness = try Harness(
+            initialLayout: "f92f,80x24,0,0[80x12,0,0,11,80x11,0,13,22]",
+            initialRects: [
+                "%11 0 0 80 12 1 off :zsh",
+                "%22 0 13 80 11 0 off :zsh",
+            ]
+        )
+        defer { harness.tearDown() }
+
+        let mirror = try #require(harness.windowMirror)
+        let firstPanel = try #require(mirror.panel(forPane: 11))
+        let secondPanel = try #require(mirror.panel(forPane: 22))
+        let firstControlID = try #require(mirror.syntheticPaneID(forPane: 11))
+        let secondControlID = try #require(mirror.syntheticPaneID(forPane: 22))
+
+        // Two coalesced additions cannot use the targeted single-leaf path. Put
+        // a new pane first so Bonsplit reuses its retained root node for it.
+        try harness.publishLayout(
+            "abcd,80x24,0,0[80x6,0,0,33,80x5,0,7,11,80x5,0,13,22,80x5,0,19,44]",
+            rects: [
+                "%33 0 0 80 6 0 off :zsh",
+                "%11 0 7 80 5 1 off :zsh",
+                "%22 0 13 80 5 0 off :zsh",
+                "%44 0 19 80 5 0 off :zsh",
+            ]
+        )
+
+        #expect(harness.windowMirror === mirror)
+        #expect(mirror.panel(forPane: 11) === firstPanel)
+        #expect(mirror.panel(forPane: 22) === secondPanel)
+        #expect(mirror.syntheticPaneID(forPane: 11) == firstControlID)
+        #expect(mirror.syntheticPaneID(forPane: 22) == secondControlID)
+        let controlIDs = mirror.controlPanes().map(\.paneID)
+        #expect(controlIDs.count == 4)
+        #expect(Set(controlIDs).count == controlIDs.count)
+    }
 }
 
 @MainActor
@@ -103,7 +142,10 @@ private final class Harness {
     let workspace: Workspace
     let sessionMirror: RemoteTmuxSessionMirror
 
-    init() throws {
+    init(
+        initialLayout: String = "f92f,80x24,0,0,11",
+        initialRects: [String] = ["%11 0 0 80 24 1 off :zsh"]
+    ) throws {
         connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"),
             sessionName: "work"
@@ -122,12 +164,12 @@ private final class Harness {
         )
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 1,
-            lines: ["@1 f92f,80x24,0,0,11 f92f,80x24,0,0,11 [] editor"],
+            lines: ["@1 \(initialLayout) \(initialLayout) [] editor"],
             isError: false
         ))
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 2,
-            lines: ["%11 0 0 80 24 1 off :zsh"],
+            lines: initialRects,
             isError: false
         ))
 

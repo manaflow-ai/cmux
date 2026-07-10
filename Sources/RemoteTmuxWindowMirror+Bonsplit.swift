@@ -69,7 +69,6 @@ extension RemoteTmuxWindowMirror {
             ) else { return nil }
             tabIdByPaneId[paneId] = tabId
             paneIdByPaneId[paneId] = pane
-            if controlPaneIdByPaneId[paneId] == nil { controlPaneIdByPaneId[paneId] = pane }
             paneIdByBonsplitPane[pane] = paneId
             paneIdByTabId[tabId] = paneId
             return pane
@@ -191,9 +190,6 @@ extension RemoteTmuxWindowMirror {
         guard let newPane else { return false }
         tabIdByPaneId[expansion.newPaneId] = tab.id
         paneIdByPaneId[expansion.newPaneId] = newPane
-        if controlPaneIdByPaneId[expansion.newPaneId] == nil {
-            controlPaneIdByPaneId[expansion.newPaneId] = newPane
-        }
         paneIdByBonsplitPane[newPane] = expansion.newPaneId
         paneIdByTabId[tab.id] = expansion.newPaneId
         return bonsplitTreeMatches(layout: desiredLayout)

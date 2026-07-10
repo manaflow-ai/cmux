@@ -201,6 +201,7 @@ final class RemoteTmuxWindowMirror {
         for paneId in newLayout.paneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
+            controlPaneIdByPaneId[paneId] = PaneID()
             configurePanePanel(panel, paneId: paneId, needsSeed: true)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
